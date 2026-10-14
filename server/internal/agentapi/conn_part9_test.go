@@ -37,24 +37,6 @@ func (r *recordingTelemetryWriter) WriteSamples(_ context.Context, tenantID uuid
 	return nil
 }
 
-type recordingProcessRepo struct {
-	calls chan processWriteCall
-}
-
-type processWriteCall struct {
-	deviceID uuid.UUID
-	samples  []telemetry.ProcessSample
-}
-
-func (r *recordingProcessRepo) UpsertReport(_ context.Context, deviceID uuid.UUID, _ time.Time, samples []telemetry.ProcessSample) error {
-	r.calls <- processWriteCall{deviceID: deviceID, samples: samples}
-	return nil
-}
-
-func (r *recordingProcessRepo) ListLatest(context.Context, uuid.UUID, int) ([]telemetry.ProcessSample, error) {
-	return nil, nil
-}
-
 func TestAgentConn_HandleAgentHealthSummaryUsesAuthoritativeTenant(t *testing.T) {
 	deviceID := uuid.New()
 	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
@@ -81,70 +63,6 @@ func TestAgentConn_HandleAgentHealthSummaryUsesAuthoritativeTenant(t *testing.T)
 	assert.Equal(t, "opengate_edge_node_anomaly_rate", call.samples[0].Name)
 	assert.Equal(t, map[string]string{"sampler_ver": "", "model_ver": ""}, call.samples[0].Labels)
 	assert.Equal(t, "cpu", call.samples[1].Labels["family"])
-}
-
-func TestAgentConn_HandleProcessReportStoresRowsAndRankOnlyMetrics(t *testing.T) {
-	deviceID := uuid.New()
-	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
-	processes := &recordingProcessRepo{calls: make(chan processWriteCall, 1)}
-	ac, buf := newTestAgentConn(t, deviceID, nil)
-	ac.telemetry = writer
-	ac.processes = processes
-
-	hash := "deadbeef"
-	msg := &protocol.ControlMessage{
-		Type:     protocol.MsgProcessReport,
-		TS:       time.Now().Unix(),
-		TenantID: uuid.New().String(),
-		TopN: []protocol.ProcessReportEntry{{
-			Rank: 1, Basename: "postgres", CmdlineHash: &hash, PID: 222, CPU: 12.5, Mem: 3.25,
-		}},
-	}
-	writeControlMsg(t, ac.codec, buf, msg)
-
-	ctx := dbtx.WithDefaultTenant(context.Background(), false)
-	require.NoError(t, ac.handleControl(ctx))
-	ac.flushTelemetry(ctx)
-
-	processCall := receiveProcessCall(t, processes.calls)
-	assert.Equal(t, deviceID, processCall.deviceID)
-	require.Len(t, processCall.samples, 1)
-	assert.Equal(t, "postgres", processCall.samples[0].Basename)
-	assert.Equal(t, &hash, processCall.samples[0].CmdlineHash)
-
-	metricCall := receiveTelemetryCall(t, writer.calls)
-	require.Len(t, metricCall.samples, 2)
-	for _, sample := range metricCall.samples {
-		assert.Equal(t, "1", sample.Labels["rank"])
-		assert.NotContains(t, sample.Labels, "basename")
-		assert.NotContains(t, sample.Labels, "pid")
-	}
-}
-
-func TestAgentConn_HandleProcessReportSupportsEitherBackend(t *testing.T) {
-	msg := &protocol.ControlMessage{
-		Type: protocol.MsgProcessReport,
-		TS:   1_700_000_000,
-		TopN: []protocol.ProcessReportEntry{{Rank: 1, Basename: "agent", PID: 7, CPU: 2, Mem: 3}},
-	}
-	ctx := dbtx.WithDefaultTenant(context.Background(), false)
-
-	t.Run("process repository only", func(t *testing.T) {
-		processes := &recordingProcessRepo{calls: make(chan processWriteCall, 1)}
-		ac, _ := newTestAgentConn(t, uuid.New(), nil)
-		ac.processes = processes
-
-		require.NoError(t, ac.handleProcessReport(ctx, msg, 256))
-		require.Len(t, receiveProcessCall(t, processes.calls).samples, 1)
-	})
-
-	t.Run("numeric telemetry only", func(t *testing.T) {
-		ac, _, writer := telemetryConn(t, 1)
-
-		require.NoError(t, ac.handleProcessReport(ctx, msg, 256))
-		ac.flushTelemetry(ctx)
-		require.Len(t, receiveTelemetryCall(t, writer.calls).samples, 2)
-	})
 }
 
 func TestAgentConn_TelemetryIntervalFloorDropsFastSamples(t *testing.T) {
@@ -245,30 +163,6 @@ func TestAgentConn_PersistTelemetryDropsWhenTenantMissing(t *testing.T) {
 	assert.False(t, called)
 }
 
-func TestSanitizeProcessBasename(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name string
-		in   string
-		want string
-	}{
-		{"empty", "", ""},
-		{"whitespace only", "   ", ""},
-		{"embedded space redacted", "post gres", "[redacted]"},
-		{"embedded tab redacted", "post\tgres", "[redacted]"},
-		{"unix path stripped", "/usr/bin/postgres", "postgres"},
-		{"windows path stripped", `C:\Windows\app.exe`, "app.exe"},
-		{"root path stripped", "/agent", "agent"},
-		{"trailing separator kept", "/svc/", "/svc/"},
-		{"plain name kept", "postgres", "postgres"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, sanitizeProcessBasename(tt.in))
-		})
-	}
-}
-
 func TestAcceptTelemetryPinsPayloadAndTimestampBoundaries(t *testing.T) {
 	ac, _ := newTestAgentConn(t, uuid.New(), nil)
 	ac.logger = nil
@@ -318,16 +212,5 @@ func receiveTelemetryCall(t *testing.T, calls <-chan telemetryWriteCall) telemet
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for telemetry write")
 		return telemetryWriteCall{}
-	}
-}
-
-func receiveProcessCall(t *testing.T, calls <-chan processWriteCall) processWriteCall {
-	t.Helper()
-	select {
-	case call := <-calls:
-		return call
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for process write")
-		return processWriteCall{}
 	}
 }

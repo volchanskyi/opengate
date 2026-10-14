@@ -51,6 +51,9 @@ services:
       - JWT_SECRET=perf-test-secret-minimum-32-bytes!
       - DATABASE_URL=postgres://opengate:perf-test-password@postgres:5432/opengate?sslmode=disable
       - OPENGATE_QUIC_HOST=server
+      # The harness reaches the server by this name through the runner's hosts file.
+      - OPENGATE_AGENT_RELAY_URL=ws://server:8080
+      - OPENGATE_ICE_SERVERS=stun:server:9090
       - OPENGATE_VICTORIAMETRICS_URL=http://metrics:8428
       # Trusts X-Forwarded-For from the private ranges, since the bridge address that peers
       # present is assigned at stack start.

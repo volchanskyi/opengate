@@ -25,5 +25,9 @@ criterion = { workspace = true }
 name = "codec_bench"
 harness = false
 
+[[bench]]
+name = "direct_bench"
+harness = false
+
 [lints]
 workspace = true

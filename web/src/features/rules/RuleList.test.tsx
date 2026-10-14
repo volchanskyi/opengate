@@ -64,10 +64,34 @@ describe('RuleList', () => {
 
   it('heads the coverage in the words the list uses for it', () => {
     show([rule()]);
-    const heads = screen.getAllByRole('columnheader').map((h) => h.textContent);
+    // A heading's explanation sits inside it, hidden, so only the label is read.
+    const heads = screen.getAllByRole('columnheader').map((h) => (h.querySelector('[aria-describedby]') ?? h).textContent);
     expect(heads).toEqual([
       'Rule', 'Watches', 'Rolled out', 'Watching', 'Paused: too costly', "Can't run here", 'Not heard from', 'Recent alerts',
     ]);
+  });
+
+  it.each([
+    ['Rolled out', "How far this rule has spread across the customer's hosts. It starts on a few and reaches more only while nothing goes wrong. Off means switched off. Stopped means pulled from every host by a person."],
+    ['Watching', 'Hosts running this rule now.'],
+    ['Paused: too costly', 'Hosts that stopped running this rule because it used more of the host than it is allowed. They are not being checked for it.'],
+    ["Can't run here", "Hosts that can't run this rule at all, for example because they can't take the reading it needs. They are never checked for it."],
+    ['Not heard from', "Hosts that haven't reported on this rule, usually because they are offline. Whether they are checked is unknown."],
+    ['Recent alerts', 'Alerts this rule raised for the selected customer in the last hour. Green is about usual for this rule, amber above usual, red well above; grey means quiet or no history yet.'],
+  ])('explains the %s heading on hover and on focus', async (label, explanation) => {
+    const user = userEvent.setup();
+    show([rule()]);
+    const heading = screen.getByText(label, { selector: 'th [aria-describedby]' });
+    expect(heading).toHaveAccessibleDescription(explanation);
+
+    await user.hover(heading);
+    expect(screen.getByRole('tooltip')).toHaveTextContent(explanation);
+    await user.unhover(heading);
+    expect(screen.queryByRole('tooltip')).toBeNull();
+
+    heading.focus();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('tooltip')).toBeNull();
   });
 
   it('counts every coverage state against the fleet it was counted over', () => {

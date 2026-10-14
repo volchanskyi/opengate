@@ -99,6 +99,7 @@ const { data, error } = await api.GET('/api/v1/sites');
 | `/api/v1/devices/{id}` | PATCH | JWT (admin) | Update device (file into a `site_id` in its own customer; the all-zeros UUID unfiles it) |
 | `/api/v1/devices/{id}` | DELETE | JWT (admin) | Delete a device and purge all its telemetry ([Data Lifecycle](../product/Data-Erasure.md)) |
 | `/api/v1/devices/{id}/restart` | POST | JWT | Restart agent on device (optional `reason` field) |
+| `/api/v1/devices/{id}/session` | DELETE | JWT (holder or admin) | End the device's session; the live relay closes with "Ended by <name>" |
 | `/api/v1/devices/{id}/hardware` | GET | JWT | Get hardware inventory for device (200 cached / 202 requested from agent) |
 | `/api/v1/devices/{id}/logs` | GET | JWT (admin) | Get device log entries (on-demand via agent) |
 | `/api/v1/devices/{id}/metrics` | GET | JWT | Downsampled numeric telemetry for a device window, on a request-derived bucket grid |
@@ -111,9 +112,10 @@ const { data, error } = await api.GET('/api/v1/sites');
 | `/api/v1/investigations/{id}/comments` | POST | JWT | Add a note to an incident's timeline |
 | `/api/v1/investigations/{id}/alerts/{alertId}/evidence` | GET | JWT | The decoded evidence one alert arrived with |
 | `/api/v1/rules` | GET | JWT | The curated rule pack, its rollout state, and per-rule coverage |
-| `/api/v1/sessions` | POST | JWT | Create a remote session |
-| `/api/v1/sessions` | GET | JWT | List sessions (requires `device_id` query param) |
-| `/api/v1/sessions/{token}` | DELETE | JWT | Delete a session |
+| `/api/v1/sessions` | POST | JWT | Create a remote session; returns the relay address and the helpers, and `409` with the holder's name where another technician holds the device |
+| `/api/v1/sessions` | GET | JWT | List sessions (requires `device_id` query param): the holder and the start time, no token |
+| `/api/v1/sessions/{token}` | DELETE | JWT (holder or admin) | End a session; the live relay closes with "Ended by <name>" |
+| `/api/v1/sessions/{token}/outcome` | POST | JWT (holder) | Report how the session's direct-link attempt ended, counted once per outcome |
 | `/api/v1/amt/devices/{uuid}/power` | POST | JWT | Send AMT power command (on/cycle/soft-off/hard-reset) to the AMT connection identified by `uuid`, which must belong to a device in the caller's tenant |
 | `/api/v1/enroll/{token}` | POST | No | Enroll agent (CSR signing, returns CA + cert) |
 | `/api/v1/server/ca` | GET | No | Get server CA certificate PEM |
@@ -398,12 +400,12 @@ returns it in any response. AMT hardware attributes (`amt_available`,
 
 ## Rate limiting
 
-All API endpoints are subject to per-IP rate limiting:
+All API endpoints are rate limited:
 
-| Scope | Rate | Burst |
-|-------|------|-------|
-| Global | 100 req/s | 200 |
-| Auth (`/auth/login`, `/auth/register`) | 10 req/s | 20 |
+| Scope | Counted under | Rate | Burst |
+|-------|---------------|------|-------|
+| Global | The account a valid bearer token names; the address otherwise | 100 req/s | 200 |
+| Auth (`/auth/login`, `/auth/register`) | The address | 10 req/s | 20 |
 
 Requests exceeding the limit receive `429 Too Many Requests`. A 30-second request timeout applies to all API routes (WebSocket routes are excluded).
 

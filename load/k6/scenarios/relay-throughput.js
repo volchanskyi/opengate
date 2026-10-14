@@ -8,15 +8,17 @@ import {
   authHeaders,
   counted,
   http,
+  ownTechnician,
   printCleanupManifest,
   readFleet,
-  registerMember,
+  registerTechnicians,
 } from "../lib/session.js";
 import { emptyFleetReason, onlineIds } from "../lib/fleet.js";
 import {
   measuredThresholds,
   phases,
   sessionScenarios,
+  sessionTechnicians,
 } from "../lib/profile.js";
 
 const BASE_URL = __ENV.BASE_URL || "http://localhost:8080";
@@ -35,9 +37,14 @@ const PROBE = new Uint8Array([
 
 const WALK = phases();
 
+// Sessions held at once: each has a technician and a machine of its own.
+const HELD = sessionTechnicians(WALK);
+
 export const options = {
   // The profile's `sessions` sets how many sessions are held open, phase by phase.
   scenarios: sessionScenarios(WALK),
+  // Setup registers one account per held session before the walk starts.
+  setupTimeout: "10m",
   // The ceiling covers three hops and two WebSocket upgrades, so it is looser than one request's.
   thresholds: Object.assign(
     { relay_msg_latency_ms: ["p(95)<400"] },
@@ -46,8 +53,8 @@ export const options = {
 };
 
 export function setup() {
-  const member = registerMember(BASE_URL, "relay");
-  const fleet = readFleet(BASE_URL, member.token);
+  const technicians = registerTechnicians(BASE_URL, "relay", HELD);
+  const fleet = readFleet(BASE_URL, technicians[0].token);
   const devices = onlineIds(fleet);
 
   // The read names whether the fleet never arrived (machine side) or the server dropped it.
@@ -58,14 +65,22 @@ export function setup() {
         "The QUIC harness must be holding a fleet connected while this scenario runs."
     );
   }
-  return { token: member.token, email: member.email, devices };
+  // A machine takes one session at a time, so each held session needs one of its own.
+  if (devices.length < HELD) {
+    fail(
+      `setup: ${devices.length} online machine(s) for ${HELD} sessions held at once; ` +
+        "a machine refuses a second technician's session while one is open."
+    );
+  }
+  return { technicians, devices };
 }
 
 export default function (data) {
-  const headers = authHeaders(data.token);
+  const technician = ownTechnician(data.technicians);
+  const headers = authHeaders(technician.token);
 
-  // One session per iteration, against a machine the harness is holding open.
-  const deviceId = data.devices[__ITER % data.devices.length];
+  // One session per iteration, always on this virtual user's own machine.
+  const deviceId = data.devices[(__VU - 1) % data.devices.length];
   const created = http.post(
     `${BASE_URL}/api/v1/sessions`,
     JSON.stringify({ device_id: deviceId, permissions: { view_only: true } }),
@@ -78,7 +93,7 @@ export default function (data) {
 
   const token = created.json("token");
   // The browser WebSocket API cannot set headers, so the operator's credential rides in the query.
-  const relayUrl = `${wsBase(BASE_URL)}/ws/relay/${token}?side=browser&auth=${data.token}`;
+  const relayUrl = `${wsBase(BASE_URL)}/ws/relay/${token}?side=browser&auth=${technician.token}`;
 
   const sentAt = Date.now();
   let echoed = false;
@@ -110,7 +125,7 @@ export default function (data) {
 }
 
 export function teardown(data) {
-  printCleanupManifest([data.email]);
+  printCleanupManifest(data.technicians.map((technician) => technician.email));
 }
 
 // wsBase turns the HTTP origin into the WebSocket one.

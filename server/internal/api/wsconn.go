@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"nhooyr.io/websocket"
+	"github.com/coder/websocket"
 )
 
 // WSConn adapts a *websocket.Conn into a message-oriented relay.Conn that keeps message boundaries.
@@ -49,4 +49,12 @@ func (w *WSConn) WriteMessage(data []byte) error {
 // Close closes the connection with a normal closure status.
 func (w *WSConn) Close() error {
 	return w.conn.Close(websocket.StatusNormalClosure, "")
+}
+
+// StatusSessionEnded is the close code of a session ended from outside it; the reason names why.
+const StatusSessionEnded websocket.StatusCode = 4000
+
+// End closes the connection with StatusSessionEnded and reason, which the browser shows.
+func (w *WSConn) End(reason string) error {
+	return w.conn.Close(StatusSessionEnded, reason)
 }

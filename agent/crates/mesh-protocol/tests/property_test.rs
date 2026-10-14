@@ -66,15 +66,20 @@ fn arb_control_message() -> impl Strategy<Value = ControlMessage> {
             .prop_map(|(token, relay_url)| { ControlMessage::SessionAccept { token, relay_url } }),
         (arb_session_token(), ".*")
             .prop_map(|(token, reason)| { ControlMessage::SessionReject { token, reason } }),
-        (arb_session_token(), ".*", arb_permissions()).prop_map(
-            |(token, relay_url, permissions)| {
+        (
+            arb_session_token(),
+            ".*",
+            arb_permissions(),
+            prop::collection::vec(".*", 0..3)
+        )
+            .prop_map(|(token, relay_url, permissions, ice_servers)| {
                 ControlMessage::SessionRequest {
                     token,
                     relay_url,
                     permissions,
+                    ice_servers,
                 }
-            }
-        ),
+            }),
         (".*", ".*", ".*", ".*").prop_map(|(version, url, sha256, signature)| {
             ControlMessage::AgentUpdate {
                 version,
@@ -84,8 +89,18 @@ fn arb_control_message() -> impl Strategy<Value = ControlMessage> {
             }
         }),
         Just(ControlMessage::RelayReady),
-        ".*".prop_map(|sdp_offer| ControlMessage::SwitchToWebRTC { sdp_offer }),
-        Just(ControlMessage::SwitchAck),
+        ".*".prop_map(|sdp| ControlMessage::DirectOffer { sdp }),
+        ".*".prop_map(|sdp| ControlMessage::DirectAnswer { sdp }),
+        ".*".prop_map(|reason| ControlMessage::DirectRefused { reason }),
+        Just(ControlMessage::DirectSwitch),
+        any::<u64>().prop_map(|received| ControlMessage::DirectFallback { received }),
+        any::<u64>().prop_map(|received| ControlMessage::DirectAck { received }),
+        (".*", any::<bool>()).prop_map(|(path, more)| ControlMessage::FileListResponse {
+            path,
+            entries: Vec::new(),
+            more,
+        }),
+        (".*", ".*").prop_map(|(path, error)| ControlMessage::FileDownloadError { path, error }),
         (".*", ".*").prop_map(|(candidate, mid)| ControlMessage::IceCandidate { candidate, mid }),
     ]
 }

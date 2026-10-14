@@ -42,6 +42,8 @@ type Conn interface {
 	WriteMessage(data []byte) error
 	// Close closes the connection.
 	Close() error
+	// End closes the connection, telling the peer why its session ended.
+	End(reason string) error
 }
 
 type session struct {
@@ -54,6 +56,34 @@ type session struct {
 	started  bool
 	piping   bool
 	released bool // Unregister claimed the session; no pipe may start on it
+	// endReason is what End told this session; empty for a session that ended on its own.
+	endReason string
+	// stopPipe cancels a running pipe, so End can tear it down from outside.
+	stopPipe context.CancelFunc
+}
+
+// closeSides closes every present side, with the session's end reason when it has one.
+// Each graceful close waits on an acknowledgement, so they run concurrently.
+func (s *session) closeSides(conns ...Conn) {
+	s.mu.Lock()
+	reason := s.endReason
+	s.mu.Unlock()
+	var closing sync.WaitGroup
+	for _, conn := range conns {
+		if conn == nil {
+			continue
+		}
+		closing.Add(1)
+		go func(c Conn) {
+			defer closing.Done()
+			if reason != "" {
+				_ = c.End(reason)
+				return
+			}
+			_ = c.Close()
+		}(conn)
+	}
+	closing.Wait()
 }
 
 func newSession() *session {
@@ -181,6 +211,7 @@ func (r *Relay) startPipeIfReady(token protocol.SessionToken, s *session) {
 	s.piping = true
 	close(s.ready)
 	pipeCtx, cancel := context.WithCancel(context.Background())
+	s.stopPipe = cancel
 	go r.pipe(pipeCtx, cancel, token, s)
 }
 
@@ -242,6 +273,32 @@ func (r *Relay) ActiveTokens() []protocol.SessionToken {
 	return tokens
 }
 
+// End ends a session from outside it, closing each side with reason as the close reason, and
+// reports whether the relay held the session. A piping session tears down as when a side hangs up.
+func (r *Relay) End(token protocol.SessionToken, reason string) bool {
+	val, ok := r.sessions.Load(token)
+	if !ok {
+		return false
+	}
+	s := val.(*session)
+
+	s.mu.Lock()
+	if s.released || s.endReason != "" {
+		s.mu.Unlock()
+		return false
+	}
+	s.endReason = reason
+	piping, stop := s.piping, s.stopPipe
+	s.mu.Unlock()
+
+	if piping {
+		stop()
+		return true
+	}
+	r.release(token, val, s)
+	return true
+}
+
 // Unregister releases a session that never paired: it drops the entry, count and
 // registry record, closes waiting conns and fires OnSessionEnd. Other tokens are no-ops.
 func (r *Relay) Unregister(token protocol.SessionToken) {
@@ -249,8 +306,11 @@ func (r *Relay) Unregister(token protocol.SessionToken) {
 	if !ok {
 		return
 	}
-	s := val.(*session)
+	r.release(token, val, val.(*session))
+}
 
+// release frees an unpaired session once; a piping or already released session is left alone.
+func (r *Relay) release(token protocol.SessionToken, val any, s *session) {
 	s.mu.Lock()
 	if s.piping || s.released {
 		s.mu.Unlock()
@@ -273,11 +333,7 @@ func (r *Relay) Unregister(token protocol.SessionToken) {
 		r.OnSessionEnd(token)
 	}
 	// A graceful WebSocket close can wait for a peer acknowledgement, so cleanup precedes it.
-	for _, conn := range []Conn{agent, browser} {
-		if conn != nil {
-			_ = conn.Close()
-		}
-	}
+	s.closeSides(agent, browser)
 	// Runs last so a parked handler unblocks after the graceful close.
 	s.end()
 }
@@ -307,18 +363,7 @@ func (r *Relay) pipe(ctx context.Context, cancel context.CancelFunc, token proto
 
 	var closeOnce sync.Once
 	closeBoth := func() {
-		closeOnce.Do(func() {
-			// Each graceful close waits on an acknowledgement, so they run concurrently.
-			var closing sync.WaitGroup
-			for _, conn := range []Conn{s.agent, s.browser} {
-				closing.Add(1)
-				go func(c Conn) {
-					defer closing.Done()
-					_ = c.Close()
-				}(conn)
-			}
-			closing.Wait()
-		})
+		closeOnce.Do(func() { s.closeSides(s.agent, s.browser) })
 	}
 
 	// Both directions are waited for so no copier goroutine outlives the session.

@@ -51,6 +51,8 @@ func TestEveryEdgeTelemetryOutcomeStartsAtZero(t *testing.T) {
 		{"drop reasons", m.EdgeTelemetryDropsTotal, EdgeTelemetryDropReasons()},
 		{"ingested message types", m.EdgeTelemetryIngestedTotal, EdgeTelemetryIngestTypes()},
 		{"catch-up decisions", m.EdgeBackfillDecisionsTotal, []string{"grant", "defer"}},
+		{"direct-link outcomes", m.DirectLinkOutcomesTotal, DirectLinkOutcomes()},
+		{"helper results", m.HelperRequestsTotal, HelperRequestResults()},
 	} {
 		require.NotEmpty(t, c.values, c.name)
 		require.Equal(t, len(c.values), testutil.CollectAndCount(c.counter),
@@ -88,7 +90,7 @@ func TestObserveEdgeTelemetryIngest(t *testing.T) {
 
 	require.InDelta(t, 2, testutil.ToFloat64(m.EdgeTelemetryIngestedTotal.WithLabelValues("AgentMetricWindow")), 0)
 	require.InDelta(t, 1, testutil.ToFloat64(m.EdgeTelemetryIngestedTotal.WithLabelValues("AgentHealthSummary")), 0)
-	require.InDelta(t, 0, testutil.ToFloat64(m.EdgeTelemetryIngestedTotal.WithLabelValues("ProcessReport")), 0)
+	require.InDelta(t, 0, testutil.ToFloat64(m.EdgeTelemetryIngestedTotal.WithLabelValues("DiscoveryReport")), 0)
 }
 
 func TestObserveEdgeTelemetryDrop(t *testing.T) {
@@ -148,4 +150,32 @@ func TestStartDBSizeUpdaterPreservesGaugeOnError(t *testing.T) {
 	}), discardLogger(), time.Hour)
 
 	require.InDelta(t, 42, testutil.ToFloat64(m.DBSizeBytes), 0)
+}
+
+func TestDirectLinkOutcomesAndHelperResultsCountUnderTheirOneLabel(t *testing.T) {
+	m := NewMetrics(prometheus.NewRegistry())
+	require.ElementsMatch(t, []string{"direct", "no_route", "unsupported", "dropped"}, DirectLinkOutcomes())
+	require.ElementsMatch(t,
+		[]string{"answered", "malformed", "address_limit", "total_limit"}, HelperRequestResults())
+
+	m.ObserveDirectLinkOutcome("direct")
+	m.ObserveDirectLinkOutcome("direct")
+	m.ObserveDirectLinkOutcome("dropped")
+	m.ObserveHelperRequest("answered")
+	m.ObserveHelperRequest("address_limit")
+
+	for _, c := range []struct {
+		counter *prometheus.CounterVec
+		label   string
+		want    float64
+	}{
+		{m.DirectLinkOutcomesTotal, "direct", 2},
+		{m.DirectLinkOutcomesTotal, "dropped", 1},
+		{m.HelperRequestsTotal, "answered", 1},
+		{m.HelperRequestsTotal, "address_limit", 1},
+	} {
+		require.InDelta(t, c.want, testutil.ToFloat64(c.counter.WithLabelValues(c.label)), 0, c.label)
+	}
+	require.Equal(t, 4, testutil.CollectAndCount(m.DirectLinkOutcomesTotal),
+		"four series: the outcome is the only label")
 }

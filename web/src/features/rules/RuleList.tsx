@@ -4,8 +4,16 @@ import type { components } from '../../types/api';
 import { fireAndForget } from '../../lib/fire-and-forget';
 import { LoadingSpinner } from '../../components/LoadingSpinner';
 import { NoiseBadge } from './NoiseBadge';
-import { COVERAGE_STATES, coverageCount, coverageStateLabel, coverageTotal } from './rule-coverage';
-import { groupRules, rolloutWording, watchWording, type RuleGroup } from './rule-summary';
+import { Explained } from '../../components/Explained';
+import { COVERAGE_STATES, coverageCount, coverageStateExplanation, coverageStateLabel, coverageTotal } from './rule-coverage';
+import {
+  groupRules,
+  RECENT_ALERTS_EXPLANATION,
+  ROLLED_OUT_EXPLANATION,
+  rolloutWording,
+  watchWording,
+  type RuleGroup,
+} from './rule-summary';
 import { useCatalogueStore } from './state/catalogue-store';
 
 type Rule = components['schemas']['Rule'];
@@ -69,11 +77,17 @@ function RuleGroupTable({ group, fleetSize }: { readonly group: RuleGroup; reado
               <tr>
                 <th className={HEAD}>Rule</th>
                 <th className={HEAD}>Watches</th>
-                <th className={HEAD}>Rolled out</th>
+                <th className={HEAD}>
+                  <Explained label="Rolled out" explanation={ROLLED_OUT_EXPLANATION} />
+                </th>
                 {COVERAGE_STATES.map((state) => (
-                  <th key={state} className={HEAD}>{coverageStateLabel(state)}</th>
+                  <th key={state} className={HEAD}>
+                    <Explained label={coverageStateLabel(state)} explanation={coverageStateExplanation(state)} />
+                  </th>
                 ))}
-                <th className={HEAD}>Recent alerts</th>
+                <th className={HEAD}>
+                  <Explained label="Recent alerts" explanation={RECENT_ALERTS_EXPLANATION} />
+                </th>
               </tr>
             </thead>
             <tbody>

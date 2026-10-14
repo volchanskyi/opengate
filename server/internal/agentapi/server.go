@@ -20,6 +20,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/rules"
 	"github.com/volchanskyi/opengate/server/internal/settings"
+	"github.com/volchanskyi/opengate/server/internal/stunhelper"
 	"github.com/volchanskyi/opengate/server/internal/telemetry"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
@@ -31,7 +32,6 @@ type AgentServer struct {
 	hardware       device.HardwareRepository
 	deviceUpdates  updater.DeviceUpdateRepository
 	telemetry      telemetry.NumericWriter
-	processes      telemetry.ProcessRepository
 	inventory      inventory.Repository
 	relay          *relay.Relay
 	notifier       notifications.Notifier
@@ -44,6 +44,7 @@ type AgentServer struct {
 	fleetCoverage  InstallCounter
 	settings       settings.Reader
 	metrics        *appmetrics.Metrics
+	helper         *stunhelper.Helper
 	quicHost       string   // extra DNS SAN for the server certificate
 	conns          sync.Map // map[protocol.DeviceID]*AgentConn
 	statusGate     deviceStatusGate
@@ -62,13 +63,14 @@ type AgentServerConfig struct {
 	Hardware      device.HardwareRepository
 	DeviceUpdates updater.DeviceUpdateRepository
 	Telemetry     telemetry.NumericWriter
-	Processes     telemetry.ProcessRepository
 	Inventory     inventory.Repository
 	Relay         *relay.Relay
 	Notifier      notifications.Notifier
 	Metrics       *appmetrics.Metrics
-	QuicHost      string
-	Logger        *slog.Logger
+	// Helper answers address requests on the QUIC port; nil leaves non-QUIC packets unread.
+	Helper   *stunhelper.Helper
+	QuicHost string
+	Logger   *slog.Logger
 	// AlertRules provides each agent's threshold-alert ruleset for its place in the
 	// tenancy ladder. Optional; nil falls back to DefaultAlertRules for every tenant.
 	AlertRules AlertRuleProvider
@@ -100,7 +102,6 @@ func NewAgentServer(cfg AgentServerConfig) *AgentServer {
 		hardware:       cfg.Hardware,
 		deviceUpdates:  cfg.DeviceUpdates,
 		telemetry:      cfg.Telemetry,
-		processes:      cfg.Processes,
 		inventory:      cfg.Inventory,
 		relay:          cfg.Relay,
 		notifier:       cfg.Notifier,
@@ -113,6 +114,7 @@ func NewAgentServer(cfg AgentServerConfig) *AgentServer {
 		fleetCoverage:  cfg.FleetCoverage,
 		settings:       cfg.Settings,
 		metrics:        cfg.Metrics,
+		helper:         cfg.Helper,
 		quicHost:       cfg.QuicHost,
 		tombstoneStore: cfg.Tombstones,
 		logger:         cfg.Logger,
@@ -205,6 +207,16 @@ func (s *AgentServer) ListenAndServe(ctx context.Context, addr string) error {
 	}
 	defer listener.Close()
 
+	// The helper shares the port: quic-go hands it packets without the QUIC fixed bit, and
+	// its queue drops overflow without holding up a machine's packets.
+	if s.helper != nil {
+		go func() {
+			if err := s.helper.Serve(ctx, tr, s.observeHelperRequest); err != nil {
+				s.logger.Error("helper stopped", "error", err)
+			}
+		}()
+	}
+
 	actualAddr := listener.Addr().String()
 	s.addrOnce.Do(func() {
 		s.addrCh <- actualAddr
@@ -224,5 +236,12 @@ func (s *AgentServer) ListenAndServe(ctx context.Context, addr string) error {
 		}
 
 		go s.accept(ctx, conn)
+	}
+}
+
+// observeHelperRequest counts one packet the helper read, by what it did with it.
+func (s *AgentServer) observeHelperRequest(result string) {
+	if s.metrics != nil {
+		s.metrics.ObserveHelperRequest(result)
 	}
 }

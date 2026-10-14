@@ -22,9 +22,11 @@ rand.workspace = true
 async-trait.workspace = true
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
+socket2.workspace = true
 portable-pty.workspace = true
 url.workspace = true
 webrtc.workspace = true
+rtc.workspace = true
 bytes.workspace = true
 ed25519-dalek.workspace = true
 sha2.workspace = true
@@ -34,6 +36,9 @@ image.workspace = true
 sysinfo.workspace = true
 serde_json.workspace = true
 
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc.workspace = true
 [dev-dependencies]
 edge-tsdb = { path = "../edge-tsdb", default-features = false, features = ["cold-deflate"] }
 tempfile.workspace = true
@@ -43,6 +48,10 @@ criterion.workspace = true
 
 [[bench]]
 name = "edge_sentinel_bench"
+harness = false
+
+[[bench]]
+name = "pacing_bench"
 harness = false
 
 [lints]

@@ -64,9 +64,9 @@ func (f *FaultSessions) Arm(method string, s Spec) { f.faults.arm(method, s) }
 func (f *FaultSessions) Clear(method string) { f.faults.clear(method) }
 
 // Create consults the "Create" fault, then delegates.
-func (f *FaultSessions) Create(ctx context.Context, s *session.Session) error {
+func (f *FaultSessions) Create(ctx context.Context, s *session.Session) (string, error) {
 	if delegate, err := f.faults.apply(ctx, "Create"); !delegate {
-		return err
+		return "", err
 	}
 	return f.Repository.Create(ctx, s)
 }
@@ -130,11 +130,11 @@ func (f *FaultAgentControl) Arm(method string, s Spec) { f.faults.arm(method, s)
 func (f *FaultAgentControl) Clear(method string) { f.faults.clear(method) }
 
 // SendSessionRequest consults the "SendSessionRequest" fault, then delegates.
-func (f *FaultAgentControl) SendSessionRequest(ctx context.Context, token protocol.SessionToken, relayURL string, perms protocol.Permissions) error {
+func (f *FaultAgentControl) SendSessionRequest(ctx context.Context, token protocol.SessionToken, relayURL string, perms protocol.Permissions, helpers []string) error {
 	if delegate, err := f.faults.apply(ctx, "SendSessionRequest"); !delegate {
 		return err
 	}
-	return f.AgentControl.SendSessionRequest(ctx, token, relayURL, perms)
+	return f.AgentControl.SendSessionRequest(ctx, token, relayURL, perms, helpers)
 }
 
 var (

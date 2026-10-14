@@ -76,10 +76,11 @@ func TestCreateSessionSuccess(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, w.Code)
 
 	resp := decodeSessionResponse(t, w)
-	assert.Len(t, resp["token"], 64)
-	assert.Contains(t, resp["relay_url"], testPathWSRelay+resp["token"])
-	assertSessionPersisted(t, env, resp["token"])
-	assertSessionRequestSent(t, env, resp["token"], nil)
+	assert.Len(t, resp.Token, 64)
+	assert.Contains(t, resp.RelayUrl, testPathWSRelay+resp.Token)
+	assert.Equal(t, []ICEServer{{Urls: []string{testHelper}}}, resp.IceServers)
+	assertSessionPersisted(t, env, resp.Token)
+	assertSessionRequestSent(t, env, resp.Token, nil)
 }
 
 func TestCreateSessionRelayURLScheme(t *testing.T) {
@@ -102,7 +103,7 @@ func TestCreateSessionRelayURLScheme(t *testing.T) {
 			}
 			w := createSession(t, env, nil, headers)
 			assert.Equal(t, http.StatusCreated, w.Code)
-			assert.Contains(t, decodeSessionResponse(t, w)["relay_url"], tt.wantScheme)
+			assert.Contains(t, decodeSessionResponse(t, w).RelayUrl, tt.wantScheme)
 		})
 	}
 }
@@ -112,7 +113,7 @@ func TestCreateSessionDefaultPermissions(t *testing.T) {
 	env := newCreateSessionEnv(t)
 	w := createSession(t, env, nil, nil)
 	assert.Equal(t, http.StatusCreated, w.Code)
-	assertSessionRequestSent(t, env, decodeSessionResponse(t, w)["token"], &protocol.Permissions{Desktop: true, Terminal: true})
+	assertSessionRequestSent(t, env, decodeSessionResponse(t, w).Token, &protocol.Permissions{Desktop: true, Terminal: true})
 }
 
 func TestCreateSessionCustomPermissions(t *testing.T) {
@@ -121,7 +122,7 @@ func TestCreateSessionCustomPermissions(t *testing.T) {
 	perms := map[string]bool{"desktop": true, "terminal": true}
 	w := createSession(t, env, perms, nil)
 	assert.Equal(t, http.StatusCreated, w.Code)
-	assertSessionRequestSent(t, env, decodeSessionResponse(t, w)["token"], &protocol.Permissions{Desktop: true, Terminal: true})
+	assertSessionRequestSent(t, env, decodeSessionResponse(t, w).Token, &protocol.Permissions{Desktop: true, Terminal: true})
 }
 
 func newCreateSessionEnv(t *testing.T) createSessionEnv {
@@ -150,9 +151,9 @@ func createSession(t *testing.T, env createSessionEnv, permissions map[string]bo
 	return doRequestWithHeaders(env.srv, http.MethodPost, testPathSessions, env.token, body, headers)
 }
 
-func decodeSessionResponse(t *testing.T, w *httptest.ResponseRecorder) map[string]string {
+func decodeSessionResponse(t *testing.T, w *httptest.ResponseRecorder) CreateSessionResponse {
 	t.Helper()
-	var resp map[string]string
+	var resp CreateSessionResponse
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	return resp
 }
@@ -175,7 +176,9 @@ func assertSessionRequestSent(t *testing.T, env createSessionEnv, token string, 
 	require.NoError(t, err)
 	assert.Equal(t, protocol.MsgSessionRequest, msg.Type)
 	assert.Equal(t, protocol.SessionToken(token), msg.Token)
-	assert.Contains(t, msg.RelayURL, testPathWSRelay+token)
+	assert.Equal(t, testAgentRelayBase+testPathWSRelay+token, msg.RelayURL,
+		"the host dials the configured address, never the request's")
+	assert.Equal(t, []string{testHelper}, msg.IceServers)
 	if want != nil {
 		require.NotNil(t, msg.Permissions)
 		assert.Equal(t, want.Desktop, msg.Permissions.Desktop)

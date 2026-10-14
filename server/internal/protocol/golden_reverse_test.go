@@ -169,6 +169,7 @@ func TestGenerateReverseGoldens(t *testing.T) {
 		Permissions: &Permissions{
 			Desktop: true, Terminal: true, FileRead: true, FileWrite: false, Input: true,
 		},
+		IceServers: []string{"stun:relay.example.com:9090"},
 	})
 
 	writeReverseControlFrame(t, dir, codec, "control_chat_message", &ControlMessage{

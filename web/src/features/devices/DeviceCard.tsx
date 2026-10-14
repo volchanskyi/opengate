@@ -7,6 +7,7 @@ import { useInventoryStore } from './state/inventory-store';
 import { startDeviceDrag } from './device-drag';
 import { useAuthStore } from '../../state/auth-store';
 import { fireAndForget } from '../../lib/fire-and-forget';
+import { holderLine } from '../session';
 
 type Device = components['schemas']['Device'];
 
@@ -51,6 +52,9 @@ export function DeviceCard({ device }: Readonly<{ device: Device }>) {
       <div className="text-sm text-gray-400 space-y-1">
         <p>OS: {device.os_display || device.os}</p>
         <p>Last seen: {timeAgo(device.last_seen)}</p>
+        {device.session && (
+          <p className="text-xs text-amber-300">{holderLine(device.session.holder_name, device.session.started_at)}</p>
+        )}
         {showHint && (
           <p className="text-xs text-gray-500">
             Discovered: {serviceCount} service{serviceCount !== 1 ? 's' : ''} · {containerCount} container{containerCount !== 1 ? 's' : ''}

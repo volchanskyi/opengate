@@ -50,6 +50,7 @@ type nopConn struct{}
 func (nopConn) ReadMessage() ([]byte, error) { select {} }
 func (nopConn) WriteMessage([]byte) error    { return nil }
 func (nopConn) Close() error                 { return nil }
+func (nopConn) End(string) error             { return nil }
 
 func TestLiveRelayTokens_MirrorsTheRelay(t *testing.T) {
 	agentRelay := relay.NewRelay(slog.Default())

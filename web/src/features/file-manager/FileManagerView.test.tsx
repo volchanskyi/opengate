@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useConnectionStore } from '../session';
@@ -29,6 +29,7 @@ describe('FileManagerView', () => {
       isLoading: false,
       error: null,
       downloads: {},
+      waiting: [],
       uploads: {},
       viewingFile: null,
     });
@@ -38,6 +39,45 @@ describe('FileManagerView', () => {
     render(<FileManagerView />);
     expect(screen.getByText('docs')).toBeInTheDocument();
     expect(screen.getByText('file.txt')).toBeInTheDocument();
+  });
+
+  describe('a folder of 120 000 entries', () => {
+    const many = Array.from({ length: 120_000 }, (_, i) => ({
+      name: `entry-${String(i + 1).padStart(6, '0')}.log`,
+      is_dir: false,
+      size: 10,
+      modified: 1000,
+    }));
+
+    it('renders only the rows in view', () => {
+      useFileStore.setState({ currentPath: '/tmp/big', entries: many });
+      render(<FileManagerView />);
+
+      expect(screen.getByText('entry-000001.log')).toBeInTheDocument();
+      expect(screen.queryByText('entry-120000.log')).toBeNull();
+      expect(screen.getAllByRole('button', { name: /^Download entry-/ }).length).toBeLessThan(100);
+    });
+
+    it('reaches the last entry when scrolled to the end', () => {
+      const originalRect = Element.prototype.getBoundingClientRect;
+      try {
+        Element.prototype.getBoundingClientRect = () =>
+          ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+        useFileStore.setState({ currentPath: '/tmp/big', entries: many });
+        render(<FileManagerView />);
+        const list = screen.getByRole('region', { name: 'Folder contents' });
+
+        act(() => {
+          list.scrollTop = list.scrollHeight || 10_000_000;
+          fireEvent.scroll(list);
+        });
+
+        expect(screen.getByText('entry-120000.log')).toBeInTheDocument();
+        expect(screen.queryByText('entry-000001.log')).toBeNull();
+      } finally {
+        Element.prototype.getBoundingClientRect = originalRect;
+      }
+    });
   });
 
   it('renders breadcrumb with current path', () => {
@@ -57,11 +97,23 @@ describe('FileManagerView', () => {
     expect(screen.getByText(/waiting for connection/i)).toBeInTheDocument();
   });
 
-  it('shows download progress bar', () => {
-    useFileStore.setState({ downloads: { 'file.txt': 0.5 } });
+  it('shows the running download above the listing, whatever folder is open', () => {
+    useFileStore.setState({ downloads: { 'backup.tar': 0.5 } });
     render(<FileManagerView />);
-    const progressBar = document.querySelector('progress');
-    expect(progressBar).toBeInTheDocument();
+    const transfers = screen.getByRole('status', { name: 'Transfers' });
+    expect(transfers).toHaveTextContent('backup.tar');
+    expect(screen.getByRole('progressbar', { name: 'Downloading backup.tar' })).toBeInTheDocument();
+  });
+
+  it('lists what waits behind the running download', () => {
+    useFileStore.setState({ downloads: { 'backup.tar': 0.1 }, waiting: ['a.log', 'b.log'] });
+    render(<FileManagerView />);
+    expect(screen.getByRole('status', { name: 'Transfers' })).toHaveTextContent('Waiting: a.log, b.log');
+  });
+
+  it('shows no transfers when none runs or waits', () => {
+    render(<FileManagerView />);
+    expect(screen.queryByRole('status', { name: 'Transfers' })).toBeNull();
   });
 
   it('clicking directory name navigates into it', async () => {
@@ -126,6 +178,14 @@ describe('FileManagerView', () => {
   it('disables buttons while download is in progress', () => {
     useFileStore.setState({ downloads: { 'file.txt': 0.5 } });
     render(<FileManagerView />);
+    expect(screen.getByLabelText('View file.txt')).toBeDisabled();
+    expect(screen.getByLabelText('Download file.txt')).toBeDisabled();
+  });
+
+  it('shows a file waiting for the download ahead of it, with its buttons off', () => {
+    useFileStore.setState({ waiting: ['file.txt'] });
+    render(<FileManagerView />);
+    expect(screen.getByText('waiting')).toBeInTheDocument();
     expect(screen.getByLabelText('View file.txt')).toBeDisabled();
     expect(screen.getByLabelText('Download file.txt')).toBeDisabled();
   });
@@ -334,8 +394,7 @@ describe('FileManagerView', () => {
   it('download progress value is rounded percentage of the [0,1] fraction', () => {
     useFileStore.setState({ downloads: { 'file.txt': 0.5 } });
     render(<FileManagerView />);
-    const progress = document.querySelector('progress') as HTMLProgressElement;
-    expect(progress).toBeTruthy();
+    const progress = screen.getByRole('progressbar', { name: 'Downloading file.txt' });
     expect(progress.getAttribute('value')).toBe('50');
     expect(progress.getAttribute('max')).toBe('100');
   });

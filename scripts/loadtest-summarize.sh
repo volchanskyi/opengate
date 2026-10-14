@@ -122,10 +122,10 @@ emit_k6_rows() {
 # workload, system size or fleet size takes a new name and starts a new series.
 workload_name() {
   case "$1" in
-    api-baseline) printf '%s\n' "member-journeys/3" ;;
-    concurrent-agents) printf '%s\n' "fleet-reads/3" ;;
-    relay-throughput) printf '%s\n' "relay-session-echo/3" ;;
-    quic-agents) printf '%s\n' "fleet-arrival/3" ;;
+    api-baseline) printf '%s\n' "member-journeys/4" ;;
+    concurrent-agents) printf '%s\n' "fleet-reads/4" ;;
+    relay-throughput) printf '%s\n' "relay-session-echo/4" ;;
+    quic-agents) printf '%s\n' "fleet-arrival/4" ;;
     *) return 2 ;;
   esac
 }

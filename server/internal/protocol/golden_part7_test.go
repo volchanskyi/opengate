@@ -138,21 +138,6 @@ func TestGoldenControlAgentMetricWindowHostMetrics(t *testing.T) {
 	}
 }
 
-func TestGoldenControlProcessReport(t *testing.T) {
-	msg := decodeControlFrame(t, "control_process_report.bin")
-	assert.Equal(t, MsgProcessReport, msg.Type)
-	assert.Equal(t, int64(1700000220), msg.TS)
-	assert.Equal(t, "00000000-0000-0000-0000-000000000002", msg.TenantID)
-	require.Len(t, msg.TopN, 1)
-	assert.Equal(t, uint32(1), msg.TopN[0].Rank)
-	assert.Equal(t, "postgres", msg.TopN[0].Basename)
-	require.NotNil(t, msg.TopN[0].CmdlineHash)
-	assert.Equal(t, "sha256:abcdef", *msg.TopN[0].CmdlineHash)
-	assert.Equal(t, uint32(4242), msg.TopN[0].PID)
-	assert.InEpsilon(t, 12.5, msg.TopN[0].CPU, 0.0001)
-	assert.InEpsilon(t, 3.25, msg.TopN[0].Mem, 0.0001)
-}
-
 func TestGoldenControlRequestHealthWindow(t *testing.T) {
 	msg := decodeControlFrame(t, "control_request_health_window.bin")
 	assert.Equal(t, MsgRequestHealthWindow, msg.Type)

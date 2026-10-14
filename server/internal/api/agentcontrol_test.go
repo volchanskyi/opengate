@@ -45,7 +45,7 @@ type fakeAgentControl struct {
 	hwErr error
 }
 
-func (f *fakeAgentControl) SendSessionRequest(_ context.Context, _ protocol.SessionToken, _ string, _ protocol.Permissions) error {
+func (f *fakeAgentControl) SendSessionRequest(_ context.Context, _ protocol.SessionToken, _ string, _ protocol.Permissions, _ []string) error {
 	return nil
 }
 

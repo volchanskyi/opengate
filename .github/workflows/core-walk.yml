@@ -9,6 +9,7 @@ on:
       - server/go.mod
       - scripts/lib/tool-versions.sh
       - scripts/core-walk-check.sh
+      - scripts/core-walk-summarize.sh
       - scripts/install-viewcore.sh
       - scripts/lib/reference-walk.sh
       - scripts/patches/viewcore-gcmask-on-demand.patch
@@ -51,7 +52,14 @@ jobs:
           scripts/install-viewcore.sh --upstream "$VIEWCORE_UPSTREAM"
 
       - name: Walk a core the pinned toolchain wrote
-        run: scripts/core-walk-check.sh /tmp/core-walk
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/core-walk
+          scripts/core-walk-check.sh /tmp/core-walk 2>&1 | tee /tmp/core-walk/check.log
+
+      - name: Write the run summary
+        if: always()
+        run: scripts/core-walk-summarize.sh /tmp/core-walk/check.log server/go.mod >>"$GITHUB_STEP_SUMMARY"
 
       - name: Upload what the reader said
         if: always()

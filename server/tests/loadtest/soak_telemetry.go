@@ -41,30 +41,12 @@ func buildDefaultMetricWindow(ts int64) *protocol.ControlMessage {
 	return &protocol.ControlMessage{Type: protocol.MsgAgentMetricWindow, TS: ts, Dims: dims}
 }
 
-// buildProcessReport builds a minimal rank-ordered top-N process report — the
-// sanitized process snapshot the RLS process table + numeric series ingest.
-func buildProcessReport(ts int64) *protocol.ControlMessage {
-	const topN = 3
-	entries := make([]protocol.ProcessReportEntry, topN)
-	for i := range entries {
-		entries[i] = protocol.ProcessReportEntry{
-			Rank:     safeUint32(i + 1),
-			Basename: fmt.Sprintf("proc%d", i+1),
-			PID:      safeUint32(1000 + i),
-			CPU:      float64(5 - i),
-			Mem:      float64(8 - i),
-		}
-	}
-	return &protocol.ControlMessage{Type: protocol.MsgProcessReport, TS: ts, TopN: entries}
-}
-
 // defaultTelemetryFrames returns one cycle of default telemetry in emission order: health
-// summary, host metric window, process report. No frame asserts a tenant.
+// summary, then host metric window. No frame asserts a tenant.
 func defaultTelemetryFrames(ts int64) []*protocol.ControlMessage {
 	return []*protocol.ControlMessage{
 		buildHealthSummary(ts),
 		buildDefaultMetricWindow(ts),
-		buildProcessReport(ts),
 	}
 }
 

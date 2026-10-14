@@ -1,38 +1,37 @@
 import { test, expect } from "./fixtures";
-import type { Route } from "@playwright/test";
+import type { Page, Route, WebSocket } from "@playwright/test";
 import { enrolledMachine, MACHINE_A } from "./helpers/enrolled-machine";
+import { endHostSession, openSessionTab } from "./helpers/session-tab";
 
-// Sessions are real: the server mints the token against an enrolled machine that is online.
-
-type AuthedPage = Parameters<Parameters<typeof test>[2]>[0]["authedPage"];
+// Sessions are real: the server opens each against an enrolled machine that is online, and the
+// machine dials the relay address the server hands it.
 
 // Matches the relay socket whatever address the server hands out.
 function isRelay(url: URL): boolean {
   return url.pathname.includes("/relay");
 }
 
-async function startSession(page: AuthedPage, deviceID: string) {
-  await page.goto(`/devices/${deviceID}`);
-  await page.getByRole("button", { name: /start session/i }).click();
-  await expect(page).toHaveURL(/\/sessions\/[^/]+$/);
-}
-
 test.describe("Session terminal flow", () => {
-  test("Start Session on an online machine opens the workspace with Terminal active", async ({
+  test.afterEach(async ({ request }) => {
+    const machine = await enrolledMachine(request, MACHINE_A);
+    await endHostSession(request, machine.id);
+  });
+
+  test("Open session opens the host's tab with Terminal active, and the machine echoes", async ({
     authedPage,
     request,
   }) => {
     const machine = await enrolledMachine(request, MACHINE_A);
-    await startSession(authedPage, machine.id);
+    const tab = await openSessionTab(authedPage, machine.id);
 
-    await expect(authedPage.getByRole("tablist")).toBeVisible();
+    await expect(tab.getByRole("tablist")).toBeVisible();
+    await expect(tab.getByRole("tab", { name: "Terminal" })).toHaveAttribute("aria-selected", "true");
+    await expect(tab).toHaveTitle(new RegExp(`^${MACHINE_A} — `));
 
-    // Terminal is the default tab when capabilities omit RemoteDesktop, as on a Linux machine.
-    const terminalTab = authedPage.getByRole("tab", { name: "Terminal" });
-    await expect(terminalTab).toBeVisible();
-    await expect(terminalTab).toHaveAttribute("aria-selected", "true");
-
-    await expect(authedPage.locator('[data-testid="terminal-container"]')).toBeVisible();
+    // The output differs from the typed line, so only the machine's shell can produce it.
+    await tab.locator('[data-testid="terminal-container"]').click();
+    await tab.keyboard.type("echo opengate-$((6*7))-echoed\n");
+    await expect(tab.locator(".xterm-rows")).toContainText("opengate-42-echoed", { timeout: 15_000 });
   });
 
   test("the relay connection is made as the browser side of the session", async ({
@@ -42,13 +41,14 @@ test.describe("Session terminal flow", () => {
     const machine = await enrolledMachine(request, MACHINE_A);
 
     let observedUrl: string | null = null;
-    authedPage.on("websocket", (ws) => {
-      if (isRelay(new URL(ws.url()))) observedUrl = ws.url();
-    });
+    authedPage.context().on("page", (page: Page) =>
+      page.on("websocket", (ws: WebSocket) => {
+        if (isRelay(new URL(ws.url()))) observedUrl = ws.url();
+      }),
+    );
 
-    await startSession(authedPage, machine.id);
+    await openSessionTab(authedPage, machine.id);
 
-    // WSTransport appends side=browser and a non-empty auth query parameter.
     await expect.poll(() => observedUrl).not.toBeNull();
     expect(observedUrl).toMatch(/\bside=browser\b/);
     expect(observedUrl).toMatch(/\bauth=[^&]+/);
@@ -62,36 +62,46 @@ test.describe("Session terminal flow", () => {
     const machine = await enrolledMachine(request, MACHINE_A);
 
     let relayClosed = false;
-    authedPage.on("websocket", (ws) => {
-      if (isRelay(new URL(ws.url()))) ws.on("close", () => { relayClosed = true; });
-    });
+    authedPage.context().on("page", (page: Page) =>
+      page.on("websocket", (ws: WebSocket) => {
+        if (isRelay(new URL(ws.url()))) ws.on("close", () => { relayClosed = true; });
+      }),
+    );
 
-    await startSession(authedPage, machine.id);
-    await expect(authedPage.locator('[data-testid="terminal-container"]')).toBeVisible();
+    const tab = await openSessionTab(authedPage, machine.id);
+    await expect(tab.locator('[data-testid="terminal-container"]')).toBeVisible();
 
-    // The server pings the agent's side of the relay every 20 seconds, so one ping passes here.
-    await authedPage.waitForTimeout(25_000);
+    // The server pings each side of the relay every 20 seconds, so one ping passes here.
+    await tab.waitForTimeout(25_000);
 
-    await expect(authedPage.getByText(/unknown frame type/i)).toHaveCount(0);
-    await expect(authedPage.locator('[data-testid="terminal-container"]')).toBeVisible();
+    await expect(tab.getByText(/unknown frame type/i)).toHaveCount(0);
+    await expect(tab.locator('[data-testid="terminal-container"]')).toBeVisible();
     expect(relayClosed).toBe(false);
   });
 
-  test("Disconnect returns to the fleet", async ({ authedPage, request }) => {
+  test("Disconnect ends the session and closes its tab", async ({ authedPage, request }) => {
     const machine = await enrolledMachine(request, MACHINE_A);
-    await startSession(authedPage, machine.id);
+    const tab = await openSessionTab(authedPage, machine.id);
+    await expect(tab.locator('[data-testid="terminal-container"]')).toBeVisible();
 
-    await authedPage.getByRole("button", { name: /disconnect/i }).click();
-    await expect(authedPage).toHaveURL(/\/devices$/);
+    const closed = tab.waitForEvent("close");
+    // Firefox closes the tab before the click returns, and the click reports that as an error.
+    await tab
+      .getByRole("button", { name: /disconnect/i })
+      .click()
+      .catch((error: unknown) => {
+        if (!tab.isClosed()) throw error;
+      });
+    await closed;
+
+    await authedPage.reload();
+    await expect(authedPage.getByRole("button", { name: "Open session" })).toBeEnabled();
   });
 
-  test("a session the server refuses surfaces an error toast", async ({
-    authedPage,
-    request,
-  }) => {
+  test("a session the server refuses shows why in the tab", async ({ authedPage, request }) => {
     const machine = await enrolledMachine(request, MACHINE_A);
-    // Stubs the refusal returned when the machine drops off between page load and click.
-    await authedPage.route("**/api/v1/sessions", (route: Route) => {
+    // The refusal a machine dropping off between page load and click produces.
+    await authedPage.context().route("**/api/v1/sessions", (route: Route) => {
       if (route.request().method() !== "POST") return route.fallback();
       return route.fulfill({
         status: 409,
@@ -100,10 +110,9 @@ test.describe("Session terminal flow", () => {
       });
     });
 
-    await authedPage.goto(`/devices/${machine.id}`);
-    await authedPage.getByRole("button", { name: /start session/i }).click();
+    const tab = await openSessionTab(authedPage, machine.id);
 
-    await expect(authedPage.getByText(/failed to start session/i)).toBeVisible();
-    await expect(authedPage).toHaveURL(new RegExp(`/devices/${machine.id}$`));
+    await expect(tab.getByText("agent not connected")).toBeVisible();
+    await expect(tab.getByRole("tablist")).toHaveCount(0);
   });
 });

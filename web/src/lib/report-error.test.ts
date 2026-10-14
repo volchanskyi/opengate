@@ -78,10 +78,10 @@ describe('reportClientError', () => {
   it('redacts a credential-bearing path segment', async () => {
     vi.stubEnv('PROD', true);
     const token = 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90';
-    reportClientError({ message: 'boom', url: `https://app.example/sessions/${token}` });
+    reportClientError({ message: 'boom', url: `https://app.example/api/v1/sessions/${token}` });
     const text = await (beacon.mock.calls[0]![1] as Blob).text();
     expect(text).not.toContain(token);
-    expect(JSON.parse(text).url).toBe('/sessions/a1b2c3d4...');
+    expect(JSON.parse(text).url).toBe('/api/v1/sessions/a1b2c3d4...');
   });
 
   it('drops the query string and fragment, which can carry credentials', async () => {
@@ -184,16 +184,16 @@ describe('sanitizeReportedUrl', () => {
   });
 
   it('replaces a credential no longer than the prefix it would show', () => {
-    expect(sanitizeReportedUrl('https://app.example/sessions/abcdefgh')).toBe('/sessions/***');
+    expect(sanitizeReportedUrl('https://app.example/api/v1/sessions/abcdefgh')).toBe('/api/v1/sessions/***');
   });
 
   it('shows only the leading characters of a longer credential', () => {
-    expect(sanitizeReportedUrl('https://app.example/sessions/abcdefghi')).toBe('/sessions/abcdefgh...');
+    expect(sanitizeReportedUrl('https://app.example/api/v1/sessions/abcdefghi')).toBe('/api/v1/sessions/abcdefgh...');
   });
 
   it('leaves a credential prefix that carries no credential alone', () => {
-    expect(sanitizeReportedUrl('https://app.example/sessions/')).toBe('/sessions/');
-    expect(sanitizeReportedUrl('https://app.example/sessions/abcdefghi/frames')).toBe('/sessions/abcdefghi/frames');
+    expect(sanitizeReportedUrl('https://app.example/api/v1/sessions/')).toBe('/api/v1/sessions/');
+    expect(sanitizeReportedUrl('https://app.example/api/v1/sessions/abcdefghi/outcome')).toBe('/api/v1/sessions/abcdefghi/outcome');
   });
 
   it('covers every credential-bearing route', () => {

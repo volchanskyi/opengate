@@ -6,6 +6,7 @@
   - [On the network link](#on-the-network-link)
   - [In the cluster](#in-the-cluster)
   - [At the edge](#at-the-edge)
+  - [On the browser test stack](#on-the-browser-test-stack)
 - [Harness actions](#harness-actions)
 - [The nightly network drill](#the-nightly-network-drill)
   - [What the drill is held to](#what-the-drill-is-held-to)
@@ -27,7 +28,7 @@ recorded in [ADR-055](../adr/ADR-055-fault-injection.md).
 
 ## How faults are injected
 
-Faults come from two disjoint places, never from code inside the server:
+Faults come from three disjoint places, never from code inside the server:
 
 - **In-process app faults** run in the Go test harness (`_test.go` only). A test
   starts the real server in-process and substitutes a **fault-decorating port**
@@ -41,6 +42,10 @@ Faults come from two disjoint places, never from code inside the server:
   privilege: the shaper is an ordinary unprivileged pod with two sockets.
 
 Edge 5xx/timeout is injected at ingress-nginx (staging host annotations).
+
+- **Browser-stack network faults** come from the two router containers on the
+  throwaway compose stack the end-to-end suite runs against, which the specs
+  drive from outside the programs behind them.
 
 The shipped server binary therefore contains **zero fault-injection code**;
 production and staging run the identical image.
@@ -114,10 +119,10 @@ artifacts.
 Edge 502/504/timeout is injected with version-controlled, staging-only
 ingress-nginx annotation templates applied to the public staging host, then
 restored. `502` is produced by making the **upstream unavailable** (backend
-scaled to zero / pointed at a dead service), not by a reviewed critical-risk
-nginx configuration snippet; `504` is produced by shortening the ingress
-proxy-read and proxy-send timeouts below what the backend takes to answer. A reviewed-snippet 502 path is
-deferred until the ingress security contract is tightened.
+scaled to zero / pointed at a dead service), since the controller runs with
+snippet annotations off ([`values.yaml`](../../deploy/ingress-nginx/values.yaml));
+`504` is produced by shortening the ingress proxy-read and proxy-send timeouts
+below what the backend takes to answer.
 
 The templates and save/apply/restore tooling live in
 [`deploy/fault/ingress/`](../../deploy/fault/ingress) — driven by
@@ -128,6 +133,21 @@ re-run from a cleanup `trap`). The chart can never ship a fault annotation:
 [`policy/k8s/fault_injection.rego`](../../policy/k8s/fault_injection.rego) denies any
 rendered manifest carrying a `fault.opengate.dev/…` key, checked against the
 production render in `make lint-k8s`.
+
+### On the browser test stack
+
+The compose stack's office and home routers
+([`router.sh`](../../deploy/router/router.sh)) stand between `agent-a`, the
+browser server and the stack's internet network. A spec tells a router, through
+[`stack.ts`](../../web/e2e/helpers/stack.ts), to keep or scramble the ports it
+translates, to pass UDP, block it, or pass it only to the server's session
+helper, and to hold the line to a rate and a round trip; every spec puts both
+routers back when it ends. The routers are the only containers holding
+network-admin rights, as
+[ADR-055](../adr/ADR-055-fault-injection.md) allows for this stack alone, and
+nothing there runs privileged. These faults prove the direct link's fallbacks,
+its drops and its speed ([Testing](./Testing.md#the-direct-link)); the deployed
+drills keep to staging.
 
 ## Harness actions
 

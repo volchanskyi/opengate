@@ -60,7 +60,6 @@ case "$query" in
   *"FROM devices)"*) cat "$STUB_STACK/devices" ;;
   *"FROM sites)"*) cat "$STUB_STACK/sites" ;;
   *"FROM users)"*) cat "$STUB_STACK/users" ;;
-  *"FROM device_processes)"*) cat "$STUB_STACK/process_rows" ;;
   *)
     echo "stand-in docker: unexpected query: $query" >&2
     exit 1
@@ -82,20 +81,19 @@ STUB_CURL
 chmod +x "$STUB/docker" "$STUB/curl"
 export STUB_STACK="$STACK"
 
-# stack_holds <database-bytes> <series> <devices> <sites> <users> <process-rows>
+# stack_holds <database-bytes> <series> <devices> <sites> <users>
 stack_holds() {
   printf '%s' "$1" >"$STACK/database_bytes"
   printf '%s' "$2" >"$STACK/series"
   printf '%s' "$3" >"$STACK/devices"
   printf '%s' "$4" >"$STACK/sites"
   printf '%s' "$5" >"$STACK/users"
-  printf '%s' "$6" >"$STACK/process_rows"
 }
 
 fresh_weight() {
-  stack_holds 9901747 12 0 0 0 0
+  stack_holds 9901747 12 0 0 0
   PATH="$STUB:$PATH" bash "$WEIGH" baseline "$WORK/baseline.json" >/dev/null
-  stack_holds 25065139 192012 8000 38 23 23934
+  stack_holds 25065139 192012 8000 38 23
   PATH="$STUB:$PATH" bash "$WEIGH" weigh "$WORK/baseline.json" "$WORK/weight.json" >/dev/null
 }
 
@@ -151,8 +149,8 @@ assert_eq "the series the fleet occupies in the metrics store land beside it" "1
   "$(jq -r '.fixture.telemetry_series' "$WORK/bundle.json")"
 assert_eq "nothing else in the fixture is disturbed" "500" \
   "$(jq -r '.fixture.devices' "$WORK/bundle.json")"
-assert_eq "the process snapshot rows keep a name of their own" "23934" \
-  "$(jq -r '.counts.process_rows' "$WORK/weight.json")"
+assert_eq "the weighing counts the users the fixture made" "23" \
+  "$(jq -r '.counts.users' "$WORK/weight.json")"
 
 # The golden weighing the harness's reader is tested against has to keep the shape the weighing
 # script writes.

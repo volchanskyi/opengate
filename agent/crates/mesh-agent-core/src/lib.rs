@@ -11,6 +11,7 @@ pub mod error;
 pub mod file_ops;
 pub mod hardware;
 pub mod identity;
+pub mod link;
 pub mod maintenance;
 pub mod ml;
 pub mod platform;
@@ -18,7 +19,6 @@ pub mod session;
 pub mod session_error;
 pub mod terminal;
 pub mod update;
-pub mod webrtc;
 
 pub use config::AgentConfig;
 pub use connection::{

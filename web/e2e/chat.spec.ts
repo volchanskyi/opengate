@@ -2,13 +2,13 @@
 import { test, expect } from "./fixtures";
 import type { Route, WebSocketRoute } from "@playwright/test";
 import { decode, encode } from "@msgpack/msgpack";
+import { mockRelayUrl, openSessionTab, stubSessionStart } from "./helpers/session-tab";
 
-// The Chat tab needs RemoteDesktop, which a Linux agent lacks, so the device and relay are stubbed.
+// The Chat tab needs RemoteDesktop, which a Linux agent lacks, so the device, the session and the
+// relay are stubbed on the context, which the session tab inherits.
 
 const DEVICE_ID = "11111111-1111-4111-8111-dddddddddddd";
 const GROUP_ID = "33333333-3333-4333-8333-333333333333";
-const SESSION_TOKEN = "e2e-chat-token-00000000000000000000000000000000";
-const RELAY_URL = "wss://relay.invalid/relay";
 
 // Control frame type byte, as in web/src/lib/protocol/types.ts.
 const FRAME_CONTROL = 0x01;
@@ -52,26 +52,25 @@ function fakeDevice() {
 type AuthedPage = Parameters<Parameters<typeof test>[2]>[0]["authedPage"];
 
 async function stubCommonRoutes(page: AuthedPage) {
-  await page.route(`**/api/v1/devices/${DEVICE_ID}`, (route: Route) => ok(route, fakeDevice()));
-  await page.route("**/api/v1/sites", (route: Route) =>
+  const context = page.context();
+  await stubSessionStart(context, test.info().project.use.baseURL!);
+  await context.route(`**/api/v1/devices/${DEVICE_ID}`, (route: Route) => ok(route, fakeDevice()));
+  await context.route("**/api/v1/sites", (route: Route) =>
     ok(route, [{ id: GROUP_ID, name: "default", created_at: "", updated_at: "" }]),
   );
-  await page.route(`**/api/v1/sessions?device_id=${DEVICE_ID}*`, (route: Route) => ok(route, []));
-  await page.route("**/api/v1/amt/devices", (route: Route) => ok(route, []));
-  await page.route("**/api/v1/updates/manifests*", (route: Route) => ok(route, []));
-  await page.route(`**/api/v1/devices/${DEVICE_ID}/hardware`, (route: Route) =>
+  await context.route(`**/api/v1/sessions?device_id=${DEVICE_ID}*`, (route: Route) => ok(route, []));
+  await context.route("**/api/v1/amt/devices", (route: Route) => ok(route, []));
+  await context.route("**/api/v1/updates/manifests*", (route: Route) => ok(route, []));
+  await context.route(`**/api/v1/devices/${DEVICE_ID}/hardware`, (route: Route) =>
     route.fulfill({ status: 404, body: "" }),
   );
-  await page.route("**/api/v1/sessions", (route: Route) => {
-    if (route.request().method() !== "POST") return route.fallback();
-    return ok(route, { token: SESSION_TOKEN, relay_url: RELAY_URL });
-  });
 }
 
 async function mockRelayEcho(page: AuthedPage): Promise<{ sent: string[] }> {
   const sent: string[] = [];
-  await page.routeWebSocket(
-    (url: URL) => url.href.startsWith(RELAY_URL),
+  const relayUrl = mockRelayUrl(test.info().project.use.baseURL!);
+  await page.context().routeWebSocket(
+    (url: URL) => url.href.startsWith(relayUrl),
     (ws: WebSocketRoute) => {
       ws.onMessage((raw) => {
         if (typeof raw === "string") return;
@@ -87,10 +86,9 @@ async function mockRelayEcho(page: AuthedPage): Promise<{ sent: string[] }> {
 }
 
 async function openChatTab(page: AuthedPage) {
-  await page.goto(`/devices/${DEVICE_ID}`);
-  await page.getByRole("button", { name: /start session/i }).click();
-  await expect(page).toHaveURL(new RegExp(`/sessions/${SESSION_TOKEN}$`));
-  await page.getByRole("tab", { name: "Chat" }).click();
+  const tab = await openSessionTab(page, DEVICE_ID);
+  await tab.getByRole("tab", { name: "Chat" }).click();
+  return tab;
 }
 
 test.describe("Chat flow", () => {
@@ -98,15 +96,15 @@ test.describe("Chat flow", () => {
     await stubCommonRoutes(authedPage);
     const relay = await mockRelayEcho(authedPage);
 
-    await openChatTab(authedPage);
+    const tab = await openChatTab(authedPage);
 
-    const box = authedPage.getByPlaceholder("Type a message...");
+    const box = tab.getByPlaceholder("Type a message...");
     await box.fill("hello agent");
-    await authedPage.getByRole("button", { name: "Send" }).click();
+    await tab.getByRole("button", { name: "Send" }).click();
 
     // exact: the echo bubble also contains this substring.
-    await expect(authedPage.getByText("hello agent", { exact: true })).toBeVisible();
-    await expect(authedPage.getByText("echo: hello agent")).toBeVisible();
+    await expect(tab.getByText("hello agent", { exact: true })).toBeVisible();
+    await expect(tab.getByText("echo: hello agent")).toBeVisible();
     expect(relay.sent).toContain("hello agent");
     await expect(box).toHaveValue("");
   });
@@ -115,13 +113,13 @@ test.describe("Chat flow", () => {
     await stubCommonRoutes(authedPage);
     await mockRelayEcho(authedPage);
 
-    await openChatTab(authedPage);
+    const tab = await openChatTab(authedPage);
 
-    const box = authedPage.getByPlaceholder("Type a message...");
+    const box = tab.getByPlaceholder("Type a message...");
     await box.fill("via enter");
     await box.press("Enter");
 
-    await expect(authedPage.getByText("via enter", { exact: true })).toBeVisible();
-    await expect(authedPage.getByText("echo: via enter")).toBeVisible();
+    await expect(tab.getByText("via enter", { exact: true })).toBeVisible();
+    await expect(tab.getByText("echo: via enter")).toBeVisible();
   });
 });

@@ -140,6 +140,7 @@ jobs:
           - { language: rust, shard: rust-core-correlate-ranking }
           - { language: rust, shard: rust-core-session-terminal }
           - { language: rust, shard: rust-core-session-dispatch }
+          - { language: rust, shard: rust-core-session-link }
           - { language: rust, shard: rust-core-discovery }
           - { language: rust, shard: rust-core-runtime-lifecycle }
           - { language: rust, shard: rust-core-runtime }
@@ -358,6 +359,7 @@ jobs:
       contents: read
     # This job reports only whether the trend was published; the gate job carries the score verdict.
     outputs:
+      alert_text: ${{ steps.summarize.outputs.alert_text }}
       regression: ${{ steps.summarize.outputs.regression }}
       complete: ${{ steps.status.outputs.complete }}
       incomplete-legs: ${{ steps.status.outputs.incomplete-legs }}
@@ -565,31 +567,6 @@ jobs:
             ' canonical-row.json
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Send Telegram alert
-        # Runs after any outcome and names which of the three happened. A refused delivery fails the
-        # job, and the verdict is read by a separate job, so an outage hides nothing.
-        if: always()
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
-          FINDING: ${{ steps.summarize.outputs.regression }}
-          ALERT_TEXT: ${{ steps.summarize.outputs.alert_text }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          JOB_STATUS: ${{ job.status }}
-        run: |
-          set -euo pipefail
-          if [ "$JOB_STATUS" = "success" ] && [ "${FINDING:-0}" != "1" ]; then
-            echo "No alert sent: the run finished and found nothing."
-            exit 0
-          fi
-          if [ "${FINDING:-0}" = "1" ]; then
-            MSG="$(printf '%s\n\nRun: %s\nTrend: Grafana dashboard "Mutation Testing Trend" (opengate-mutation-trend)' "$ALERT_TEXT" "$RUN_URL")"
-          else
-            MSG="$(printf 'Mutation run: the night did not finish (%s), so nothing was measured.\n\nRun: %s' \
-              "$JOB_STATUS" "$RUN_URL")"
-          fi
-          scripts/telegram-alert.sh "$MSG"
-
       - name: Remove OCI credentials
         if: always()
         uses: ./.github/actions/oci-kube-teardown
@@ -620,3 +597,42 @@ jobs:
             exit 1
           fi
           echo "No mutation score regression."
+
+  # Sends the run's alert from a job of its own, which holds the Telegram secrets and nothing else.
+  alert:
+    name: Alert if the run did not finish
+    needs: [publish]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-pinned-tools
+
+      - name: Send Telegram alert
+        # Says which of the three the publish job met. A refused send fails this job alone, so the
+        # verdict the gate reads stays the run's.
+        if: always() && needs.publish.result != 'skipped'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
+          FINDING: ${{ needs.publish.outputs.regression }}
+          ALERT_TEXT: ${{ needs.publish.outputs.alert_text }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ needs.publish.result }}
+        run: |
+          set -euo pipefail
+          if [ "$JOB_STATUS" = "success" ] && [ "${FINDING:-0}" != "1" ]; then
+            echo "No alert sent: the run finished and found nothing."
+            exit 0
+          fi
+          if [ "${FINDING:-0}" = "1" ]; then
+            MSG="$(printf '%s\n\nRun: %s\nTrend: Grafana dashboard "Mutation Testing Trend" (opengate-mutation-trend)' "$ALERT_TEXT" "$RUN_URL")"
+          else
+            MSG="$(printf 'Mutation run: the night did not finish (%s), so nothing was measured.\n\nRun: %s' \
+              "$JOB_STATUS" "$RUN_URL")"
+          fi
+          scripts/telegram-alert.sh "$MSG"

@@ -80,14 +80,13 @@ func AuthMiddleware(jwtCfg *auth.JWTConfig) func(http.Handler) http.Handler {
 				writeError(w, http.StatusUnauthorized, "missing authorization header")
 				return
 			}
-
-			parts := strings.SplitN(header, " ", 2)
-			if len(parts) != 2 || !strings.EqualFold(parts[0], "bearer") {
+			token := bearerToken(header)
+			if token == "" {
 				writeError(w, http.StatusUnauthorized, "invalid authorization header")
 				return
 			}
 
-			claims, err := jwtCfg.ValidateToken(parts[1])
+			claims, err := jwtCfg.ValidateToken(token)
 			if err != nil {
 				writeError(w, http.StatusUnauthorized, "invalid token")
 				return
@@ -150,13 +149,6 @@ func (s *Server) requireAMTDeviceInScope(ctx context.Context, amtUUID uuid.UUID)
 	return err
 }
 
-// requireSessionInScope reads the session under the request tenant, so another tenant's
-// token resolves to [session.ErrSessionNotFound].
-func (s *Server) requireSessionInScope(ctx context.Context, token string) error {
-	_, err := s.sessions.Get(ctx, token)
-	return err
-}
-
 // maxRequestBodySize is the request body limit in bytes (1 MiB).
 const maxRequestBodySize = 1 << 20
 
@@ -175,9 +167,9 @@ func MaxBodySize(maxBytes int64) func(http.Handler) http.Handler {
 	}
 }
 
-// contentSecurityPolicy is byte-identical to `ingress.csp` in deploy/helm/opengate/values.yaml.
+// contentSecurityPolicy is the one copy of the page policy; the ingress passes it on untouched.
 // 'unsafe-inline' on style-src covers runtime UI styles; connect-src admits the relay WebSocket.
-const contentSecurityPolicy = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; " +
+const contentSecurityPolicy = "default-src 'self'; script-src 'self'; " +
 	"style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; " +
 	"font-src 'self'; connect-src 'self' wss:; frame-ancestors 'none'"
 

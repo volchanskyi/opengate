@@ -370,12 +370,13 @@ building its executors from the profile the night walks:
 | Scenario | Exercises |
 |----------|-----------|
 | [`api-baseline.js`](../../load/k6/scenarios/api-baseline.js) | A technician's round: health, current user, sites and the device list, then one machine's page and one instruction sent to it, each timed on its own |
-| [`relay-throughput.js`](../../load/k6/scenarios/relay-throughput.js) | A real remote session: the operator's side of the relay, timing its own frame coming back from the machine |
+| [`relay-throughput.js`](../../load/k6/scenarios/relay-throughput.js) | A real remote session: the operator's side of the relay, timing its own frame coming back from the machine. Each held session takes a machine of its own, since a machine takes one session at a time, and the setup refuses a fleet smaller than the sessions the profile holds |
 | [`concurrent-agents.js`](../../load/k6/scenarios/concurrent-agents.js) | Agent-shaped device and session reads spread across the fleet's sites |
 
-`setup()` registers a throwaway member of the staging organization through
-[`load/k6/lib/session.js`](../../load/k6/lib/session.js) and reads the sites that
-member can see. Where a scenario times a journey against one machine, it reads
+`setup()` registers throwaway members of the staging organization through
+[`load/k6/lib/session.js`](../../load/k6/lib/session.js) — one account per
+simulated technician, from a pool sized so no account passes its own request
+allowance — and reads the sites they can see. Where a scenario times a journey against one machine, it reads
 the fleet from a site chosen for holding machines: an estate spreads its fleet
 over its sites, so a site picked for sorting first is empty as often as not, and
 a journey with nothing to open publishes a zero indistinguishable from a fast
@@ -415,16 +416,18 @@ past the drain.
 
 #### One address per technician
 
-The server counts requests per address, at about a hundred a second
+The server counts a signed-in request under its account and any other under its
+address, at about a hundred a second
 ([API router](../../server/internal/api/api.go)). A run driving the server from
-one pod used to spend one allowance between all of it, which made the rate
-limiter the run's throughput: the latency figures described an idle system and
-no throughput regression could show.
+one pod under one account and one address would spend one allowance between all
+of it, making the rate limiter the run's throughput: the latency figures would
+describe an idle system and no throughput regression could show.
 
-Each simulated technician now presents an address of its own, and so does each
-arriving machine — from 198.18.0.0/15, which RFC 2544 reserves for benchmark
-traffic, so a synthetic address can never be somebody real. The limit is still
-enforced at full strength; the budget is simply per technician.
+Each simulated technician signs in to an account of its own and presents an
+address of its own, and so does each arriving machine — from 198.18.0.0/15, which
+RFC 2544 reserves for benchmark traffic, so a synthetic address can never be
+somebody real. The limit is still enforced at full strength; the budget is
+simply per technician.
 
 A presented address is believed only from a peer the deployment has named as a
 proxy, which is narrower than the rule it replaced — see
@@ -558,6 +561,16 @@ Every address the harness dials goes through one allowlist — the configured
 target and the relay URL that arrives inside a session request alike — so a field
 on the wire cannot send a generator somewhere the run is forbidden to go.
 
+A machine that takes a session asks the session helper what a direct-link attempt
+asks — six address requests, from sockets of its own, retried on the schedule
+RFC 8489 sets ([`helper_requests.go`](../../server/tests/loadtest/helper_requests.go))
+— so the helper shares the agents' UDP port with the whole fleet's QUIC traffic,
+as it does in production. The bundle carries what was asked and what was
+answered, and a run in which any request went unanswered is not a valid night.
+Sessions themselves stay on the relay: a direct session's bytes never cross the
+server, so the relay-only case is the server's worst
+([ADR-127](../adr/ADR-127-direct-link.md)).
+
 Against staging the harness is launched detached inside its own cluster pod
 through [`scripts/loadtest-quic-incluster.sh`](../../scripts/loadtest-quic-incluster.sh),
 so the fleet is held by the pod rather than by a stream reaching it from the
@@ -670,26 +683,38 @@ series' measured variance because shared GitHub runners are noisy. See
 
 | Language | What's Benchmarked | Tool |
 |----------|--------------------|------|
-| Go | Protocol codec, cert signing, DB operations, handshake | `testing.B` + `-benchmem` |
-| Rust | Frame/handshake encode/decode; Edge Sentinel detection, sampler, RSS probe | Criterion 0.8 |
+| Go | Protocol codec, cert signing, handshake, alert admission, and the relay forwarding a keystroke and a file piece through the WebSocket adapter | `testing.B` + `-benchmem` |
+| Rust | Frame/handshake encode/decode; the direct link carrying a frame both ways and the send limit's interval; Edge Sentinel detection, redaction, evidence and RSS probe, and the sampler's CPU time; the local metrics store's commit window, hour read and reopen | Criterion 0.8 |
+
+The relay benchmark replays a prepared frame through the production adapter on an in-memory
+connection, so it measures the per-message work with no socket or peer goroutine. The sampler
+waits between two CPU readings by design, so its benchmark measures the process CPU time it
+spends rather than the wall time it takes.
 
 #### Running them locally
 
 ```bash
-# Go
-cd server && go test -bench=. -benchmem -run='^$' ./internal/...
+# What the gauntlet runs: Go allocations against the CI baseline, every Rust suite once
+bash scripts/benchmark-local-check.sh go
+bash scripts/benchmark-local-check.sh rust
 
-# Rust
-cd agent && cargo bench -p mesh-protocol
-cd agent && cargo bench -p mesh-agent-core --bench edge_sentinel_bench
+# Full timings
+cd server && go test -bench=. -benchmem -run='^$' ./internal/...
+cd agent && cargo bench -p mesh-protocol -p mesh-agent-core -p edge-tsdb --bench '*'
 ```
 
 #### Regressions
 
-The committed [`benchmarks/baseline.json`](../../benchmarks/baseline.json) is the reviewed
-baseline. Allocation regressions above the baseline tolerance fail the workflow; `ns/op`
-outliers are emitted as advisory lines and graphed on the Grafana **Benchmark Trends**
-dashboard.
+The committed [`benchmarks/baseline.json`](../../benchmarks/baseline.json) holds CI's own
+readings and no other: each row is the median of the nightly runs that measured the code it
+describes. A benchmark CI has not measured yet has no row and is reported without a limit,
+until a baseline run with the workflow's `update-baseline` input includes it. Every commit
+holds its Go allocations to the baseline in the gauntlet, at the processor count the nightly
+runs at, where a workstation allocates as CI's runner does; time per call depends on the
+machine and is held by the nightly alone. Allocation regressions above the baseline tolerance fail the workflow, and so
+does an `ns/op` past the nights' median band or the ceiling over the baseline
+([CI Pipeline](./CI-Pipeline.md#benchmark-trend)); every series is graphed on the Grafana
+**Benchmark Trends** dashboard.
 
 ### Bundle size
 
@@ -712,21 +737,31 @@ cd web && lhci autorun
 
 ## Fuzzing
 
-The wire decoder is the agent's primary untrusted-input surface, so
-[`Frame::decode`](../../agent/crates/mesh-protocol/src/codec.rs) has a coverage-guided
-cargo-fuzz / libFuzzer target ([`agent/fuzz/fuzz_targets/decode.rs`](../../agent/fuzz/fuzz_targets/decode.rs))
-that asserts arbitrary bytes never panic. libFuzzer needs a nightly toolchain, so
-the bounded session runs as observability — `make fuzz-rust` locally, and the
-nightly [fuzz.yml workflow](../../.github/workflows/fuzz.yml) in CI — never as a
-merge gate.
+The agent's untrusted-input surfaces each have a coverage-guided cargo-fuzz /
+libFuzzer target in [`agent/fuzz/fuzz_targets/`](../../agent/fuzz/fuzz_targets/):
+[`decode.rs`](../../agent/fuzz/fuzz_targets/decode.rs) asserts arbitrary bytes
+never panic [`Frame::decode`](../../agent/crates/mesh-protocol/src/codec.rs), and
+[`link_pieces.rs`](../../agent/fuzz/fuzz_targets/link_pieces.rs) feeds the direct
+link's reassembler hostile pieces and its candidate filter hostile candidate
+lines, holding both to no panic and memory within one 4 MiB frame. libFuzzer
+needs a nightly toolchain. The bounded session runs as `make fuzz-rust` locally,
+and as the `fuzz` job in [`ci.yml`](../../.github/workflows/ci.yml) on every push
+and pull request, beside the end-to-end job: a crash fails the job, and
+`merge-to-main` waits on it. `make fuzz-rust` runs every target the crate names, after a crash too, and
+keeps each one's output; the run's summary
+([`fuzz-summarize.sh`](../../scripts/fuzz-summarize.sh)) opens with its purpose,
+then gives per target the runs, the time, the code paths reached, the inputs kept
+and the crashes found, naming a crash's input file. A local run adds the inputs
+it kept to the corpus directories; only minimized crashes are committed.
 
-The always-run guard on stable is
-[`decode_corpus_test.rs`](../../agent/crates/mesh-protocol/tests/decode_corpus_test.rs):
-it replays every seed in [`agent/fuzz/corpus/decode/`](../../agent/fuzz/corpus/decode)
-(crafted edge cases per decode branch, a real encoded frame, plus any minimized
-crash) through the decoder under plain `cargo test`. A crash found by the nightly
-fuzzer is minimized and committed back into that corpus, so the stable replay
-re-runs it forever.
+The always-run guards on stable are
+[`decode_corpus_test.rs`](../../agent/crates/mesh-protocol/tests/decode_corpus_test.rs)
+and [`link_pieces_corpus_test.rs`](../../agent/crates/mesh-protocol/tests/link_pieces_corpus_test.rs):
+each replays every seed in its target's directory under
+[`agent/fuzz/corpus/`](../../agent/fuzz/corpus) (crafted edge cases per branch, a
+real encoded frame, plus any minimized crash) under plain `cargo test`. A crash
+the fuzzer finds is minimized and committed back into that corpus, so
+the stable replay re-runs it forever.
 
 The server side of the same surface uses Go's native fuzzing in
 [`codec_fuzz_test.go`](../../server/internal/protocol/codec_fuzz_test.go):

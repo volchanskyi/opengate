@@ -1,0 +1,70 @@
+{
+  "description": "A side holding new frames ends the session when the peer's fall-back notice has not come within 10 s.",
+  "steps": [
+    {
+      "step": "begin",
+      "side": "both"
+    },
+    {
+      "step": "open",
+      "side": "both"
+    },
+    {
+      "step": "settle"
+    },
+    {
+      "step": "queue",
+      "side": "host",
+      "lane": "interactive",
+      "frames": [
+        {
+          "label": "h1"
+        }
+      ]
+    },
+    {
+      "step": "take",
+      "side": "host"
+    },
+    {
+      "step": "cut"
+    },
+    {
+      "step": "lose",
+      "side": "host",
+      "reason": "silence"
+    },
+    {
+      "step": "tick",
+      "ms": 9999
+    },
+    {
+      "step": "expect",
+      "side": "host",
+      "path": "holding",
+      "ended": false
+    },
+    {
+      "step": "tick",
+      "ms": 1
+    }
+  ],
+  "expect": {
+    "browser": {
+      "delivered": [],
+      "path": "link",
+      "outcomes": [
+        "direct"
+      ]
+    },
+    "host": {
+      "delivered": [],
+      "path": "ended",
+      "ended": true,
+      "outcomes": [
+        "direct",
+        "dropped"
+      ]
+    }
+  }
+}

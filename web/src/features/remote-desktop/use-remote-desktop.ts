@@ -8,7 +8,6 @@ import { fireAndForget } from '../../lib/fire-and-forget';
 export function useRemoteDesktop(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
   const transport = useConnectionStore((s) => s.transport);
   const setOnDesktopFrame = useConnectionStore((s) => s.setOnDesktopFrame);
-  const setOnControlMessage = useConnectionStore((s) => s.setOnControlMessage);
   const inputHandlerRef = useRef<InputHandler | null>(null);
 
   useEffect(() => {
@@ -40,7 +39,6 @@ export function useRemoteDesktop(canvasRef: React.RefObject<HTMLCanvasElement | 
       handler.destroy();
       inputHandlerRef.current = null;
       setOnDesktopFrame(null);
-      setOnControlMessage(null);
     };
-  }, [transport, canvasRef, setOnDesktopFrame, setOnControlMessage]);
+  }, [transport, canvasRef, setOnDesktopFrame]);
 }

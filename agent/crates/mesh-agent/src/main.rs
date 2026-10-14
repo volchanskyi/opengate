@@ -728,14 +728,14 @@ async fn main() -> Result<()> {
                 msg = conn.receive_control() => {
                     match msg {
                         Ok(mesh_protocol::ControlMessage::SessionRequest {
-                            token, relay_url, permissions,
+                            token, relay_url, permissions, ice_servers,
                         }) => {
                             let capture: Box<dyn mesh_agent_core::ScreenCapture> =
                                 Box::new(mesh_agent_core::NullCapture);
                             let injector: Box<dyn mesh_agent_core::InputInjector> =
                                 Box::new(mesh_agent_core::NullInput);
                             match conn.handle_session_request(
-                                token, relay_url, permissions, capture, injector,
+                                token, relay_url, permissions, ice_servers, capture, injector,
                             ).await {
                                 Ok(_handle) => {} // session runs independently
                                 Err(e) => warn!(error = %e, "failed to accept session"),

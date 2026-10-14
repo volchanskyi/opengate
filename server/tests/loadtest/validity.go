@@ -68,6 +68,9 @@ type RunInputs struct {
 	// BreakingPoint is the ladder's answer; rungs at or above the one that gave out are exempt.
 	BreakingPoint *BreakingPoint
 
+	// Helper is what the run's sessions asked the server's helper and what it answered.
+	Helper *HelperCount
+
 	// SafetyBreaches are ceilings the run crossed and stopped for.
 	SafetyBreaches []string
 	// GateBreaches are gate rules the results broke; they fail the run.
@@ -88,6 +91,7 @@ func Classify(in RunInputs) Verdict {
 
 	breaches := append([]string(nil), in.GateBreaches...)
 	breaches = append(breaches, conservationBreaches(in.Target)...)
+	breaches = append(breaches, helperBreaches(in.Helper)...)
 	if len(breaches) > 0 {
 		verdict.Result = ResultFailed
 		verdict.Reasons = breaches
@@ -96,6 +100,17 @@ func Classify(in RunInputs) Verdict {
 
 	verdict.Result = ResultValid
 	return verdict
+}
+
+// helperBreaches fails a run whose sessions asked the helper something it did not answer: a
+// session's attempt gathers its addresses from those answers.
+func helperBreaches(helper *HelperCount) []string {
+	if helper == nil || helper.Answered >= helper.Asked {
+		return nil
+	}
+	return []string{fmt.Sprintf(
+		"the helper answered %d of %d requests the sessions made, and every one an attempt asks must be answered",
+		helper.Answered, helper.Asked)}
 }
 
 // invalidReasons collects every reason this run measured something other than the target.

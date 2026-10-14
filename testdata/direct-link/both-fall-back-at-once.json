@@ -1,0 +1,102 @@
+{
+  "description": "Both sides notice the dead link before either notice arrives; each re-sends what the other did not take.",
+  "steps": [
+    {
+      "step": "begin",
+      "side": "both"
+    },
+    {
+      "step": "open",
+      "side": "both"
+    },
+    {
+      "step": "settle"
+    },
+    {
+      "step": "queue",
+      "side": "host",
+      "lane": "interactive",
+      "frames": [
+        {
+          "label": "h1"
+        },
+        {
+          "label": "h2"
+        },
+        {
+          "label": "h3"
+        }
+      ]
+    },
+    {
+      "step": "queue",
+      "side": "browser",
+      "lane": "interactive",
+      "frames": [
+        {
+          "label": "b1"
+        },
+        {
+          "label": "b2"
+        }
+      ]
+    },
+    {
+      "step": "take",
+      "side": "both"
+    },
+    {
+      "step": "carry",
+      "path": "link",
+      "to": "browser",
+      "count": 1
+    },
+    {
+      "step": "carry",
+      "path": "link",
+      "to": "host",
+      "count": 1
+    },
+    {
+      "step": "cut"
+    },
+    {
+      "step": "lose",
+      "side": "host",
+      "reason": "silence"
+    },
+    {
+      "step": "lose",
+      "side": "browser",
+      "reason": "silence"
+    },
+    {
+      "step": "settle"
+    }
+  ],
+  "expect": {
+    "browser": {
+      "delivered": [
+        "h1",
+        "h2",
+        "h3"
+      ],
+      "path": "relay",
+      "outcomes": [
+        "direct",
+        "dropped"
+      ]
+    },
+    "host": {
+      "delivered": [
+        "b1",
+        "b2"
+      ],
+      "path": "relay",
+      "outcomes": [
+        "direct",
+        "dropped"
+      ]
+    }
+  }
+}

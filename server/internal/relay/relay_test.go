@@ -20,6 +20,10 @@ type mockConn struct {
 	writeCh chan<- []byte
 	done    chan struct{}
 	closeFn func()
+
+	// endedWith records the reason End was given, read by the session-ending tests.
+	endMu     sync.Mutex
+	endedWith []string
 }
 
 func newMockConnPair(t *testing.T) (*mockConn, *mockConn) {
@@ -61,6 +65,21 @@ func (c *mockConn) WriteMessage(data []byte) error {
 func (c *mockConn) Close() error {
 	c.closeFn()
 	return nil
+}
+
+func (c *mockConn) End(reason string) error {
+	c.endMu.Lock()
+	c.endedWith = append(c.endedWith, reason)
+	c.endMu.Unlock()
+	c.closeFn()
+	return nil
+}
+
+// endReasons returns every reason End was called with, in order.
+func (c *mockConn) endReasons() []string {
+	c.endMu.Lock()
+	defer c.endMu.Unlock()
+	return append([]string(nil), c.endedWith...)
 }
 
 func mustRegister(t *testing.T, r *Relay, ctx context.Context, token protocol.SessionToken, conn Conn, side Side) <-chan struct{} {

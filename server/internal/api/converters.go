@@ -9,7 +9,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/organization"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/session"
-	"github.com/volchanskyi/opengate/server/internal/signaling"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
 
@@ -50,6 +49,13 @@ func deviceToAPI(d *device.Device) Device {
 		}
 	}
 	dev.Amt = deviceAMTToAPI(d.AMT)
+	if d.Session != nil {
+		dev.Session = &SessionHolder{
+			HolderId:   d.Session.HolderID,
+			HolderName: d.Session.HolderName,
+			StartedAt:  d.Session.StartedAt,
+		}
+	}
 	return dev
 }
 
@@ -114,12 +120,13 @@ func usersToAPI(us []*db.User) []User {
 	return mapSlice(us, userToAPI)
 }
 
+// sessionToAPI names a session by its holder; the relay credential never leaves the server here.
 func sessionToAPI(s *session.Session) AgentSession {
 	return AgentSession{
-		Token:     s.Token,
-		DeviceId:  s.DeviceID,
-		UserId:    s.UserID,
-		CreatedAt: s.CreatedAt,
+		DeviceId:   s.DeviceID,
+		UserId:     s.UserID,
+		HolderName: s.HolderName,
+		CreatedAt:  s.CreatedAt,
 	}
 }
 
@@ -280,16 +287,12 @@ func deviceLogsToAPI(entries []device.LogEntry, total int, units []string, filte
 	return resp
 }
 
-func iceServersToAPI(servers []signaling.ICEServer) []ICEServer {
-	out := make([]ICEServer, len(servers))
-	for i, srv := range servers {
-		out[i] = ICEServer{Urls: srv.URLs}
-		if srv.Username != "" {
-			out[i].Username = &srv.Username
-		}
-		if srv.Credential != "" {
-			out[i].Credential = &srv.Credential
-		}
+// helpersToAPI lists each helper as its own server entry, the shape a browser's peer connection
+// takes; an empty list stays an empty array.
+func helpersToAPI(helpers []string) []ICEServer {
+	out := make([]ICEServer, len(helpers))
+	for i, helper := range helpers {
+		out[i] = ICEServer{Urls: []string{helper}}
 	}
 	return out
 }

@@ -1,0 +1,79 @@
+{
+  "config": { "rootDir": "/home/runner/work/opengate/opengate/web/e2e" },
+  "suites": [
+    {
+      "title": "auth.spec.ts",
+      "file": "auth.spec.ts",
+      "specs": [],
+      "suites": [
+        {
+          "title": "Auth flows",
+          "file": "auth.spec.ts",
+          "specs": [
+            {
+              "title": "login with valid credentials redirects to /devices",
+              "tests": [
+                {
+                  "projectName": "chromium",
+                  "status": "expected",
+                  "results": [{ "status": "passed", "duration": 378 }]
+                },
+                {
+                  "projectName": "firefox",
+                  "status": "flaky",
+                  "results": [
+                    { "status": "failed", "duration": 5200, "error": { "message": "Error: page.goto: NS_ERROR_NET_RESET\nCall log:" } },
+                    { "status": "passed", "duration": 640 }
+                  ]
+                },
+                {
+                  "projectName": "webkit",
+                  "status": "unexpected",
+                  "results": [
+                    { "status": "failed", "duration": 5100, "error": { "message": "\u001b[31mError: expect(locator).toBeVisible() | timed out\u001b[39m\nLocator: getByRole('heading')" } },
+                    { "status": "failed", "duration": 5100, "error": { "message": "\u001b[31mError: expect(locator).toBeVisible() | timed out\u001b[39m\nLocator: getByRole('heading')" } }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "two-routers.spec.ts",
+      "file": "two-routers.spec.ts",
+      "specs": [],
+      "suites": [
+        {
+          "title": "Both sides behind routers",
+          "file": "two-routers.spec.ts",
+          "specs": [
+            {
+              "title": "routers that keep each socket's port give Direct",
+              "tests": [
+                {
+                  "projectName": "chromium-behind-home-router",
+                  "status": "expected",
+                  "results": [{ "status": "passed", "duration": 1900 }]
+                },
+                {
+                  "projectName": "firefox-behind-home-router",
+                  "status": "expected",
+                  "results": [{ "status": "passed", "duration": 2400 }]
+                },
+                {
+                  "projectName": "webkit-behind-home-router",
+                  "status": "skipped",
+                  "results": [{ "status": "skipped", "duration": 0 }]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": { "expected": 3, "unexpected": 1, "flaky": 1, "skipped": 1 }
+}

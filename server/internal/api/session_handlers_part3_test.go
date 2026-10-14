@@ -56,14 +56,17 @@ func TestListSessions(t *testing.T) {
 		device := testutil.SeedDevice(t, ctx, srv.store, site.ID)
 
 		testutil.SeedAgentSession(t, ctx, srv.store, device.ID, user.ID)
-		testutil.SeedAgentSession(t, ctx, srv.store, device.ID, user.ID)
+		held := testutil.SeedAgentSession(t, ctx, srv.store, device.ID, user.ID)
 
 		w := doRequest(srv, http.MethodGet, testQueryDeviceID+device.ID.String(), token, nil)
 		assert.Equal(t, http.StatusOK, w.Code)
+		assert.NotContains(t, w.Body.String(), held.Token, "the list never carries the relay credential")
 
-		var sessions []*db.AgentSession
+		var sessions []AgentSession
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&sessions))
-		assert.Len(t, sessions, 2)
+		require.Len(t, sessions, 1, "a host holds one session; the holder's second replaced the first")
+		assert.Equal(t, user.ID, sessions[0].UserId)
+		assert.NotEmpty(t, sessions[0].HolderName)
 	})
 
 	t.Run("only_returns_for_given_device", func(t *testing.T) {

@@ -33,11 +33,12 @@ func TestPostgres_DeleteStale(t *testing.T) {
 	ctx := dbtx.WithDefaultTenant(context.Background(), true)
 	owner := testutil.SeedUser(t, ctx, store)
 	site := testutil.SeedSite(t, ctx, store)
-	dev := testutil.SeedDevice(t, ctx, store, site.ID)
 
 	create := func(prefix string) string {
-		s := &session.Session{Token: prefix + uuid.New().String(), DeviceID: dev.ID, UserID: owner.ID}
-		require.NoError(t, repo.Create(ctx, s))
+		held := testutil.SeedDevice(t, ctx, store, site.ID)
+		s := &session.Session{Token: prefix + uuid.New().String(), DeviceID: held.ID, UserID: owner.ID}
+		_, err := repo.Create(ctx, s)
+		require.NoError(t, err)
 		return s.Token
 	}
 	orphan, live, alsoOrphan := create("orphan-"), create("live-"), create("orphan2-")

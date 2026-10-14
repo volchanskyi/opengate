@@ -79,11 +79,11 @@ export function seedDeviceDetailStores() {
     sendPowerAction: vi.fn(),
   });
   useSessionStore.setState({
-    sessions: [{ token: 'tok1', device_id: 'd1', user_id: 'u1', created_at: '' }],
+    sessions: [{ device_id: 'd1', user_id: 'u2', holder_name: 'Alice', created_at: '2026-10-12T14:02:00Z' }],
     isLoading: false,
     error: null,
     fetchSessions: vi.fn(),
-    createSession: vi.fn().mockResolvedValue({ token: 'new-tok', relay_url: 'ws://localhost' }),
+    endDeviceSession: vi.fn().mockResolvedValue(true),
   });
   useUpdateStore.setState({
     manifests: [],

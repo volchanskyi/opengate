@@ -9,50 +9,21 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/device"
-	"github.com/volchanskyi/opengate/server/internal/signaling"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
 
-func TestIceServersToAPI(t *testing.T) {
+func TestHelpersToAPIListsEachHelperAsItsOwnServer(t *testing.T) {
 	t.Parallel()
-	t.Run("with credentials", func(t *testing.T) {
-		servers := []signaling.ICEServer{
-			{URLs: []string{"stun:stun.example.com"}, Username: "user1", Credential: "pass1"},
-		}
-		result := iceServersToAPI(servers)
-		assert.Len(t, result, 1)
-		assert.Equal(t, []string{"stun:stun.example.com"}, result[0].Urls)
-		assert.NotNil(t, result[0].Username)
-		assert.Equal(t, "user1", *result[0].Username)
-		assert.NotNil(t, result[0].Credential)
-		assert.Equal(t, "pass1", *result[0].Credential)
-	})
 
-	t.Run("without credentials", func(t *testing.T) {
-		servers := []signaling.ICEServer{
-			{URLs: []string{"stun:stun.l.google.com:19302"}},
-		}
-		result := iceServersToAPI(servers)
-		assert.Len(t, result, 1)
-		assert.Nil(t, result[0].Username)
-		assert.Nil(t, result[0].Credential)
-	})
+	result := helpersToAPI([]string{"stun:quic.example.com:9090", "stun:10.0.0.5:3478"})
+	assert.Equal(t, []ICEServer{
+		{Urls: []string{"stun:quic.example.com:9090"}},
+		{Urls: []string{"stun:10.0.0.5:3478"}},
+	}, result)
 
-	t.Run("empty slice", func(t *testing.T) {
-		result := iceServersToAPI([]signaling.ICEServer{})
-		assert.Empty(t, result)
-	})
-
-	t.Run("multiple servers", func(t *testing.T) {
-		servers := []signaling.ICEServer{
-			{URLs: []string{"stun:stun1.example.com"}},
-			{URLs: []string{"turn:turn1.example.com"}, Username: "u", Credential: "c"},
-		}
-		result := iceServersToAPI(servers)
-		assert.Len(t, result, 2)
-		assert.Nil(t, result[0].Username)
-		assert.NotNil(t, result[1].Username)
-	})
+	empty := helpersToAPI(nil)
+	assert.NotNil(t, empty, "no helpers is an empty list, which a browser reads as try local addresses")
+	assert.Empty(t, empty)
 }
 
 func TestDerefStr(t *testing.T) {

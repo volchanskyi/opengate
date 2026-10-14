@@ -44,12 +44,18 @@ function host(id: string, hostname: string, status: 'online' | 'offline') {
   };
 }
 
+function site(id: string, name: string) {
+  return { id, name, organization_id: 'org-1', created_at: '', updated_at: '' };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(api.GET).mockResolvedValue({
-    data: [host('fs02', 'fs02', 'offline'), host('fs01', 'fs01', 'online')],
+  vi.mocked(api.GET).mockImplementation(((path: string) => Promise.resolve({
+    data: path === '/api/v1/sites'
+      ? [site('office-1', 'Office')]
+      : [host('fs02', 'fs02', 'offline'), host('fs01', 'fs01', 'online')],
     response: { ok: true, status: 200 },
-  } as never);
+  })) as never);
   useOrganizationStore.setState({ selectedOrganizationId: 'org-1', customerWanted: 0 });
   useRuleStore.setState({ detail: null, resolved: null, isLoading: false, error: null });
 });

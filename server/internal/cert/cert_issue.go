@@ -16,14 +16,15 @@ const (
 	clockSkewMargin = 5 * time.Minute
 )
 
-// leafTemplate builds a leaf certificate template valid for one year.
-func leafTemplate(subject pkix.Name, keyUsage x509.KeyUsage, ext x509.ExtKeyUsage) (*x509.Certificate, error) {
+// leafTemplate builds a leaf certificate template valid for one year, returned by value so the
+// signer keeps it on its own stack.
+func leafTemplate(subject pkix.Name, keyUsage x509.KeyUsage, ext x509.ExtKeyUsage) (x509.Certificate, error) {
 	serial, err := randomSerial()
 	if err != nil {
-		return nil, err
+		return x509.Certificate{}, err
 	}
 	now := time.Now()
-	return &x509.Certificate{
+	return x509.Certificate{
 		SerialNumber: serial,
 		Subject:      subject,
 		NotBefore:    now.Add(-clockSkewMargin),

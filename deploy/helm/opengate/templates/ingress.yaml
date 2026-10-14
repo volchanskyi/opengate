@@ -13,7 +13,7 @@ metadata:
     # WebSocket-friendly timeouts for /ws.
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
-    # Security headers come from the add-headers ConfigMap, so snippet annotations stay disabled.
+    # The server sets the security headers on every response, and the controller passes them on.
 spec:
   ingressClassName: {{ .Values.ingress.className }}
   {{- if .Values.ingress.tls }}

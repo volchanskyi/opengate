@@ -40,7 +40,7 @@ function clamp(value: string | undefined, max: number): string | undefined {
 }
 
 // Route prefixes whose next path segment is a bearer credential, as in the server's log redaction.
-const CREDENTIAL_PATH_PREFIXES = ['/sessions/', '/ws/relay/', '/api/v1/enroll/'];
+const CREDENTIAL_PATH_PREFIXES = ['/api/v1/sessions/', '/ws/relay/', '/api/v1/enroll/'];
 
 // Matches the server's RedactToken: the first 8 characters, or *** when shorter.
 function redactToken(token: string): string {

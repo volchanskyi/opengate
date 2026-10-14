@@ -3,253 +3,187 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useConnectionStore } from '../session';
 import { useFileStore } from './state/file-store';
 import { useToastStore } from '../../lib/feedback/toast-store';
-import { useFileManager } from './use-file-manager';
+import { BUFFERED_LIMIT } from './download-saver';
+import { useFileManager, VIEW_LIMIT } from './use-file-manager';
+import type { ControlMessage, FileEntry, FileFrame } from '../../lib/protocol/types';
 
-const originalCreateElement = document.createElement.bind(document);
-const originalCreateObjectURL = URL.createObjectURL;
-const originalRevokeObjectURL = URL.revokeObjectURL;
-
-vi.mock('../../lib/api', () => ({
-  api: {
-    GET: vi.fn().mockResolvedValue({ data: undefined, error: { error: 'mock' }, response: { status: 404 } }),
-    POST: vi.fn(),
-    DELETE: vi.fn(),
-  },
-}));
+const entry = (name: string): FileEntry => ({ name, is_dir: false, size: 1, modified: 0 });
 
 describe('useFileManager', () => {
-  const mockSendControl = vi.fn();
-  let capturedFileFrameHandler: ((frame: { offset: number; total_size: number; data: Uint8Array }) => void) | null = null;
-  let capturedControlHandler: ((msg: never) => void) | null = null;
+  const sendControl = vi.fn();
+  const stopControl = vi.fn();
+  let onFrame: ((frame: FileFrame) => void) | null = null;
+  let onControl: ((msg: ControlMessage) => void) | null = null;
+  const postMessage = vi.fn();
 
-  afterEach(() => {
-    vi.restoreAllMocks();
-    URL.createObjectURL = originalCreateObjectURL;
-    URL.revokeObjectURL = originalRevokeObjectURL;
-  });
+  function frame(offset: number, total: number, text: string) {
+    act(() => onFrame!({ offset, total_size: total, data: new TextEncoder().encode(text) }));
+  }
+
+  function control(msg: ControlMessage) {
+    act(() => onControl!(msg));
+  }
+
+  function workerMessages(): string[] {
+    return postMessage.mock.calls.map((c) => (c[0] as { type: string }).type).filter((t) => t !== 'keepalive');
+  }
 
   beforeEach(() => {
-    vi.clearAllMocks();
-    capturedFileFrameHandler = null;
-    capturedControlHandler = null;
-
+    stopControl.mockReset();
+    sendControl.mockReset();
+    postMessage.mockReset();
+    onFrame = null;
+    onControl = null;
+    vi.stubGlobal('navigator', { ...navigator, serviceWorker: { controller: { postMessage } } });
     useConnectionStore.setState({
       state: 'connected',
-      transport: { sendControl: mockSendControl } as never,
-      setOnControlMessage: vi.fn((cb) => {
-        capturedControlHandler = cb as never;
+      transport: { sendControl } as never,
+      listenControl: vi.fn((cb) => {
+        onControl = cb;
+        return stopControl;
       }),
       setOnFileFrame: vi.fn((cb) => {
-        capturedFileFrameHandler = cb;
+        onFrame = cb;
       }),
     });
-
     useFileStore.setState({
       currentPath: '/',
       entries: [],
       isLoading: false,
       error: null,
       downloads: {},
+      waiting: [],
       uploads: {},
       viewingFile: null,
     });
+    useToastStore.setState({ toasts: [] });
   });
 
-  it('subscribes to file frames when transport exists', () => {
-    renderHook(() => useFileManager());
-    expect(useConnectionStore.getState().setOnFileFrame).toHaveBeenCalled();
-    expect(capturedFileFrameHandler).toBeInstanceOf(Function);
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    document.body.innerHTML = '';
   });
 
-  it('unsubscribes on unmount', () => {
+  it('stops taking frames and messages on unmount', () => {
     const { unmount } = renderHook(() => useFileManager());
     unmount();
-    // setOnFileFrame should have been called with null on cleanup
-    const calls = (useConnectionStore.getState().setOnFileFrame as ReturnType<typeof vi.fn>).mock.calls;
-    expect(calls[calls.length - 1]![0]).toBeNull();
+    const frames = (useConnectionStore.getState().setOnFileFrame as ReturnType<typeof vi.fn>).mock.calls;
+    expect(frames.at(-1)![0]).toBeNull();
+    expect(stopControl).toHaveBeenCalledOnce();
   });
 
-  it('stops taking control messages on unmount', () => {
-    const { unmount } = renderHook(() => useFileManager());
-    unmount();
-    const calls = (useConnectionStore.getState().setOnControlMessage as ReturnType<typeof vi.fn>).mock.calls;
-    expect(calls[calls.length - 1]![0]).toBeNull();
+  describe('listings', () => {
+    it('fills a folder in as its pages arrive, and stops loading at the last', () => {
+      const { result } = renderHook(() => useFileManager());
+      act(() => result.current.requestDirectory('/var/log'));
+      expect(sendControl).toHaveBeenCalledWith({ type: 'FileListRequest', path: '/var/log' });
+
+      control({ type: 'FileListResponse', path: '/var/log', entries: [entry('a.log')], more: true });
+      expect(useFileStore.getState().isLoading).toBe(true);
+      control({ type: 'FileListResponse', path: '/var/log', entries: [entry('b.log')] });
+
+      expect(useFileStore.getState().entries.map((e) => e.name)).toEqual(['a.log', 'b.log']);
+      expect(useFileStore.getState().currentPath).toBe('/var/log');
+      expect(useFileStore.getState().isLoading).toBe(false);
+    });
+
+    it('drops pages of a folder the technician has left', () => {
+      const { result } = renderHook(() => useFileManager());
+      act(() => result.current.requestDirectory('/var/log'));
+      act(() => result.current.requestDirectory('/etc'));
+      control({ type: 'FileListResponse', path: '/var/log', entries: [entry('a.log')], more: true });
+      control({ type: 'FileListResponse', path: '/etc', entries: [entry('hosts')] });
+      expect(useFileStore.getState().entries.map((e) => e.name)).toEqual(['hosts']);
+    });
+
+    it('shows a listing the host refused as an error', () => {
+      const { result } = renderHook(() => useFileManager());
+      act(() => result.current.requestDirectory('/root'));
+      control({ type: 'FileListError', path: '/root', error: 'permission denied' });
+      expect(useFileStore.getState().error).toBe('permission denied');
+      expect(useFileStore.getState().isLoading).toBe(false);
+    });
+
+    it('clears the last folder’s error when another opens', () => {
+      useFileStore.setState({ error: 'permission denied' });
+      const { result } = renderHook(() => useFileManager());
+      act(() => result.current.requestDirectory('/home'));
+      expect(useFileStore.getState().error).toBeNull();
+    });
   });
 
-  it('a directory listing from the machine reaches the store', () => {
-    renderHook(() => useFileManager());
-    const entries = [{ name: 'hosts', is_dir: false, size: 12, modified: 0 }];
+  describe('downloads', () => {
+    it('streams a download through the service worker as its pieces arrive', () => {
+      const { result } = renderHook(() => useFileManager());
+      act(() => result.current.requestDownload('/var/log/a.log'));
+      expect(sendControl).toHaveBeenCalledWith({ type: 'FileDownloadRequest', path: '/var/log/a.log' });
+      expect(useFileStore.getState().downloads['a.log']).toBe(0);
 
-    act(() => {
-      capturedControlHandler!({ type: 'FileListResponse', path: '/etc', entries } as never);
+      frame(0, 10, 'hello');
+      expect(useFileStore.getState().downloads['a.log']).toBe(0.5);
+      frame(5, 10, 'world');
+
+      expect(workerMessages()).toEqual(['download-start', 'download-chunk', 'download-chunk', 'download-end']);
+      expect(useFileStore.getState().downloads['a.log']).toBeUndefined();
     });
 
-    expect(useFileStore.getState().currentPath).toBe('/etc');
-    expect(useFileStore.getState().entries).toEqual(entries);
+    it('runs one download at a time, the next waiting until the first is saved', () => {
+      const { result } = renderHook(() => useFileManager());
+      act(() => result.current.requestDownload('/var/log/a.log'));
+      act(() => result.current.requestView('/var/log/b.log'));
+
+      expect(sendControl).toHaveBeenCalledTimes(1);
+      expect(useFileStore.getState().waiting).toEqual(['b.log']);
+
+      frame(0, 3, 'abc');
+      expect(sendControl).toHaveBeenLastCalledWith({ type: 'FileDownloadRequest', path: '/var/log/b.log' });
+      expect(useFileStore.getState().waiting).toEqual([]);
+
+      frame(0, 2, 'ok');
+      expect(useFileStore.getState().viewingFile).toEqual({ name: 'b.log', content: 'ok' });
+    });
+
+    it('ends a download the host could not read with its reason, and moves to the next', () => {
+      const { result } = renderHook(() => useFileManager());
+      act(() => result.current.requestDownload('/var/log/a.log'));
+      act(() => result.current.requestDownload('/var/log/b.log'));
+      frame(0, 10, 'half!');
+
+      control({ type: 'FileDownloadError', path: '/var/log/a.log', error: 'input/output error' });
+
+      expect(workerMessages()).toContain('download-abort');
+      expect(useToastStore.getState().toasts.at(-1)!.message).toBe("Couldn't download a.log: input/output error");
+      expect(useFileStore.getState().downloads['a.log']).toBeUndefined();
+      expect(sendControl).toHaveBeenLastCalledWith({ type: 'FileDownloadRequest', path: '/var/log/b.log' });
+    });
+
+    it('says a file is past what this browser can save without a service worker, and holds none of it', () => {
+      vi.stubGlobal('navigator', { ...navigator, serviceWorker: { controller: null } });
+      const { result } = renderHook(() => useFileManager());
+      act(() => result.current.requestDownload('/srv/disk.vhdx'));
+      act(() => result.current.requestDownload('/srv/notes.txt'));
+
+      frame(0, BUFFERED_LIMIT + 1, 'x');
+      expect(useToastStore.getState().toasts.at(-1)!.message).toMatch(/up to 64 MiB/);
+      expect(sendControl).toHaveBeenCalledTimes(1);
+    });
   });
 
-  it('a listing the machine refused reaches the store as an error', () => {
-    useFileStore.setState({ isLoading: true });
-    renderHook(() => useFileManager());
-
-    act(() => {
-      capturedControlHandler!({ type: 'FileListError', path: '/root', error: 'permission denied' } as never);
+  describe('views', () => {
+    it('shows a small file’s text', () => {
+      const { result } = renderHook(() => useFileManager());
+      act(() => result.current.requestView('/etc/hostname'));
+      frame(0, 5, 'fs01\n');
+      expect(useFileStore.getState().viewingFile).toEqual({ name: 'hostname', content: 'fs01\n' });
     });
 
-    expect(useFileStore.getState().error).toBe('permission denied');
-    expect(useFileStore.getState().isLoading).toBe(false);
-  });
-
-  it('opening a directory clears the error the last one left', () => {
-    useFileStore.setState({ error: 'permission denied' });
-    const { result } = renderHook(() => useFileManager());
-
-    act(() => {
-      result.current.requestDirectory('/home');
+    it('declines to show a file past the view limit, and suggests downloading it', () => {
+      const { result } = renderHook(() => useFileManager());
+      act(() => result.current.requestView('/var/log/huge.log'));
+      frame(0, VIEW_LIMIT + 1, 'x');
+      expect(useToastStore.getState().toasts.at(-1)!.message).toBe('huge.log is too large to view; download it instead');
+      expect(useFileStore.getState().viewingFile).toBeNull();
     });
-
-    expect(useFileStore.getState().error).toBeNull();
-  });
-
-  it('requestDownload sends FileDownloadRequest and sets initial progress', () => {
-    const { result } = renderHook(() => useFileManager());
-
-    act(() => {
-      result.current.requestDownload('/home/test.txt');
-    });
-
-    expect(mockSendControl).toHaveBeenCalledWith({
-      type: 'FileDownloadRequest',
-      path: '/home/test.txt',
-    });
-    expect(useFileStore.getState().downloads['test.txt']).toBe(0);
-  });
-
-  it('requestView sends FileDownloadRequest and sets initial progress', () => {
-    const { result } = renderHook(() => useFileManager());
-
-    act(() => {
-      result.current.requestView('/home/readme.md');
-    });
-
-    expect(mockSendControl).toHaveBeenCalledWith({
-      type: 'FileDownloadRequest',
-      path: '/home/readme.md',
-    });
-    expect(useFileStore.getState().downloads['readme.md']).toBe(0);
-  });
-
-  it('accumulates file frames and updates download progress', () => {
-    const { result } = renderHook(() => useFileManager());
-
-    act(() => {
-      result.current.requestDownload('/home/file.bin');
-    });
-
-    act(() => {
-      capturedFileFrameHandler!({ offset: 0, total_size: 10, data: new Uint8Array(5) });
-    });
-
-    expect(useFileStore.getState().downloads['file.bin']).toBeCloseTo(0.5);
-  });
-
-  function setupBrowserSaveMocks() {
-    const createObjectURL = vi.fn(() => 'blob:mock-url');
-    const revokeObjectURL = vi.fn();
-    globalThis.URL.createObjectURL = createObjectURL;
-    globalThis.URL.revokeObjectURL = revokeObjectURL;
-
-    const mockClick = vi.fn();
-    const mockAnchor = { href: '', download: '', click: mockClick } as unknown as HTMLAnchorElement;
-
-    vi.spyOn(document, 'createElement').mockImplementation((tag: string) =>
-      tag === 'a' ? (mockAnchor as never) : originalCreateElement(tag),
-    );
-    vi.spyOn(document.body, 'appendChild').mockImplementation(() => mockAnchor as never);
-    vi.spyOn(document.body, 'removeChild').mockImplementation(() => mockAnchor as never);
-
-    return { createObjectURL, revokeObjectURL, mockClick, mockAnchor };
-  }
-
-  it('triggers browser save on completed download', () => {
-    // Render hook first, then mock DOM methods (so React can mount)
-    const { result } = renderHook(() => useFileManager());
-    const { createObjectURL, revokeObjectURL, mockClick, mockAnchor } = setupBrowserSaveMocks();
-
-    act(() => {
-      result.current.requestDownload('/home/file.bin');
-    });
-
-    act(() => {
-      capturedFileFrameHandler!({ offset: 0, total_size: 5, data: new Uint8Array([1, 2, 3, 4, 5]) });
-    });
-
-    expect(createObjectURL).toHaveBeenCalled();
-    expect(mockAnchor.download).toBe('file.bin');
-    expect(mockClick).toHaveBeenCalled();
-    expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
-    expect(useFileStore.getState().downloads['file.bin']).toBeUndefined();
-    // The link is in the page when it is clicked, and gone afterwards.
-    expect(document.body.appendChild).toHaveBeenCalledWith(mockAnchor);
-    expect(document.body.removeChild).toHaveBeenCalledWith(mockAnchor);
-  });
-
-  it('a viewed file that cannot be read clears its progress and says so', async () => {
-    vi.spyOn(Blob.prototype, 'text').mockRejectedValue(new Error('unreadable'));
-    const addToast = vi.fn();
-    useToastStore.setState({ addToast });
-    const { result } = renderHook(() => useFileManager());
-
-    act(() => {
-      result.current.requestView('/home/broken.txt');
-    });
-    act(() => {
-      capturedFileFrameHandler!({ offset: 0, total_size: 3, data: new Uint8Array([1, 2, 3]) });
-    });
-
-    await vi.waitFor(() => {
-      expect(addToast).toHaveBeenCalledWith("Failed to read file 'broken.txt': unreadable", 'error');
-    });
-    expect(useFileStore.getState().downloads['broken.txt']).toBeUndefined();
-  });
-
-  it('sets viewingFile on completed view request', async () => {
-    const { result } = renderHook(() => useFileManager());
-
-    act(() => {
-      result.current.requestView('/home/hello.txt');
-    });
-
-    const data = new TextEncoder().encode('hello world');
-
-    act(() => {
-      capturedFileFrameHandler!({ offset: 0, total_size: data.length, data });
-    });
-
-    // Blob.text() is async, wait for state update
-    await vi.waitFor(() => {
-      expect(useFileStore.getState().viewingFile).not.toBeNull();
-    });
-
-    expect(useFileStore.getState().viewingFile?.name).toBe('hello.txt');
-    expect(useFileStore.getState().viewingFile?.content).toBe('hello world');
-    expect(useFileStore.getState().downloads['hello.txt']).toBeUndefined();
-  });
-
-  it('handles empty file (total_size=0) download', () => {
-    const { result } = renderHook(() => useFileManager());
-    const { createObjectURL, mockClick } = setupBrowserSaveMocks();
-
-    act(() => {
-      result.current.requestDownload('/home/empty.txt');
-    });
-
-    act(() => {
-      capturedFileFrameHandler!({ offset: 0, total_size: 0, data: new Uint8Array(0) });
-    });
-
-    expect(createObjectURL).toHaveBeenCalled();
-    expect(mockClick).toHaveBeenCalled();
-    expect(useFileStore.getState().downloads['empty.txt']).toBeUndefined();
   });
 });

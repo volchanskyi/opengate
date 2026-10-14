@@ -1,16 +1,11 @@
 opengate ({{ .Release.Name }}) deployed to namespace {{ .Release.Namespace }}.
 
-Prerequisites (install once per cluster, outside this chart):
-  1. ingress-nginx — snippet annotations stay DISABLED. The security headers are
-     applied controller-side via the add-headers ConfigMap this chart renders
-     (templates/custom-headers-configmap.yaml), so no per-ingress snippet (and no
-     annotation-injection attack surface) is needed:
-       helm install ingress-nginx ingress-nginx/ingress-nginx \
-         --namespace ingress-nginx --create-namespace \
-         --set controller.allowSnippetAnnotations=false \
-         --set controller.config.add-headers={{ .Release.Namespace }}/{{ include "opengate.fullname" . }}-custom-headers
-     On OKE, also annotate the controller Service for the Always-Free flexible LB
-     (oci-load-balancer-shape=flexible, flex-min/max=10, subnet1=<lb-subnet>).
+Prerequisites (once per cluster, outside this chart):
+  1. ingress-nginx, from the repository's values with snippet annotations off. A
+     production deploy applies it; on a new cluster, apply it by hand with the
+     load balancer's subnet from Terraform's oke_lb_subnet_id output:
+       INGRESS_LB_SUBNET_ID=<lb-subnet> deploy/scripts/ingress-controller-apply.sh apply
+     The server sets the security headers on every response itself.
   2. cert-manager (CRDs + controller) for the ClusterIssuer:
        helm install cert-manager jetstack/cert-manager \
          --namespace cert-manager --create-namespace --set crds.enabled=true

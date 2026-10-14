@@ -1,0 +1,107 @@
+{
+  "config": { "rootDir": "/home/runner/work/opengate/opengate/web/e2e" },
+  "suites": [
+    {
+      "title": "performance-chromium.spec.ts",
+      "file": "performance-chromium.spec.ts",
+      "specs": [],
+      "suites": [
+        {
+          "title": "Performance in Chromium",
+          "file": "performance-chromium.spec.ts",
+          "specs": [
+            {
+              "title": "the page's memory stays flat through a 512 MiB download",
+              "tests": [
+                {
+                  "projectName": "performance",
+                  "status": "expected",
+                  "results": [
+                    {
+                      "status": "passed",
+                      "duration": 33400,
+                      "annotations": [
+                        { "type": "measurement", "description": "{\"measurement\":\"page heap growth\",\"limit\":\"< 32 MiB\",\"reading\":\"6.1 MiB\",\"held\":true}" }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "title": "a tab frozen for 30 s mid-download carries on without loss",
+              "tests": [
+                {
+                  "projectName": "performance",
+                  "status": "unexpected",
+                  "results": [
+                    {
+                      "status": "timedOut",
+                      "duration": 150000,
+                      "annotations": [],
+                      "error": { "message": "\u001b[31mTest timeout of 150000ms exceeded.\u001b[39m\nwhile waiting for the download" }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "performance.spec.ts",
+      "file": "performance.spec.ts",
+      "specs": [],
+      "suites": [
+        {
+          "title": "Performance",
+          "file": "performance.spec.ts",
+          "specs": [
+            {
+              "title": "typing echoes within 100 ms at 100 Mbit/s over Direct, and the download keeps 80% of the line",
+              "tests": [
+                {
+                  "projectName": "performance",
+                  "status": "unexpected",
+                  "results": [
+                    {
+                      "status": "failed",
+                      "duration": 126000,
+                      "annotations": [
+                        { "type": "measurement", "description": "{\"measurement\":\"echo, 95th percentile\",\"limit\":\"≤ 100 ms\",\"reading\":\"95 ms\",\"held\":true}" },
+                        { "type": "measurement", "description": "{\"measurement\":\"download, share of the line\",\"limit\":\"≥ 80%\",\"reading\":\"78.3% (78.3 Mbit/s)\",\"held\":false}" },
+                        { "type": "measurement", "description": "{\"measurement\":\"download, time the rate is read over\",\"limit\":\"≥ 30 s\",\"reading\":\"70.2 s\",\"held\":true}" }
+                      ],
+                      "error": { "message": "Error: 78.3 Mbit/s over 70.2 s\n\nexpect(received).toBeGreaterThanOrEqual(expected)" }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "title": "the session moves to Direct within a second of the relay opening, through the router",
+              "tests": [
+                {
+                  "projectName": "performance",
+                  "status": "expected",
+                  "results": [
+                    {
+                      "status": "passed",
+                      "duration": 1700,
+                      "annotations": [
+                        { "type": "measurement", "description": "{\"measurement\":\"time to Direct | after the relay opens\",\"limit\":\"< 1000 ms\",\"reading\":\"412 ms\",\"held\":true}" }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": { "expected": 2, "unexpected": 2, "flaky": 0, "skipped": 0 }
+}

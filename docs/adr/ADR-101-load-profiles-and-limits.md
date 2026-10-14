@@ -186,8 +186,10 @@ actual, result*, where the result is a pass, a failure (enforced) or an overrun
 [`summary-table.sh`](../../scripts/lib/summary-table.sh)). Every run shows its
 error rate, and the server's and the database's average processor and memory use
 over the measured phase, each as a share of its own cap. A reading that was not
-taken is written as not read, never as nought, and a short legend under the
-table says what each column means in plain words.
+taken is written as not read, never as nought. Each column heading and each
+metric word (p50, p95, p99, error rate, throughput, Service Level, not read)
+carries its explanation in plain words as hover text, so the summary is its
+title and its table, with no legend under it.
 
 **A measurement a family exists to drive past carries no ceiling.** The ladder
 climbs until arrivals fail, so its aggregate share of machines that did not get

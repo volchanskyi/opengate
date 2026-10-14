@@ -574,6 +574,10 @@ jobs:
             | kubectl -n "$NAMESPACE" exec -i "statefulset/${RELEASE}-postgres" -- \
                 psql -U opengate -d opengate -v ON_ERROR_STOP=1
 
+      # Staging and production share the controller, so it changes only behind this job's approval.
+      - name: Give the ingress controller the settings this commit declares
+        run: deploy/scripts/ingress-controller-apply.sh apply
+
       - name: Helm upgrade
         env:
           DOMAIN: ${{ secrets.DEPLOY_DOMAIN }}
@@ -623,6 +627,18 @@ jobs:
         env:
           DOMAIN: ${{ secrets.DEPLOY_DOMAIN }}
         run: bash deploy/scripts/smoke-test.sh --domain "$DOMAIN" --mode production
+
+      # The edge reports the runner's address as it saw it; the helper must see the same one.
+      - name: Ask the production helper where this runner comes from
+        env:
+          DOMAIN: ${{ secrets.DEPLOY_DOMAIN }}
+        run: |
+          set -euo pipefail
+          HELPER="$(kubectl -n "$NAMESPACE" get deploy "${RELEASE}-server" -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="OPENGATE_ICE_SERVERS")].value}' | cut -d, -f1)"
+          test -n "$HELPER"
+          SEEN="$(curl -4 -sSf --max-time 20 "https://${DOMAIN}/cdn-cgi/trace" | sed -n 's/^ip=//p')"
+          test -n "$SEEN"
+          python3 deploy/scripts/helper-probe.py "$HELPER" "$SEEN"
 
       - name: Remove OCI credentials
         if: always()

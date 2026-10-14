@@ -1,0 +1,2 @@
+the pinned reader walks a core go1.27.1 wrote back to its roots
+the newest upstream reader still cannot walk it (see /tmp/core-walk/upstream.log), so the patch is still needed

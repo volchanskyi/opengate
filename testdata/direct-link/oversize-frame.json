@@ -1,0 +1,64 @@
+{
+  "description": "A piece announcing a frame past 4 MiB is a reassembly error: the receiver leaves the link and nothing is lost.",
+  "steps": [
+    {
+      "step": "begin",
+      "side": "both"
+    },
+    {
+      "step": "open",
+      "side": "both"
+    },
+    {
+      "step": "settle"
+    },
+    {
+      "step": "queue",
+      "side": "host",
+      "lane": "interactive",
+      "frames": [
+        {
+          "label": "h1"
+        }
+      ]
+    },
+    {
+      "step": "take",
+      "side": "host"
+    },
+    {
+      "step": "inject",
+      "to": "browser",
+      "bytes": [
+        3,
+        0,
+        64,
+        0,
+        1
+      ]
+    },
+    {
+      "step": "settle"
+    }
+  ],
+  "expect": {
+    "browser": {
+      "delivered": [
+        "h1"
+      ],
+      "path": "relay",
+      "outcomes": [
+        "direct",
+        "dropped"
+      ]
+    },
+    "host": {
+      "delivered": [],
+      "path": "relay",
+      "outcomes": [
+        "direct",
+        "dropped"
+      ]
+    }
+  }
+}

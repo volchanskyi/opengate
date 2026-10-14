@@ -15,7 +15,7 @@ func TestIsWritePathMessage(t *testing.T) {
 	t.Parallel()
 	write := []protocol.ControlMessageType{
 		protocol.MsgAgentRegister, protocol.MsgAgentHeartbeat, protocol.MsgAgentHealthSummary,
-		protocol.MsgAgentMetricWindow, protocol.MsgProcessReport, protocol.MsgDiscoveryReport,
+		protocol.MsgAgentMetricWindow, protocol.MsgDiscoveryReport,
 		protocol.MsgHealthWindowResponse, protocol.MsgRequestBackfillSlot, protocol.MsgMetricBackfillBatch,
 	}
 	for _, m := range write {
@@ -36,7 +36,7 @@ func TestRejectTombstonedWrite(t *testing.T) {
 	live := &AgentConn{DeviceID: uuid.New(), logger: testLogger(), isTombstoned: func() bool { return false }}
 	nilChecker := &AgentConn{DeviceID: uuid.New(), logger: testLogger()}
 
-	writeMsg := &protocol.ControlMessage{Type: protocol.MsgProcessReport}
+	writeMsg := &protocol.ControlMessage{Type: protocol.MsgAgentMetricWindow}
 	readMsg := &protocol.ControlMessage{Type: protocol.MsgDeviceLogsResponse}
 
 	assert.True(t, tombstoned.rejectTombstonedWrite(writeMsg), "tombstoned write is rejected")

@@ -1,0 +1,79 @@
+{
+  "description": "The link dies after the host took one of the browser's keystrokes; the rest are re-sent in order.",
+  "steps": [
+    {
+      "step": "begin",
+      "side": "both"
+    },
+    {
+      "step": "open",
+      "side": "both"
+    },
+    {
+      "step": "settle"
+    },
+    {
+      "step": "queue",
+      "side": "browser",
+      "lane": "interactive",
+      "frames": [
+        {
+          "label": "k1"
+        },
+        {
+          "label": "k2"
+        },
+        {
+          "label": "k3"
+        },
+        {
+          "label": "k4"
+        }
+      ]
+    },
+    {
+      "step": "take",
+      "side": "browser"
+    },
+    {
+      "step": "carry",
+      "path": "link",
+      "to": "host",
+      "count": 1
+    },
+    {
+      "step": "cut"
+    },
+    {
+      "step": "lose",
+      "side": "browser",
+      "reason": "closed"
+    },
+    {
+      "step": "settle"
+    }
+  ],
+  "expect": {
+    "browser": {
+      "delivered": [],
+      "path": "relay",
+      "outcomes": [
+        "direct",
+        "dropped"
+      ]
+    },
+    "host": {
+      "delivered": [
+        "k1",
+        "k2",
+        "k3",
+        "k4"
+      ],
+      "path": "relay",
+      "outcomes": [
+        "direct",
+        "dropped"
+      ]
+    }
+  }
+}

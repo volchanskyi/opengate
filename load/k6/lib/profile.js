@@ -22,6 +22,12 @@ export function phases() {
 // The most virtual users a phase preallocates; maxVUs allows twice as many.
 const MAX_VIRTUAL_USERS = 500;
 
+/** Requests a second the server allows one account; the rate-budget gate holds it to api.go. */
+export const ACCOUNT_REQUESTS_PER_SECOND = 100;
+
+// The part of one account's allowance any account carries at the busiest phase's rate.
+const ACCOUNT_SHARE = 0.25;
+
 /** The phase the night's percentiles are taken over, or undefined. */
 export function measuredPhase(walk) {
   return walk.find((phase) => phase.measured);
@@ -85,6 +91,27 @@ export function sessionScenarios(walk) {
     throw new Error("the profile's walk holds no session open in any phase");
   }
   return scenarios;
+}
+
+/**
+ * How many accounts an arrival walk signs in as: enough that none carries more than a quarter of
+ * its allowance at the busiest phase's rate. Virtual users share them in turn.
+ */
+export function arrivalTechnicians(walk, requestsPerIteration) {
+  const peak = Math.max(0, ...walk.map((phase) => phase.arrivals_per_second || 0));
+  const perAccount = ACCOUNT_REQUESTS_PER_SECOND * ACCOUNT_SHARE;
+  return Math.max(1, Math.ceil((peak * requestsPerIteration) / perAccount));
+}
+
+/**
+ * How many accounts, and machines, a session walk holds at once: one per held session over two
+ * adjacent phases, since one phase's last sessions can still be closing as the next one's open.
+ */
+export function sessionTechnicians(walk) {
+  return walk.reduce((most, phase, i) => {
+    const next = i + 1 < walk.length ? walk[i + 1].sessions || 0 : 0;
+    return Math.max(most, (phase.sessions || 0) + next);
+  }, 0);
 }
 
 /**

@@ -72,7 +72,8 @@ jobs:
         run: |
           set -euo pipefail
           cd server
-          go test -bench=. -benchmem -count=1 -run='^$' ./internal/... | tee "$GITHUB_WORKSPACE/bench-go.txt"
+          # Pinned to the runner's four processors, which the gauntlet's local check runs at too.
+          go test -bench=. -benchmem -count=1 -cpu 4 -run='^$' ./internal/... | tee "$GITHUB_WORKSPACE/bench-go.txt"
 
       - uses: actions/upload-artifact@v7
         if: matrix.lang == 'go'
@@ -94,7 +95,7 @@ jobs:
         run: |
           set -euo pipefail
           cd agent
-          cargo bench --package mesh-protocol --bench codec_bench
+          cargo bench -p mesh-protocol -p mesh-agent-core -p edge-tsdb --bench '*'
           DEST="$GITHUB_WORKSPACE/bench-rust-estimates"
           mkdir -p "$DEST"
           # Copies only new/estimates.json, keeping the <bench>/new layout the summarizer globs.
@@ -119,6 +120,7 @@ jobs:
     permissions:
       contents: read
     outputs:
+      alert_text: ${{ steps.summarize.outputs.alert_text }}
       regression: ${{ steps.summarize.outputs.regression }}
     env:
       VM_RUN_STARTED_AT: ${{ needs.run.outputs.started_at }}
@@ -254,31 +256,6 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Send Telegram alert
-        # Runs whatever happened above it, and the message names which of the three it was.
-        # A refused delivery fails this job; the verdict is read by a job of its own.
-        if: always()
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
-          FINDING: ${{ steps.summarize.outputs.regression }}
-          ALERT_TEXT: ${{ steps.summarize.outputs.alert_text }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          JOB_STATUS: ${{ job.status }}
-        run: |
-          set -euo pipefail
-          if [ "$JOB_STATUS" = "success" ] && [ "${FINDING:-0}" != "1" ]; then
-            echo "No alert sent: the run finished and found nothing."
-            exit 0
-          fi
-          if [ "${FINDING:-0}" = "1" ]; then
-            MSG="$(printf '%s\n\nRun: %s\nTrend: Grafana dashboard "Benchmark Trends" (opengate-benchmark-trend)' "$ALERT_TEXT" "$RUN_URL")"
-          else
-            MSG="$(printf 'Benchmark trend: the night did not finish (%s), so nothing was measured.\n\nRun: %s' \
-              "$JOB_STATUS" "$RUN_URL")"
-          fi
-          scripts/telegram-alert.sh "$MSG"
-
       - name: Remove OCI credentials
         if: always()
         uses: ./.github/actions/oci-kube-teardown
@@ -303,3 +280,42 @@ jobs:
             exit 1
           fi
           echo "No benchmark regression."
+
+  # Sends the run's alert from a job of its own, which holds the Telegram secrets and nothing else.
+  alert:
+    name: Alert if the run did not finish
+    needs: [publish]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-pinned-tools
+
+      - name: Send Telegram alert
+        # Says which of the three the publish job met. A refused send fails this job alone, so the
+        # verdict the gate reads stays the run's.
+        if: always() && needs.publish.result != 'skipped'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
+          FINDING: ${{ needs.publish.outputs.regression }}
+          ALERT_TEXT: ${{ needs.publish.outputs.alert_text }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ needs.publish.result }}
+        run: |
+          set -euo pipefail
+          if [ "$JOB_STATUS" = "success" ] && [ "${FINDING:-0}" != "1" ]; then
+            echo "No alert sent: the run finished and found nothing."
+            exit 0
+          fi
+          if [ "${FINDING:-0}" = "1" ]; then
+            MSG="$(printf '%s\n\nRun: %s\nTrend: Grafana dashboard "Benchmark Trends" (opengate-benchmark-trend)' "$ALERT_TEXT" "$RUN_URL")"
+          else
+            MSG="$(printf 'Benchmark trend: the night did not finish (%s), so nothing was measured.\n\nRun: %s' \
+              "$JOB_STATUS" "$RUN_URL")"
+          fi
+          scripts/telegram-alert.sh "$MSG"

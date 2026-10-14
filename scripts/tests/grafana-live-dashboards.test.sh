@@ -178,6 +178,22 @@ if "opengate-overview" in docs:
     if by_title(docs["opengate-overview"], "Active Relay Sessions by Replica"):
         print("opengate-overview: the per-replica open count is still there beside the relay panel")
 
+# The direct-link panel: the share of attempts that went Direct, and the links that dropped.
+if "opengate-overview" in docs:
+    direct = by_title(docs["opengate-overview"], "Direct links")
+    if not direct:
+        print("opengate-overview: no Direct links panel")
+    else:
+        exprs = " ".join(t.get("expr", "") for t in direct[0].get("targets", []))
+        if 'opengate_direct_link_outcomes_total{namespace="$environment",outcome="direct"}' not in exprs:
+            print("opengate-overview / Direct links: does not count the attempts that went Direct")
+        if 'outcome=~"direct|no_route|unsupported"' not in exprs:
+            print("opengate-overview / Direct links: the share is not taken over every attempt's first outcome")
+        if 'outcome="dropped"' not in exprs:
+            print("opengate-overview / Direct links: does not show the links that dropped")
+        if not no_value(direct[0]):
+            print("opengate-overview / Direct links: can come back empty and does not say what that means")
+
 # The exporter splits each connection count by state, user, application and
 # wait event, so the stat is their total and the chart one line per state.
 if "postgres" in docs:

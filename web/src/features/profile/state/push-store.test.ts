@@ -88,6 +88,7 @@ describe('push store', () => {
     const origPushManager = (globalThis as { PushManager?: unknown }).PushManager;
 
     afterEach(() => {
+      vi.unstubAllGlobals();
       Object.defineProperty(globalThis, 'navigator', { value: origNavigator, configurable: true });
       if (origPushManager === undefined) {
         delete (globalThis as { PushManager?: unknown }).PushManager;
@@ -113,7 +114,25 @@ describe('push store', () => {
       expect(usePushStore.getState().isSubscribed).toBe(false);
     });
 
+    it.each(['default', 'denied'])(
+      'asks the push service nothing while notification permission is %s',
+      async (permission) => {
+        const getSubscription = vi.fn(async () => ({ endpoint: 'x' }));
+        Object.defineProperty(globalThis, 'navigator', {
+          value: { serviceWorker: { ready: Promise.resolve({ pushManager: { getSubscription } }) } },
+          configurable: true,
+        });
+        (globalThis as { PushManager?: unknown }).PushManager = function () {};
+        vi.stubGlobal('Notification', { permission });
+        usePushStore.setState({ isSubscribed: true });
+        await usePushStore.getState().syncSubscriptionStatus();
+        expect(getSubscription).not.toHaveBeenCalled();
+        expect(usePushStore.getState().isSubscribed).toBe(false);
+      },
+    );
+
     it('updates isSubscribed=true when an existing subscription is returned', async () => {
+      vi.stubGlobal('Notification', { permission: 'granted' });
       const fakeSub = { endpoint: 'x' };
       Object.defineProperty(globalThis, 'navigator', {
         value: {
@@ -128,6 +147,7 @@ describe('push store', () => {
     });
 
     it('updates isSubscribed=false when no subscription exists', async () => {
+      vi.stubGlobal('Notification', { permission: 'granted' });
       Object.defineProperty(globalThis, 'navigator', {
         value: {
           serviceWorker: { ready: Promise.resolve({ pushManager: { getSubscription: async () => null } }) },

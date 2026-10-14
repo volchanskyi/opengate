@@ -4,6 +4,8 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SUMMARIZE="$SCRIPT_DIR/../benchmark-summarize.sh"
+# shellcheck source=scripts/lib/summary-table.sh
+. "$SCRIPT_DIR/../lib/summary-table.sh"
 [ -x "$SUMMARIZE" ] || {
   echo "FAIL: $SUMMARIZE not executable" >&2
   exit 1
@@ -242,22 +244,22 @@ echo "summary page:"
 write_go_ns 200
 BENCHMARK_SUMMARY_FILE="$WORK/bench-table.md" run_ns_gate >/dev/null 2>&1 || true
 table="$(cat "$WORK/bench-table.md" 2>/dev/null || true)"
-if grep -qxF '| Measurement | Expected | Actual | Result |' <<<"$table"; then
+if grep -qxF "$(summary_table_header | sed -n 1p)" <<<"$table"; then
   pass "the page is the four-column table"
 else
   fail "the page is the four-column table (got: $table)"
 fi
-if grep -qF '| go/BenchmarkEncodeFrame ns/op | ≤ 184.5 ns (nights'"'"' median × 1.5); ≤ 240 ns (baseline × 2) | 200 ns | FAIL |' <<<"$table"; then
+if grep -qF "| go/BenchmarkEncodeFrame $(summary_term ns/op) | ≤ 184.5 ns (nights' median × 1.5); ≤ 240 ns (baseline × 2) | 200 ns | FAIL |" <<<"$table"; then
   pass "a timing past the nights' band is FAIL, with both of its limits named"
 else
   fail "a timing past the nights' band is FAIL, with both of its limits named (got: $table)"
 fi
-if grep -qF '| go/BenchmarkEncodeFrame allocs/op | ≤ 2.04 (baseline 2 + 2 %) | 2 | pass |' <<<"$table"; then
+if grep -qF "| go/BenchmarkEncodeFrame $(summary_term allocs/op) | ≤ 2.04 (baseline 2 + 2 %) | 2 | pass |" <<<"$table"; then
   pass "an allocation count inside its baseline passes"
 else
   fail "an allocation count inside its baseline passes (got: $table)"
 fi
-if grep -qF -- '- **Expected**' <<<"$table"; then pass "the page carries the legend"; else fail "the page carries the legend"; fi
+if grep -q '^- \*\*' <<<"$table"; then fail "no legend follows the table"; else pass "no legend follows the table"; fi
 
 echo
 echo "baseline generation:"

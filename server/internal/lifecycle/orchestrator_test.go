@@ -89,10 +89,6 @@ func seedDeviceWithTelemetry(t *testing.T, f *orchestratorFixture, tenantID uuid
 	device := testutil.SeedDevice(t, ctx, f.store, site.ID)
 
 	ts := time.Now().UTC().Truncate(time.Second)
-	procs := telemetry.NewPostgresProcessRepository(f.store.DB())
-	require.NoError(t, procs.UpsertReport(ctx, device.ID, ts, []telemetry.ProcessSample{
-		{Rank: 0, Basename: "sshd", PID: 1, CPU: 1, Mem: 1},
-	}))
 	inv := inventory.NewPostgresInventoryRepository(f.store.DB())
 	require.NoError(t, inv.Replace(ctx, device.ID, ts, []inventory.Component{
 		{Kind: inventory.KindPort, Name: "sshd", Proto: "tcp", Port: 22},
@@ -122,7 +118,6 @@ func TestOrchestratorPurgeDeviceFansOutAndVerifies(t *testing.T) {
 
 	scoped := dbtx.WithTenant(ctx, tenant, true)
 	assert.Zero(t, countRows(t, f, scoped, qDevices, device))
-	assert.Zero(t, countRows(t, f, scoped, qProcesses, device))
 	assert.Zero(t, countRows(t, f, scoped, qInventory, device))
 	assert.Zero(t, countRows(t, f, scoped, qCoverage, device),
 		"a decommissioned machine must stop counting against a rule's coverage")
@@ -213,7 +208,6 @@ func (f *flakyPGPurger) ListAllDeviceIDs(ctx context.Context) ([]uuid.UUID, erro
 // Fixed count queries per table, so the test never string-builds SQL.
 const (
 	qDevices   = `SELECT COUNT(*) FROM devices WHERE id = $1`
-	qProcesses = `SELECT COUNT(*) FROM device_processes WHERE device_id = $1`
 	qInventory = `SELECT COUNT(*) FROM device_inventory WHERE device_id = $1`
 	qCoverage  = `SELECT COUNT(*) FROM rule_coverage_unsupported WHERE device_id = $1`
 )

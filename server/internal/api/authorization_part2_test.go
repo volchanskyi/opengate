@@ -106,9 +106,11 @@ func TestSessionCommandsAreTenantWide(t *testing.T) {
 		assert.Equal(t, http.StatusNoContent, w.Code)
 	})
 
-	t.Run("delete session peer succeeds", func(t *testing.T) {
+	t.Run("delete session peer is refused", func(t *testing.T) {
 		sess := testutil.SeedAgentSession(t, ctx, srv.store, dev.ID, creator.ID)
 		w := doRequest(srv, http.MethodDelete, "/api/v1/sessions/"+sess.Token, peerToken, nil)
+		assert.Equal(t, http.StatusForbidden, w.Code, "only the holder or an administrator ends a session")
+		w = doRequest(srv, http.MethodDelete, "/api/v1/sessions/"+sess.Token, creatorToken, nil)
 		assert.Equal(t, http.StatusNoContent, w.Code)
 	})
 

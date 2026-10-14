@@ -143,18 +143,23 @@ func TestAHeldMachineAnswersARawLogPull(t *testing.T) {
 	assert.Len(t, reply.LogEntries, 5)
 }
 
-func TestASessionRequestIsIgnoredUnlessRelayCoverageWasAskedFor(t *testing.T) {
-	codec := &protocol.Codec{}
-	stream := &deadlineBuffer{in: &bytes.Buffer{}, out: &bytes.Buffer{}}
+// answerSessionRequest hands a held machine one session request and returns what it wrote back.
+func answerSessionRequest(relayURL string, helpers []string, opts loadOptions) (*bytes.Buffer, error) {
+	out := &bytes.Buffer{}
+	err := answerHeldFrame(&protocol.Codec{}, out, &protocol.ControlMessage{
+		Type:       protocol.MsgSessionRequest,
+		Token:      "tok",
+		RelayURL:   relayURL,
+		IceServers: helpers,
+	}, opts)
+	return out, err
+}
 
-	err := answerHeldFrame(codec, stream.out, &protocol.ControlMessage{
-		Type:     protocol.MsgSessionRequest,
-		Token:    "tok",
-		RelayURL: "ws://localhost:8080/ws/relay/tok",
-	}, loadOptions{})
+func TestASessionRequestIsIgnoredUnlessRelayCoverageWasAskedFor(t *testing.T) {
+	out, err := answerSessionRequest("ws://localhost:8080/ws/relay/tok", nil, loadOptions{})
 
 	require.NoError(t, err)
-	assert.Zero(t, stream.out.Len(), "an unasked-for session must produce no traffic at all")
+	assert.Zero(t, out.Len(), "an unasked-for session must produce no traffic at all")
 }
 
 func TestAnUnhandledFrameIsDroppedRatherThanFailingTheRun(t *testing.T) {
@@ -170,17 +175,33 @@ func TestAnUnhandledFrameIsDroppedRatherThanFailingTheRun(t *testing.T) {
 }
 
 func TestAHeldMachineRefusesASessionOnADisallowedTarget(t *testing.T) {
-	codec := &protocol.Codec{}
-	stream := &deadlineBuffer{in: &bytes.Buffer{}, out: &bytes.Buffer{}}
-
-	err := answerHeldFrame(codec, stream.out, &protocol.ControlMessage{
-		Type:     protocol.MsgSessionRequest,
-		Token:    "tok",
-		RelayURL: "ws://opengate-server.opengate.svc.cluster.local:8080/ws/relay/tok",
-	}, loadOptions{relaySessions: true})
+	_, err := answerSessionRequest("ws://opengate-server.opengate.svc.cluster.local:8080/ws/relay/tok", nil,
+		loadOptions{relaySessions: true})
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not an allowed load-test target")
+}
+
+func TestAJoinedSessionAsksTheHelpersItsRequestNames(t *testing.T) {
+	helper := startFakeHelper(t, true, false)
+	tally := &helperTally{}
+
+	_, err := answerSessionRequest("ws://127.0.0.1:1/ws/relay/tok", []string{"stun:" + helper.addr().String()},
+		loadOptions{relaySessions: true, helpers: tally})
+	require.NoError(t, err)
+	tally.settle()
+
+	assert.Equal(t, &HelperCount{Asked: helperRequestsPerAttempt, Answered: helperRequestsPerAttempt}, tally.count())
+}
+
+func TestAHeldMachineRefusesASessionNamingAHelperOutsideTheLoadTargets(t *testing.T) {
+	tally := &helperTally{}
+
+	_, err := answerSessionRequest("ws://localhost:8080/ws/relay/tok",
+		[]string{"stun:quic.opengate.cloudisland.net:9090"}, loadOptions{relaySessions: true, helpers: tally})
+
+	require.Error(t, err)
+	assert.Nil(t, tally.count(), "a refused helper is never asked")
 }
 
 // readControlOfType skips the heartbeats a held machine writes down the same stream.

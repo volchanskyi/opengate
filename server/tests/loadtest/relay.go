@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"strings"
 
-	"nhooyr.io/websocket"
+	"github.com/coder/websocket"
 
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )

@@ -160,9 +160,6 @@ func tenantIsolationProbes() []tenantIsolationProbe {
 		{"device_hardware",
 			`SELECT COUNT(*) FROM device_hardware`,
 			`SELECT COUNT(*) FROM device_hardware WHERE tenant_id = $1`},
-		{"device_processes",
-			`SELECT COUNT(*) FROM device_processes`,
-			`SELECT COUNT(*) FROM device_processes WHERE tenant_id = $1`},
 		{"device_inventory",
 			`SELECT COUNT(*) FROM device_inventory`,
 			`SELECT COUNT(*) FROM device_inventory WHERE tenant_id = $1`},
@@ -280,8 +277,6 @@ func seedTenantRows(t *testing.T, ctx context.Context, db *sql.DB, f tenantFixtu
 		f.tenantID, f.deviceID)
 	exec(`INSERT INTO device_hardware (device_id, tenant_id) VALUES ($1, $2)`,
 		f.deviceID, f.tenantID)
-	exec(`INSERT INTO device_processes (tenant_id, device_id, ts, rank, pid) VALUES ($1, $2, $3, 0, 1)`,
-		f.tenantID, f.deviceID, now)
 	exec(`INSERT INTO device_inventory (tenant_id, device_id, kind, name, first_seen, last_seen) VALUES ($1, $2, 'port', 'isolation', $3, $4)`,
 		f.tenantID, f.deviceID, now, now)
 

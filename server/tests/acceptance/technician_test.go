@@ -40,8 +40,29 @@ func (p *Product) Administrator(customer uuid.UUID) *Technician {
 
 func (p *Product) technician(customer uuid.UUID, admin bool) *Technician {
 	p.t.Helper()
+	return p.namedTechnician(customer, "", admin)
+}
+
+// NamedTechnician signs in a technician whose display name is name.
+func (p *Product) NamedTechnician(customer uuid.UUID, name string) *Technician {
+	p.t.Helper()
+	return p.namedTechnician(customer, name, false)
+}
+
+// NamedAdministrator signs in an administrator whose display name is name.
+func (p *Product) NamedAdministrator(customer uuid.UUID, name string) *Technician {
+	p.t.Helper()
+	return p.namedTechnician(customer, name, true)
+}
+
+func (p *Product) namedTechnician(customer uuid.UUID, name string, admin bool) *Technician {
+	p.t.Helper()
 
 	user := testutil.SeedUser(p.t, arrangeTenantContext(), p.assembly.Store)
+	if name != "" {
+		user.DisplayName = name
+		require.NoError(p.t, testutil.NewTestUsers(p.t, p.assembly.Store).Upsert(arrangeTenantContext(), user))
+	}
 	token, err := p.assembly.JWT.GenerateToken(user.ID, user.Email, admin)
 	require.NoError(p.t, err)
 
@@ -91,6 +112,12 @@ func (a *Technician) InCustomer(path string) string {
 
 func (a *Technician) do(method, path string, body any) Reply {
 	a.t.Helper()
+	return a.doAt("", method, path, body)
+}
+
+// doAt issues a request naming host in its Host header; empty keeps the listener's own.
+func (a *Technician) doAt(host, method, path string, body any) Reply {
+	a.t.Helper()
 
 	var buf bytes.Buffer
 	if body != nil {
@@ -98,6 +125,9 @@ func (a *Technician) do(method, path string, body any) Reply {
 	}
 	req, err := http.NewRequestWithContext(a.t.Context(), method, a.product.HTTP.URL+path, &buf)
 	require.NoError(a.t, err)
+	if host != "" {
+		req.Host = host
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+a.token)
 

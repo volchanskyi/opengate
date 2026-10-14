@@ -109,8 +109,8 @@ without joining the ledger.
 
 The drop reasons cover the admission bounds (`payload_too_large`,
 `interval_floor`, and their `discovery_*` counterparts), a payload carrying
-nothing to store (`empty_dims`, `empty_summary`, `empty_processes`,
-`empty_summaries`, `empty_discovery`), a window naming dimensions outside the
+nothing to store (`empty_dims`, `empty_summary`, `empty_summaries`,
+`empty_discovery`), a window naming dimensions outside the
 vitals contract (`unknown_dim`), the persist path (`tenant_missing`,
 `persist_failed`, `persist_slots_full` — bounded per-connection persist slots
 shed telemetry rather than backpressuring heartbeat, session and control), a
@@ -209,6 +209,8 @@ real population before it means anything, is in
 | `opengate_http_request_duration_seconds` | `method`, `route` | HTTP request duration |
 | `opengate_relay_active_sessions` | — | Relay sessions currently open |
 | `opengate_relay_sessions_started_total` | — | Relay sessions opened since the process started, once per session |
+| `opengate_direct_link_outcomes_total` | `outcome` | Sessions whose direct-link attempt ended each way, as the session's holder reported it — `direct`, `no_route`, `unsupported`, `dropped` — each outcome once per session |
+| `opengate_helper_requests_total` | `result` | Address requests the session helper read on the agents' UDP port: `answered`, or dropped as `malformed`, past one address's allowance (`address_limit`) or past the total (`total_limit`) |
 | `opengate_agents_connected` | — | Agents currently connected |
 | `opengate_mps_connected_devices` | — | Connected MPS (Intel AMT) devices |
 
@@ -226,6 +228,13 @@ counts as open, so started minus ended is what is open; the second side joins it
 rather than starting another. A session that echoes once and closes inside a
 second is open at almost none of the moments a scrape reads, so the started count
 is what says the relay was used at all.
+
+The outcome counts carry the outcome and nothing else — no address, host,
+customer or technician — and the overview dashboard's "Direct links" panel reads
+the Direct share and the drops from them
+([ADR-127](../adr/ADR-127-direct-link.md)). A run of `answered` beside a fleet's
+QUIC traffic is the helper sharing its port as designed; a rise in either limit
+is a burst or a flood the helper shed.
 
 ## Audit
 

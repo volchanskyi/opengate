@@ -1,66 +1,69 @@
-//! Frame dispatch and control message handling for relay sessions.
+//! The session's features and the dispatcher that hands them each delivered frame in order.
 
-use std::sync::Arc;
-
-use mesh_protocol::{ControlMessage, Frame};
-use tokio::sync::mpsc;
+use mesh_protocol::{ControlMessage, Frame, Permissions};
 use tracing::{debug, info, warn};
 
 use super::handlers::{
-    FileHandler, KeyboardHandler, MouseHandler, SwitchHandler, TerminalControlHandler,
+    FileHandler, FileTasks, KeyboardHandler, MouseHandler, TerminalControlHandler,
 };
-use super::relay::send_frame;
+use super::outbox::Outbox;
+use super::outlet::OutletReader;
 use super::terminal_handle::TerminalHandle;
-use super::SessionHandler;
 use crate::file_ops::FileOpsHandler;
 use crate::platform::InputInjector;
-use crate::webrtc::AgentPeerConnection;
 
-impl SessionHandler {
-    pub(crate) async fn handle_frame(
-        &self,
-        frame: Frame,
-        injector: &dyn InputInjector,
-        frame_tx: &mpsc::Sender<Vec<u8>>,
-        file_ops: &FileOpsHandler,
-        terminal: Option<&TerminalHandle>,
-        webrtc_pc: &Arc<tokio::sync::Mutex<Option<Arc<AgentPeerConnection>>>>,
-    ) {
-        match frame {
-            Frame::Control(msg) => {
-                self.handle_control(msg, injector, frame_tx, file_ops, terminal, webrtc_pc)
-                    .await;
-            }
-            Frame::Terminal(term_frame) => {
-                if let Some(term) = terminal {
-                    term.send_raw(term_frame.data);
-                } else {
-                    debug!("terminal frame received but no terminal session active");
-                }
-            }
-            Frame::Ping => {
-                if let Err(e) = send_frame(frame_tx, &Frame::Pong).await {
-                    warn!("failed to send pong: {e}");
-                }
-            }
-            _ => {
-                debug!("ignoring unexpected frame type from browser");
-            }
+/// Everything a session's frames act on.
+pub(crate) struct Features {
+    pub(crate) permissions: Permissions,
+    pub(crate) injector: Box<dyn InputInjector>,
+    pub(crate) outbox: Outbox,
+    pub(crate) file_ops: FileOpsHandler,
+    pub(crate) terminal: Option<TerminalHandle>,
+    pub(crate) files: FileTasks,
+}
+
+/// Runs each delivered frame against the features, in order, until the core is gone; then stops
+/// the session's file tasks and its terminal.
+pub(crate) async fn dispatch(mut features: Features, mut frames: OutletReader) {
+    while let Some(frame) = frames.next().await {
+        features.handle(&frame).await;
+        frames.written();
+    }
+    features.files.stop().await;
+    if let Some(terminal) = &features.terminal {
+        terminal.shutdown();
+    }
+}
+
+impl Features {
+    /// Decodes one delivered frame and acts on it; an undecodable one is logged and dropped.
+    pub(crate) async fn handle(&mut self, bytes: &[u8]) {
+        match Frame::decode(bytes) {
+            Ok((frame, _)) => self.handle_frame(frame).await,
+            Err(e) => warn!("frame decode error: {e}"),
         }
     }
 
-    pub(crate) async fn handle_control(
-        &self,
-        msg: ControlMessage,
-        injector: &dyn InputInjector,
-        frame_tx: &mpsc::Sender<Vec<u8>>,
-        file_ops: &FileOpsHandler,
-        terminal: Option<&TerminalHandle>,
-        webrtc_pc: &Arc<tokio::sync::Mutex<Option<Arc<AgentPeerConnection>>>>,
-    ) {
+    async fn handle_frame(&mut self, frame: Frame) {
+        match frame {
+            Frame::Control(msg) => self.handle_control(msg).await,
+            Frame::Terminal(term_frame) => match &self.terminal {
+                Some(term) => term.send_raw(term_frame.data),
+                None => debug!("terminal frame received but no terminal session active"),
+            },
+            Frame::Ping => {
+                if let Err(e) = self.outbox.send(&Frame::Pong).await {
+                    warn!("failed to send pong: {e}");
+                }
+            }
+            _ => debug!("ignoring unexpected frame type from browser"),
+        }
+    }
+
+    async fn handle_control(&mut self, msg: ControlMessage) {
         match msg {
             ControlMessage::MouseMove { x, y } => {
-                MouseHandler::handle_mouse_move(&self.permissions, injector, x, y);
+                MouseHandler::handle_mouse_move(&self.permissions, &*self.injector, x, y);
             }
             ControlMessage::MouseClick {
                 button,
@@ -70,7 +73,7 @@ impl SessionHandler {
             } => {
                 MouseHandler::handle_mouse_click(
                     &self.permissions,
-                    injector,
+                    &*self.injector,
                     button,
                     pressed,
                     x,
@@ -80,22 +83,23 @@ impl SessionHandler {
             ControlMessage::KeyPress { key, pressed } => {
                 KeyboardHandler::handle_key_press(
                     &self.permissions,
-                    injector,
-                    terminal,
+                    &*self.injector,
+                    self.terminal.as_ref(),
                     key,
                     pressed,
                 );
             }
             ControlMessage::TerminalResize { cols, rows } => {
-                TerminalControlHandler::handle_resize(terminal, cols, rows);
+                TerminalControlHandler::handle_resize(self.terminal.as_ref(), cols, rows);
             }
             ControlMessage::FileListRequest { path } => {
                 info!(path, "file list requested");
-                FileHandler::handle_list(file_ops, frame_tx, &path).await;
+                FileHandler::handle_list(&self.file_ops, &self.outbox, &mut self.files, &path);
             }
             ControlMessage::FileDownloadRequest { path } => {
                 info!(path, "file download requested");
-                FileHandler::handle_download(file_ops, frame_tx, &path);
+                FileHandler::handle_download(&self.file_ops, &self.outbox, &mut self.files, &path)
+                    .await;
             }
             ControlMessage::FileUploadRequest { path, total_size } => {
                 info!(
@@ -110,26 +114,11 @@ impl SessionHandler {
                     text,
                     sender: "agent".to_string(),
                 };
-                if let Err(e) = send_frame(frame_tx, &Frame::Control(echo)).await {
+                if let Err(e) = self.outbox.send(&Frame::Control(echo)).await {
                     warn!("failed to echo chat message: {e}");
                 }
             }
-            ControlMessage::SwitchToWebRTC { sdp_offer } => {
-                info!("WebRTC switch requested");
-                self.webrtc
-                    .offer(self.ice_servers.clone(), sdp_offer, frame_tx, webrtc_pc)
-                    .await;
-            }
-            ControlMessage::IceCandidate { candidate, mid } => {
-                self.webrtc.candidate(webrtc_pc, &candidate, &mid).await;
-            }
-            ControlMessage::SwitchAck => {
-                info!("WebRTC switch ack received");
-                SwitchHandler::handle_ack(webrtc_pc, frame_tx).await;
-            }
-            _ => {
-                debug!("unhandled control message in session");
-            }
+            _ => debug!("unhandled control message in session"),
         }
     }
 }
@@ -137,31 +126,17 @@ impl SessionHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::file_ops::FileOpsHandler;
-    use crate::platform::{InputError, InputInjector, NullInput};
-    use crate::session::handlers::WebRtcDispatch;
-    use crate::session_error::SessionError;
+    use crate::platform::{InputError, NullInput};
+    use crate::session::outbox::{Lanes, INTERACTIVE_FRAME_CAP};
     use mesh_protocol::{
-        ControlMessage, DesktopFrame, Frame, FrameEncoding, KeyEvent, MouseButton, Permissions,
-        SessionToken, TerminalFrame,
+        DesktopFrame, FrameEncoding, KeyCode, KeyEvent, MouseButton, TerminalFrame,
     };
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
     use tokio::sync::mpsc;
 
     struct RecordingInjector {
         calls: Arc<Mutex<Vec<String>>>,
-    }
-
-    impl RecordingInjector {
-        fn new() -> (Self, Arc<Mutex<Vec<String>>>) {
-            let calls = Arc::new(Mutex::new(Vec::new()));
-            (
-                Self {
-                    calls: calls.clone(),
-                },
-                calls,
-            )
-        }
     }
 
     impl InputInjector for RecordingInjector {
@@ -198,656 +173,270 @@ mod tests {
         }
     }
 
-    fn all_perms() -> Permissions {
+    fn perms(input: bool) -> Permissions {
         Permissions {
             desktop: true,
             terminal: true,
             file_read: true,
             file_write: false,
-            input: true,
+            input,
         }
     }
 
-    fn no_input_perms() -> Permissions {
-        Permissions {
-            desktop: true,
-            terminal: true,
-            file_read: true,
-            file_write: false,
-            input: false,
-        }
+    fn features(input: bool) -> (Features, Lanes, Arc<Mutex<Vec<String>>>) {
+        let (outbox, lanes) = Outbox::new();
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let features = Features {
+            permissions: perms(input),
+            injector: Box::new(RecordingInjector {
+                calls: calls.clone(),
+            }),
+            outbox,
+            file_ops: FileOpsHandler::new(true, false),
+            terminal: None,
+            files: FileTasks::default(),
+        };
+        (features, lanes, calls)
     }
 
-    fn new_handler(perms: Permissions) -> SessionHandler {
-        SessionHandler::new(SessionToken::generate(), perms)
-    }
-
-    fn new_webrtc_pc() -> Arc<tokio::sync::Mutex<Option<Arc<AgentPeerConnection>>>> {
-        Arc::new(tokio::sync::Mutex::new(None))
-    }
-
-    fn decode_frame(data: &[u8]) -> Frame {
-        let (frame, _) = Frame::decode(data).expect("failed to decode frame");
-        frame
-    }
-
-    #[tokio::test]
-    async fn test_handle_frame_ping_responds_pong() {
-        let handler = new_handler(all_perms());
-        let injector = NullInput;
-        let (frame_tx, mut frame_rx) = mpsc::channel::<Vec<u8>>(64);
-        let file_ops = FileOpsHandler::new(true, false);
-        let webrtc_pc = new_webrtc_pc();
-
-        handler
-            .handle_frame(
-                Frame::Ping,
-                &injector,
-                &frame_tx,
-                &file_ops,
-                None,
-                &webrtc_pc,
-            )
-            .await;
-
-        let data = frame_rx.try_recv().expect("expected pong frame");
-        let frame = decode_frame(&data);
-        assert_eq!(frame, Frame::Pong);
-    }
-
-    #[tokio::test]
-    async fn test_handle_frame_terminal_no_session() {
-        let handler = new_handler(all_perms());
-        let injector = NullInput;
-        let (frame_tx, mut frame_rx) = mpsc::channel::<Vec<u8>>(64);
-        let file_ops = FileOpsHandler::new(true, false);
-        let webrtc_pc = new_webrtc_pc();
-
-        handler
-            .handle_frame(
-                Frame::Terminal(TerminalFrame {
-                    data: b"ls -la\n".to_vec(),
-                }),
-                &injector,
-                &frame_tx,
-                &file_ops,
-                None,
-                &webrtc_pc,
-            )
-            .await;
-
-        assert!(frame_rx.try_recv().is_err());
-    }
-
-    #[tokio::test]
-    async fn test_handle_frame_unexpected_type_ignored() {
-        let handler = new_handler(all_perms());
-        let injector = NullInput;
-        let (frame_tx, mut frame_rx) = mpsc::channel::<Vec<u8>>(64);
-        let file_ops = FileOpsHandler::new(true, false);
-        let webrtc_pc = new_webrtc_pc();
-
-        handler
-            .handle_frame(
-                Frame::Desktop(DesktopFrame {
-                    sequence: 0,
-                    x: 0,
-                    y: 0,
-                    width: 100,
-                    height: 100,
-                    encoding: FrameEncoding::Raw,
-                    data: vec![0; 100],
-                }),
-                &injector,
-                &frame_tx,
-                &file_ops,
-                None,
-                &webrtc_pc,
-            )
-            .await;
-
-        assert!(frame_rx.try_recv().is_err());
-    }
-
-    #[tokio::test]
-    async fn test_handle_control_mouse_move_permitted() {
-        let handler = new_handler(all_perms());
-        let (injector, calls) = RecordingInjector::new();
-        let (frame_tx, _frame_rx) = mpsc::channel::<Vec<u8>>(64);
-        let file_ops = FileOpsHandler::new(true, false);
-        let webrtc_pc = new_webrtc_pc();
-
-        handler
-            .handle_frame(
-                Frame::Control(ControlMessage::MouseMove { x: 100, y: 200 }),
-                &injector,
-                &frame_tx,
-                &file_ops,
-                None,
-                &webrtc_pc,
-            )
-            .await;
-
-        let recorded = calls.lock().unwrap();
-        assert_eq!(recorded.len(), 1);
-        assert_eq!(recorded[0], "mouse_move:100,200");
-    }
-
-    #[tokio::test]
-    async fn test_handle_control_mouse_move_denied() {
-        let handler = new_handler(no_input_perms());
-        let (injector, calls) = RecordingInjector::new();
-        let (frame_tx, _frame_rx) = mpsc::channel::<Vec<u8>>(64);
-        let file_ops = FileOpsHandler::new(true, false);
-        let webrtc_pc = new_webrtc_pc();
-
-        handler
-            .handle_frame(
-                Frame::Control(ControlMessage::MouseMove { x: 100, y: 200 }),
-                &injector,
-                &frame_tx,
-                &file_ops,
-                None,
-                &webrtc_pc,
-            )
-            .await;
-
-        let recorded = calls.lock().unwrap();
-        assert!(
-            recorded.is_empty(),
-            "inject should NOT be called when input is denied"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_handle_control_file_list_success() {
-        let handler = new_handler(all_perms());
-        let injector = NullInput;
-        let (frame_tx, mut frame_rx) = mpsc::channel::<Vec<u8>>(64);
-        let file_ops = FileOpsHandler::new(true, false);
-        let webrtc_pc = new_webrtc_pc();
-
-        let dir = tempfile::tempdir().expect("create temp dir");
-        let dir_path = dir.path().to_string_lossy().to_string();
-
-        handler
-            .handle_frame(
-                Frame::Control(ControlMessage::FileListRequest {
-                    path: dir_path.clone(),
-                }),
-                &injector,
-                &frame_tx,
-                &file_ops,
-                None,
-                &webrtc_pc,
-            )
-            .await;
-
-        let data = frame_rx.try_recv().expect("expected file list response");
-        let frame = decode_frame(&data);
-        match frame {
-            Frame::Control(ControlMessage::FileListResponse { path, .. }) => {
-                assert_eq!(path, dir_path);
-            }
-            other => panic!("expected FileListResponse, got {other:?}"),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_handle_control_file_list_error() {
-        let handler = new_handler(all_perms());
-        let injector = NullInput;
-        let (frame_tx, mut frame_rx) = mpsc::channel::<Vec<u8>>(64);
-        let file_ops = FileOpsHandler::new(true, false);
-        let webrtc_pc = new_webrtc_pc();
-
-        handler
-            .handle_frame(
-                Frame::Control(ControlMessage::FileListRequest {
-                    path: "/nonexistent_abc123_xyz789".to_string(),
-                }),
-                &injector,
-                &frame_tx,
-                &file_ops,
-                None,
-                &webrtc_pc,
-            )
-            .await;
-
-        let data = frame_rx.try_recv().expect("expected file list error");
-        let frame = decode_frame(&data);
-        match frame {
-            Frame::Control(ControlMessage::FileListError { path, error }) => {
-                assert_eq!(path, "/nonexistent_abc123_xyz789");
-                assert!(!error.is_empty());
-            }
-            other => panic!("expected FileListError, got {other:?}"),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_handle_control_chat_echoes_back() {
-        let handler = new_handler(all_perms());
-        let injector = NullInput;
-        let (frame_tx, mut frame_rx) = mpsc::channel::<Vec<u8>>(64);
-        let file_ops = FileOpsHandler::new(true, false);
-        let webrtc_pc = new_webrtc_pc();
-
-        handler
-            .handle_frame(
-                Frame::Control(ControlMessage::ChatMessage {
-                    text: "hello".to_string(),
-                    sender: "browser".to_string(),
-                }),
-                &injector,
-                &frame_tx,
-                &file_ops,
-                None,
-                &webrtc_pc,
-            )
-            .await;
-
-        let data = frame_rx.try_recv().expect("expected chat echo frame");
-        let frame = decode_frame(&data);
-        match frame {
-            Frame::Control(ControlMessage::ChatMessage { text, sender }) => {
-                assert_eq!(sender, "agent");
-                assert_eq!(text, "hello");
-            }
-            other => panic!("expected ChatMessage, got {other:?}"),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_handle_control_chat_preserves_text() {
-        let handler = new_handler(all_perms());
-        let injector = NullInput;
-        let (frame_tx, mut frame_rx) = mpsc::channel::<Vec<u8>>(64);
-        let file_ops = FileOpsHandler::new(true, false);
-        let webrtc_pc = new_webrtc_pc();
-
-        for text in ["", "héllo 🌍", "日本語テスト", "line1\nline2\ttab"] {
-            handler
-                .handle_frame(
-                    Frame::Control(ControlMessage::ChatMessage {
-                        text: text.to_string(),
-                        sender: "user".to_string(),
-                    }),
-                    &injector,
-                    &frame_tx,
-                    &file_ops,
-                    None,
-                    &webrtc_pc,
-                )
-                .await;
-
-            let data = frame_rx.try_recv().expect("expected chat echo frame");
-            let frame = decode_frame(&data);
-            match frame {
-                Frame::Control(ControlMessage::ChatMessage {
-                    text: echoed,
-                    sender,
-                }) => {
-                    assert_eq!(sender, "agent");
-                    assert_eq!(echoed, text);
-                }
-                other => panic!("expected ChatMessage, got {other:?}"),
-            }
-        }
-    }
-
-    type TestTerminalHandle = (
+    type TestTerminal = (
         TerminalHandle,
         mpsc::Receiver<Vec<u8>>,
         mpsc::Receiver<(u16, u16)>,
-        Arc<std::sync::atomic::AtomicBool>,
     );
 
-    fn new_test_terminal_handle() -> TestTerminalHandle {
+    fn terminal() -> TestTerminal {
         let (stdin_tx, stdin_rx) = mpsc::channel(8);
         let (resize_tx, resize_rx) = mpsc::channel(8);
         let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let handle = TerminalHandle::new(stdin_tx, resize_tx, shutdown.clone());
-        (handle, stdin_rx, resize_rx, shutdown)
+        (
+            TerminalHandle::new(stdin_tx, resize_tx, shutdown),
+            stdin_rx,
+            resize_rx,
+        )
     }
 
-    #[tokio::test]
-    async fn handle_frame_terminal_forwards_bytes_when_session_active() {
-        let handler = new_handler(all_perms());
-        let injector = NullInput;
-        let (frame_tx, _frame_rx) = mpsc::channel::<Vec<u8>>(64);
-        let file_ops = FileOpsHandler::new(true, false);
-        let webrtc_pc = new_webrtc_pc();
-        let (term, mut stdin_rx, _resize_rx, _shutdown) = new_test_terminal_handle();
-
-        handler
-            .handle_frame(
-                Frame::Terminal(TerminalFrame {
-                    data: b"ls -la\n".to_vec(),
-                }),
-                &injector,
-                &frame_tx,
-                &file_ops,
-                Some(&term),
-                &webrtc_pc,
-            )
-            .await;
-
-        let bytes = stdin_rx
-            .try_recv()
-            .expect("terminal stdin must receive bytes");
-        assert_eq!(bytes, b"ls -la\n");
+    async fn handle(features: &mut Features, frame: Frame) {
+        features.handle(&frame.encode().unwrap()).await;
     }
 
-    #[tokio::test]
-    async fn handle_control_mouse_click_dispatches_move_and_button() {
-        let handler = new_handler(all_perms());
-        let (injector, calls) = RecordingInjector::new();
-        let (frame_tx, _frame_rx) = mpsc::channel::<Vec<u8>>(64);
-        let file_ops = FileOpsHandler::new(true, false);
-        let webrtc_pc = new_webrtc_pc();
-
-        handler
-            .handle_frame(
-                Frame::Control(ControlMessage::MouseClick {
-                    button: MouseButton::Left,
-                    pressed: true,
-                    x: 50,
-                    y: 60,
-                }),
-                &injector,
-                &frame_tx,
-                &file_ops,
-                None,
-                &webrtc_pc,
-            )
-            .await;
-
-        let recorded = calls.lock().unwrap();
-        assert_eq!(
-            *recorded,
-            vec![
-                "mouse_move:50,60".to_string(),
-                "mouse_button:Left:true".to_string()
-            ]
-        );
-    }
-
-    #[tokio::test]
-    async fn handle_control_key_press_dispatches_to_injector_and_terminal() {
-        let handler = new_handler(all_perms());
-        let (injector, calls) = RecordingInjector::new();
-        let (frame_tx, _frame_rx) = mpsc::channel::<Vec<u8>>(64);
-        let file_ops = FileOpsHandler::new(true, false);
-        let webrtc_pc = new_webrtc_pc();
-        let (term, mut stdin_rx, _resize_rx, _shutdown) = new_test_terminal_handle();
-
-        handler
-            .handle_frame(
-                Frame::Control(ControlMessage::KeyPress {
-                    key: mesh_protocol::KeyCode::KeyA,
-                    pressed: true,
-                }),
-                &injector,
-                &frame_tx,
-                &file_ops,
-                Some(&term),
-                &webrtc_pc,
-            )
-            .await;
-
-        let recorded = calls.lock().unwrap();
-        assert_eq!(*recorded, vec!["key:KeyA:true".to_string()]);
-        drop(recorded);
-
-        let bytes = stdin_rx
-            .try_recv()
-            .expect("terminal must receive byte for pressed key");
-        assert_eq!(bytes, b"a");
-    }
-
-    #[tokio::test]
-    async fn handle_control_terminal_resize_forwards_dimensions() {
-        let handler = new_handler(all_perms());
-        let injector = NullInput;
-        let (frame_tx, _frame_rx) = mpsc::channel::<Vec<u8>>(64);
-        let file_ops = FileOpsHandler::new(true, false);
-        let webrtc_pc = new_webrtc_pc();
-        let (term, _stdin_rx, mut resize_rx, _shutdown) = new_test_terminal_handle();
-
-        handler
-            .handle_frame(
-                Frame::Control(ControlMessage::TerminalResize {
-                    cols: 132,
-                    rows: 50,
-                }),
-                &injector,
-                &frame_tx,
-                &file_ops,
-                Some(&term),
-                &webrtc_pc,
-            )
-            .await;
-
-        let (cols, rows) = resize_rx
-            .try_recv()
-            .expect("resize channel must receive dimensions");
-        assert_eq!((cols, rows), (132, 50));
-    }
-
-    #[tokio::test]
-    async fn handle_control_file_download_streams_to_frame_channel() {
-        let handler = new_handler(all_perms());
-        let injector = NullInput;
-        let (frame_tx, mut frame_rx) = mpsc::channel::<Vec<u8>>(64);
-        let file_ops = FileOpsHandler::new(true, false);
-        let webrtc_pc = new_webrtc_pc();
-
-        let dir = tempfile::tempdir().unwrap();
-        let file_path = dir.path().join("test.txt");
-        std::fs::write(&file_path, b"download payload").unwrap();
-
-        handler
-            .handle_frame(
-                Frame::Control(ControlMessage::FileDownloadRequest {
-                    path: file_path.to_string_lossy().into_owned(),
-                }),
-                &injector,
-                &frame_tx,
-                &file_ops,
-                None,
-                &webrtc_pc,
-            )
-            .await;
-
-        let data = tokio::time::timeout(std::time::Duration::from_secs(2), frame_rx.recv())
-            .await
-            .expect("download task must send within timeout")
-            .expect("download task must produce a frame");
-        let frame = decode_frame(&data);
-        match frame {
-            Frame::FileTransfer(ff) => {
-                assert_eq!(ff.data, b"download payload");
-                assert_eq!(ff.total_size, b"download payload".len() as u64);
+    async fn next(lanes: &mut Lanes) -> Frame {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let Some(bytes) = lanes.try_next() {
+                    return Frame::decode(&bytes).unwrap().0;
+                }
+                tokio::time::sleep(Duration::from_millis(2)).await;
             }
-            other => panic!("expected FileTransfer, got {other:?}"),
-        }
+        })
+        .await
+        .expect("a frame arrives")
     }
 
     #[tokio::test]
-    async fn handle_control_ice_and_switch_ack_no_op_without_peer() {
-        let handler = new_handler(all_perms());
-        let injector = NullInput;
-        let (frame_tx, mut frame_rx) = mpsc::channel::<Vec<u8>>(64);
-        let file_ops = FileOpsHandler::new(true, false);
-        let webrtc_pc = new_webrtc_pc();
-
-        handler
-            .handle_frame(
-                Frame::Control(ControlMessage::IceCandidate {
-                    candidate: "candidate:1 1 UDP".to_string(),
-                    mid: "0".to_string(),
-                }),
-                &injector,
-                &frame_tx,
-                &file_ops,
-                None,
-                &webrtc_pc,
-            )
-            .await;
-
-        handler
-            .handle_frame(
-                Frame::Control(ControlMessage::SwitchAck),
-                &injector,
-                &frame_tx,
-                &file_ops,
-                None,
-                &webrtc_pc,
-            )
-            .await;
-
-        assert!(matches!(
-            frame_rx.try_recv(),
-            Err(mpsc::error::TryRecvError::Empty)
-        ));
+    async fn a_ping_is_answered_with_a_pong() {
+        let (mut f, mut lanes, _) = features(true);
+        handle(&mut f, Frame::Ping).await;
+        assert_eq!(next(&mut lanes).await, Frame::Pong);
     }
 
     #[tokio::test]
-    async fn handle_control_switch_ack_with_peer_echoes_frame() {
-        let handler = new_handler(all_perms());
-        let injector = NullInput;
-        let (frame_tx, mut frame_rx) = mpsc::channel::<Vec<u8>>(64);
-        let file_ops = FileOpsHandler::new(true, false);
+    async fn terminal_bytes_reach_the_shell_and_are_dropped_without_one() {
+        let (mut f, mut lanes, _) = features(true);
+        handle(
+            &mut f,
+            Frame::Terminal(TerminalFrame {
+                data: b"ls\n".to_vec(),
+            }),
+        )
+        .await;
+        assert!(lanes.try_next().is_none());
 
-        // Constructing the peer connection stays offline until ICE gathering starts.
-        let (inbound_tx, _inbound_rx) = mpsc::channel(8);
-        let pc = AgentPeerConnection::new(Vec::new(), inbound_tx)
-            .await
-            .expect("peer connection construction is offline-safe");
-        let webrtc_pc: Arc<tokio::sync::Mutex<Option<Arc<AgentPeerConnection>>>> =
-            Arc::new(tokio::sync::Mutex::new(Some(Arc::new(pc))));
-
-        handler
-            .handle_frame(
-                Frame::Control(ControlMessage::SwitchAck),
-                &injector,
-                &frame_tx,
-                &file_ops,
-                None,
-                &webrtc_pc,
-            )
-            .await;
-
-        let data = frame_rx.try_recv().expect("expected SwitchAck echo frame");
-        let frame = decode_frame(&data);
-        assert!(matches!(frame, Frame::Control(ControlMessage::SwitchAck)));
-    }
-
-    struct RecordingWebRtcDispatch {
-        calls: Arc<Mutex<Vec<String>>>,
-    }
-
-    #[async_trait::async_trait]
-    impl WebRtcDispatch for RecordingWebRtcDispatch {
-        async fn offer(
-            &self,
-            _ice_servers: Vec<crate::webrtc::IceServerConfig>,
-            sdp_offer: String,
-            _frame_tx: &mpsc::Sender<Vec<u8>>,
-            _webrtc_pc: &Arc<tokio::sync::Mutex<Option<Arc<AgentPeerConnection>>>>,
-        ) {
-            self.calls
-                .lock()
-                .unwrap()
-                .push(format!("offer:{sdp_offer}"));
-        }
-
-        async fn candidate(
-            &self,
-            _webrtc_pc: &Arc<tokio::sync::Mutex<Option<Arc<AgentPeerConnection>>>>,
-            candidate: &str,
-            mid: &str,
-        ) {
-            self.calls
-                .lock()
-                .unwrap()
-                .push(format!("candidate:{candidate}:{mid}"));
-        }
+        let (term, mut stdin, _resize) = terminal();
+        f.terminal = Some(term);
+        handle(
+            &mut f,
+            Frame::Terminal(TerminalFrame {
+                data: b"ls -la\n".to_vec(),
+            }),
+        )
+        .await;
+        assert_eq!(stdin.try_recv().unwrap(), b"ls -la\n");
     }
 
     #[tokio::test]
-    async fn handle_control_switch_to_webrtc_dispatches_offer() {
-        let calls = Arc::new(Mutex::new(Vec::new()));
-        let handler =
-            new_handler(all_perms()).with_webrtc_dispatch(Arc::new(RecordingWebRtcDispatch {
-                calls: calls.clone(),
-            }));
-        let injector = NullInput;
-        let (frame_tx, _frame_rx) = mpsc::channel::<Vec<u8>>(64);
-        let file_ops = FileOpsHandler::new(true, false);
-        let webrtc_pc = new_webrtc_pc();
-
-        handler
-            .handle_frame(
-                Frame::Control(ControlMessage::SwitchToWebRTC {
-                    sdp_offer: "OFFER_SDP".to_string(),
-                }),
-                &injector,
-                &frame_tx,
-                &file_ops,
-                None,
-                &webrtc_pc,
-            )
-            .await;
-
-        assert_eq!(*calls.lock().unwrap(), vec!["offer:OFFER_SDP".to_string()]);
+    async fn a_screen_picture_from_the_browser_is_ignored() {
+        let (mut f, mut lanes, calls) = features(true);
+        let picture = Frame::Desktop(DesktopFrame {
+            sequence: 0,
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+            encoding: FrameEncoding::Raw,
+            data: vec![0; 4],
+        });
+        handle(&mut f, picture).await;
+        assert!(lanes.try_next().is_none());
+        assert!(calls.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
-    async fn handle_control_ice_candidate_dispatches_candidate() {
-        let calls = Arc::new(Mutex::new(Vec::new()));
-        let handler =
-            new_handler(all_perms()).with_webrtc_dispatch(Arc::new(RecordingWebRtcDispatch {
-                calls: calls.clone(),
-            }));
-        let injector = NullInput;
-        let (frame_tx, _frame_rx) = mpsc::channel::<Vec<u8>>(64);
-        let file_ops = FileOpsHandler::new(true, false);
-        let webrtc_pc = new_webrtc_pc();
-
-        handler
-            .handle_frame(
-                Frame::Control(ControlMessage::IceCandidate {
-                    candidate: "candidate:1 1 UDP".to_string(),
-                    mid: "0".to_string(),
-                }),
-                &injector,
-                &frame_tx,
-                &file_ops,
-                None,
-                &webrtc_pc,
-            )
-            .await;
-
+    async fn input_is_injected_only_with_the_input_permission() {
+        let (mut f, _lanes, calls) = features(true);
+        handle(
+            &mut f,
+            Frame::Control(ControlMessage::MouseMove { x: 100, y: 200 }),
+        )
+        .await;
+        handle(
+            &mut f,
+            Frame::Control(ControlMessage::MouseClick {
+                button: MouseButton::Left,
+                pressed: true,
+                x: 50,
+                y: 60,
+            }),
+        )
+        .await;
+        handle(
+            &mut f,
+            Frame::Control(ControlMessage::KeyPress {
+                key: KeyCode::KeyA,
+                pressed: true,
+            }),
+        )
+        .await;
         assert_eq!(
             *calls.lock().unwrap(),
-            vec!["candidate:candidate:1 1 UDP:0".to_string()]
+            vec![
+                "mouse_move:100,200",
+                "mouse_move:50,60",
+                "mouse_button:Left:true",
+                "key:KeyA:true"
+            ]
         );
+
+        let (mut denied, _lanes, denied_calls) = features(false);
+        handle(
+            &mut denied,
+            Frame::Control(ControlMessage::MouseMove { x: 1, y: 2 }),
+        )
+        .await;
+        assert!(denied_calls.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
-    async fn test_send_frame_closed_channel() {
-        let (frame_tx, frame_rx) = mpsc::channel::<Vec<u8>>(1);
-        drop(frame_rx);
+    async fn a_key_press_also_reaches_an_open_terminal_and_a_resize_its_size() {
+        let (mut f, _lanes, _) = features(true);
+        let (term, mut stdin, mut resize) = terminal();
+        f.terminal = Some(term);
+        handle(
+            &mut f,
+            Frame::Control(ControlMessage::KeyPress {
+                key: KeyCode::KeyA,
+                pressed: true,
+            }),
+        )
+        .await;
+        assert_eq!(stdin.try_recv().unwrap(), b"a");
+        handle(
+            &mut f,
+            Frame::Control(ControlMessage::TerminalResize {
+                cols: 132,
+                rows: 50,
+            }),
+        )
+        .await;
+        assert_eq!(resize.try_recv().unwrap(), (132, 50));
+    }
 
-        let result = send_frame(&frame_tx, &Frame::Pong).await;
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            SessionError::WebSocket(msg) => {
-                assert!(msg.contains("closed"), "expected 'closed' in error: {msg}");
-            }
-            other => panic!("expected WebSocket error, got {other:?}"),
+    #[tokio::test]
+    async fn a_chat_message_is_echoed_as_the_agent() {
+        let (mut f, mut lanes, _) = features(true);
+        for text in ["", "héllo 🌍", "line1\nline2"] {
+            handle(
+                &mut f,
+                Frame::Control(ControlMessage::ChatMessage {
+                    text: text.to_string(),
+                    sender: "browser".to_string(),
+                }),
+            )
+            .await;
+            assert_eq!(
+                next(&mut lanes).await,
+                Frame::Control(ControlMessage::ChatMessage {
+                    text: text.to_string(),
+                    sender: "agent".to_string(),
+                })
+            );
         }
+    }
+
+    #[tokio::test]
+    async fn a_chat_message_too_large_to_echo_is_refused_and_the_session_carries_on() {
+        let (mut f, mut lanes, _) = features(true);
+        handle(
+            &mut f,
+            Frame::Control(ControlMessage::ChatMessage {
+                text: "x".repeat(INTERACTIVE_FRAME_CAP),
+                sender: "browser".to_string(),
+            }),
+        )
+        .await;
+        assert!(
+            lanes.try_next().is_none(),
+            "an echo past one piece is never sent"
+        );
+        handle(&mut f, Frame::Ping).await;
+        assert_eq!(next(&mut lanes).await, Frame::Pong);
+    }
+
+    #[tokio::test]
+    async fn file_requests_reach_the_file_handler() {
+        let (mut f, mut lanes, _) = features(true);
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("note.txt"), b"hello").unwrap();
+        let path = dir.path().to_string_lossy().to_string();
+
+        handle(
+            &mut f,
+            Frame::Control(ControlMessage::FileListRequest { path: path.clone() }),
+        )
+        .await;
+        match next(&mut lanes).await {
+            Frame::Control(ControlMessage::FileListResponse { entries, more, .. }) => {
+                assert_eq!(entries.len(), 1);
+                assert!(!more);
+            }
+            other => panic!("expected a listing, got {other:?}"),
+        }
+
+        let file = format!("{path}/note.txt");
+        handle(
+            &mut f,
+            Frame::Control(ControlMessage::FileDownloadRequest { path: file }),
+        )
+        .await;
+        match next(&mut lanes).await {
+            Frame::FileTransfer(piece) => assert_eq!(piece.data, b"hello"),
+            other => panic!("expected file data, got {other:?}"),
+        }
+        f.files.stop().await;
+    }
+
+    #[tokio::test]
+    async fn an_undecodable_frame_is_dropped() {
+        let (mut f, mut lanes, calls) = features(true);
+        f.handle(&[0xff, 0xff]).await;
+        assert!(lanes.try_next().is_none());
+        assert!(calls.lock().unwrap().is_empty());
+        let (mut null, _l, _) = features(true);
+        null.injector = Box::new(NullInput);
+        handle(
+            &mut null,
+            Frame::Control(ControlMessage::MouseMove { x: 1, y: 1 }),
+        )
+        .await;
     }
 }

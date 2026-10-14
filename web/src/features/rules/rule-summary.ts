@@ -47,6 +47,17 @@ export function watchWording(rule: Rule): string {
   return `${rule.metric} ${COMPARATOR_WORDING.get(rule.comparator) ?? rule.comparator} ${rule.threshold}`;
 }
 
+/** What the Rolled out heading means. */
+export const ROLLED_OUT_EXPLANATION =
+  "How far this rule has spread across the customer's hosts. It starts on a few and reaches more " +
+  'only while nothing goes wrong. Off means switched off. Stopped means pulled from every host by a ' +
+  'person.';
+
+/** What the Recent alerts heading means. */
+export const RECENT_ALERTS_EXPLANATION =
+  'Alerts this rule raised for the selected customer in the last hour. Green is about usual for ' +
+  'this rule, amber above usual, red well above; grey means quiet or no history yet.';
+
 // A stop outranks every other state so it reads apart from an ordinary switch-off.
 export function rolloutWording(rollout: Rollout): string {
   if (rollout.kill) return 'Stopped';

@@ -73,28 +73,37 @@ export type KeyCode =
   | 'NumpadDecimal' | 'NumpadEnter'
   | 'PrintScreen' | 'Pause';
 
+/** The six relay messages that set up, switch and drop the direct link; never numbered or held. */
+export type LinkControlMessage =
+  | { type: 'DirectOffer'; sdp: string }
+  | { type: 'DirectAnswer'; sdp: string }
+  | { type: 'IceCandidate'; candidate: string; mid: string }
+  | { type: 'DirectRefused'; reason: string }
+  | { type: 'DirectSwitch' }
+  | { type: 'DirectFallback'; received?: number };
+
 /** Control messages, internally tagged to match Rust's `#[serde(tag = "type")]`. */
 export type ControlMessage =
   | { type: 'AgentRegister'; capabilities: string[]; hostname: string; os: string; arch: string; version: string }
   | { type: 'AgentHeartbeat'; timestamp: number }
   | { type: 'SessionAccept'; token: string; relay_url: string }
   | { type: 'SessionReject'; token: string; reason: string }
-  | { type: 'SessionRequest'; token: string; relay_url: string; permissions: Permissions }
+  | { type: 'SessionRequest'; token: string; relay_url: string; permissions: Permissions; ice_servers?: string[] }
   | { type: 'AgentUpdate'; version: string; url: string; signature: string }
   | { type: 'AgentUpdateAck'; version: string; success: boolean; error: string }
   | { type: 'RelayReady' }
-  | { type: 'SwitchToWebRTC'; sdp_offer: string }
-  | { type: 'SwitchAck' }
-  | { type: 'IceCandidate'; candidate: string; mid: string }
+  | LinkControlMessage
+  | { type: 'DirectAck'; received?: number }
   | { type: 'MouseMove'; x: number; y: number }
   | { type: 'MouseClick'; button: MouseButton; pressed: boolean; x: number; y: number }
   | { type: 'KeyPress'; key: KeyCode; pressed: boolean }
   | { type: 'TerminalResize'; cols: number; rows: number }
   | { type: 'FileListRequest'; path: string }
-  | { type: 'FileListResponse'; path: string; entries: FileEntry[] }
+  | { type: 'FileListResponse'; path: string; entries: FileEntry[]; more?: boolean }
   | { type: 'FileListError'; path: string; error: string }
   | { type: 'FileDownloadRequest'; path: string }
   | { type: 'FileUploadRequest'; path: string; total_size: number }
+  | { type: 'FileDownloadError'; path: string; error: string }
   | ({ type: 'ChatMessage' } & ChatMessageFields);
 
 export interface FileEntry {

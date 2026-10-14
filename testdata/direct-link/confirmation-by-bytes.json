@@ -1,0 +1,63 @@
+{
+  "description": "A receiver confirms as soon as a quarter of the window is delivered, without waiting for its timer.",
+  "window": 100000,
+  "steps": [
+    {
+      "step": "begin",
+      "side": "both"
+    },
+    {
+      "step": "open",
+      "side": "both"
+    },
+    {
+      "step": "settle"
+    },
+    {
+      "step": "queue",
+      "side": "host",
+      "lane": "bulk",
+      "frames": [
+        {
+          "label": "f1",
+          "size": 60000
+        },
+        {
+          "label": "f2",
+          "size": 60000
+        },
+        {
+          "label": "f3",
+          "size": 60000
+        }
+      ]
+    },
+    {
+      "step": "take",
+      "side": "host"
+    },
+    {
+      "step": "settle"
+    }
+  ],
+  "expect": {
+    "browser": {
+      "delivered": [
+        "f1",
+        "f2",
+        "f3"
+      ],
+      "path": "link",
+      "outcomes": [
+        "direct"
+      ]
+    },
+    "host": {
+      "delivered": [],
+      "path": "link",
+      "outcomes": [
+        "direct"
+      ]
+    }
+  }
+}

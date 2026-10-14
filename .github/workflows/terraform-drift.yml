@@ -19,10 +19,11 @@ env:
   TERRAFORM_VERSION: 1.9.x
 jobs:
   drift:
-    name: Refresh-only plan + alert
+    name: Refresh-only plan
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
+      text: ${{ steps.plan.outputs.text }}
       drift: ${{ steps.plan.outputs.exitcode }}
     steps:
       # Every sample of the night carries this time, so a re-run writes the same point.
@@ -109,6 +110,13 @@ jobs:
             -out=drift.tfplan 2>&1 | tee drift.txt
           ec=${PIPESTATUS[0]}
           echo "exitcode=$ec" >> "$GITHUB_OUTPUT"
+          # The alert job sends the plan's opening; one Telegram message holds 4096 characters.
+          {
+            echo "text<<DRIFT_TEXT_END"
+            head -c 3000 drift.txt
+            echo
+            echo "DRIFT_TEXT_END"
+          } >>"$GITHUB_OUTPUT"
           # Exit 0 is no drift, 2 is drift, and any other status is an error.
           if [ "$ec" != "0" ] && [ "$ec" != "2" ]; then exit "$ec"; fi
 
@@ -149,37 +157,11 @@ jobs:
           VM_RUN_STARTED_AT: ${{ steps.started.outputs.at }}
         run: ./scripts/terraform-drift-vm-push.sh drift-summary.json
 
-      - name: Send Telegram alert
-        # Runs whatever happened above it, and the message names which of the three it was.
-        # A refused delivery fails the step; the gate job reads the verdict.
-        if: always()
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
-          FINDING: ${{ steps.plan.outputs.exitcode }}
-          RUN: ${{ github.run_id }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          JOB_STATUS: ${{ job.status }}
-        run: |
-          set -euo pipefail
-          if [ "$JOB_STATUS" = "success" ] && [ "${FINDING:-0}" != "2" ]; then
-            echo "No alert sent: the plan ran and the infrastructure matches what is declared."
-            exit 0
-          fi
-          if [ "${FINDING:-0}" = "2" ]; then
-            MSG="$(printf 'Terraform drift on dev (run %s):\n\n%s\n\nRun: %s' \
-              "$RUN" "$(cat drift.txt 2>/dev/null || echo '(the plan output did not survive)')" "$RUN_URL")"
-          else
-            MSG="$(printf 'Infrastructure drift: the night did not finish (%s), so nothing was compared.\n\nRun: %s' \
-              "$JOB_STATUS" "$RUN_URL")"
-          fi
-          scripts/telegram-alert.sh "$MSG"
-
       - name: Remove OCI credentials
         if: always()
         uses: ./.github/actions/oci-kube-teardown
 
-  # Compares the alert rules, dashboards and scrape targets the cluster holds with the declared ones.
+  # Compares the monitoring configuration and the ingress controller's settings with the repository's.
   monitoring-config:
     name: The configuration the cluster holds
     runs-on: ubuntu-24.04
@@ -207,24 +189,10 @@ jobs:
           MONITORING_NAMESPACE: monitoring
         run: deploy/scripts/monitoring-config-apply.sh
 
-      # The send goes to Telegram directly, so it runs whatever happened above it.
-      # This job's own result is the signal when the message never arrives.
-      - name: Send a message through the channel the alerts use
-        if: always()
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          JOB_STATUS: ${{ job.status }}
-        run: |
-          set -euo pipefail
-          if [ "$JOB_STATUS" = "success" ]; then
-            MSG="$(printf 'The nightly alert channel is alive, and the cluster holds the monitoring configuration this commit declares.\n\nRun: %s' "$RUN_URL")"
-          else
-            MSG="$(printf 'Monitoring configuration: the check did not finish (%s). Either the cluster holds something other than what is declared, or this channel is the thing that is broken.\n\nRun: %s' \
-              "$JOB_STATUS" "$RUN_URL")"
-          fi
-          scripts/telegram-alert.sh "$MSG"
+      # Reads back and installs nothing; a production deploy is what applies the controller.
+      - name: Ask the ingress controller for the settings this commit declares
+        if: ${{ !cancelled() }}
+        run: deploy/scripts/ingress-controller-apply.sh check
 
       - name: Remove OCI credentials
         if: always()
@@ -248,7 +216,7 @@ jobs:
             exit 1
           fi
           if [ "${{ needs['monitoring-config'].result }}" != "success" ]; then
-            echo "::error::The cluster's monitoring configuration is not the one this commit declares; see that job."
+            echo "::error::The cluster's monitoring configuration or ingress settings are not the ones this commit declares; see that job."
             exit 1
           fi
           if [ "${{ needs.drift.outputs.drift }}" = "2" ]; then
@@ -256,3 +224,63 @@ jobs:
             exit 1
           fi
           echo "No drift, and the cluster holds what this commit declares."
+
+  # Sends the night's alerts from a job of its own, which holds the Telegram secrets and nothing
+  # else, so a refused delivery reddens this job and leaves the two checks' results alone.
+  alert:
+    name: Alert if the run did not finish
+    needs: [drift, monitoring-config]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-pinned-tools
+
+      - name: Send Telegram alert
+        # Says which of the three the drift job met. A refused send fails this job alone, so the
+        # verdict the gate reads stays the run's.
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
+          FINDING: ${{ needs.drift.outputs.drift }}
+          DRIFT_TEXT: ${{ needs.drift.outputs.text }}
+          RUN: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ needs.drift.result }}
+        run: |
+          set -euo pipefail
+          if [ "$JOB_STATUS" = "success" ] && [ "${FINDING:-0}" != "2" ]; then
+            echo "No alert sent: the plan ran and the infrastructure matches what is declared."
+            exit 0
+          fi
+          if [ "${FINDING:-0}" = "2" ]; then
+            MSG="$(printf 'Terraform drift on dev (run %s):\n\n%s\n\nRun: %s' \
+              "$RUN" "${DRIFT_TEXT:-(the plan output did not survive)}" "$RUN_URL")"
+          else
+            MSG="$(printf 'Infrastructure drift: the night did not finish (%s), so nothing was compared.\n\nRun: %s' \
+              "$JOB_STATUS" "$RUN_URL")"
+          fi
+          scripts/telegram-alert.sh "$MSG"
+
+      # This job's own result is the nightly signal when the message never arrives.
+      - name: Send Telegram alert
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ needs['monitoring-config'].result }}
+        run: |
+          set -euo pipefail
+          if [ "$JOB_STATUS" = "success" ]; then
+            MSG="$(printf 'The nightly alert channel is alive, and the cluster holds the monitoring configuration and ingress settings this commit declares.\n\nRun: %s' "$RUN_URL")"
+          else
+            MSG="$(printf 'Monitoring and ingress configuration: the check failed or did not finish (%s), so the cluster may hold something other than what this commit declares.\n\nRun: %s' \
+              "$JOB_STATUS" "$RUN_URL")"
+          fi
+          scripts/telegram-alert.sh "$MSG"

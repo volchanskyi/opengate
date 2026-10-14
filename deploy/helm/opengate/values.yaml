@@ -36,6 +36,10 @@ server:
     - ingress-nginx-controller.ingress-nginx
   # Public base URL baked into the served install.sh as SERVER_URL.
   baseURL: ""
+  # Scheme and host machines dial for the relay; empty takes the release's in-cluster service.
+  agentRelayURL: ""
+  # STUN URLs both sides of a session ask for their public address; empty names none.
+  iceServers: []
   # Server log verbosity; "debug" enables verbose logging, anything else is info.
   logLevel: ""
   # VictoriaMetrics base URL for Edge Sentinel numeric telemetry ingestion.
@@ -106,13 +110,6 @@ ingress:
   enabled: true
   className: nginx
   tls: true
-  hsts: true
-  # Folded to stay under the yamllint line-length cap; breaks fall on single spaces.
-  csp: >-
-    default-src 'self'; script-src 'self' 'wasm-unsafe-eval';
-    style-src 'self' 'unsafe-inline'; img-src 'self' data: https:;
-    font-src 'self'; connect-src 'self' wss:; frame-ancestors 'none'
-  permissionsPolicy: "camera=(), microphone=(), geolocation=(), payment=()"
 
 certManager:
   create: true

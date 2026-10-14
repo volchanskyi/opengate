@@ -21,8 +21,6 @@ var tenantTables = []string{
 	"security_group_members",
 	"device_updates",
 	"device_hardware",
-	"device_logs",
-	"device_processes",
 	"device_inventory",
 	"rule_bindings",
 	"rule_rollout",

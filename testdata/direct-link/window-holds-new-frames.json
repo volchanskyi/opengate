@@ -1,0 +1,89 @@
+{
+  "description": "A sender numbers nothing new while more than the window is unconfirmed, and resumes on the peer's confirmation.",
+  "window": 100000,
+  "steps": [
+    {
+      "step": "begin",
+      "side": "both"
+    },
+    {
+      "step": "open",
+      "side": "both"
+    },
+    {
+      "step": "settle"
+    },
+    {
+      "step": "queue",
+      "side": "host",
+      "lane": "bulk",
+      "frames": [
+        {
+          "label": "f1",
+          "size": 60000
+        },
+        {
+          "label": "f2",
+          "size": 60000
+        },
+        {
+          "label": "f3",
+          "size": 60000
+        }
+      ]
+    },
+    {
+      "step": "take",
+      "side": "host"
+    },
+    {
+      "step": "carry",
+      "path": "link",
+      "to": "browser"
+    },
+    {
+      "step": "expect",
+      "side": "browser",
+      "delivered": [
+        "f1",
+        "f2"
+      ]
+    },
+    {
+      "step": "tick",
+      "ms": 250
+    },
+    {
+      "step": "carry",
+      "path": "link",
+      "to": "host"
+    },
+    {
+      "step": "take",
+      "side": "host"
+    },
+    {
+      "step": "settle"
+    }
+  ],
+  "expect": {
+    "browser": {
+      "delivered": [
+        "f1",
+        "f2",
+        "f3"
+      ],
+      "path": "link",
+      "outcomes": [
+        "direct"
+      ]
+    },
+    "host": {
+      "delivered": [],
+      "path": "link",
+      "outcomes": [
+        "direct"
+      ]
+    }
+  }
+}

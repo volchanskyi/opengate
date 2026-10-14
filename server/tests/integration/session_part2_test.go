@@ -89,7 +89,8 @@ func newSessionTestEnvWithAPITimeout(t *testing.T, apiTimeout time.Duration) *se
 		Duration: 15 * time.Minute,
 	}
 
-	sigConfig := signaling.DefaultConfig()
+	sigConfig, err := signaling.New("ws://machines.integration.test", "stun:helper.integration.test:9090")
+	require.NoError(t, err)
 	signingKeys, err := updater.LoadOrGenerateSigningKeys(t.TempDir())
 	require.NoError(t, err)
 	manifestStore := updater.NewManifestStore(t.TempDir())

@@ -53,7 +53,6 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 		hardware:      s.hardware,
 		deviceUpdates: s.deviceUpdates,
 		telemetry:     s.telemetry,
-		processes:     s.processes,
 		inventory:     s.inventory,
 		scheduler:     s.scheduler,
 		alertRules:    s.alertRules,

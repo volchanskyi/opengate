@@ -148,25 +148,6 @@ fn golden_control_frame_agent_metric_window() {
 }
 
 #[test]
-fn golden_control_frame_process_report() {
-    let msg = ControlMessage::ProcessReport {
-        ts: 1700000220,
-        tenant_id: "00000000-0000-0000-0000-000000000002".to_string(),
-        top_n: vec![ProcessReportEntry {
-            rank: 1,
-            basename: "postgres".to_string(),
-            cmdline_hash: Some("sha256:abcdef".to_string()),
-            pid: 4242,
-            cpu: 12.5,
-            mem: 3.25,
-        }],
-    };
-    let frame = Frame::Control(msg);
-    let encoded = frame.encode().unwrap();
-    golden_check("control_process_report.bin", &encoded);
-}
-
-#[test]
 fn golden_control_frame_request_health_window() {
     let msg = ControlMessage::RequestHealthWindow {
         since_ts: 1700000000,
@@ -245,13 +226,21 @@ fn golden_ping_pong() {
 }
 
 #[test]
-fn golden_control_frame_switch_to_webrtc() {
-    let msg = ControlMessage::SwitchToWebRTC {
-        sdp_offer: "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\n".to_string(),
+fn golden_control_frame_direct_offer() {
+    let msg = ControlMessage::DirectOffer {
+        sdp: "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\n".to_string(),
     };
-    let frame = Frame::Control(msg);
-    let encoded = frame.encode().unwrap();
-    golden_check("control_switch_to_webrtc.bin", &encoded);
+    let encoded = Frame::Control(msg).encode().unwrap();
+    golden_check("control_direct_offer.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_direct_answer() {
+    let msg = ControlMessage::DirectAnswer {
+        sdp: "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\n".to_string(),
+    };
+    let encoded = Frame::Control(msg).encode().unwrap();
+    golden_check("control_direct_answer.bin", &encoded);
 }
 
 #[test]
@@ -266,11 +255,43 @@ fn golden_control_frame_ice_candidate() {
 }
 
 #[test]
-fn golden_control_frame_switch_ack() {
-    let msg = ControlMessage::SwitchAck;
-    let frame = Frame::Control(msg);
-    let encoded = frame.encode().unwrap();
-    golden_check("control_switch_ack.bin", &encoded);
+fn golden_control_frame_direct_refused() {
+    let msg = ControlMessage::DirectRefused {
+        reason: "a direct link is already open for this session".to_string(),
+    };
+    let encoded = Frame::Control(msg).encode().unwrap();
+    golden_check("control_direct_refused.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_direct_switch() {
+    let encoded = Frame::Control(ControlMessage::DirectSwitch)
+        .encode()
+        .unwrap();
+    golden_check("control_direct_switch.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_direct_fallback() {
+    let msg = ControlMessage::DirectFallback { received: 70_000 };
+    let encoded = Frame::Control(msg).encode().unwrap();
+    golden_check("control_direct_fallback.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_direct_fallback_none_received() {
+    let msg = ControlMessage::DirectFallback { received: 0 };
+    let encoded = Frame::Control(msg).encode().unwrap();
+    golden_check("control_direct_fallback_min.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_direct_ack() {
+    let msg = ControlMessage::DirectAck {
+        received: 4_294_967_296,
+    };
+    let encoded = Frame::Control(msg).encode().unwrap();
+    golden_check("control_direct_ack.bin", &encoded);
 }
 
 #[test]
@@ -712,10 +733,29 @@ fn golden_control_frame_session_request() {
             file_write: false,
             input: true,
         },
+        ice_servers: vec!["stun:relay.example.com:9090".to_string()],
     };
     let frame = Frame::Control(msg);
     let encoded = frame.encode().unwrap();
     golden_check("control_session_request.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_session_request_no_helpers() {
+    let msg = ControlMessage::SessionRequest {
+        token: session_token(),
+        relay_url: "wss://relay.example.com/relay".to_string(),
+        permissions: Permissions {
+            desktop: false,
+            terminal: true,
+            file_read: true,
+            file_write: false,
+            input: false,
+        },
+        ice_servers: Vec::new(),
+    };
+    let encoded = Frame::Control(msg).encode().unwrap();
+    golden_check("control_session_request_no_helpers.bin", &encoded);
 }
 
 #[test]
@@ -759,10 +799,37 @@ fn golden_control_frame_file_list_response() {
                 modified: 1_700_000_100,
             },
         ],
+        more: false,
     };
     let frame = Frame::Control(msg);
     let encoded = frame.encode().unwrap();
     golden_check("control_file_list_response.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_file_list_response_page() {
+    let msg = ControlMessage::FileListResponse {
+        path: "/var/log".to_string(),
+        entries: vec![FileEntry {
+            name: "syslog".to_string(),
+            is_dir: false,
+            size: 4096,
+            modified: 1_700_000_200,
+        }],
+        more: true,
+    };
+    let encoded = Frame::Control(msg).encode().unwrap();
+    golden_check("control_file_list_response_page.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_file_download_error() {
+    let msg = ControlMessage::FileDownloadError {
+        path: "/var/log/huge.log".to_string(),
+        error: "a download is already running in this session".to_string(),
+    };
+    let encoded = Frame::Control(msg).encode().unwrap();
+    golden_check("control_file_download_error.bin", &encoded);
 }
 
 #[test]

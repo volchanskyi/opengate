@@ -1,0 +1,112 @@
+{
+  "description": "Both fall-back notices cross on the relay while each side keeps new frames back until the other's arrives.",
+  "steps": [
+    {
+      "step": "begin",
+      "side": "both"
+    },
+    {
+      "step": "open",
+      "side": "both"
+    },
+    {
+      "step": "settle"
+    },
+    {
+      "step": "queue",
+      "side": "host",
+      "lane": "interactive",
+      "frames": [
+        {
+          "label": "h1"
+        },
+        {
+          "label": "h2"
+        }
+      ]
+    },
+    {
+      "step": "take",
+      "side": "host"
+    },
+    {
+      "step": "cut"
+    },
+    {
+      "step": "lose",
+      "side": "host",
+      "reason": "silence"
+    },
+    {
+      "step": "lose",
+      "side": "browser",
+      "reason": "silence"
+    },
+    {
+      "step": "queue",
+      "side": "host",
+      "lane": "interactive",
+      "frames": [
+        {
+          "label": "h3"
+        }
+      ]
+    },
+    {
+      "step": "queue",
+      "side": "browser",
+      "lane": "interactive",
+      "frames": [
+        {
+          "label": "b1"
+        }
+      ]
+    },
+    {
+      "step": "take",
+      "side": "both"
+    },
+    {
+      "step": "expect",
+      "side": "host",
+      "path": "holding"
+    },
+    {
+      "step": "carry",
+      "path": "relay",
+      "to": "browser"
+    },
+    {
+      "step": "carry",
+      "path": "relay",
+      "to": "host"
+    },
+    {
+      "step": "settle"
+    }
+  ],
+  "expect": {
+    "browser": {
+      "delivered": [
+        "h1",
+        "h2",
+        "h3"
+      ],
+      "path": "relay",
+      "outcomes": [
+        "direct",
+        "dropped"
+      ]
+    },
+    "host": {
+      "delivered": [
+        "b1"
+      ],
+      "path": "relay",
+      "outcomes": [
+        "direct",
+        "dropped"
+      ]
+    }
+  }
+}

@@ -24,7 +24,7 @@
 ## Local toolchains track the ones CI resolves
 
 - Every language-toolchain pin in the workflows floats — Rust `stable` (and
-  `nightly` for [`fuzz.yml`](../../.github/workflows/fuzz.yml)), Node major
+  `nightly` for the `fuzz` job in [`ci.yml`](../../.github/workflows/ci.yml)), Node major
   `24` — so CI installs the newest release on every run.
 - The gauntlet's prerequisite phase refuses to run on a drifted machine
   ([`toolchain-parity.sh`](../../scripts/lib/toolchain-parity.sh)) and prints

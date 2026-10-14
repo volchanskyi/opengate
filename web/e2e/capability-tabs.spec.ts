@@ -1,7 +1,8 @@
 import { test, expect } from "./fixtures";
 import type { Route } from "@playwright/test";
+import { openSessionTab, stubSessionStart } from "./helpers/session-tab";
 
-// SessionView reads capabilities from router `location.state`, set when Start Session is clicked.
+// The session tab reads the host's capabilities from its device record, stubbed on the context.
 
 const GROUP_ID = "33333333-3333-4333-8333-333333333333";
 
@@ -39,43 +40,39 @@ async function stubDeviceRoutes(
   id: string,
   capabilities: string[],
 ) {
-  await authedPage.route(`**/api/v1/devices/${id}`, (route: Route) =>
+  const context = authedPage.context();
+  await stubSessionStart(context, test.info().project.use.baseURL!);
+  // A relay that accepts and stays silent keeps the session open with its tabs shown.
+  await context.routeWebSocket((url: URL) => url.pathname.includes("/relay"), () => {});
+  await context.route(`**/api/v1/devices/${id}`, (route: Route) =>
     ok(route, fakeDevice(id, capabilities)),
   );
-  await authedPage.route("**/api/v1/sites", (route: Route) =>
+  await context.route("**/api/v1/sites", (route: Route) =>
     ok(route, [
       { id: GROUP_ID, name: "default", created_at: "", updated_at: "" },
     ]),
   );
-  await authedPage.route(`**/api/v1/sessions?device_id=${id}*`, (route: Route) =>
+  await context.route(`**/api/v1/sessions?device_id=${id}*`, (route: Route) =>
     ok(route, []),
   );
-  await authedPage.route("**/api/v1/amt/devices", (route: Route) =>
+  await context.route("**/api/v1/amt/devices", (route: Route) =>
     ok(route, []),
   );
-  await authedPage.route("**/api/v1/updates/manifests*", (route: Route) =>
+  await context.route("**/api/v1/updates/manifests*", (route: Route) =>
     ok(route, []),
   );
-  await authedPage.route(`**/api/v1/devices/${id}/hardware`, (route: Route) =>
+  await context.route(`**/api/v1/devices/${id}/hardware`, (route: Route) =>
     route.fulfill({ status: 404, body: "" }),
   );
-  // The POST reply carries a token and relay_url so the client routes to /sessions/:token.
-  await authedPage.route("**/api/v1/sessions", (route: Route) => {
-    if (route.request().method() !== "POST") return route.fallback();
-    return ok(route, {
-      token: "e2e-fake-token-00000000000000000000000000000000",
-      relay_url: "wss://relay.invalid/relay",
-    });
-  });
 }
 
 async function openSessionView(
   authedPage: Parameters<Parameters<typeof test>[2]>[0]["authedPage"],
   id: string,
 ) {
-  await authedPage.goto(`/devices/${id}`);
-  await authedPage.getByRole("button", { name: /start session/i }).click();
-  await expect(authedPage.getByRole("tablist")).toBeVisible();
+  const tab = await openSessionTab(authedPage, id);
+  await expect(tab.getByRole("tablist")).toBeVisible();
+  return tab;
 }
 
 test.describe("Session view capability-based tabs", () => {
@@ -88,12 +85,12 @@ test.describe("Session view capability-based tabs", () => {
       "Terminal",
       "FileManager",
     ]);
-    await openSessionView(authedPage, id);
+    const tab = await openSessionView(authedPage, id);
 
-    await expect(authedPage.getByRole("tab", { name: "Desktop" })).toBeVisible();
-    await expect(authedPage.getByRole("tab", { name: "Terminal" })).toBeVisible();
-    await expect(authedPage.getByRole("tab", { name: "Files" })).toBeVisible();
-    await expect(authedPage.getByRole("tab", { name: "Chat" })).toBeVisible();
+    await expect(tab.getByRole("tab", { name: "Desktop" })).toBeVisible();
+    await expect(tab.getByRole("tab", { name: "Terminal" })).toBeVisible();
+    await expect(tab.getByRole("tab", { name: "Files" })).toBeVisible();
+    await expect(tab.getByRole("tab", { name: "Chat" })).toBeVisible();
   });
 
   test("headless agent (no RemoteDesktop) hides Desktop and Chat tabs", async ({
@@ -101,12 +98,12 @@ test.describe("Session view capability-based tabs", () => {
   }) => {
     const id = deviceId(2);
     await stubDeviceRoutes(authedPage, id, ["Terminal", "FileManager"]);
-    await openSessionView(authedPage, id);
+    const tab = await openSessionView(authedPage, id);
 
-    await expect(authedPage.getByRole("tab", { name: "Terminal" })).toBeVisible();
-    await expect(authedPage.getByRole("tab", { name: "Files" })).toBeVisible();
-    await expect(authedPage.getByRole("tab", { name: "Desktop" })).toHaveCount(0);
-    await expect(authedPage.getByRole("tab", { name: "Chat" })).toHaveCount(0);
+    await expect(tab.getByRole("tab", { name: "Terminal" })).toBeVisible();
+    await expect(tab.getByRole("tab", { name: "Files" })).toBeVisible();
+    await expect(tab.getByRole("tab", { name: "Desktop" })).toHaveCount(0);
+    await expect(tab.getByRole("tab", { name: "Chat" })).toHaveCount(0);
   });
 
   test("agent with empty capabilities still shows Terminal and Files", async ({
@@ -114,11 +111,11 @@ test.describe("Session view capability-based tabs", () => {
   }) => {
     const id = deviceId(3);
     await stubDeviceRoutes(authedPage, id, []);
-    await openSessionView(authedPage, id);
+    const tab = await openSessionView(authedPage, id);
 
-    await expect(authedPage.getByRole("tab", { name: "Terminal" })).toBeVisible();
-    await expect(authedPage.getByRole("tab", { name: "Files" })).toBeVisible();
-    await expect(authedPage.getByRole("tab", { name: "Desktop" })).toHaveCount(0);
-    await expect(authedPage.getByRole("tab", { name: "Chat" })).toHaveCount(0);
+    await expect(tab.getByRole("tab", { name: "Terminal" })).toBeVisible();
+    await expect(tab.getByRole("tab", { name: "Files" })).toBeVisible();
+    await expect(tab.getByRole("tab", { name: "Desktop" })).toHaveCount(0);
+    await expect(tab.getByRole("tab", { name: "Chat" })).toHaveCount(0);
   });
 });

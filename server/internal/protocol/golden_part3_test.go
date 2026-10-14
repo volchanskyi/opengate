@@ -28,17 +28,12 @@ func TestGoldenControlAgentRegister(t *testing.T) {
 	assert.Len(t, msg.Capabilities, 2)
 }
 
-func TestGoldenControlSwitchToWebRTC(t *testing.T) {
-	data := readGolden(t, "control_switch_to_webrtc.bin")
-	codec := &Codec{}
+func TestGoldenControlDirectOfferAndAnswer(t *testing.T) {
+	offer := decodeControlFrame(t, "control_direct_offer.bin")
+	assert.Equal(t, MsgDirectOffer, offer.Type)
+	assert.Equal(t, "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\n", offer.SDP)
 
-	reader := bytes.NewReader(data)
-	frameType, payload, err := codec.ReadFrame(reader)
-	require.NoError(t, err)
-	assert.Equal(t, FrameControl, frameType)
-
-	msg, err := codec.DecodeControl(payload)
-	require.NoError(t, err)
-	assert.Equal(t, MsgSwitchToWebRTC, msg.Type)
-	assert.Equal(t, "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\n", msg.SDPOffer)
+	answer := decodeControlFrame(t, "control_direct_answer.bin")
+	assert.Equal(t, MsgDirectAnswer, answer.Type)
+	assert.Equal(t, "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\n", answer.SDP)
 }

@@ -289,8 +289,10 @@ if [ "${PRECOMMIT_SKIP_BENCH:-0}" = "1" ]; then
   banner "Benchmarks (SKIPPED via PRECOMMIT_SKIP_BENCH=1)"
 else
   banner "Benchmarks"
-  run_check "go benchmarks" -- bash -c 'cd server && go test -bench=. -benchmem -count=1 -run="^$" ./internal/...'
-  run_check "rust benchmarks" -- bash -c 'cd agent && cargo bench -p mesh-protocol'
+  # Allocations are held to the CI baseline here; time per call depends on the machine, so the
+  # nightly holds it.
+  run_check "go benchmarks vs the CI baseline" -- bash scripts/benchmark-local-check.sh go
+  run_check "rust benchmarks" -- bash scripts/benchmark-local-check.sh rust
 fi
 
 # The TDG gate runs before the slow phase because it is fast and fails often.

@@ -39,6 +39,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/session"
 	"github.com/volchanskyi/opengate/server/internal/settings"
 	"github.com/volchanskyi/opengate/server/internal/signaling"
+	"github.com/volchanskyi/opengate/server/internal/stunhelper"
 	"github.com/volchanskyi/opengate/server/internal/telemetry"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
@@ -90,6 +91,13 @@ type Config struct {
 	// InternalListen is the address the cluster-only listener binds. Empty
 	// selects defaultInternalListen.
 	InternalListen string
+
+	// AgentRelayBase is the scheme and host machines dial for the relay, e.g.
+	// "wss://opengate.example.com"; Build refuses to assemble without one.
+	AgentRelayBase string
+	// Helpers is the comma-separated list of STUN URLs both sides of a session ask for their
+	// public address; empty is valid.
+	Helpers string
 
 	// AMTOperator replaces the management service the API is given; nil uses the MPS-backed one.
 	// Intel hardware answers on its own network path, so this is the one edge a harness stubs.
@@ -246,11 +254,11 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 		Hardware:      repos.hardware,
 		DeviceUpdates: repos.deviceUpdates,
 		Telemetry:     telemetryPorts.writer,
-		Processes:     repos.processes,
 		Inventory:     repos.inventory,
 		Relay:         agentRelay,
 		Notifier:      notifier,
 		Metrics:       appMetrics,
+		Helper:        stunhelper.New(stunhelper.DefaultLimits),
 		QuicHost:      cfg.QuicHost,
 		Tombstones:    tombstoneStore,
 		Settings:      settings.NewPostgresReader(store.DB()),
@@ -292,7 +300,10 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 	// detail reader can only be handed back once both exist.
 	mpsSrv.SetDetailProber(amtSvc)
 
-	sigConfig := signaling.DefaultConfig()
+	sigConfig, err := signaling.New(cfg.AgentRelayBase, cfg.Helpers)
+	if err != nil {
+		return nil, fmt.Errorf("app: read where session sides meet: %w", err)
+	}
 	agentControl := agentControlGetter{srv: agentSrv}
 	// One operator serves both the port the handlers hold and the port the
 	// device page reads, so a stand-in cannot be wired into half the surface.
@@ -411,7 +422,6 @@ type repositories struct {
 	amt            amt.Repository
 	sessions       session.Repository
 	users          auth.UserRepository
-	processes      telemetry.ProcessRepository
 	inventory      inventory.Repository
 }
 
@@ -429,7 +439,6 @@ func newRepositories(sqlDB *sql.DB, m *appmetrics.Metrics) repositories {
 		amt:            amt.NewInstrumented(amt.NewPostgresAMTDevices(sqlDB), m),
 		sessions:       session.NewInstrumented(session.NewPostgresSessions(sqlDB), m),
 		users:          auth.NewInstrumentedUsers(auth.NewPostgresUsers(sqlDB), m),
-		processes:      telemetry.NewPostgresProcessRepository(sqlDB),
 		inventory:      inventory.NewPostgresInventoryRepository(sqlDB),
 	}
 }

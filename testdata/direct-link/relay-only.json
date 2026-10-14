@@ -1,0 +1,52 @@
+{
+  "description": "Without a link both sides send on the relay, in order.",
+  "steps": [
+    {
+      "step": "queue",
+      "side": "host",
+      "lane": "interactive",
+      "frames": [
+        {
+          "label": "h1"
+        },
+        {
+          "label": "h2"
+        }
+      ]
+    },
+    {
+      "step": "queue",
+      "side": "browser",
+      "lane": "interactive",
+      "frames": [
+        {
+          "label": "b1"
+        }
+      ]
+    },
+    {
+      "step": "take",
+      "side": "both"
+    },
+    {
+      "step": "settle"
+    }
+  ],
+  "expect": {
+    "browser": {
+      "delivered": [
+        "h1",
+        "h2"
+      ],
+      "path": "relay",
+      "outcomes": []
+    },
+    "host": {
+      "delivered": [
+        "b1"
+      ],
+      "path": "relay",
+      "outcomes": []
+    }
+  }
+}

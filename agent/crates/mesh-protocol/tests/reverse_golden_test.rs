@@ -91,9 +91,11 @@ fn reverse_golden_session_request() {
             token,
             relay_url,
             permissions,
+            ice_servers,
         }) => {
             assert_eq!(token.as_str(), GOLDEN_SESSION_TOKEN);
             assert_eq!(relay_url, "wss://relay.example.com/relay");
+            assert_eq!(ice_servers, ["stun:relay.example.com:9090"]);
             assert!(permissions.desktop);
             assert!(permissions.terminal);
             assert!(permissions.file_read);

@@ -164,16 +164,19 @@ describe('MessengerView', () => {
     expect(them.className).not.toContain('ml-auto');
   });
 
-  it('subscribes to onControlMessage and adds ChatMessage payloads to chat store', () => {
+  it('listens for control messages and adds ChatMessage payloads to chat store', () => {
     let captured: ((msg: { type: string; text?: string; sender?: string }) => void) | null = null;
-    const setOnControlMessage = vi.fn((cb) => { captured = cb; });
+    const listenControl = vi.fn((cb) => {
+      captured = cb;
+      return () => {};
+    });
     useConnectionStore.setState({
       state: 'connected',
       transport: { sendControl: mockSendControl } as never,
-      setOnControlMessage,
+      listenControl,
     });
     render(<MessengerView />);
-    expect(setOnControlMessage).toHaveBeenCalled();
+    expect(listenControl).toHaveBeenCalled();
 
     captured!({ type: 'ChatMessage', text: 'inbound', sender: 'agent' });
     expect(useChatStore.getState().messages).toContainEqual(
@@ -186,34 +189,37 @@ describe('MessengerView', () => {
     useConnectionStore.setState({
       state: 'connected',
       transport: { sendControl: mockSendControl } as never,
-      setOnControlMessage: ((cb: never) => { captured = cb; }) as never,
+      listenControl: ((cb: never) => {
+        captured = cb;
+        return () => {};
+      }) as never,
     });
     render(<MessengerView />);
     captured!({ type: 'SomethingElse', text: 'not chat' });
     expect(useChatStore.getState().messages).toEqual([]);
   });
 
-  it('unmount clears the control-message handler', () => {
-    const setOnControlMessage = vi.fn();
+  it('stops listening on unmount', () => {
+    const stop = vi.fn();
     useConnectionStore.setState({
       state: 'connected',
       transport: { sendControl: mockSendControl } as never,
-      setOnControlMessage,
+      listenControl: vi.fn(() => stop),
     });
     const { unmount } = render(<MessengerView />);
-    setOnControlMessage.mockClear();
+    expect(stop).not.toHaveBeenCalled();
     unmount();
-    expect(setOnControlMessage).toHaveBeenCalledWith(null);
+    expect(stop).toHaveBeenCalledOnce();
   });
 
-  it('does not wire onControlMessage when transport is null', () => {
-    const setOnControlMessage = vi.fn();
+  it('listens to nothing when transport is null', () => {
+    const listenControl = vi.fn(() => () => {});
     useConnectionStore.setState({
       state: 'connected',
       transport: null,
-      setOnControlMessage,
+      listenControl,
     });
     render(<MessengerView />);
-    expect(setOnControlMessage).not.toHaveBeenCalled();
+    expect(listenControl).not.toHaveBeenCalled();
   });
 });

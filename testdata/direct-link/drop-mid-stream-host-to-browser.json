@@ -1,0 +1,90 @@
+{
+  "description": "The link dies after the browser took one of three file frames; the host re-sends the other two on the relay.",
+  "steps": [
+    {
+      "step": "begin",
+      "side": "both"
+    },
+    {
+      "step": "open",
+      "side": "both"
+    },
+    {
+      "step": "settle"
+    },
+    {
+      "step": "queue",
+      "side": "host",
+      "lane": "bulk",
+      "frames": [
+        {
+          "label": "f1",
+          "size": 40000
+        },
+        {
+          "label": "f2",
+          "size": 40000
+        },
+        {
+          "label": "f3",
+          "size": 40000
+        }
+      ]
+    },
+    {
+      "step": "take",
+      "side": "host"
+    },
+    {
+      "step": "carry",
+      "path": "link",
+      "to": "browser",
+      "count": 4
+    },
+    {
+      "step": "expect",
+      "side": "browser",
+      "delivered": [
+        "f1"
+      ]
+    },
+    {
+      "step": "cut"
+    },
+    {
+      "step": "lose",
+      "side": "host",
+      "reason": "silence"
+    },
+    {
+      "step": "expect",
+      "side": "host",
+      "path": "holding"
+    },
+    {
+      "step": "settle"
+    }
+  ],
+  "expect": {
+    "browser": {
+      "delivered": [
+        "f1",
+        "f2",
+        "f3"
+      ],
+      "path": "relay",
+      "outcomes": [
+        "direct",
+        "dropped"
+      ]
+    },
+    "host": {
+      "delivered": [],
+      "path": "relay",
+      "outcomes": [
+        "direct",
+        "dropped"
+      ]
+    }
+  }
+}

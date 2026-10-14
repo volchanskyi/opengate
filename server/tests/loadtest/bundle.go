@@ -235,6 +235,9 @@ type Bundle struct {
 	// Refusals is how much of what the run asked for the server turned away. Absent where no
 	// browser-side generator ran, because nought of nought would read as the cleanest night.
 	Refusals *RefusalCount `json:"refusals,omitempty"`
+	// Helper is what the run's sessions asked the server's helper and what it answered. Absent
+	// where no session named a helper.
+	Helper *HelperCount `json:"helper,omitempty"`
 }
 
 // WriteTo validates the bundle and writes it into dir, returning the path. An incomplete bundle

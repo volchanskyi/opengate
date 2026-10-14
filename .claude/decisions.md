@@ -29,10 +29,10 @@
 | 023 | The relay keeps its own session registry, in process, because pairing is local | [ADR-023](../docs/adr/ADR-023-relay-session-registry.md) |
 | 027 | A pen-test gate runs custom rules over the diff at three points, with no inline suppression | [ADR-027](../docs/adr/ADR-027-pentest-gate.md) |
 | 029 | Every test runs on every machine; a missing dependency is provisioned, never skipped around | [ADR-029](../docs/adr/ADR-029-test-determinism.md) |
-| 030 | Kubernetes on OKE, packaged with Helm, with the database in the cluster | [ADR-030](../docs/adr/ADR-030-kubernetes-on-oke.md) |
+| 030 | Kubernetes on OKE, packaged with Helm, with the database in the cluster and the ingress controller's settings held by the repository | [ADR-030](../docs/adr/ADR-030-kubernetes-on-oke.md) |
 | 034 | The server's four key files are mounted from a Kubernetes Secret, so identity survives a redeploy | [ADR-034](../docs/adr/ADR-034-server-keys-from-a-secret.md) |
 | 035 | The cluster fits the 200 GB storage cap; the binding constraint is volume count, not size | [ADR-035](../docs/adr/ADR-035-block-volume-budget.md) |
-| 037 | QUIC with mutual TLS; the agent opens the stream, and resumption carries the reconnect saving | [ADR-037](../docs/adr/ADR-037-quic-transport.md) |
+| 037 | QUIC with mutual TLS; the agent opens the stream, resumption carries the reconnect saving, and the port also answers the session helper | [ADR-037](../docs/adr/ADR-037-quic-transport.md) |
 | 038 | CI trends live in VictoriaMetrics; a sample names its workload and the load gate reads its baseline back | [ADR-038](../docs/adr/ADR-038-ci-trend-store.md) |
 | 039 | Diagrams are Mermaid in the document, syntax-checked in CI, with pinned counts | [ADR-039](../docs/adr/ADR-039-diagrams-as-code.md) |
 | 041 | Forced row-level security is the tenant wall, driven by the token through one scoped transaction | [ADR-041](../docs/adr/ADR-041-postgres-row-level-security.md) |
@@ -45,7 +45,7 @@
 | 054 | Erasure is immediate and tombstone-first; alerts and closed incidents are swept at a year, aged on receipt | [ADR-054](../docs/adr/ADR-054-data-lifecycle.md) |
 | 055 | No fault code in the shipped binary; faults come from a test harness and from tooling outside the process | [ADR-055](../docs/adr/ADR-055-fault-injection.md) |
 | 056 | Maintenance mode is a desired state on the device row, and collectors are otherwise always on | [ADR-056](../docs/adr/ADR-056-maintenance-mode.md) |
-| 059 | A session row is released when its session ends, three ways, including a sweep for what the process cannot see | [ADR-059](../docs/adr/ADR-059-session-row-lifecycle.md) |
+| 059 | A host holds one session row; only its holder or an administrator ends it, the relay ends with it, and three releases clear what is left | [ADR-059](../docs/adr/ADR-059-session-row-lifecycle.md) |
 | 061 | Intel AMT is a property of a device, joined on the firmware identifier, which is stored and never returned | [ADR-061](../docs/adr/ADR-061-intel-amt.md) |
 | 063 | Control messages encode themselves to identical bytes, and every server-to-agent message is proved complete | [ADR-063](../docs/adr/ADR-063-control-message-encoding.md) |
 | 064 | Four levels of tenancy; the wall stays at the tenant, membership is the read gate, settings resolve down the ladder | [ADR-064](../docs/adr/ADR-064-tenancy.md) |
@@ -61,7 +61,7 @@
 | 082 | A load run is valid, failed or invalid; every number is a reading, and the fleet is a roster the run gives back | [ADR-082](../docs/adr/ADR-082-load-run-validity.md) |
 | 084 | Staging carries two real machines it builds and enrols, and one holder at a time through a Lease | [ADR-084](../docs/adr/ADR-084-staging-environment.md) |
 | 086 | The deploy reads the cluster for what is running, declares no cache its token cannot write, and reads back what it does | [ADR-086](../docs/adr/ADR-086-deploy-reads-the-cluster.md) |
-| 088 | A benchmark measures the code rather than its own harness, and each lazy bundle carries its own budget | [ADR-088](../docs/adr/ADR-088-benchmarks-measure-the-code.md) |
+| 088 | A benchmark measures the code rather than its harness, the baseline holds only CI's readings, and each lazy bundle carries its own budget | [ADR-088](../docs/adr/ADR-088-benchmarks-measure-the-code.md) |
 | 091 | A coverage report is rewritten into its reader's coordinates and read back; exclusions agree in all four places | [ADR-091](../docs/adr/ADR-091-coverage-reports.md) |
 | 093 | The relay owns a session's lifetime, never a hijacked request context, and a slope proves the resource came back | [ADR-093](../docs/adr/ADR-093-relay-session-lifetime.md) |
 | 095 | Two listeners — the API in public, the exposition and profiler cluster-only, with every consumer read back | [ADR-095](../docs/adr/ADR-095-two-listeners.md) |
@@ -69,11 +69,12 @@
 | 098 | A test asserts on the code that ships; assertion shape is not evidence of value, and the data says so | [ADR-098](../docs/adr/ADR-098-test-value.md) |
 | 101 | The profile is the only home for the numbers — one measurement, one limit, and the window it is taken over | [ADR-101](../docs/adr/ADR-101-load-profiles-and-limits.md) |
 | 107 | Every profile has a venue; limits derive from the run's length, and the node is asked whether it has room | [ADR-107](../docs/adr/ADR-107-where-a-run-happens.md) |
-| 116 | A forwarded address is believed only from a proxy the deployment named | [ADR-116](../docs/adr/ADR-116-forwarded-addresses.md) |
+| 116 | A forwarded address is believed only from a proxy the deployment named; a signed-in request counts per account, and a machine dials a set relay address | [ADR-116](../docs/adr/ADR-116-forwarded-addresses.md) |
 | 119 | A long run keeps the target's profiles and names the line that grew; a core says what still holds it | [ADR-119](../docs/adr/ADR-119-finding-a-leak.md) |
 | 121 | Signed over-the-air agent updates, pushed by the server, verified and rolled back by the agent | [ADR-121](../docs/adr/ADR-121-agent-auto-update.md) |
 | 122 | A mutation shard walks the narrowest path holding its own units; a leg publishes its score alone | [ADR-122](../docs/adr/ADR-122-mutation-walk-and-legs.md) |
-| 123 | An alert channel is proven by a delivered message; the cluster's monitoring configuration is rendered, applied and read back | [ADR-123](../docs/adr/ADR-123-alert-delivery.md) |
+| 123 | An alert channel is proven by a delivered message, sent from a job of its own; the cluster's monitoring configuration is rendered, applied and read back | [ADR-123](../docs/adr/ADR-123-alert-delivery.md) |
 | 124 | An alert a machine raises reaches the queue: drained on the heartbeat, re-offered after a failed send, and a rule change reaching machines already connected | [ADR-124](../docs/adr/ADR-124-an-alert-reaches-the-queue.md) |
 | 125 | A comment is a short positive statement about its code, checked at write time and on every commit; repeated code is read from the scanner's report for every file | [ADR-125](../docs/adr/ADR-125-comments-and-repeated-code.md) |
 | 126 | An npm advisory with no fixed release may be excepted by ID with a reason and a review date; the exception lapses on that date, on a new release, or once unreported | [ADR-126](../docs/adr/ADR-126-advisory-exceptions-lapse.md) |
+| 127 | A session moves to a direct link when the networks allow and loses nothing moving back; downloads stream, one at a time | [ADR-127](../docs/adr/ADR-127-direct-link.md) |

@@ -56,6 +56,12 @@ else
   fail "OPENGATE_QUIC_HOST is unset, so the certificate names localhost and every handshake fails"
 fi
 
+if grep -q 'OPENGATE_AGENT_RELAY_URL=ws://server:8080' "$COMPOSE"; then
+  pass "machines dial the relay at the server's name on the stack's network"
+else
+  fail "OPENGATE_AGENT_RELAY_URL is not ws://server:8080, so a machine dials an address it cannot reach"
+fi
+
 # Machine names come from the file the specs read, so a new machine there is checked unedited.
 mapfile -t PINNED < <(sed -n 's/^export const MACHINE_[A-Z0-9]* = "\([^"]*\)";$/\1/p' "$HELPER")
 
@@ -103,6 +109,7 @@ ENTRY_POINTS=(
   "$PLAYWRIGHT_CONFIG"
   "$ROOT/.github/workflows/ci.yml"
   "$ROOT/.github/workflows/e2e-cross-browser.yml"
+  "$ROOT/.github/workflows/e2e-performance.yml"
 )
 
 missing_bringup=""
@@ -148,7 +155,152 @@ else
   else
     fail "the stack's shape needs a file no checkout carries, so config lint fails"
   fi
+  STACK_JSON="$(docker compose -f "$clean_dir/docker-compose.test.yml" config --format json 2>/dev/null || true)"
   rm -rf "$clean_dir"
+fi
+
+# The direct-link specs rely on where each container sits, read as Compose renders the stack.
+stack() { jq -r "$1" <<<"${STACK_JSON:-}"; }
+ip_number() {
+  local IFS=.
+  read -r a b c d <<<"$1"
+  echo $(((a << 24) | (b << 16) | (c << 8) | d))
+}
+in_range() {
+  local net="${2%/*}" bits="${2#*/}"
+  local mask=$(((0xffffffff << (32 - bits)) & 0xffffffff))
+  [ $(($(ip_number "$1") & mask)) -eq $(($(ip_number "$net") & mask)) ]
+}
+
+if [ -z "${STACK_JSON:-}" ]; then
+  fail "the stack could not be rendered, so where its containers sit cannot be checked"
+else
+  for lan in office home; do
+    if [ "$(stack ".networks.$lan.driver_opts[\"com.docker.network.bridge.inhibit_ipv4\"]")" = "true" ]; then
+      pass "the $lan bridge holds no host address, so its router is the only way in or out"
+    else
+      fail "the $lan bridge holds a host address, so the test machine reaches past its router"
+    fi
+  done
+
+  bridges="$(stack '[.networks.office, .networks.home] | map(.driver_opts["com.docker.network.bridge.name"]) | join(":")')"
+  trusted="$(stack '.networks.default.driver_opts["com.docker.network.bridge.trusted_host_interfaces"]')"
+  if [ "$trusted" = "$bridges" ]; then
+    pass "the host passes what the routers forward from the office and home bridges"
+  else
+    fail "the internet network trusts '$trusted' where the routers' bridges are '$bridges', so the host drops their traffic"
+  fi
+
+  if [ "$(stack '.networks.default.driver_opts["com.docker.network.bridge.enable_ip_masquerade"]')" = "false" ]; then
+    pass "the host rewrites no address on the internet network, so a router's flows arrive as it sent them"
+  else
+    fail "the host rewrites addresses on the internet network, so the far side never sees a router's own mapping"
+  fi
+
+  for placed in "server:default" "agent-b:default" "agent-a:office" "browser:home" \
+    "router-office:default office" "router-home:default home"; do
+    svc="${placed%%:*}"
+    want="${placed#*:}"
+    got="$(stack ".services[\"$svc\"].networks // {} | keys | sort | join(\" \")")"
+    if [ "$got" = "$want" ]; then
+      pass "$svc sits on: $want"
+    else
+      fail "$svc sits on '$got' where the specs expect '$want'"
+    fi
+  done
+
+  # Sent from several CPUs, a machine's packets cross the host's per-CPU queues out of order.
+  for machine in agent-a agent-b; do
+    if [ "$(stack ".services[\"$machine\"].cpuset // \"\"")" = "0" ]; then
+      pass "$machine runs on one CPU, so its packets reach the far side in the order it sent them"
+    else
+      fail "$machine is not held to one CPU, so the host reorders its packets and the direct link reads each as a loss"
+    fi
+  done
+
+  # Firefox gathers no address for a direct link on a page it reached over IPv6 loopback.
+  if [ "$(stack '.services.server.ports[] | select(.target == 8080) | .host_ip // ""')" = "0.0.0.0" ]; then
+    pass "the console is published on IPv4 alone, so a browser's localhost reaches it over 127.0.0.1"
+  else
+    fail "the console is published on IPv6 too, so Firefox reaches localhost over ::1 and offers no direct link"
+  fi
+
+  server_addr="$(stack '.services.server.networks.default.ipv4_address')"
+  if [ "$(stack '.services.server.environment.OPENGATE_ICE_SERVERS')" = "stun:$server_addr:9090" ]; then
+    pass "the helper the server names is the server's own fixed address"
+  else
+    fail "OPENGATE_ICE_SERVERS names something other than stun:$server_addr:9090"
+  fi
+
+  for lan in office home; do
+    svc="router-$lan"
+    env_of() { stack ".services[\"$svc\"].environment.$1"; }
+    if [ "$(env_of ROUTER_WAN_ADDR)" = "$(stack ".services[\"$svc\"].networks.default.ipv4_address")" ] \
+      && [ "$(env_of ROUTER_LAN_ADDR)" = "$(stack ".services[\"$svc\"].networks.$lan.ipv4_address")" ] \
+      && [ "$(env_of ROUTER_LAN_GATEWAY)" = "$(stack ".networks.$lan.ipam.config[0].gateway")" ] \
+      && [ "$(env_of ROUTER_HELPER)" = "$server_addr:9090" ]; then
+      pass "$svc's rules name the addresses it holds and the server's helper"
+    else
+      fail "$svc's ROUTER_* settings disagree with the addresses Compose gives it"
+    fi
+    if [ "$(stack ".services[\"$svc\"].networks.default.gw_priority // 0")" -gt \
+      "$(stack ".services[\"$svc\"].networks.$lan.gw_priority // 0")" ]; then
+      pass "$svc leaves through the internet network"
+    else
+      fail "$svc's default route is its own LAN, so nothing it translates leaves"
+    fi
+  done
+
+  if [ "$(stack '.services["router-home"].environment.ROUTER_FORWARD')" = "3000:$(stack '.services.browser.networks.home.ipv4_address')" ]; then
+    pass "the test runner reaches the browser server through the home router"
+  else
+    fail "the home router forwards the browser server's port to an address the browser does not hold"
+  fi
+
+  # A container with no pinned address takes the next free one from ip_range.
+  ip_range="$(stack '.networks.default.ipam.config[0].ip_range')"
+  taken=""
+  while IFS=' ' read -r svc addr; do
+    in_range "$addr" "$ip_range" && taken="$taken $svc($addr)"
+  done < <(stack '.services | to_entries[] | select(.value.networks.default.ipv4_address) | "\(.key) \(.value.networks.default.ipv4_address)"')
+  if [ -z "$taken" ]; then
+    pass "no pinned address lies in the range unpinned containers draw from"
+  else
+    fail "these pinned addresses lie in $ip_range, where a container started first can take them:$taken"
+  fi
+fi
+
+if grep -qF 'package-lock.json' "$BRINGUP" && grep -qF 'PLAYWRIGHT_VERSION' "$BRINGUP"; then
+  pass "the browser server runs the Playwright version the suite's lockfile holds"
+else
+  fail "the bring-up does not read the browser server's Playwright version from the suite's lockfile"
+fi
+
+# The stack's networks use gateway priority and trusted host interfaces, which Engine 28 added.
+engine_stub="$(mktemp -d)"
+cat >"$engine_stub/docker" <<'STUB'
+#!/usr/bin/env bash
+if [ "$1" = version ]; then
+  echo "$STUB_ENGINE"
+  exit 0
+fi
+echo "stub: docker $1 reached" >&2
+exit 99
+STUB
+chmod +x "$engine_stub/docker"
+old_engine="$(STUB_ENGINE=27.5.1 PATH="$engine_stub:$PATH" bash "$BRINGUP" 2>&1)" && old_rc=0 || old_rc=$?
+new_engine="$(STUB_ENGINE=28.0.0 PATH="$engine_stub:$PATH" bash "$BRINGUP" 2>&1)" || true
+rm -rf "$engine_stub"
+if [ "$old_rc" -eq 1 ] && grep -qF 'upgrade Docker Engine to 28 or later' <<<"$old_engine" \
+  && ! grep -qF 'stub: docker' <<<"$old_engine"; then
+  pass "the bring-up refuses Docker Engine 27, naming the upgrade, before it starts anything"
+else
+  fail "the bring-up ran on Docker Engine 27 (exit $old_rc), or refused without naming the upgrade"
+fi
+if grep -qF 'upgrade Docker Engine' <<<"$new_engine"; then
+  fail "the bring-up refuses Docker Engine 28"
+else
+  pass "the bring-up accepts Docker Engine 28"
 fi
 
 # The machines install through the public enrolment endpoint with a token minted at bring-up.

@@ -24,7 +24,7 @@ func (m *Manager) SignServer(extraDNS ...string) (*tls.Certificate, error) {
 		return nil, err
 	}
 
-	return m.issueTLS(template, key, "server cert")
+	return m.issueTLS(&template, key, "server cert")
 }
 
 // SignMPS generates a CA-signed RSA 2048 certificate for the MPS server, as AMT firmware needs RSA.
@@ -39,14 +39,15 @@ func (m *Manager) SignMPS() (*tls.Certificate, error) {
 		return nil, err
 	}
 
-	return m.issueTLS(template, key, "MPS cert")
+	return m.issueTLS(&template, key, "MPS cert")
 }
 
-// localServerTemplate builds a server-auth template with localhost, 127.0.0.1 and extraDNS SANs.
-func localServerTemplate(commonName string, usage x509.KeyUsage, extraDNS ...string) (*x509.Certificate, error) {
+// localServerTemplate builds a server-auth template with localhost, 127.0.0.1 and extraDNS SANs,
+// returned by value like leafTemplate.
+func localServerTemplate(commonName string, usage x509.KeyUsage, extraDNS ...string) (x509.Certificate, error) {
 	template, err := leafTemplate(pkix.Name{CommonName: commonName}, usage, x509.ExtKeyUsageServerAuth)
 	if err != nil {
-		return nil, err
+		return x509.Certificate{}, err
 	}
 	template.DNSNames = append([]string{"localhost"}, extraDNS...)
 	template.IPAddresses = []net.IP{net.IPv4(127, 0, 0, 1)}

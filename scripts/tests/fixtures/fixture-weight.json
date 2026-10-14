@@ -10,7 +10,6 @@
     "devices": 500,
     "sites": 38,
     "users": 21,
-    "process_rows": 1500,
     "telemetry_series": 15000
   }
 }

@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
-	"nhooyr.io/websocket"
 )
 
 func TestSignalingFlowThroughRelay(t *testing.T) {
@@ -46,23 +46,23 @@ func TestSignalingFlowThroughRelay(t *testing.T) {
 
 	fakeSDP := "v=0\r\no=- 123 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n"
 	sendControl(browserConn, &protocol.ControlMessage{
-		Type:     protocol.MsgSwitchToWebRTC,
-		SDPOffer: fakeSDP,
+		Type: protocol.MsgDirectOffer,
+		SDP:  fakeSDP,
 	})
 
 	agentMsg := readControl(agentConn)
-	assert.Equal(t, protocol.MsgSwitchToWebRTC, agentMsg.Type)
-	assert.Equal(t, fakeSDP, agentMsg.SDPOffer)
+	assert.Equal(t, protocol.MsgDirectOffer, agentMsg.Type)
+	assert.Equal(t, fakeSDP, agentMsg.SDP)
 
 	fakeAnswer := "v=0\r\no=- 456 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n"
 	sendControl(agentConn, &protocol.ControlMessage{
-		Type:     protocol.MsgSwitchToWebRTC,
-		SDPOffer: fakeAnswer,
+		Type: protocol.MsgDirectAnswer,
+		SDP:  fakeAnswer,
 	})
 
 	browserMsg := readControl(browserConn)
-	assert.Equal(t, protocol.MsgSwitchToWebRTC, browserMsg.Type)
-	assert.Equal(t, fakeAnswer, browserMsg.SDPOffer)
+	assert.Equal(t, protocol.MsgDirectAnswer, browserMsg.Type)
+	assert.Equal(t, fakeAnswer, browserMsg.SDP)
 
 	sendControl(browserConn, &protocol.ControlMessage{
 		Type:      protocol.MsgIceCandidate,
@@ -85,13 +85,13 @@ func TestSignalingFlowThroughRelay(t *testing.T) {
 	assert.Equal(t, protocol.MsgIceCandidate, iceMsg2.Type)
 	assert.Contains(t, iceMsg2.Candidate, "candidate:2")
 
-	sendControl(browserConn, &protocol.ControlMessage{Type: protocol.MsgSwitchAck})
-	ackMsg := readControl(agentConn)
-	assert.Equal(t, protocol.MsgSwitchAck, ackMsg.Type)
+	sendControl(browserConn, &protocol.ControlMessage{Type: protocol.MsgDirectSwitch})
+	assert.Equal(t, protocol.MsgDirectSwitch, readControl(agentConn).Type)
 
-	sendControl(agentConn, &protocol.ControlMessage{Type: protocol.MsgSwitchAck})
-	ackMsg2 := readControl(browserConn)
-	assert.Equal(t, protocol.MsgSwitchAck, ackMsg2.Type)
+	sendControl(agentConn, &protocol.ControlMessage{Type: protocol.MsgDirectFallback, Received: 3})
+	fallback := readControl(browserConn)
+	assert.Equal(t, protocol.MsgDirectFallback, fallback.Type)
+	assert.Equal(t, uint64(3), fallback.Received)
 }
 
 func TestSignalingOfferReachesTheAgentWithNoAnswer(t *testing.T) {
@@ -106,8 +106,8 @@ func TestSignalingOfferReachesTheAgentWithNoAnswer(t *testing.T) {
 	codec := &protocol.Codec{}
 
 	offerMsg := &protocol.ControlMessage{
-		Type:     protocol.MsgSwitchToWebRTC,
-		SDPOffer: "v=0\r\nfake-offer\r\n",
+		Type: protocol.MsgDirectOffer,
+		SDP:  "v=0\r\nfake-offer\r\n",
 	}
 	payload, err := codec.EncodeControl(offerMsg)
 	require.NoError(t, err)
@@ -123,7 +123,7 @@ func TestSignalingOfferReachesTheAgentWithNoAnswer(t *testing.T) {
 	assert.Equal(t, protocol.FrameControl, ft)
 	arrived, err := codec.DecodeControl(forwarded)
 	require.NoError(t, err)
-	assert.Equal(t, protocol.MsgSwitchToWebRTC, arrived.Type)
-	assert.Equal(t, offerMsg.SDPOffer, arrived.SDPOffer,
+	assert.Equal(t, protocol.MsgDirectOffer, arrived.Type)
+	assert.Equal(t, offerMsg.SDP, arrived.SDP,
 		"the relay forwards the offer byte for byte; it does not read it")
 }

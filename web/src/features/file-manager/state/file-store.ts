@@ -7,10 +7,16 @@ interface FileState {
   isLoading: boolean;
   error: string | null;
   downloads: Record<string, number>;
+  /** Files whose download or view waits for the one running; a session runs one at a time. */
+  waiting: string[];
   uploads: Record<string, number>;
   viewingFile: { name: string; content: string } | null;
 
-  setEntries: (path: string, entries: FileEntry[]) => void;
+  /** Starts a listing with its first page; it stays loading while more pages are to come. */
+  setEntries: (path: string, entries: FileEntry[], more?: boolean) => void;
+  appendEntries: (entries: FileEntry[], more: boolean) => void;
+  addWaiting: (name: string) => void;
+  removeWaiting: (name: string) => void;
   setDownloadProgress: (name: string, progress: number) => void;
   clearDownload: (name: string) => void;
   setUploadProgress: (name: string, progress: number) => void;
@@ -27,10 +33,14 @@ export const useFileStore = create<FileState>((set) => ({
   isLoading: false,
   error: null,
   downloads: {},
+  waiting: [],
   uploads: {},
   viewingFile: null,
 
-  setEntries: (path, entries) => set({ currentPath: path, entries, isLoading: false }),
+  setEntries: (path, entries, more = false) => set({ currentPath: path, entries, isLoading: more }),
+  appendEntries: (entries, more) => set((state) => ({ entries: [...state.entries, ...entries], isLoading: more })),
+  addWaiting: (name) => set((state) => ({ waiting: [...state.waiting, name] })),
+  removeWaiting: (name) => set((state) => ({ waiting: state.waiting.filter((n) => n !== name) })),
 
   setDownloadProgress: (name, progress) =>
     set((state) => ({ downloads: { ...state.downloads, [name]: progress } })),

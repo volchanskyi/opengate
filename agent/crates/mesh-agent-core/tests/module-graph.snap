@@ -26,6 +26,9 @@ crate mesh_agent_core
 ├── mod file_ops: pub
 ├── mod hardware: pub
 ├── mod identity: pub
+├── mod link: pub
+│   ├── mod pacing: pub
+│   └── mod peer: pub(crate)
 ├── mod maintenance: pub
 ├── mod ml: pub
 │   ├── mod backfill: pub
@@ -43,17 +46,17 @@ crate mesh_agent_core
 │   └── mod window: pub
 ├── mod platform: pub
 ├── mod session: pub
+│   ├── mod core: pub(self)
 │   ├── mod handler: pub(self)
 │   ├── mod handlers: pub
 │   │   ├── mod file: pub
 │   │   ├── mod keyboard: pub
 │   │   ├── mod mouse: pub
-│   │   ├── mod switch: pub
-│   │   ├── mod terminal_control: pub
-│   │   └── mod webrtc: pub
+│   │   └── mod terminal_control: pub
+│   ├── mod outbox: pub
+│   ├── mod outlet: pub(crate)
 │   ├── mod relay: pub(crate)
 │   └── mod terminal_handle: pub(crate)
 ├── mod session_error: pub
 ├── mod terminal: pub
-├── mod update: pub
-└── mod webrtc: pub
+└── mod update: pub

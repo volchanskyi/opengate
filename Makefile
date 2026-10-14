@@ -161,14 +161,21 @@ iac-policy-fix:
 	checkov --config-file .checkov.yaml --soft-fail
 
 # Hadolint checks Dockerfile rules Checkov lacks, such as BIDI smuggling and layer ordering.
+# It reads every Dockerfile in the tree, a new one included before it is added.
 lint-dockerfile:
 	@bash scripts/require-tool.sh hadolint
-	hadolint Dockerfile
+	@files="$$(git ls-files --cached --others --exclude-standard -- Dockerfile '*.Dockerfile' '*/Dockerfile')"; \
+		[ -n "$$files" ] || { echo "✗ no Dockerfile found to lint" >&2; exit 1; }; \
+		echo "hadolint" $$files; \
+		hadolint $$files
 
-# Conftest runs the Rego policies over workflow YAML and, when present, a terraform plan JSON.
+# Conftest runs the Rego policies over workflow and compose YAML and, when present, a terraform
+# plan JSON.
 iac-policy-custom:
 	@bash scripts/require-tool.sh conftest
 	conftest test --policy policy/github_actions .github/workflows/*.yml
+	conftest verify --policy policy/docker_compose
+	conftest test --policy policy/docker_compose deploy/docker-compose*.yml
 	@# The terraform policy reads a plan JSON because the HCL2 parser leaves ${var.X} unresolved.
 	@if [ -f /tmp/tfplan.json ]; then \
 	  conftest test --policy policy/terraform /tmp/tfplan.json; \
@@ -311,14 +318,20 @@ mutate-go:
 mutate-web:
 	cd web && npx stryker run
 
-# libFuzzer over the wire decoder, bounded to FUZZ_RUNS iterations; needs the nightly toolchain.
+# libFuzzer over every agent/fuzz target, FUZZ_RUNS iterations each; needs the nightly toolchain.
 FUZZ_RUNS ?= 100000
 # The build target is the host triple; cargo-fuzz otherwise targets the triple it was built for.
 FUZZ_TARGET ?= $(shell rustc -vV | sed -n 's/^host: //p')
+# Every target runs even after one crashes; each one's output lands in agent/fuzz/logs.
 fuzz-rust:
 	@bash scripts/require-tool.sh cargo-fuzz
 	@rustup toolchain list | grep -q '^nightly' || { echo "ERROR: nightly toolchain not found. Install with: rustup toolchain install nightly"; exit 1; }
-	cd agent/fuzz && cargo +nightly fuzz run --target $(FUZZ_TARGET) decode -- -runs=$(FUZZ_RUNS)
+	cd agent/fuzz && rm -rf logs && mkdir logs && set -o pipefail && status=0 && \
+		for target in $$(cargo +nightly fuzz list); do \
+			cargo +nightly fuzz run --target $(FUZZ_TARGET) "$$target" -- -runs=$(FUZZ_RUNS) 2>&1 \
+				| tee "logs/$$target.log" || status=1; \
+		done; \
+		exit $$status
 
 taint-go:
 	@bash scripts/require-tool.sh gosec

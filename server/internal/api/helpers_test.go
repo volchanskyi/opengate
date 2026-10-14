@@ -22,6 +22,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
+	"github.com/volchanskyi/opengate/server/internal/signaling"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
@@ -140,6 +141,7 @@ func newTestServer(t *testing.T) (*Server, *auth.JWTConfig) {
 		AMT:            &stubAMTOperator{},
 		Purger:         &testPurger{devices: devices},
 		Relay:          relay.NewRelay(slog.Default()),
+		Signaling:      testSignaling(t),
 		Notifier:       &notifications.NoopNotifier{},
 		Logger:         logger,
 	})
@@ -169,11 +171,27 @@ func newTestServerWithStoreAndAgents(t *testing.T, store *db.PostgresStore, agen
 		AMT:            &stubAMTOperator{},
 		Purger:         &testPurger{devices: devices},
 		Relay:          r,
+		Signaling:      testSignaling(t),
 		Notifier:       &notifications.NoopNotifier{},
 		Logger:         logger,
 	})
 	return srv, cfg
 }
+
+// testSignaling is where the test server tells session sides to meet.
+func testSignaling(t *testing.T) signaling.Config {
+	t.Helper()
+	cfg, err := signaling.New(testAgentRelayBase, testHelper)
+	require.NoError(t, err)
+	return cfg
+}
+
+const (
+	// testAgentRelayBase is the relay address machines are configured to dial.
+	testAgentRelayBase = "wss://machines.api.test"
+	// testHelper is the one helper both session sides are told about.
+	testHelper = "stun:helper.api.test:9090"
+)
 
 func seedTestUser(t *testing.T, srv *Server, cfg *auth.JWTConfig, email string, isAdmin bool) (*auth.User, string) {
 	t.Helper()

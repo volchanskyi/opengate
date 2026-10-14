@@ -1,3 +1,37 @@
+# Three networks stand in for where sessions meet: `default` is the internet, holding the server,
+# agent-b and each router's outer side; agent-a sits in an office and a browser at home.
+networks:
+  default:
+    driver_opts:
+      # The host checks each packet bound here against its arrival bridge; one a router forwards
+      # from the office or home bridge is let through.
+      com.docker.network.bridge.trusted_host_interfaces: "og-office:og-home"
+      # The host translates no address here, so a router's flows reach the far side as it sent them.
+      com.docker.network.bridge.enable_ip_masquerade: "false"
+    ipam:
+      config:
+        # Containers with no pinned address take the upper half, clear of the pinned ones.
+        - subnet: 10.77.0.0/24
+          gateway: 10.77.0.1
+          ip_range: 10.77.0.128/25
+  # The office and home bridges hold no host address, so their router is the only way out.
+  office:
+    driver_opts:
+      com.docker.network.bridge.name: og-office
+      com.docker.network.bridge.inhibit_ipv4: "true"
+    ipam:
+      config:
+        - subnet: 10.77.1.0/24
+          gateway: 10.77.1.1
+  home:
+    driver_opts:
+      com.docker.network.bridge.name: og-home
+      com.docker.network.bridge.inhibit_ipv4: "true"
+    ipam:
+      config:
+        - subnet: 10.77.2.0/24
+          gateway: 10.77.2.1
+
 services:
   postgres:
     image: postgres:17-alpine
@@ -25,6 +59,10 @@ services:
       - DATABASE_URL=postgres://opengate:e2e-test-password@postgres:5432/opengate?sslmode=disable
       # The name machines dial; it is the machine certificate's subject name and enrolment address.
       - OPENGATE_QUIC_HOST=server
+      # Machines dial the relay on the stack's network; a browser uses the address it reached.
+      - OPENGATE_AGENT_RELAY_URL=ws://server:8080
+      # The helper shares the QUIC port at the server's fixed address, which every network reaches.
+      - OPENGATE_ICE_SERVERS=stun:10.77.0.10:9090
     # The QUIC listener is published because enrolled machines connect over QUIC.
     command:
       - "-listen"
@@ -38,9 +76,13 @@ services:
       - "-web-dir"
       - "/srv/web"
     ports:
-      - "8080:8080"
+      # IPv4 alone: Firefox offers no direct-link address on a page it reached over ::1.
+      - "0.0.0.0:8080:8080"
       - "8081:8081"
       - "9090:9090/udp"
+    networks:
+      default:
+        ipv4_address: 10.77.0.10
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/api/v1/health"]
       interval: 5s
@@ -53,7 +95,52 @@ services:
       postgres:
         condition: service_healthy
 
-  # agent-b is the expendable machine; the pinned hostnames are the names the device list shows.
+  # Each router translates the network behind it to its outer address and passes back only replies;
+  # specs change its rules with `docker exec <router> router.sh …`.
+  router-office:
+    build:
+      context: router
+    container_name: opengate-test-router-office
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN, NET_RAW]
+    sysctls:
+      - net.ipv4.ip_forward=1
+    environment:
+      - ROUTER_LAN_ADDR=10.77.1.2
+      - ROUTER_WAN_ADDR=10.77.0.2
+      - ROUTER_LAN_GATEWAY=10.77.1.1
+      - ROUTER_HELPER=10.77.0.10:9090
+    networks:
+      default:
+        ipv4_address: 10.77.0.2
+        gw_priority: 1
+      office:
+        ipv4_address: 10.77.1.2
+
+  router-home:
+    build:
+      context: router
+    container_name: opengate-test-router-home
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN, NET_RAW]
+    sysctls:
+      - net.ipv4.ip_forward=1
+    environment:
+      - ROUTER_LAN_ADDR=10.77.2.2
+      - ROUTER_WAN_ADDR=10.77.0.3
+      - ROUTER_LAN_GATEWAY=10.77.2.1
+      - ROUTER_HELPER=10.77.0.10:9090
+      # The test runner reaches the browser server through the home router's outer address.
+      - ROUTER_FORWARD=3000:10.77.2.30
+    networks:
+      default:
+        ipv4_address: 10.77.0.3
+        gw_priority: 1
+      home:
+        ipv4_address: 10.77.2.2
+
+  # agent-a sits behind the office router; agent-b, the expendable machine, on the internet network.
+  # The pinned hostnames are the names the device list shows.
   agent-a:
     build:
       context: ..
@@ -70,11 +157,22 @@ services:
       - OPENGATE_SERVER_CA=/var/lib/mesh-agent/ca.pem
       - OPENGATE_ENROLL_URL=http://server:8080
       - RUST_LOG=info
+    # Sent from several CPUs, its packets cross the host's per-CPU queues out of order, and the
+    # direct link reads each reordering as a loss and halves its rate. CPU 0 exists everywhere.
+    cpuset: "0"
+    networks:
+      office:
+        ipv4_address: 10.77.1.20
+    # The office network carries no name service for the internet network's containers.
+    extra_hosts:
+      - "server:10.77.0.10"
     tmpfs:
       - /var/lib/mesh-agent:mode=1777,uid=100,gid=101
       - /var/log/mesh-agent:mode=1777,uid=100,gid=101
     depends_on:
       server:
+        condition: service_healthy
+      router-office:
         condition: service_healthy
 
   agent-b:
@@ -91,9 +189,34 @@ services:
       - OPENGATE_SERVER_CA=/var/lib/mesh-agent/ca.pem
       - OPENGATE_ENROLL_URL=http://server:8080
       - RUST_LOG=info
+    # Sent from several CPUs, its packets cross the host's per-CPU queues out of order, and the
+    # direct link reads each reordering as a loss and halves its rate. CPU 0 exists everywhere.
+    cpuset: "0"
+    networks:
+      default:
+        ipv4_address: 10.77.0.21
     tmpfs:
       - /var/lib/mesh-agent:mode=1777,uid=100,gid=101
       - /var/log/mesh-agent:mode=1777,uid=100,gid=101
     depends_on:
       server:
+        condition: service_healthy
+
+  # Playwright's browser server, behind the home router, for the specs that put both sides behind
+  # routers. e2e-stack-up.sh passes the suite's Playwright version.
+  browser:
+    build:
+      context: browser
+      args:
+        PLAYWRIGHT_VERSION: ${PLAYWRIGHT_VERSION:-}
+    container_name: opengate-test-browser
+    init: true
+    shm_size: 1gb
+    networks:
+      home:
+        ipv4_address: 10.77.2.30
+    extra_hosts:
+      - "server:10.77.0.10"
+    depends_on:
+      router-home:
         condition: service_healthy

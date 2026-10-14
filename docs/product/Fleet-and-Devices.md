@@ -89,12 +89,12 @@ the machine is in maintenance, and a hint of the machine's discovered footprint
 
 | Section | What it shows |
 |---|---|
-| Header | Hostname, online status, health, AMT and maintenance badges |
+| Header | Hostname, online status, health, AMT and maintenance badges, and **Session open — <name>, since <time>** while a technician holds the machine |
 | Incident strip | The open incidents this machine is caught up in, each a link into its room |
 | Telemetry | Anomaly rate and per-family metric charts over a chosen window — see [Device Health](./Device-Health.md) |
 | System logs | On-demand pull of the machine's own log — see [Endpoint Logs](./Endpoint-Logs.md) |
 | Inventory | Hardware, and the discovered footprint: listening ports, services, database engines, containers and packages |
-| Active sessions | Remote sessions currently open against the machine |
+| Active sessions | Who holds the machine's session and since when |
 | Maintenance | Enter or leave maintenance mode, with a reason |
 | AMT power actions | Out-of-band power control, when the hardware supports it — see [Intel AMT](./Intel-AMT.md) |
 
@@ -102,7 +102,8 @@ the machine is in maintenance, and a hint of the machine's discovered footprint
 
 | Action | Who can do it | Notes |
 |---|---|---|
-| Start a session | Any tenant member | Opens the session view — see [Remote Sessions](./Remote-Sessions.md) |
+| Open a session | Any tenant member, while nobody else holds the machine | Opens the session in a tab of its own — see [Remote Sessions](./Remote-Sessions.md) |
+| End someone's session | Administrator, or the technician who holds it | Asks first; the holder's tab reads "Ended by <name>" |
 | Restart the agent | Any tenant member | The service restarts and reconnects; the device stays enrolled |
 | Upgrade the agent | Administrator | Offered when a newer build matches the machine's OS and architecture — see [Agent Updates](./Agent-Updates.md) |
 | Enter or leave maintenance | Any tenant member | Quiets detection during planned host work |
@@ -123,7 +124,6 @@ is running; the device page reads it back and sorts it.
 | Database engines | Database software detected on the host |
 | Containers | Container runtimes and running containers |
 | Packages | Installed software packages |
-| Processes | Point-in-time process snapshots |
 
 The tables that hold these, their retention and their tenancy rules are in
 [Database](../architecture/Database.md#device-hardware); the endpoints are in

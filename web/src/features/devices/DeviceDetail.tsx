@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { useDeviceStore } from './state/device-store';
 import { useAuthStore } from '../../state/auth-store';
-import { useSessionStore } from '../session';
+import { holderLine, useSessionStore } from '../session';
 import { useOrganizationStore } from '../organizations';
 import { useUpdateStore } from './state/update-store';
 import { useToastStore } from '../../lib/feedback/toast-store';
@@ -20,7 +20,8 @@ import { fireAndForget } from '../../lib/fire-and-forget';
 import { useRouteCrumb } from '../../lib/use-route-crumb';
 import { formatBytes } from '../../lib/format-bytes';
 import { useVisibleInterval } from '../../lib/use-visible-interval';
-import { PlayIcon, RestartIcon, SpinnerIcon, CheckIcon, TrashIcon } from '../../components/icons';
+import { RestartIcon, SpinnerIcon, CheckIcon, TrashIcon } from '../../components/icons';
+import { SessionControls } from './SessionControls';
 
 const DEVICE_DETAIL_POLL_MS = 30_000;
 
@@ -81,12 +82,12 @@ export function DeviceDetail() {
   const deleteDevice = useDeviceStore((s) => s.deleteDevice);
   const sessions = useSessionStore((s) => s.sessions);
   const fetchSessions = useSessionStore((s) => s.fetchSessions);
-  const createSession = useSessionStore((s) => s.createSession);
   const sendPowerAction = useDeviceStore((s) => s.sendPowerAction);
   const addToast = useToastStore((s) => s.addToast);
   const sites = useDeviceStore((s) => s.sites);
   // The server refuses device deletion and site moves for a non-admin, so only admins see them.
   const isAdmin = useAuthStore((s) => s.user?.is_admin ?? false);
+  const userId = useAuthStore((s) => s.user?.id);
   const fetchSites = useDeviceStore((s) => s.fetchSites);
   const updateDeviceSite = useDeviceStore((s) => s.updateDeviceSite);
   const moveDeviceOrganization = useDeviceStore((s) => s.moveDeviceOrganization);
@@ -238,15 +239,6 @@ export function DeviceDetail() {
     }
   };
 
-  const handleStartSession = async () => {
-    const result = await createSession(device.id);
-    if (result) {
-      fireAndForget(navigate(`/sessions/${result.token}`, { state: { relayUrl: result.relay_url, capabilities: device.capabilities } }));
-    } else {
-      addToast('Failed to start session — agent may be offline or restarting', 'error');
-    }
-  };
-
   const handleUpgrade = async () => {
     if (!latestManifest) return;
     setIsUpgrading(true);
@@ -276,15 +268,13 @@ export function DeviceDetail() {
             {device.maintenance_on && <MaintenanceBadge since={device.maintenance_since} />}
           </div>
           <div className="flex gap-2 flex-wrap justify-end">
-            <button
-              type="button"
-              onClick={() => { fireAndForget(handleStartSession()); }}
-              aria-label="Start Session"
-              title="Start Session"
-              className="px-2.5 py-1.5 bg-green-500 hover:bg-green-600 rounded text-xs font-medium inline-flex items-center"
-            >
-              <PlayIcon />
-            </button>
+            <SessionControls
+              deviceId={device.id}
+              session={device.session}
+              userId={userId}
+              isAdmin={isAdmin}
+              onEnded={() => { fireAndForget(refreshDevice(device.id)); fireAndForget(fetchSessions(device.id)); }}
+            />
             <button
               type="button"
               onClick={() => { fireAndForget(handleRestart()); }}
@@ -419,7 +409,9 @@ export function DeviceDetail() {
             <h3 className="text-sm font-semibold text-gray-300 mb-2">Active Sessions ({sessions.length})</h3>
             <ul className="space-y-1">
               {sessions.map((s) => (
-                <li key={s.token} className="text-xs text-gray-400 font-mono truncate">{s.token}</li>
+                <li key={`${s.user_id}-${s.created_at}`} className="text-xs text-gray-400">
+                  {holderLine(s.holder_name, s.created_at)}
+                </li>
               ))}
             </ul>
           </div>

@@ -10,6 +10,7 @@ describe('file-store', () => {
       error: null,
       downloads: {},
       uploads: {},
+      waiting: [],
     });
   });
 
@@ -28,6 +29,29 @@ describe('file-store', () => {
     expect(state.currentPath).toBe('/home');
     expect(state.entries).toEqual(entries);
     expect(state.isLoading).toBe(false);
+  });
+
+  it('keeps loading while a listing has pages to come, and appends each one', () => {
+    const { setEntries, appendEntries } = useFileStore.getState();
+    setEntries('/var/log', [{ name: 'a.log', is_dir: false, size: 1, modified: 0 }], true);
+    expect(useFileStore.getState().isLoading).toBe(true);
+
+    appendEntries([{ name: 'b.log', is_dir: false, size: 2, modified: 0 }], true);
+    appendEntries([{ name: 'c.log', is_dir: false, size: 3, modified: 0 }], false);
+
+    const state = useFileStore.getState();
+    expect(state.entries.map((e) => e.name)).toEqual(['a.log', 'b.log', 'c.log']);
+    expect(state.currentPath).toBe('/var/log');
+    expect(state.isLoading).toBe(false);
+  });
+
+  it('holds the files waiting for the download ahead of them, in order', () => {
+    const { addWaiting, removeWaiting } = useFileStore.getState();
+    addWaiting('b.log');
+    addWaiting('c.log');
+    expect(useFileStore.getState().waiting).toEqual(['b.log', 'c.log']);
+    removeWaiting('b.log');
+    expect(useFileStore.getState().waiting).toEqual(['c.log']);
   });
 
   it('setDownloadProgress tracks download progress', () => {

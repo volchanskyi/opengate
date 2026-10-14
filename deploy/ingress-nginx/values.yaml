@@ -1,0 +1,15 @@
+# The ingress controller both environments share. deploy/scripts/ingress-controller-apply.sh
+# installs it with these values on a production deploy, and the nightly reads them back.
+controller:
+  # No Ingress uses a snippet, and a snippet could read every Secret the controller can list.
+  allowSnippetAnnotations: false
+  config:
+    # The chart writes this key only to turn snippets on; stating it keeps the setting readable.
+    allow-snippet-annotations: "false"
+  service:
+    # The Always Free flexible load balancer at 10 Mbit/s; its subnet is Terraform's.
+    annotations:
+      oci.oraclecloud.com/load-balancer-type: lb
+      service.beta.kubernetes.io/oci-load-balancer-shape: flexible
+      service.beta.kubernetes.io/oci-load-balancer-shape-flex-min: "10"
+      service.beta.kubernetes.io/oci-load-balancer-shape-flex-max: "10"

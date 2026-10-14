@@ -334,7 +334,8 @@ func SeedAgentSession(t testing.TB, ctx context.Context, s *db.PostgresStore, de
 		DeviceID: deviceID,
 		UserID:   userID,
 	}
-	require.NoError(t, NewTestSessions(t, s).Create(ctx, sess))
+	_, err := NewTestSessions(t, s).Create(ctx, sess)
+	require.NoError(t, err)
 	return sess
 }
 

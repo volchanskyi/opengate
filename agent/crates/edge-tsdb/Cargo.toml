@@ -26,5 +26,8 @@ criterion = { workspace = true }
 name = "tsdb_bench"
 harness = false
 
+[[example]]
+name = "substrate_report"
+
 [lints]
 workspace = true

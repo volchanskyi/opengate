@@ -2,22 +2,26 @@
 # OPENGATE_GOLDEN_DIR=<repo>/testdata/golden resolves golden fixtures inside the temp tree.
 
 # The `mutants` profile is the `test` build without debug info, which dominates the rebuild.
-# The reach measurement is skipped below; it costs ~25 s a mutant.
 profile = "mutants"
+
+# The measurements are skipped: reach (~25 s a mutant), session resources (~12 s) and download
+# memory (~2 s). The behaviour tests beside them still run.
 
 additional_cargo_test_args = [
     "--",
     "--skip",
     "the_minute_tier_reaches_back_far_enough_to_be_worth_scanning",
+    "--skip",
+    "sessions_ended_mid_download_on_a_link_give_back_their_sockets_files_and_tasks",
+    "--skip",
+    "a_download_holds_host_memory_flat_whatever_the_file_size",
 ]
 
-# exclude_globs holds code with no in-tree harness: Wayland/X11 bridges, E2E-only process wiring
-# and live-ICE peer code; and code no customer runs: the substrates behind the `bakeoff` feature.
+# exclude_globs holds code with no in-tree harness: Wayland/X11 bridges and E2E-only process
+# wiring; and code no customer runs: the substrates behind the `bakeoff` feature.
 exclude_globs = [
     "crates/platform-linux/**",
     "crates/mesh-agent/src/main.rs",
-    "crates/mesh-agent-core/src/webrtc.rs",
-    "crates/mesh-agent-core/src/session/handlers/webrtc.rs",
     "crates/edge-tsdb/src/append_only.rs",
     "crates/edge-tsdb/src/baseline.rs",
     "crates/edge-tsdb/src/crc.rs",

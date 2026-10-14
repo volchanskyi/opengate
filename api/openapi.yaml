@@ -220,6 +220,25 @@ components:
             only while maintenance_on is true.
         amt:
           $ref: "#/components/schemas/DeviceAMT"
+        session:
+          $ref: "#/components/schemas/SessionHolder"
+
+    SessionHolder:
+      type: object
+      required: [holder_id, holder_name, started_at]
+      description: >-
+        The session open on a host, named by the technician who holds it. A host
+        takes one session at a time; absent while none is open.
+      properties:
+        holder_id:
+          type: string
+          format: uuid
+        holder_name:
+          type: string
+          description: The holder's display name, or their email when they have none.
+        started_at:
+          type: string
+          format: date-time
 
     DeviceAMT:
       type: object
@@ -664,16 +683,37 @@ components:
 
     CreateSessionResponse:
       type: object
-      required: [token, relay_url]
+      required: [token, relay_url, ice_servers]
       properties:
         token:
           type: string
+          description: The session's relay credential, returned to the technician who opened it alone.
         relay_url:
           type: string
+          description: The relay address, built from the address this request was made to.
         ice_servers:
           type: array
+          description: >-
+            Helpers the browser asks for its public address before trying a direct
+            link to the host; the host is given the same list. Empty means the two
+            sides try their local addresses alone.
           items:
             $ref: "#/components/schemas/ICEServer"
+
+    SessionRefused:
+      type: object
+      required: [error]
+      description: >-
+        Why a session was not opened. A host another technician holds names that
+        technician and when their session started.
+      properties:
+        error:
+          type: string
+        holder_name:
+          type: string
+        started_at:
+          type: string
+          format: date-time
 
     ICEServer:
       type: object
@@ -683,26 +723,36 @@ components:
           type: array
           items:
             type: string
-        username:
-          type: string
-        credential:
-          type: string
 
     AgentSession:
       type: object
-      required: [token, device_id, user_id, created_at]
+      required: [device_id, user_id, holder_name, created_at]
+      description: An open session, named by its holder; the relay credential is never listed.
       properties:
-        token:
-          type: string
         device_id:
           type: string
           format: uuid
         user_id:
           type: string
           format: uuid
+        holder_name:
+          type: string
         created_at:
           type: string
           format: date-time
+
+    DirectLinkOutcomeReport:
+      type: object
+      required: [outcome]
+      properties:
+        outcome:
+          type: string
+          enum: [direct, no_route, unsupported, dropped]
+          description: >-
+            How the session's direct-link attempt ended: direct (the link carries
+            the session), no_route (no direct route on this network), unsupported
+            (this browser cannot make one), dropped (the link dropped and the
+            session moved back to the relay).
 
     WebPushSubscribeRequest:
       type: object
@@ -2520,6 +2570,44 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
 
+  /api/v1/devices/{id}/session:
+    delete:
+      operationId: endDeviceSession
+      summary: End the session open on a device
+      description: >-
+        Ends the host's one session, whoever opened it. Open to the session's
+        holder and to an administrator; the holder's tab is told who ended it.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Session ended
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: The caller neither holds the session nor is an administrator
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: No session is open on the device
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
   /api/v1/devices/{id}/hardware:
     get:
       operationId: getDeviceHardware
@@ -3322,11 +3410,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
         "409":
-          description: Agent not connected
+          description: >-
+            The agent is not connected, or another technician holds a session on
+            the host, named in the reply.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ApiError"
+                $ref: "#/components/schemas/SessionRefused"
     get:
       operationId: listSessions
       summary: List active sessions for a device
@@ -3364,7 +3454,10 @@ paths:
   /api/v1/sessions/{token}:
     delete:
       operationId: deleteSession
-      summary: Delete a relay session
+      summary: End a session
+      description: >-
+        Ends the live session and removes its row. Open to the session's holder
+        and to an administrator; the holder's tab is told who ended it.
       security:
         - bearerAuth: []
       parameters:
@@ -3375,9 +3468,65 @@ paths:
             type: string
       responses:
         "204":
-          description: Session deleted
+          description: Session ended
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: The caller neither holds the session nor is an administrator
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/sessions/{token}/outcome:
+    post:
+      operationId: reportDirectLinkOutcome
+      summary: Report how a session's direct-link attempt ended
+      description: >-
+        Counts one outcome into the fleet-wide direct-link counters, which carry
+        the outcome and nothing else. Only the session's holder may report, and a
+        session counts each outcome once however often it is reported.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DirectLinkOutcomeReport"
+      responses:
+        "204":
+          description: Outcome counted, or already counted for this session
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: The caller does not hold the session
           content:
             application/json:
               schema:

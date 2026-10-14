@@ -71,9 +71,16 @@ func TestControlMessageRoundtrip(t *testing.T) {
 			},
 		},
 		{
-			name: "SwitchAck",
+			name: "DirectSwitch",
 			msg: ControlMessage{
-				Type: MsgSwitchAck,
+				Type: MsgDirectSwitch,
+			},
+		},
+		{
+			name: "DirectFallback",
+			msg: ControlMessage{
+				Type:     MsgDirectFallback,
+				Received: 1 << 33,
 			},
 		},
 		{

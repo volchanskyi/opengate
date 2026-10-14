@@ -177,6 +177,36 @@
         "defaults": { "min": 0, "custom": { "drawStyle": "line", "fillOpacity": 10 } },
         "overrides": []
       }
+    },
+    {
+      "title": "Direct links",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 36 },
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "description": "Direct share is the attempts over the last hour whose sessions moved onto a direct link, out of every attempt: Direct, no direct route, or a browser that cannot. Dropped is the direct links an hour that fell back to the server. The counts carry no address, host, customer or technician.",
+      "targets": [
+        {
+          "expr": "100 * sum(increase(opengate_direct_link_outcomes_total{namespace=\"$environment\",outcome=\"direct\"}[1h])) / sum(increase(opengate_direct_link_outcomes_total{namespace=\"$environment\",outcome=~\"direct|no_route|unsupported\"}[1h]))",
+          "legendFormat": "Direct share %"
+        },
+        {
+          "expr": "sum(increase(opengate_direct_link_outcomes_total{namespace=\"$environment\",outcome=\"dropped\"}[1h]))",
+          "legendFormat": "dropped / hour"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "noValue": "No session attempted a direct link in this window",
+          "custom": { "drawStyle": "line", "fillOpacity": 10 }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "dropped / hour" },
+            "properties": [{ "id": "custom.axisPlacement", "value": "right" }]
+          }
+        ]
+      }
     }
   ],
   "refresh": "30s",
