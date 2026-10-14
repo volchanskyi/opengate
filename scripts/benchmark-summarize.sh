@@ -81,11 +81,15 @@ parse_criterion() {
 }
 
 build_rows() {
-  local go_tsv criterion_tsv tsv
+  local go_tsv criterion_tsv
   go_tsv="$(parse_go_bench "$GO_BENCH_FILE")" || return 2
   criterion_tsv="$(parse_criterion "$CRITERION_ROOT")" || return 2
-  tsv="${go_tsv}"$'\n'"${criterion_tsv}"
+  rows_from_tsv "${go_tsv}"$'\n'"${criterion_tsv}"
+}
 
+# Turns parsed name<TAB>lang<TAB>ns<TAB>bytes<TAB>allocs lines into the canonical row array.
+rows_from_tsv() {
+  local tsv="$1"
   jq -Rsc \
     --arg commit "$COMMIT_SHA" \
     --arg timestamp "$TIMESTAMP" \
@@ -103,7 +107,7 @@ build_rows() {
         })
       | sort_by(.lang, .name)
     ' <<<"$tsv" || {
-    echo "build_rows: jq failed" >&2
+    echo "rows_from_tsv: jq failed" >&2
     return 2
   }
 }

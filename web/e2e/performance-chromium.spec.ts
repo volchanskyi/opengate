@@ -1,12 +1,17 @@
 import { test, expect } from "./fixtures";
 import { openFolder, openWithWorker, savedChecksum, sourceFile, startDownload } from "./helpers/downloads";
 import { enrolledMachine, MACHINE_A, MACHINE_B } from "./helpers/enrolled-machine";
+import { recordMeasurement } from "./helpers/measurement";
 import { endHostSession, sessionPath } from "./helpers/session-tab";
 import { resetRouters, router } from "./helpers/stack";
 
 // The page's own resources during a download, read and frozen through Chromium's debugging
-// protocol; playwright.config.ts runs this file in the Chromium project alone.
+// protocol; playwright.config.ts runs this file in its Chromium performance project.
 test.use({ serviceWorkers: "allow" });
+
+const MIB = 1024 * 1024;
+// The page holds a few pieces of a download, never the file, so its heap stays under this.
+const HEAP_GROWTH_MIB = 32;
 
 test.describe("Performance in Chromium", () => {
   test.afterEach(async ({ request }) => {
@@ -39,8 +44,10 @@ test.describe("Performance in Chromium", () => {
       await tab.waitForTimeout(1_000);
     }
 
+    const growth = peak - before;
+    recordMeasurement("page heap growth", `< ${HEAP_GROWTH_MIB} MiB`, `${(growth / MIB).toFixed(1)} MiB`, growth < HEAP_GROWTH_MIB * MIB);
     expect(await done).toBe(source);
-    expect(peak - before).toBeLessThan(32 * 1024 * 1024);
+    expect(growth).toBeLessThan(HEAP_GROWTH_MIB * MIB);
   });
 
   test("a tab frozen for 30 s mid-download carries on without loss", async ({ authedPage, request }) => {

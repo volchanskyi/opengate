@@ -50,5 +50,9 @@ criterion.workspace = true
 name = "edge_sentinel_bench"
 harness = false
 
+[[bench]]
+name = "pacing_bench"
+harness = false
+
 [lints]
 workspace = true

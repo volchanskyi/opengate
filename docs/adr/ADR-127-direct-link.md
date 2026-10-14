@@ -200,6 +200,17 @@ arrives ([`performance.spec.ts`](../../web/e2e/performance.spec.ts)). A test
 margin wider than the promise, and accepting the odd red night, were weighed and
 rejected.
 
+**The speed tests run nightly, in a workflow of their own.** Taking enough
+samples makes them slow: the seven speed tests took about nine of the fourteen
+minutes of the end-to-end run every push waited on, and a reading near its limit
+turned a commit red on a shared runner's noise. They run nightly and on dispatch
+in [`e2e-performance.yml`](../../.github/workflows/e2e-performance.yml), in
+Chromium, where their budgets were measured, and alert when the run does not
+pass. Each records its readings beside their limits, which the run's summary
+lays out ([`e2e-summarize.sh`](../../scripts/e2e-summarize.sh)). Every other run
+leaves them out, held by
+[`e2e-speed-nightly.test.sh`](../../scripts/tests/e2e-speed-nightly.test.sh).
+
 **Downloads stream into the browser's Downloads, one at a time.** The host reads
 a file one 256 KiB piece at a time as the bulk lane drains, and a failed read
 ends the download with `FileDownloadError`. The page passes pieces as they arrive

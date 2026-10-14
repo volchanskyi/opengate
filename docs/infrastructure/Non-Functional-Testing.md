@@ -683,26 +683,38 @@ series' measured variance because shared GitHub runners are noisy. See
 
 | Language | What's Benchmarked | Tool |
 |----------|--------------------|------|
-| Go | Protocol codec, cert signing, DB operations, handshake | `testing.B` + `-benchmem` |
-| Rust | Frame/handshake encode/decode; Edge Sentinel detection, sampler, RSS probe | Criterion 0.8 |
+| Go | Protocol codec, cert signing, handshake, alert admission, and the relay forwarding a keystroke and a file piece through the WebSocket adapter | `testing.B` + `-benchmem` |
+| Rust | Frame/handshake encode/decode; the direct link carrying a frame both ways and the send limit's interval; Edge Sentinel detection, redaction, evidence and RSS probe, and the sampler's CPU time; the local metrics store's commit window, hour read and reopen | Criterion 0.8 |
+
+The relay benchmark replays a prepared frame through the production adapter on an in-memory
+connection, so it measures the per-message work with no socket or peer goroutine. The sampler
+waits between two CPU readings by design, so its benchmark measures the process CPU time it
+spends rather than the wall time it takes.
 
 #### Running them locally
 
 ```bash
-# Go
-cd server && go test -bench=. -benchmem -run='^$' ./internal/...
+# What the gauntlet runs: Go allocations against the CI baseline, every Rust suite once
+bash scripts/benchmark-local-check.sh go
+bash scripts/benchmark-local-check.sh rust
 
-# Rust
-cd agent && cargo bench -p mesh-protocol
-cd agent && cargo bench -p mesh-agent-core --bench edge_sentinel_bench
+# Full timings
+cd server && go test -bench=. -benchmem -run='^$' ./internal/...
+cd agent && cargo bench -p mesh-protocol -p mesh-agent-core -p edge-tsdb --bench '*'
 ```
 
 #### Regressions
 
-The committed [`benchmarks/baseline.json`](../../benchmarks/baseline.json) is the reviewed
-baseline. Allocation regressions above the baseline tolerance fail the workflow; `ns/op`
-outliers are emitted as advisory lines and graphed on the Grafana **Benchmark Trends**
-dashboard.
+The committed [`benchmarks/baseline.json`](../../benchmarks/baseline.json) holds CI's own
+readings and no other: each row is the median of the nightly runs that measured the code it
+describes. A benchmark CI has not measured yet has no row and is reported without a limit,
+until a baseline run with the workflow's `update-baseline` input includes it. Every commit
+holds its Go allocations to the baseline in the gauntlet, at the processor count the nightly
+runs at, where a workstation allocates as CI's runner does; time per call depends on the
+machine and is held by the nightly alone. Allocation regressions above the baseline tolerance fail the workflow, and so
+does an `ns/op` past the nights' median band or the ceiling over the baseline
+([CI Pipeline](./CI-Pipeline.md#benchmark-trend)); every series is graphed on the Grafana
+**Benchmark Trends** dashboard.
 
 ### Bundle size
 
@@ -732,10 +744,10 @@ never panic [`Frame::decode`](../../agent/crates/mesh-protocol/src/codec.rs), an
 [`link_pieces.rs`](../../agent/fuzz/fuzz_targets/link_pieces.rs) feeds the direct
 link's reassembler hostile pieces and its candidate filter hostile candidate
 lines, holding both to no panic and memory within one 4 MiB frame. libFuzzer
-needs a nightly toolchain, so the bounded session runs as observability —
-`make fuzz-rust` locally, and the nightly
-[fuzz.yml workflow](../../.github/workflows/fuzz.yml) in CI — never as a merge
-gate. `make fuzz-rust` runs every target the crate names, after a crash too, and
+needs a nightly toolchain. The bounded session runs as `make fuzz-rust` locally,
+and as the `fuzz` job in [`ci.yml`](../../.github/workflows/ci.yml) on every push
+and pull request, beside the end-to-end job: a crash fails the job, and
+`merge-to-main` waits on it. `make fuzz-rust` runs every target the crate names, after a crash too, and
 keeps each one's output; the run's summary
 ([`fuzz-summarize.sh`](../../scripts/fuzz-summarize.sh)) opens with its purpose,
 then gives per target the runs, the time, the code paths reached, the inputs kept
@@ -748,7 +760,7 @@ and [`link_pieces_corpus_test.rs`](../../agent/crates/mesh-protocol/tests/link_p
 each replays every seed in its target's directory under
 [`agent/fuzz/corpus/`](../../agent/fuzz/corpus) (crafted edge cases per branch, a
 real encoded frame, plus any minimized crash) under plain `cargo test`. A crash
-found by the nightly fuzzer is minimized and committed back into that corpus, so
+the fuzzer finds is minimized and committed back into that corpus, so
 the stable replay re-runs it forever.
 
 The server side of the same surface uses Go's native fuzzing in

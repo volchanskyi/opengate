@@ -28,7 +28,7 @@ func (m *Manager) SignAgent(deviceID, hostname string) (*tls.Certificate, error)
 	}
 	template.DNSNames = []string{hostname}
 
-	return m.issueTLS(template, key, "agent cert")
+	return m.issueTLS(&template, key, "agent cert")
 }
 
 // SignAgentCSR signs a PKCS#10 request, keeping its public key and CommonName (the device UUID).
@@ -46,5 +46,5 @@ func (m *Manager) SignAgentCSR(csrDER []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	return m.issueLeaf(template, csr.PublicKey, "agent CSR")
+	return m.issueLeaf(&template, csr.PublicKey, "agent CSR")
 }

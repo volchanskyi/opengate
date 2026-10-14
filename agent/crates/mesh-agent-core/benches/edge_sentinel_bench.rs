@@ -36,11 +36,95 @@ fn bench_detection_vote_and_window(c: &mut Criterion) {
     });
 }
 
-fn bench_sysinfo_sampler_capture(c: &mut Criterion) {
+// The sampler waits between two CPU readings by design, so its cost is the CPU time it spends.
+#[cfg(unix)]
+fn bench_sysinfo_sampler_capture(c: &mut Criterion<cpu_time::ProcessCpuTime>) {
     let mut sampler = SysinfoSampler::new(10).unwrap();
-    c.bench_function("edge_sentinel_sysinfo_sample", |b| {
+    let mut group = c.benchmark_group("edge_sentinel_sampler");
+    group
+        .sampling_mode(criterion::SamplingMode::Flat)
+        .warm_up_time(std::time::Duration::from_millis(100))
+        .measurement_time(std::time::Duration::from_millis(500));
+    group.bench_function("edge_sentinel_sysinfo_sample", |b| {
         b.iter(|| black_box(sampler.sample().unwrap()))
     });
+    group.finish();
+}
+
+/// Criterion's measurement as the process's CPU time, in nanoseconds, across every thread.
+#[cfg(unix)]
+mod cpu_time {
+    use criterion::measurement::{Measurement, ValueFormatter};
+    use criterion::Throughput;
+
+    /// Reads `CLOCK_PROCESS_CPUTIME_ID`, which a sleeping thread does not advance.
+    pub struct ProcessCpuTime;
+
+    fn now_ns() -> u64 {
+        let mut ts = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        // SAFETY: clock_gettime writes one timespec through a pointer to a live timespec.
+        let rc = unsafe { libc::clock_gettime(libc::CLOCK_PROCESS_CPUTIME_ID, &mut ts) };
+        assert_eq!(rc, 0, "the process CPU clock reads");
+        let secs = u64::try_from(ts.tv_sec).unwrap_or(0);
+        let nanos = u64::try_from(ts.tv_nsec).unwrap_or(0);
+        secs * 1_000_000_000 + nanos
+    }
+
+    impl Measurement for ProcessCpuTime {
+        type Intermediate = u64;
+        type Value = u64;
+
+        fn start(&self) -> u64 {
+            now_ns()
+        }
+
+        fn end(&self, started: u64) -> u64 {
+            now_ns().saturating_sub(started)
+        }
+
+        fn add(&self, a: &u64, b: &u64) -> u64 {
+            a + b
+        }
+
+        fn zero(&self) -> u64 {
+            0
+        }
+
+        fn to_f64(&self, value: &u64) -> f64 {
+            *value as f64
+        }
+
+        fn formatter(&self) -> &dyn ValueFormatter {
+            &CpuNanos
+        }
+    }
+
+    /// Scales CPU nanoseconds to the unit a reader takes in at a glance.
+    struct CpuNanos;
+
+    impl ValueFormatter for CpuNanos {
+        fn scale_values(&self, typical: f64, values: &mut [f64]) -> &'static str {
+            let (factor, unit) = match typical {
+                t if t >= 1e9 => (1e-9, "s CPU"),
+                t if t >= 1e6 => (1e-6, "ms CPU"),
+                t if t >= 1e3 => (1e-3, "µs CPU"),
+                _ => (1.0, "ns CPU"),
+            };
+            values.iter_mut().for_each(|v| *v *= factor);
+            unit
+        }
+
+        fn scale_throughputs(&self, _: f64, _: &Throughput, _: &mut [f64]) -> &'static str {
+            "per CPU second"
+        }
+
+        fn scale_for_machines(&self, _: &mut [f64]) -> &'static str {
+            "ns CPU"
+        }
+    }
 }
 
 /// Measures the per-line secret scrub over a secret-dense mix of log lines.
@@ -192,18 +276,27 @@ fn bench_finding_evidence_over_history(c: &mut Criterion) {
 criterion_group! {
     name = benches;
     config = Criterion::default().sample_size(10);
-    targets = bench_detection_vote_and_window, bench_sysinfo_sampler_capture,
-        bench_log_line_redaction, bench_alert_evidence_at_fire_time,
-        bench_finding_evidence_over_history, bench_rss_probe
+    targets = bench_detection_vote_and_window, bench_log_line_redaction,
+        bench_alert_evidence_at_fire_time, bench_finding_evidence_over_history, bench_rss_probe
 }
 
 #[cfg(not(target_os = "linux"))]
 criterion_group! {
     name = benches;
     config = Criterion::default().sample_size(10);
-    targets = bench_detection_vote_and_window, bench_sysinfo_sampler_capture,
-        bench_log_line_redaction, bench_alert_evidence_at_fire_time,
-        bench_finding_evidence_over_history
+    targets = bench_detection_vote_and_window, bench_log_line_redaction,
+        bench_alert_evidence_at_fire_time, bench_finding_evidence_over_history
 }
 
+#[cfg(unix)]
+criterion_group! {
+    name = sampler;
+    config = Criterion::default().with_measurement(cpu_time::ProcessCpuTime).sample_size(10);
+    targets = bench_sysinfo_sampler_capture
+}
+
+#[cfg(unix)]
+criterion_main!(benches, sampler);
+
+#[cfg(not(unix))]
 criterion_main!(benches);

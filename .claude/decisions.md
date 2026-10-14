@@ -61,7 +61,7 @@
 | 082 | A load run is valid, failed or invalid; every number is a reading, and the fleet is a roster the run gives back | [ADR-082](../docs/adr/ADR-082-load-run-validity.md) |
 | 084 | Staging carries two real machines it builds and enrols, and one holder at a time through a Lease | [ADR-084](../docs/adr/ADR-084-staging-environment.md) |
 | 086 | The deploy reads the cluster for what is running, declares no cache its token cannot write, and reads back what it does | [ADR-086](../docs/adr/ADR-086-deploy-reads-the-cluster.md) |
-| 088 | A benchmark measures the code rather than its own harness, and each lazy bundle carries its own budget | [ADR-088](../docs/adr/ADR-088-benchmarks-measure-the-code.md) |
+| 088 | A benchmark measures the code rather than its harness, the baseline holds only CI's readings, and each lazy bundle carries its own budget | [ADR-088](../docs/adr/ADR-088-benchmarks-measure-the-code.md) |
 | 091 | A coverage report is rewritten into its reader's coordinates and read back; exclusions agree in all four places | [ADR-091](../docs/adr/ADR-091-coverage-reports.md) |
 | 093 | The relay owns a session's lifetime, never a hijacked request context, and a slope proves the resource came back | [ADR-093](../docs/adr/ADR-093-relay-session-lifetime.md) |
 | 095 | Two listeners — the API in public, the exposition and profiler cluster-only, with every consumer read back | [ADR-095](../docs/adr/ADR-095-two-listeners.md) |

@@ -2,6 +2,7 @@ import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures";
 import { openFolder, openWithWorker, savedChecksum, sourceFile, startDownload } from "./helpers/downloads";
 import { enrolledMachine, MACHINE_A, MACHINE_B } from "./helpers/enrolled-machine";
+import { recordMeasurement } from "./helpers/measurement";
 import { endHostSession, msUntilPath, noteRelayOpen, openSessionTab, sessionPath } from "./helpers/session-tab";
 import { echoTimes, onMachine, percentile, resetRouters, router, watchEcho } from "./helpers/stack";
 
@@ -90,12 +91,23 @@ test.describe("Performance", () => {
         );
         const checksum = await savedChecksum(saved);
         const mbits = ((1 - share) * mib * 8 * 1.048576) / seconds;
+        const p95 = percentile(times, 0.95);
+        const budget = ECHO_BUDGET_MS[mbit]!;
+        const lineShare = mbits / Number(mbit);
 
-        console.log(`${mbit} Mbit/s ${path}: echo p95 ${Math.round(percentile(times, 0.95))} ms, download ${mbits.toFixed(1)} Mbit/s over ${seconds.toFixed(1)} s`);
-        expect(percentile(times, 0.95), `echo times ${times.map(Math.round).join(" ")}`).toBeLessThanOrEqual(ECHO_BUDGET_MS[mbit]!);
+        console.log(`${mbit} Mbit/s ${path}: echo p95 ${Math.round(p95)} ms, download ${mbits.toFixed(1)} Mbit/s over ${seconds.toFixed(1)} s`);
+        recordMeasurement("echo, 95th percentile", `≤ ${budget} ms`, `${Math.round(p95)} ms`, p95 <= budget);
+        recordMeasurement(
+          "download, share of the line",
+          `≥ ${RATE_FLOOR * 100}%`,
+          `${(lineShare * 100).toFixed(1)}% (${mbits.toFixed(1)} Mbit/s)`,
+          lineShare >= RATE_FLOOR,
+        );
+        recordMeasurement("download, time the rate is read over", `≥ ${RATE_WINDOW_S} s`, `${seconds.toFixed(1)} s`, seconds >= RATE_WINDOW_S);
+        expect(p95, `echo times ${times.map(Math.round).join(" ")}`).toBeLessThanOrEqual(budget);
         expect(checksum).toBe(source);
         expect(seconds, "the rate's window").toBeGreaterThanOrEqual(RATE_WINDOW_S);
-        expect(mbits / Number(mbit), `${mbits.toFixed(1)} Mbit/s over ${seconds.toFixed(1)} s`).toBeGreaterThanOrEqual(RATE_FLOOR);
+        expect(lineShare, `${mbits.toFixed(1)} Mbit/s over ${seconds.toFixed(1)} s`).toBeGreaterThanOrEqual(RATE_FLOOR);
       });
     }
   }
@@ -106,6 +118,8 @@ test.describe("Performance", () => {
   }) => {
     await noteRelayOpen(authedPage.context());
     const tab = await openSessionTab(authedPage, (await enrolledMachine(request, MACHINE_A)).id);
-    expect(await msUntilPath(tab, "Direct", 10_000)).toBeLessThan(1_000);
+    const ms = await msUntilPath(tab, "Direct", 10_000);
+    recordMeasurement("time to Direct after the relay opens", "< 1000 ms", `${Math.round(ms)} ms`, ms < 1_000);
+    expect(ms).toBeLessThan(1_000);
   });
 });

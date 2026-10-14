@@ -106,7 +106,7 @@ curl http://localhost:8080/api/v1/health
 The `build-image.yml` GitHub Actions workflow triggers on pushes to `main`:
 
 ```
-dev push → CI (19 gates) → merge-to-main → pushes to main
+dev push → CI (every gate job) → merge-to-main → pushes to main
   → build-image.yml fires
     → multi-arch build (amd64 + arm64) with SLSA provenance + SBOM
     → push to GHCR with sha + latest tags

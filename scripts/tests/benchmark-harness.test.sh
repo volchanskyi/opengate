@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Refuses per-iteration b.StopTimer()/b.StartTimer(); both call the stop-the-world ReadMemStats.
-# Holds the committed baseline and the benchmark set in agreement in both directions.
+# Refuses a baseline row naming no benchmark; a benchmark CI has not measured yet has no row.
 
 set -euo pipefail
 
@@ -68,13 +68,12 @@ defined="$(
     | sed -E 's/^func (Benchmark[A-Za-z0-9_]*)\(/\1/' | sort -u
 )"
 
-missing_baseline="$(comm -13 <(printf '%s\n' "$declared") <(printf '%s\n' "$defined"))"
 stale_baseline="$(comm -23 <(printf '%s\n' "$declared") <(printf '%s\n' "$defined"))"
 
-if [ -z "$missing_baseline" ]; then
-  pass "every Go benchmark has a committed baseline row"
+if [ -n "$defined" ]; then
+  pass "the sweep read $(wc -l <<<"$defined") Go benchmarks"
 else
-  fail "benchmarks with no baseline row: $(echo "$missing_baseline" | tr '\n' ' ')"
+  fail "the sweep read no Go benchmark"
 fi
 
 if [ -z "$stale_baseline" ]; then

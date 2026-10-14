@@ -80,8 +80,10 @@ In order, with elapsed time printed per step:
    [`npm-audit.sh`](../../scripts/npm-audit.sh) per lockfile: high and above,
    minus the expiring exceptions in
    [`npm-audit-exceptions.json`](../../scripts/lib/npm-audit-exceptions.json).
-7. **Benchmarks** — Go `go test -bench` and Rust `cargo bench -p mesh-protocol`.
-   Skip with `PRECOMMIT_SKIP_BENCH=1` only for clearly non-perf-touching
+7. **Benchmarks** — [`benchmark-local-check.sh`](../../scripts/benchmark-local-check.sh):
+   the Go benchmarks at the nightly's processor count, their allocations held to
+   the CI [baseline](../../benchmarks/baseline.json), and every Rust suite run
+   once. Skip with `PRECOMMIT_SKIP_BENCH=1` only for clearly non-perf-touching
    iterations.
 8. **PMAT TDG gate** — `pmat tdg check-quality` on each changed code file at the
    **B+** floor. Ordered before the slow phase because it is fast and frequently

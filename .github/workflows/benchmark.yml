@@ -72,7 +72,8 @@ jobs:
         run: |
           set -euo pipefail
           cd server
-          go test -bench=. -benchmem -count=1 -run='^$' ./internal/... | tee "$GITHUB_WORKSPACE/bench-go.txt"
+          # Pinned to the runner's four processors, which the gauntlet's local check runs at too.
+          go test -bench=. -benchmem -count=1 -cpu 4 -run='^$' ./internal/... | tee "$GITHUB_WORKSPACE/bench-go.txt"
 
       - uses: actions/upload-artifact@v7
         if: matrix.lang == 'go'
@@ -94,7 +95,7 @@ jobs:
         run: |
           set -euo pipefail
           cd agent
-          cargo bench --package mesh-protocol --bench codec_bench
+          cargo bench -p mesh-protocol -p mesh-agent-core -p edge-tsdb --bench '*'
           DEST="$GITHUB_WORKSPACE/bench-rust-estimates"
           mkdir -p "$DEST"
           # Copies only new/estimates.json, keeping the <bench>/new layout the summarizer globs.

@@ -191,8 +191,7 @@ describe('SessionView', () => {
 
   it('tells this browser’s other pages it holds the host while the session is open', async () => {
     const { unmount } = renderPage();
-    await screen.findByRole('tab', { name: 'Terminal' });
-    expect(holdsSessionTab('dev-1')).toBe(true);
+    await waitFor(() => expect(holdsSessionTab('dev-1')).toBe(true));
     unmount();
     expect(holdsSessionTab('dev-1')).toBe(false);
     expect(disconnect).toHaveBeenCalled();

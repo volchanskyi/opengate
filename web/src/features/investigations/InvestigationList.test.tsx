@@ -31,9 +31,12 @@ const page = (items: Incident[], nextCursor?: string) => ({
 });
 
 function lastQuery(): Record<string, unknown> {
-  const call = (mockedGet.mock.calls as unknown as [string, { params?: { query?: Record<string, unknown> } }][]).at(-1);
+  const calls = mockedGet.mock.calls as unknown as [string, { params?: { query?: Record<string, unknown> } }][];
+  const call = calls.filter(([path]) => path === '/api/v1/investigations').at(-1);
   return call?.[1].params?.query ?? {};
 }
+
+const noHosts = { data: [], error: undefined, response: { ok: true, status: 200 } };
 
 function renderList() {
   const router = createMemoryRouter(
@@ -163,14 +166,13 @@ describe('InvestigationList — narrowing', () => {
   });
 
   it('re-reads when the customer being looked at changes', async () => {
-    mockedGet.mockResolvedValue(page([incident()]) as never);
+    mockedGet.mockImplementation(((path: string) =>
+      Promise.resolve(path === '/api/v1/devices' ? noHosts : page([incident()]))) as never);
     renderList();
     await screen.findByRole('table');
-    const before = mockedGet.mock.calls.length;
 
     useOrganizationStore.setState({ selectedOrganizationId: 'org-9' });
-    await vi.waitFor(() => { expect(mockedGet.mock.calls.length).toBeGreaterThan(before); });
-    expect(lastQuery()).toMatchObject({ organization_id: 'org-9' });
+    await vi.waitFor(() => { expect(lastQuery()).toMatchObject({ organization_id: 'org-9' }); });
   });
 });
 

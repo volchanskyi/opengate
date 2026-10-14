@@ -62,8 +62,10 @@ human commits  ──► dev ──► main
         SonarCloud Analysis     (needs Go unit + Rust test + Web unit)
         └─ downloads coverage artifacts from all 3 test jobs
                │
-        E2E (Playwright)       (needs all prior checks + bundle-size)
+        E2E (Playwright)       (needs the agent binary)
         └─ docker-compose.test.yml → Playwright → Lighthouse CI → tear down
+        Fuzz                   (parallel with E2E)
+        └─ libFuzzer over every agent/fuzz target on a bounded run → run summary
                │
         Load Test (k6)         (dispatch/schedule only — not gated)
                │
@@ -86,6 +88,9 @@ human commits  ──► dev ──► main
 
         Load-Test Workflow (scheduled / workflow_dispatch)
         └─ k6 + QUIC summary artifact → VM read-back gate → VictoriaMetrics → Telegram/fail-red
+
+        E2E Performance Workflow (nightly / workflow_dispatch)
+        └─ Playwright speed specs in Chromium over the shaped routers → Telegram unless green
 
         Build & Push Container Image Workflow
         (main push / CI success on dev)
@@ -118,7 +123,8 @@ The CI workflow jobs are grouped by concern:
 | **Security** | `security-audit` | govulncheck, cargo audit, npm audit |
 | **CodeQL** | `codeql-go`, `codeql-js`, `codeql-rust` | GitHub Code Scanning with `security-and-quality` queries |
 | **SonarCloud** | `sonarcloud` | Static analysis + coverage aggregation via SonarSource scan action |
-| **E2E** | `e2e` | Playwright end-to-end + Lighthouse CI audits via `docker-compose.test.yml` (needs all prior checks + bundle-size) |
+| **E2E** | `e2e` | Playwright end-to-end + Lighthouse CI audits via `docker-compose.test.yml` (needs `agent-binary`); the speed specs run nightly in [`e2e-performance.yml`](../../.github/workflows/e2e-performance.yml) |
+| **Fuzz** | `fuzz` | libFuzzer over every [`agent/fuzz`](../../agent/fuzz) target on nightly Rust, beside `e2e`; the run summary lands in the job summary and a crash uploads `fuzz-artifacts` |
 | **Load** | `load-test` | k6 HTTP/WS and QUIC load test workflow (scheduled/dispatchable; independent of merge gating) |
 | **Merge** | `merge-to-main` | Auto-merge `dev` → `main` after the required upstream jobs in [`ci.yml`](../../.github/workflows/ci.yml) pass; updates Go/Rust/Web coverage badges on `dev` pushes |
 | **Auto-tag** | `auto-tag` | Determines semver bump from conventional commits, generates Keep a Changelog entry, commits CHANGELOG.md, and pushes a git tag (triggers `release-agent.yml`) |
@@ -136,7 +142,7 @@ trends run in the separate scheduled/dispatchable
 
 Every language-toolchain pin in the workflows floats. The Rust jobs ask
 [`dtolnay/rust-toolchain`](../../.github/workflows/ci.yml) for `stable` — with
-[`fuzz.yml`](../../.github/workflows/fuzz.yml) asking for `nightly` — and the
+the `fuzz` job asking for `nightly` — and the
 web jobs ask `actions/setup-node` for major `24`; each resolves to the newest
 release at the moment the job runs. A workstation resolves the same pins once,
 at install time, so it drifts behind CI by exactly as much as it has gone
@@ -364,8 +370,8 @@ Both branches are protected. `dev` is governed by a **repository ruleset**.
 
 | Branch | Mechanism | Rules |
 |--------|-----------|-------|
-| `main` | Branch protection rule | No force pushes, no deletion. All 19 gate jobs required as status checks — pushes are blocked until every check passes. `merge-to-main` CI job is the only authorized writer. |
-| `dev` | Ruleset: **CI Gate** | All 19 gate jobs as required status checks; no deletion; no force pushes. Repository admins bypass all rules (enables direct pushes for development). |
+| `main` | Branch protection rule | No force pushes, no deletion. Every gate job required as a status check — pushes are blocked until every check passes. `merge-to-main` CI job is the only authorized writer. |
+| `dev` | Ruleset: **CI Gate** | Every gate job as a required status check; no deletion; no force pushes. Repository admins bypass all rules (enables direct pushes for development). |
 
 Three properties of the **CI Gate** ruleset are worth stating outright:
 - **Bypass actors:** Repository admins can push directly without passing status checks. A ruleset names its bypass actors explicitly, so who may skip the gate is readable from the rule itself.
@@ -377,8 +383,14 @@ Three properties of the **CI Gate** ruleset are worth stating outright:
 [`benchmark.yml`](../../.github/workflows/benchmark.yml) runs Go and Rust benchmarks on a
 nightly schedule and by `workflow_dispatch`:
 
-- **Go benchmarks** — `testing.B` + `-benchmem` for protocol codec, cert signing, DB, handshake.
-- **Rust benchmarks** — Criterion for frame/handshake encode/decode.
+- **Go benchmarks** — `testing.B` + `-benchmem` at the runner's own processor count:
+  protocol codec, cert signing, handshake, alert admission and relay forwarding.
+- **Rust benchmarks** — every Criterion suite in `mesh-protocol`, `mesh-agent-core` and
+  `edge-tsdb`: codec, direct link and send limit, Edge Sentinel, and the local metrics store.
+
+The gauntlet holds every commit's Go allocations to the same baseline at the same processor
+count ([`benchmark-local-check.sh`](../../scripts/benchmark-local-check.sh)), so an
+allocation regression fails the commit rather than the night after it merges.
 
 The workflow publishes canonical rows to VictoriaMetrics through
 [`scripts/benchmark-vm-push.sh`](../../scripts/benchmark-vm-push.sh) and hard-gates
@@ -483,6 +495,15 @@ Lighthouse and bundle-size evidence stays per-run: Lighthouse uploads the
 `lighthouse-results` artifact from the `e2e` job, and bundle size uploads the
 `bundle-size-report` artifact from the `web-bundle-size` job.
 
+The browser speed specs — typing echo and download rate over the stack's shaped
+routers, and the page's memory through a long download — run nightly and on
+dispatch in [`e2e-performance.yml`](../../.github/workflows/e2e-performance.yml),
+in Chromium alone, and alert when the run does not pass. Each spec records its
+readings beside their limits, and
+[`e2e-summarize.sh`](../../scripts/e2e-summarize.sh) writes them into the run's
+summary from Playwright's JSON report; the cross-browser nightly writes its
+per-browser counts, failures and retries the same way.
+
 ### PageSpeed Insights
 
 PageSpeed Insights is not part of the current CD workflow. Browser performance
@@ -495,7 +516,7 @@ secret in [`cd.yml`](../../.github/workflows/cd.yml) at the same time.
 Dependabot PRs target `dev` directly — same target a human contributor would use. The flow:
 
 1. Dependabot opens a grouped PR against `dev` (one PR per ecosystem)
-2. CI runs on the PR (`pull_request` trigger — same 19 gate jobs as a human PR)
+2. CI runs on the PR (`pull_request` trigger — the same gate jobs as a human PR)
 3. [`dependabot-auto-merge.yml`](../../.github/workflows/dependabot-auto-merge.yml) classifies the update via `dependabot/fetch-metadata`:
    - **Patch + minor:** calls `gh pr merge --auto --squash`. GitHub auto-merges once required checks pass.
    - **Major:** stays open with a "needs human review" comment.

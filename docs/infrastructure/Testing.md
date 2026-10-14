@@ -120,7 +120,7 @@ which ignores the shared URL by design.
 | **Unit (Go)** | `testing` + testify | `server/internal/*/` |
 | **Unit (Rust)** | `#[test]` + proptest | `agent/crates/*/` |
 | **Property** | proptest (Rust), rapid (Go), fast-check (Web) | `*property*` test files in all three trees |
-| **Fuzz (Rust)** | cargo-fuzz / libFuzzer (nightly) + stable corpus replay | [`agent/fuzz/`](../../agent/fuzz), [`decode_corpus_test.rs`](../../agent/crates/mesh-protocol/tests/decode_corpus_test.rs) |
+| **Fuzz (Rust)** | cargo-fuzz / libFuzzer on nightly Rust, in CI on every push, + stable corpus replay | [`agent/fuzz/`](../../agent/fuzz), [`decode_corpus_test.rs`](../../agent/crates/mesh-protocol/tests/decode_corpus_test.rs) |
 | **Fuzz (Go)** | native `go test -fuzz`, seeded from the goldens | [`codec_fuzz_test.go`](../../server/internal/protocol/codec_fuzz_test.go) |
 | **Acceptance** | the whole product over [`internal/app`](../../server/internal/app), live Postgres, two actors | `server/tests/acceptance/` |
 | **Integration** | real QUIC + real sockets + live Postgres | `server/tests/integration/` |
@@ -542,8 +542,13 @@ depends on is gone for every later run against that database.
 - **CI**: `web/playwright.config.ts` — targets `http://localhost:8080` (docker-compose)
   from Chromium on the test machine, and the two-router spec from a Chromium on
   the browser server behind the home router. Nightly, Firefox and WebKit run the
-  same way; the specs that read Chromium's debugging protocol run in Chromium
-  alone.
+  same way. The speed specs run apart from both: under `PLAYWRIGHT_PERFORMANCE=1`
+  the config holds one Chromium project of them alone, which
+  [`e2e-performance.yml`](../../.github/workflows/e2e-performance.yml) runs
+  nightly, and every other run leaves them out
+  ([`e2e-speed-nightly.test.sh`](../../scripts/tests/e2e-speed-nightly.test.sh)).
+  Both nightly runs write their summary from the JSON report
+  ([`e2e-summarize.sh`](../../scripts/e2e-summarize.sh)).
 - **Staging**: `web/playwright.staging.config.ts` — derives from the CI config and
   overrides only the target, the retry policy and the specs that drive the local
   stack, so the two cannot drift in how the suite executes;
@@ -567,6 +572,9 @@ make agent-binary
 cd deploy && bash scripts/e2e-stack-up.sh
 cd ../web && npx playwright test
 cd ../deploy && docker compose -f docker-compose.test.yml down -v
+
+# The speed specs alone, as the nightly runs them
+PLAYWRIGHT_PERFORMANCE=1 make e2e
 ```
 
 ### Docker credential helpers
