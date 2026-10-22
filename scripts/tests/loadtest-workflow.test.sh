@@ -288,6 +288,59 @@ else
   fail "nothing copies the profile into the pod, so the harness reads a file that is not there"
 fi
 
+# A night the shared server made no room for is red, and its alert names the busy server: the
+# publish job's verdict step and the alert step run here against a not-started verdict.
+step_script() {
+  python3 - "$WORKFLOW" "$1" "$2" <<'EOF'
+import sys, yaml
+workflow, job, name = sys.argv[1], sys.argv[2], sys.argv[3]
+for step in yaml.safe_load(open(workflow))["jobs"][job]["steps"]:
+    if step.get("name") == name:
+        print(step["run"])
+EOF
+}
+reason='the shared server stayed 89–93% busy for 30 minutes, past the 85% the run allows'
+sandbox="$(mktemp -d)"
+mkdir -p "$sandbox/artifacts/loadtest" "$sandbox/scripts"
+jq -n --arg reason "$reason" '{result: "not_started", reason: $reason}' \
+  >"$sandbox/artifacts/loadtest/loadtest-completeness.json"
+: >"$sandbox/output"
+verdict_status=0
+(cd "$sandbox" && GITHUB_OUTPUT="$sandbox/output" \
+  bash -e -o pipefail -c "$(step_script publish "Read the run's own verdict before publishing anything")") \
+  >/dev/null 2>&1 || verdict_status=$?
+if [ "$verdict_status" -ne 0 ] && grep -qxF -- "not_started=$reason" "$sandbox/output"; then
+  pass "a night that never started keeps out of the trend and hands its reason on"
+else
+  fail "the verdict step must fail a not-started night and output not_started=<reason> (status=$verdict_status, output=[$(cat "$sandbox/output")])"
+fi
+if python3 -c 'import sys, yaml; o = yaml.safe_load(open(sys.argv[1]))["jobs"]["publish"]["outputs"]; sys.exit(0 if "not_started" in o else 1)' "$WORKFLOW"; then
+  pass "the publish job declares the reason as an output"
+else
+  fail "the publish job must declare a not_started output"
+fi
+
+# shellcheck disable=SC2016 # $1 belongs to the stand-in script this line writes
+printf '#!/usr/bin/env bash\nprintf "%%s" "$1" >"%s/sent"\n' "$sandbox" >"$sandbox/scripts/telegram-alert.sh"
+chmod +x "$sandbox/scripts/telegram-alert.sh"
+(cd "$sandbox" && JOB_STATUS=failure FINDING=0 ALERT_TEXT="" NOT_STARTED="$reason" RUN_URL=https://example.test/run \
+  bash -e -o pipefail -c "$(step_script alert "Send Telegram alert")") >/dev/null 2>&1 || true
+if grep -qF -- "$reason" "$sandbox/sent" 2>/dev/null; then
+  pass "the alert for a night that never started quotes why"
+else
+  fail "the alert must quote the not-started reason (sent=[$(cat "$sandbox/sent" 2>/dev/null)])"
+fi
+alert_env="$(python3 -c 'import sys, yaml
+for st in yaml.safe_load(open(sys.argv[1]))["jobs"]["alert"]["steps"]:
+    if st.get("name") == "Send Telegram alert": print(st.get("env", {}).get("NOT_STARTED", ""))' "$WORKFLOW")"
+# shellcheck disable=SC2016 # the workflow's expression text, compared unexpanded
+if [ "$alert_env" = '${{ needs.publish.outputs.not_started }}' ]; then
+  pass "the alert reads the reason the publish job handed on"
+else
+  fail "the alert step must set NOT_STARTED from needs.publish.outputs.not_started (got=[$alert_env])"
+fi
+rm -rf "$sandbox"
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

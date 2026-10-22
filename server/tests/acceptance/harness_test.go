@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http/httptest"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -61,6 +62,28 @@ type Product struct {
 
 	// readingStore is the numeric store, flushed on demand so written readings are queryable.
 	readingStore *telemetry.VMClient
+
+	// clock is the time the product decides certificate questions by, moved by hand.
+	clock *productClock
+}
+
+// productClock is the product's certificate clock, which a test moves forward by hand.
+type productClock struct {
+	mu sync.Mutex
+	t  time.Time
+}
+
+func (c *productClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.t
+}
+
+// Advance moves the product's certificate clock forward.
+func (p *Product) Advance(d time.Duration) {
+	p.clock.mu.Lock()
+	defer p.clock.mu.Unlock()
+	p.clock.t = p.clock.t.Add(d)
 }
 
 // productOptions carries a test's choices about which parts of the product to stand up.
@@ -94,8 +117,10 @@ func newProduct(t *testing.T, opts ...ProductOption) *Product {
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	hardware := newManagedHardware()
+	clock := &productClock{t: time.Now()}
 
 	cfg := app.Config{
+		Clock:          clock.Now,
 		Store:          testutil.NewTestStore(t),
 		DataDir:        t.TempDir(),
 		JWTSecret:      productSecret,
@@ -141,6 +166,7 @@ func newProduct(t *testing.T, opts ...ProductOption) *Product {
 	})
 
 	return &Product{
+		clock:        clock,
 		t:            t,
 		assembly:     assembly,
 		HTTP:         httpSrv,

@@ -27,6 +27,9 @@ const (
 	exitAgentFailures = 1
 	// exitMeasuredNothing marks a run that measured nothing; the runner discards its output.
 	exitMeasuredNothing = 2
+	// exitNotStarted marks a run the shared machine never made room for; it offered nothing, and
+	// its bundle says why.
+	exitNotStarted = 3
 )
 
 type agentResult struct {
@@ -41,6 +44,8 @@ type agentResult struct {
 	// redials counts dials after a lost connection and reconnected the ones that succeeded.
 	redials     int
 	reconnected int
+	// retried is 1 when the first dial never arrived and the machine dialled once more.
+	retried int
 
 	err error
 }
@@ -74,7 +79,6 @@ func main() {
 func run() int {
 	agents := flag.Int("agents", 100, "number of concurrent agents")
 	addr := flag.String("addr", "127.0.0.1:9090", "QUIC server address")
-	dataDir := flag.String("data-dir", "", "cert manager data directory (temp if empty)")
 	tenantFlag := flag.Int("tenants", 1, "number of tenant cohorts to spread agents across")
 	defaultTelemetry := flag.Bool("default-telemetry", false, "emit the default telemetry shape (health summary + host metric window + process report) per agent")
 	telemetryCycles := flag.Int("telemetry-cycles", 1, "default-telemetry emission cycles per agent")
@@ -104,6 +108,7 @@ func run() int {
 	commit := flag.String("commit", "", "the source revision this run measures; a run inside a pod inherits none, so it is passed in")
 	journeysPath := flag.String("journeys", "", "the technician-side generator's export, whose named journeys travel into this run's evidence")
 	fixtureWeightPath := flag.String("fixture-weight", "", "the weighing of the fleet on disk, which is the volume family's whole finding")
+	roomWait := flag.Duration("room-wait", 0, "how long to wait for the shared machine's processor to drop under the profile's ceiling before walking; zero refuses at the first busy reading")
 	leakSnapshotEvery := flag.Duration("leak-snapshot-every", 0, "take and keep the target's goroutine and heap profiles this often, so what grew across a long run is named at a line rather than reported as a slope")
 	flag.Parse()
 
@@ -143,16 +148,6 @@ func run() int {
 	tenants := max(*tenantFlag, 1)
 	agentPlan := planAgents(*agents, tenants, *hostnamePrefix)
 
-	dir := *dataDir
-	if dir == "" && *enrollURL == "" {
-		var err error
-		dir, err = os.MkdirTemp("", "loadtest-certs-*")
-		if err != nil {
-			log.Fatalf("create temp dir: %v", err)
-		}
-		defer os.RemoveAll(dir)
-	}
-
 	// The fleet is built before the clock starts so its writes stay out of every phase.
 	fleet := buildFixtureIfAsked(fixtureRequest{
 		baseURL:   *enrollURL,
@@ -169,7 +164,7 @@ func run() int {
 		*enrollToken = fleet.token
 	}
 
-	source, err := newAgentCredentials(dir, *enrollURL, *enrollToken)
+	source, err := newAgentCredentials(*enrollURL, *enrollToken)
 	if err != nil {
 		log.Fatalf("agent credentials: %v", err)
 	}
@@ -179,6 +174,29 @@ func run() int {
 	filer := fleet.filerFor(credentials, *agents, profile)
 
 	fmt.Printf("Starting QUIC load test: %d agents across %d tenant(s) → %s\n", *agents, tenants, *addr)
+
+	// The run waits for room on the machine it shares before anything is read or offered, so the
+	// wait is in no figure; a machine that never makes room is written down as a run not started.
+	clock := NewRealClock()
+	venue := NewVenueReader(clock)
+	if profile != nil {
+		wait := RoomWait{Limit: *roomWait}
+		ready, err := awaitRoom(profile.Safety, wait, clock, venue)
+		var noRoom *NoRoomError
+		if errors.As(err, &noRoom) {
+			fmt.Printf("::error::the run did not start: %s\n", noRoom)
+			if *bundleDir != "" {
+				if err := writeNotStartedBundle(*bundleDir, noRoom); err != nil {
+					log.Fatalf("bundle: %v", err)
+				}
+			}
+			return exitNotStarted
+		}
+		if err != nil {
+			log.Fatalf("phases: stopping before phase %q: %v", profile.Phases[0].Name, err)
+		}
+		venue = ready
+	}
 
 	// The conservation bracket opens after the fixture so its writes are not charged to the
 	// target's per-operation figure.
@@ -201,7 +219,7 @@ func run() int {
 			Census:    NewTargetCensus(*metricsURL),
 			Generator: NewGeneratorRoom(),
 			Network:   NewNetworkDrops(*targetNetCounters),
-		}, filer)
+		}, filer, clock, venue)
 	totalDur := time.Since(start)
 
 	generatorHeadroom := generatorReading()

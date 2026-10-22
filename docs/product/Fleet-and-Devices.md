@@ -6,6 +6,7 @@
 - [Finding a device](#finding-a-device)
 - [The device detail page](#the-device-detail-page)
   - [Actions](#actions)
+  - [Identity in use on two machines](#identity-in-use-on-two-machines)
 - [Inventory](#inventory)
 - [Browser notifications](#browser-notifications)
 - [Console behaviour](#console-behaviour)
@@ -110,6 +111,23 @@ the machine is in maintenance, and a hint of the machine's discovered footprint
 | File into a site | Administrator | The site must belong to the device's own customer |
 | Move to another customer | Administrator | Clears the site filing in the same step, so a machine never arrives at a customer filed under a site that customer does not have |
 | Delete the device | Administrator | An irreversible erasure, behind a confirm step — see [Data Erasure](./Data-Erasure.md) |
+
+### Identity in use on two machines
+
+One device is one identity. When a second machine connects with the identity of
+one already online — a cloned virtual machine, a restored snapshot, a disk image
+copied onto new hardware — the newer connection takes the device and the older
+is disconnected. If the older machine was still alive, the device page shows,
+for a day after it was last seen:
+
+> This identity is in use on two machines (*address A* and *address B*).
+> Reinstall one of them with --fresh.
+
+The device list keeps one row, which flickers between the two machines until one
+of them is reinstalled with `--fresh`
+([Agent Deployment](./Agent-Deployment.md#cloned-machines-and-templates)). A
+machine that merely reconnected after a crash or a network change raises no
+warning.
 
 ## Inventory
 

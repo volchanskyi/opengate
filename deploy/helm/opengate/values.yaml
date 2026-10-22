@@ -61,10 +61,28 @@ server:
     persistent: true
     storageClass: oci-bv
     size: 1Gi
-  # Every replica serves the same CA, VAPID and signing keys, mounted read-only from existingSecret.
-  # Enabling it makes /data an emptyDir and the rollout a RollingUpdate.
+  # Every replica serves the same VAPID and signing keys, mounted read-only from existingSecret,
+  # and the master keys from authority.secretName. Enabling it makes /data an emptyDir.
   sharedKeys:
     enabled: false
+
+# The master keys' role files, in a secret of their own that a start-up step copies into memory
+# for the server's user alone; used where sharedKeys is enabled.
+authority:
+  secretName: opengate-authority
+  # RFC 3339 time a vouched-only master key leaked; set only with the emergency layout.
+  compromisedSince: ""
+  # One key-tool command, which scripts/authority-job.sh renders and runs outside any release.
+  job:
+    enabled: false
+    args: ["inspect"]
+  resources:
+    requests:
+      cpu: 10m
+      memory: 16Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
 
 postgres:
   # Fully-qualified registry path: cri-o nodes run short-name-mode=enforcing and reject bare names.

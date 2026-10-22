@@ -15,6 +15,7 @@ use mesh_protocol::{LogEntry, RuleCoverage};
 use crate::clock::unix_micros;
 use crate::host_logs::{self, LogSource};
 use crate::logs::LogFilter;
+use crate::stop::Stop;
 
 /// How often the host log is looked at.
 const POLL_INTERVAL: Duration = Duration::from_secs(60);
@@ -155,8 +156,9 @@ pub(crate) fn spawn_event_watch(
     sink: AlertSink,
     maintenance: MaintenanceGate,
     coverage: EventCoverage,
+    stop: Stop,
 ) -> tokio::task::JoinHandle<()> {
-    tokio::task::spawn_blocking(move || {
+    tokio::spawn(async move {
         let source = host_logs::resolve_host_source();
         // Coverage is published whether or not a reader exists, so an unreadable log reports
         // its rules as unsupported.
@@ -167,8 +169,7 @@ pub(crate) fn spawn_event_watch(
         };
         let mut watch = EventWatch::new(sink, unix_micros());
         info!("system-event watch starting");
-        loop {
-            std::thread::sleep(POLL_INTERVAL);
+        while !stop.sleep(POLL_INTERVAL).await {
             let now = unix_micros();
 
             // Maintenance skips the window because an admin's reboot
@@ -178,7 +179,11 @@ pub(crate) fn spawn_event_watch(
                 continue;
             }
 
-            poll_once(&mut watch, source, now);
+            tokio::select! {
+                biased;
+                () = stop.requested_async() => break,
+                () = poll_once(&mut watch, source, now) => {}
+            }
         }
     })
 }
@@ -198,9 +203,9 @@ fn publish_coverage(coverage: &EventCoverage, can_read_its_log: bool) {
 }
 
 /// One poll: read the window, evaluate it, sink what fires.
-fn poll_once(watch: &mut EventWatch, source: LogSource, now_micros: i64) {
+async fn poll_once(watch: &mut EventWatch, source: LogSource, now_micros: i64) {
     let filter = poll_filter(now_micros, watch.min_level());
-    let entries = host_logs::collect_host_logs(source, &filter, "");
+    let entries = host_logs::collect_host_logs(source, &filter, "").await;
     let saturated = host_logs::batch_saturated(&entries);
     watch.ingest(&entries, saturated, now_micros);
 }

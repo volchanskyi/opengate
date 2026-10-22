@@ -5,8 +5,10 @@
 #   router.sh start                       translate, filter and stay up; the image's entrypoint
 #   router.sh nat keep|scramble           keep each socket's port, or pick a random one per flow
 #   router.sh udp open|blocked|helper-only  pass UDP, drop it, or pass only the helper's
-#   router.sh shape MBIT RTT_MS           hold both directions to a rate and a round trip
+#   router.sh shape MBIT RTT_MS [PCT]     hold both directions to a rate and a round trip, sending
+#                                         PCT percent of packets ahead of the rest, out of order
 #   router.sh shape off                   remove the rate and the delay
+#   router.sh sent                        print and zero the bytes the network behind sent out
 #   router.sh reset                       nat keep, udp open, shape off
 #
 # Environment:
@@ -68,7 +70,8 @@ set_udp() {
   esac
 }
 
-# Each direction leaves through one interface, so half the round trip is added on each.
+# Each direction leaves through one interface, so half the round trip is added on each. A reordered
+# packet skips that delay, so it arrives ahead of the packets sent before it.
 set_shape() {
   local dev
   if [ "$1" = off ]; then
@@ -79,10 +82,20 @@ set_shape() {
     done
     return
   fi
-  [[ "$1" =~ ^[0-9]+$ && "${2:-}" =~ ^[0-9]+$ ]] || die "shape takes MBIT RTT_MS or off"
+  [[ "$1" =~ ^[0-9]+$ && "${2:-}" =~ ^[0-9]+$ && "${3:-0}" =~ ^[0-9]+$ ]] \
+    || die "shape takes MBIT RTT_MS [REORDER_PCT] or off"
+  local reorder=()
+  [ "${3:-0}" -gt 0 ] && reorder=(reorder "${3}%")
   for dev in "$LAN" "$WAN"; do
-    tc qdisc replace dev "$dev" root netem delay "$(($2 / 2))ms" rate "${1}mbit"
+    tc qdisc replace dev "$dev" root netem delay "$(($2 / 2))ms" "${reorder[@]}" rate "${1}mbit"
   done
+}
+
+# The bytes the network behind has sent out through this router since the last reading.
+sent_out() {
+  iptables -L FORWARD -v -x -n | awk -v lan="$LAN" -v wan="$WAN" \
+    '$3 == "ACCEPT" && $6 == lan && $7 == wan { print $2; exit }'
+  iptables -Z FORWARD
 }
 
 start() {
@@ -119,11 +132,12 @@ case "${1:-}" in
   start) start ;;
   nat) set_nat "${2:-}" ;;
   udp) set_udp "${2:-}" ;;
-  shape) set_shape "${2:-}" "${3:-}" ;;
+  shape) set_shape "${2:-}" "${3:-}" "${4:-}" ;;
+  sent) sent_out ;;
   reset)
     set_nat keep
     set_udp open
     set_shape off
     ;;
-  *) die "usage: router.sh start | nat MODE | udp MODE | shape MBIT RTT_MS | shape off | reset" ;;
+  *) die "usage: router.sh start | nat MODE | udp MODE | shape MBIT RTT_MS [PCT] | shape off | sent | reset" ;;
 esac

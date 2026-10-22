@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"github.com/volchanskyi/opengate/server/internal/relay"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -23,7 +24,7 @@ func wsEchoServer(t *testing.T) *httptest.Server {
 			return
 		}
 		defer conn.Close(websocket.StatusNormalClosure, "")
-		conn.SetReadLimit(maxRelayMessageSize)
+		conn.SetReadLimit(relay.MaxMessageSize)
 
 		for {
 			msgType, data, err := conn.Read(r.Context())
@@ -58,7 +59,7 @@ func TestWSConn_ReadWriteRoundtrip(t *testing.T) {
 
 	data, err := conn.ReadMessage()
 	require.NoError(t, err)
-	assert.Equal(t, testData, data)
+	assert.Equal(t, testData, data.Bytes())
 }
 
 func TestWSConn_LargeMessage(t *testing.T) {
@@ -77,7 +78,7 @@ func TestWSConn_LargeMessage(t *testing.T) {
 
 	data, err := conn.ReadMessage()
 	require.NoError(t, err)
-	assert.Equal(t, largeData, data)
+	assert.Equal(t, largeData, data.Bytes())
 }
 
 func TestWSConn_CloseClosesUnderlying(t *testing.T) {
@@ -107,7 +108,7 @@ func TestWSConn_MultipleMessages(t *testing.T) {
 
 		data, err := conn.ReadMessage()
 		require.NoError(t, err)
-		assert.Equal(t, msg, data)
+		assert.Equal(t, msg, data.Bytes())
 	}
 }
 
@@ -138,7 +139,7 @@ func wsDrainServer(t *testing.T) *httptest.Server {
 			return
 		}
 		defer conn.CloseNow()
-		conn.SetReadLimit(maxRelayMessageSize)
+		conn.SetReadLimit(relay.MaxMessageSize)
 		for {
 			if _, _, err := conn.Read(r.Context()); err != nil {
 				return

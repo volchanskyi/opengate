@@ -10,6 +10,12 @@ description: >-
   had disagreed about how a number is rendered, which passed the gauntlet and
   failed CI with nothing in the diff naming jq at all.
 
+inputs:
+  with-benchstat:
+    description: Also install the pinned benchstat, which builds with the job's Go.
+    required: false
+    default: 'false'
+
 runs:
   using: composite
   steps:
@@ -39,3 +45,10 @@ runs:
           "$(shellcheck --version | awk '/^version:/ { print $2 }')"
         check shfmt "$TOOL_VERSION_SHFMT" "$(shfmt --version | sed 's/^v//')"
         exit "$fail"
+    - name: Install the pinned benchstat
+      if: inputs.with-benchstat == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        scripts/install-benchstat.sh
+        echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"

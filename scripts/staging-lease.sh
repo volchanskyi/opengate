@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Holds one holder at a time over the staging namespace through a Lease that a renewer keeps alive.
-# The Lease expires on its own when the holder dies, and the claim also opens an alert quiet period.
+# Holds one holder at a time over the staging namespace through a Lease a renewer keeps alive; it
+# expires when the holder dies, and the claim opens an alert quiet period, at once or on request.
 #
 # Environment:
 #   NAMESPACE                     namespace holding the lease (required)
@@ -11,10 +11,12 @@
 #   STAGING_LEASE_RENEW_SECONDS   gap between renewals while the claim is held
 #   STAGING_LEASE_STATE_DIR       where the renewer's pid and its account of itself are kept
 #   STAGING_LEASE_KUBECTL         the kubectl to run; the tests pass a stand-in
+#   STAGING_LEASE_QUIET           `later` leaves the quiet period to `quiet-open`; default opens it
 #
 # Usage:
 #   NAMESPACE=opengate-staging scripts/staging-lease.sh acquire "cd-run-1234"
 #   NAMESPACE=opengate-staging scripts/staging-lease.sh renew "cd-run-1234"
+#   NAMESPACE=opengate-staging scripts/staging-lease.sh quiet-open "cd-run-1234"
 #   NAMESPACE=opengate-staging scripts/staging-lease.sh release "cd-run-1234"
 set -euo pipefail
 
@@ -33,6 +35,8 @@ KUBECTL="${STAGING_LEASE_KUBECTL:-kubectl}"
 RENEWER_PID_FILE="$STATE_DIR/staging-lease-$LEASE_NAME.pid"
 RENEWER_LOST_FILE="$STATE_DIR/staging-lease-$LEASE_NAME.lost"
 RENEWER_QUIET_FILE="$STATE_DIR/staging-lease-$LEASE_NAME.quiet"
+# Present while the holder has deferred its quiet period, so the renewer extends none.
+QUIET_LATER_FILE="$STATE_DIR/staging-lease-$LEASE_NAME.quiet-later"
 
 QUIET_PERIOD="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/alert-quiet-period.sh"
 
@@ -106,7 +110,29 @@ quiet() {
 
 claimed() {
   local holder="$1"
+  mkdir -p "$STATE_DIR"
+  rm -f "$QUIET_LATER_FILE"
+  if [ "${STAGING_LEASE_QUIET:-now}" = "later" ]; then
+    : >"$QUIET_LATER_FILE"
+  fi
   start_renewing "$holder"
+  if [ -e "$QUIET_LATER_FILE" ]; then
+    echo "staging-lease: shared alerts stay on until $holder opens its quiet period"
+    return 0
+  fi
+  quiet open "$holder" || true
+}
+
+# Opens the quiet period a claim deferred, for the holder that holds the claim.
+quiet_open() {
+  local holder="$1" json current
+  json="$(read_lease)"
+  current="$(jq -r '.spec.holderIdentity // empty' <<<"${json:-{\}}")"
+  if [ "$current" != "$holder" ]; then
+    echo "::error::staging-lease: ${LEASE_NAME} in ${NAMESPACE} is held by ${current:-nobody}, not $holder, so $holder opens no quiet period" >&2
+    return 1
+  fi
+  rm -f "$QUIET_LATER_FILE"
   quiet open "$holder" || true
 }
 
@@ -214,6 +240,8 @@ keep_renewing() {
       printf '%s\n' "${out:-the renewal was refused}" >"$RENEWER_LOST_FILE"
       return 1
     fi
+    # A deferred quiet period is not yet open, so there is nothing to extend.
+    [ -e "$QUIET_LATER_FILE" ] && continue
     # The summary it inherited belongs to a step that has already finished.
     if ! out="$(GITHUB_STEP_SUMMARY="" quiet extend "$holder")"; then
       printf '%s\n' "$out" >>"$RENEWER_QUIET_FILE"
@@ -266,7 +294,7 @@ release() {
         "$(grep -c "^::warning::" "$RENEWER_QUIET_FILE")" "$holder" >>"$GITHUB_STEP_SUMMARY" 2>/dev/null || true
     fi
   fi
-  rm -f "$RENEWER_QUIET_FILE"
+  rm -f "$RENEWER_QUIET_FILE" "$QUIET_LATER_FILE"
 
   quiet close "$holder" || true
 
@@ -303,9 +331,9 @@ report_any_loss() {
 main() {
   local action="${1:-}" holder="${2:-}"
   case "$action" in
-    acquire | renew | release | keep-renewing | stop-renewing) ;;
+    acquire | renew | quiet-open | release | keep-renewing | stop-renewing) ;;
     *)
-      echo "usage: staging-lease.sh {acquire|renew|release} <holder>" >&2
+      echo "usage: staging-lease.sh {acquire|renew|quiet-open|release} <holder>" >&2
       return 2
       ;;
   esac
@@ -316,6 +344,7 @@ main() {
   case "$action" in
     keep-renewing) keep_renewing "$holder" ;;
     stop-renewing) stop_renewing ;;
+    quiet-open) quiet_open "$holder" ;;
     *) "$action" "$holder" ;;
   esac
 }

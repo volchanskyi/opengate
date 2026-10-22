@@ -40,7 +40,8 @@ func TestServerTLSConfig(t *testing.T) {
 	cfg, err := newTestManager(t).ServerTLSConfig()
 	require.NoError(t, err)
 	assert.NotNil(t, cfg)
-	assert.Equal(t, tls.RequireAndVerifyClientCert, cfg.ClientAuth)
+	assert.Equal(t, tls.RequireAnyClientCert, cfg.ClientAuth, "Classify decides, in VerifyConnection")
+	assert.NotNil(t, cfg.VerifyConnection)
 	assert.NotNil(t, cfg.ClientCAs)
 	assert.Equal(t, uint16(tls.VersionTLS13), cfg.MinVersion)
 }
@@ -72,5 +73,7 @@ func TestMPSTLSConfig(t *testing.T) {
 	assert.NotNil(t, cfg)
 	assert.Equal(t, tls.NoClientCert, cfg.ClientAuth)
 	assert.Equal(t, uint16(tls.VersionTLS12), cfg.MinVersion)
-	assert.Len(t, cfg.Certificates, 1)
+	served, err := cfg.GetCertificate(nil)
+	require.NoError(t, err)
+	assert.Len(t, served.Certificate, 1)
 }

@@ -50,6 +50,8 @@ export TOOL_VERSION_GREMLINS="0.6.0"
 export TOOL_VERSION_CARGO_FUZZ="0.13.2"
 # viewcore publishes no tagged releases, so its pin is a commit.
 export TOOL_VERSION_VIEWCORE="v0.0.0-20260908162731-ac862fd6552b"
+# benchstat publishes no tagged releases, so its pin is a commit.
+export TOOL_VERSION_BENCHSTAT="v0.0.0-20261009192801-be2c69fb417e"
 
 # CI asks for these as channels; scripts/lib/toolchain-parity.sh refuses a workstation behind them.
 export TOOL_CHANNEL_RUST="stable"

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -76,6 +78,8 @@ type Profile struct {
 	Gates         []Gate      `yaml:"gates"`
 	Ungated       []Ungated   `yaml:"ungated"`
 	GaveOut       *GaveOut    `yaml:"gave_out"`
+	// Digest is the first twelve hex digits of the document's SHA-256.
+	Digest string `yaml:"-"`
 }
 
 // MeasuredPhase is the phase the browser-side numbers are taken over, or nil for the whole run.
@@ -106,6 +110,8 @@ func ParseProfile(data []byte) (*Profile, error) {
 	if err := p.Validate(); err != nil {
 		return nil, err
 	}
+	sum := sha256.Sum256(data)
+	p.Digest = hex.EncodeToString(sum[:])[:12]
 	return &p, nil
 }
 

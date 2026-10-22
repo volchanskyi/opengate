@@ -18,6 +18,9 @@ func latencyObservations(at time.Time, connect, handshake []time.Duration, error
 
 	observations = append(observations,
 		Observation{At: at, Series: "agents_severed_mid_hold", Value: float64(severedMidHold(in.Results))})
+	// Retries are recorded even at zero; only a machine whose retry failed too counts as an error.
+	observations = append(observations,
+		Observation{At: at, Series: "retried_first_dials", Value: float64(retriedFirstDials(in.Results))})
 
 	// Refusals are recorded even at zero, which marks the zero as a reading of an actual run.
 	observations = append(observations,
@@ -61,6 +64,15 @@ func refusedAgents(results []agentResult) int {
 		}
 	}
 	return refused
+}
+
+// retriedFirstDials counts the machines whose first dial never arrived and which dialled again.
+func retriedFirstDials(results []agentResult) int {
+	retried := 0
+	for _, result := range results {
+		retried += result.retried
+	}
+	return retried
 }
 
 // severedMidHold counts the machines whose connection went away while they were held.

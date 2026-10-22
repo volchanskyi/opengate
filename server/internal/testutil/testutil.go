@@ -212,6 +212,13 @@ func NewTestSessions(t testing.TB, s *db.PostgresStore) session.Repository {
 	return session.NewPostgresSessions(s.DB())
 }
 
+// NewTestConsoleSessions returns a Postgres-backed auth.ConsoleSessionRepository sharing the
+// connection pool of s.
+func NewTestConsoleSessions(t testing.TB, s *db.PostgresStore) auth.ConsoleSessionRepository {
+	t.Helper()
+	return auth.NewPostgresConsoleSessions(s.DB())
+}
+
 // NewTestUsers returns a Postgres-backed auth.UserRepository sharing the
 // connection pool of s.
 func NewTestUsers(t testing.TB, s *db.PostgresStore) auth.UserRepository {

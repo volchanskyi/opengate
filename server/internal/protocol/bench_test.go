@@ -24,23 +24,22 @@ func benchRegisterMessage() *ControlMessage {
 	}
 }
 
-func benchHelloInputs() (nonce [32]byte, certHash [48]byte) {
-	for i := range nonce {
-		nonce[i] = byte(i)
+// framedPayload is benchPayload as one control frame on the wire.
+func framedPayload(b *testing.B, c *Codec) []byte {
+	var buf bytes.Buffer
+	if err := c.WriteFrame(&buf, FrameControl, benchPayload()); err != nil {
+		b.Fatal(err)
 	}
-	for i := range certHash {
-		certHash[i] = byte(i + 32)
-	}
-	return nonce, certHash
+	return buf.Bytes()
 }
 
-func runBench(b *testing.B, op func()) {
-	b.Helper()
-	b.ReportAllocs()
-	b.ResetTimer()
-	for b.Loop() {
-		op()
+// encodedRegister is the registration message as the codec encodes it.
+func encodedRegister(b *testing.B, c *Codec) []byte {
+	data, err := c.EncodeControl(benchRegisterMessage())
+	if err != nil {
+		b.Fatal(err)
 	}
+	return data
 }
 
 func BenchmarkCodec_WriteFrame(b *testing.B) {
@@ -48,44 +47,47 @@ func BenchmarkCodec_WriteFrame(b *testing.B) {
 	payload := benchPayload()
 	var buf bytes.Buffer
 
-	runBench(b, func() {
+	b.ReportAllocs()
+	for b.Loop() {
 		buf.Reset()
-		_ = c.WriteFrame(&buf, FrameControl, payload)
-	})
+		if err := c.WriteFrame(&buf, FrameControl, payload); err != nil {
+			b.Fatal(err)
+		}
+	}
 }
 
 func BenchmarkCodec_ReadFrame(b *testing.B) {
 	c := &Codec{}
-	var buf bytes.Buffer
-	_ = c.WriteFrame(&buf, FrameControl, benchPayload())
-	data := buf.Bytes()
+	data := framedPayload(b, c)
 
-	runBench(b, func() { _, _, _ = c.ReadFrame(bytes.NewReader(data)) })
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, _, err := c.ReadFrame(bytes.NewReader(data)); err != nil {
+			b.Fatal(err)
+		}
+	}
 }
 
 func BenchmarkCodec_EncodeControl(b *testing.B) {
 	c := &Codec{}
 	msg := benchRegisterMessage()
 
-	runBench(b, func() { _, _ = c.EncodeControl(msg) })
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := c.EncodeControl(msg); err != nil {
+			b.Fatal(err)
+		}
+	}
 }
 
 func BenchmarkCodec_DecodeControl(b *testing.B) {
 	c := &Codec{}
-	data, _ := c.EncodeControl(benchRegisterMessage())
+	data := encodedRegister(b, c)
 
-	runBench(b, func() { _, _ = c.DecodeControl(data) })
-}
-
-func BenchmarkEncodeServerHello(b *testing.B) {
-	nonce, certHash := benchHelloInputs()
-
-	runBench(b, func() { _ = EncodeServerHello(nonce, certHash) })
-}
-
-func BenchmarkDecodeServerHello(b *testing.B) {
-	nonce, certHash := benchHelloInputs()
-	data := EncodeServerHello(nonce, certHash)
-
-	runBench(b, func() { _, _, _ = DecodeServerHello(data) })
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := c.DecodeControl(data); err != nil {
+			b.Fatal(err)
+		}
+	}
 }

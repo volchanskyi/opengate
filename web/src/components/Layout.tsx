@@ -1,5 +1,6 @@
 import { Link, Outlet } from 'react-router';
 import { useAuthStore } from '../state/auth-store';
+import { fireAndForget } from '../lib/fire-and-forget';
 import { NotificationCenter } from '../features/profile';
 import { ToastContainer } from './ToastContainer';
 import { Breadcrumbs } from './Breadcrumbs';
@@ -41,7 +42,7 @@ export function Layout() {
           )}
           <button
             type="button"
-            onClick={logout}
+            onClick={() => fireAndForget(logout())}
             className="text-sm text-gray-400 hover:text-white"
           >
             Logout

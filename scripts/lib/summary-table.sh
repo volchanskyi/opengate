@@ -8,7 +8,7 @@ summary_term_text() {
     Measurement) printf '%s' 'What was measured: the source, the scenario and the phase, then the reading.' ;;
     Expected) printf '%s' 'The limit this measurement is held to. (reported only) marks a limit that is watched and does not fail the run; no limit marks a measurement nothing holds.' ;;
     Actual) printf '%s' 'What this run measured.' ;;
-    Result) printf '%s' 'pass: inside its limit. FAIL: past a limit that fails the run. over: past a limit that is only reported. —: nothing to judge it against.' ;;
+    Result) printf '%s' 'pass: inside its limit. FAIL: past a limit that fails the run. re-run: past its limit and measured again before it can fail. over: past a limit that is only reported. —: nothing to judge it against.' ;;
     p50) printf '%s' 'Half of the requests took this long or less: the ordinary case.' ;;
     p95) printf '%s' 'Nineteen in twenty took this long or less: the slow end a user notices.' ;;
     p99) printf '%s' 'Ninety-nine in a hundred took this long or less: the worst the run saw, short of outliers.' ;;
@@ -17,7 +17,7 @@ summary_term_text() {
     "Service Level") printf '%s' 'Avg CPU % and Avg Mem % are how much of its own processor or memory cap the server or the database used, averaged over the phase the profile marks as measured (every phase, where it marks none).' ;;
     "not read") printf '%s' 'The run could not take this reading. It is never shown as 0.' ;;
     ns/op) printf '%s' "The time one call of the benchmark took, held to the median of the nights before and to a ceiling over the baseline, because a runner's speed varies from night to night." ;;
-    allocs/op) printf '%s' 'The allocations one call of the benchmark made, held to the committed baseline.' ;;
+    allocs/op) printf '%s' 'The allocations one call of the benchmark made, held to the committed baseline, or to the median of its nights where none is committed.' ;;
     B/op) printf '%s' 'The bytes one call of the benchmark allocated.' ;;
     *) return 1 ;;
   esac

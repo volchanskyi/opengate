@@ -73,10 +73,11 @@ type AgentGetter interface {
 	RefreshAlertRulesForTenant(ctx context.Context, tenantID uuid.UUID) int
 }
 
-// CertProvider gives access to the server CA certificate and agent CSR signing.
+// CertProvider gives access to the trust bundle and to enrolment.
 type CertProvider interface {
 	CACertPEM() []byte
-	SignAgentCSR(csrDER []byte) ([]byte, error)
+	// Enroll issues a recorded certificate for a request under a device number the server chooses.
+	Enroll(ctx context.Context, csrDER []byte) (uuid.UUID, []byte, error)
 }
 
 // MetricsReader reads tenant-scoped numeric telemetry for chart windows and the fleet
@@ -209,6 +210,13 @@ type ServerConfig struct {
 	// RelayPingInterval is how often a relay side pings its peer, and how long the answer
 	// may take. Zero selects defaultRelayPingInterval.
 	RelayPingInterval time.Duration
+	// ConsoleSessions stores console sign-ins; nil reads them from Store.
+	ConsoleSessions auth.ConsoleSessionRepository
+	// Clock is the time console sessions are judged by; nil reads the wall clock.
+	Clock func() time.Time
+	// LiveSessionRecheck is how often an open live connection's console session is checked.
+	// Zero selects defaultLiveSessionRecheck.
+	LiveSessionRecheck time.Duration
 	// Lifetime is closed on process shutdown. websocket.Accept hijacks the connection, so only
 	// this channel reaches a parked relay handler; a nil channel waits for the session to end.
 	Lifetime <-chan struct{}
@@ -233,6 +241,9 @@ type Server struct {
 	sessions        session.Repository
 	sessionUC       *usecase.SessionService
 	users           auth.UserRepository
+	consoleSessions auth.ConsoleSessionRepository
+	clock           func() time.Time
+	liveRecheck     time.Duration
 	jwt             *auth.JWTConfig
 	agents          AgentGetter
 	amt             amt.Operator
@@ -346,6 +357,9 @@ func NewServer(cfg ServerConfig) *Server {
 		sessions:        cfg.Sessions,
 		sessionUC:       resolveSessionUseCase(cfg),
 		users:           cfg.Users,
+		consoleSessions: cfg.ConsoleSessions,
+		clock:           cfg.Clock,
+		liveRecheck:     cfg.LiveSessionRecheck,
 		jwt:             cfg.JWT,
 		agents:          cfg.Agents,
 		amt:             cfg.AMT,
@@ -386,6 +400,15 @@ func NewServer(cfg ServerConfig) *Server {
 	}
 	if s.pingInterval <= 0 {
 		s.pingInterval = defaultRelayPingInterval
+	}
+	if s.consoleSessions == nil && cfg.Store != nil {
+		s.consoleSessions = auth.NewPostgresConsoleSessions(cfg.Store.DB())
+	}
+	if s.clock == nil {
+		s.clock = time.Now
+	}
+	if s.liveRecheck <= 0 {
+		s.liveRecheck = defaultLiveSessionRecheck
 	}
 	s.routes()
 	return s
@@ -446,7 +469,7 @@ func (s *Server) routes() {
 	// WebSocket routes stay outside so TimeoutHandler doesn't break upgrades.
 	r.Group(func(apiRouter chi.Router) {
 		apiRouter.Use(RequestTimeout(s.requestTimeout))
-		apiRouter.Use(AccountRateLimiter(100, 200, s.trustedProxies, s.jwt))
+		apiRouter.Use(AccountRateLimiter(100, 200, s.trustedProxies, s.jwt, s.consoleSessionKeyFor))
 
 		HandlerWithOptions(strictHandler, ChiServerOptions{
 			BaseRouter: apiRouter,
@@ -528,18 +551,30 @@ func serveStaticFile(w http.ResponseWriter, r *http.Request, webRoot *os.Root, f
 	}
 }
 
-// oapiAuthMiddleware returns a middleware that applies JWT validation
-// only to endpoints that declare security in the OpenAPI spec.
+// oapiAuthMiddleware authenticates an operation that declares security: a bearer header where
+// one is sent, the console's session cookie otherwise.
 func (s *Server) oapiAuthMiddleware() MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Context().Value(BearerAuthScopes) == nil {
+			acceptsBearer := r.Context().Value(BearerAuthScopes) != nil
+			acceptsCookie := r.Context().Value(CookieAuthScopes) != nil
+			switch {
+			case !acceptsBearer && !acceptsCookie:
 				next.ServeHTTP(w, r)
-				return
+			case acceptsBearer && r.Header.Get("Authorization") != "":
+				AuthMiddleware(s.jwt)(next).ServeHTTP(w, r)
+			case acceptsCookie:
+				s.authenticateConsole(next, w, r)
+			default:
+				writeError(w, http.StatusUnauthorized, "missing authorization")
 			}
-			AuthMiddleware(s.jwt)(next).ServeHTTP(w, r)
 		})
 	}
+}
+
+// now reads the clock console sessions are judged by.
+func (s *Server) now() time.Time {
+	return s.clock()
 }
 
 // auditLog writes an audit event in a fire-and-forget goroutine.

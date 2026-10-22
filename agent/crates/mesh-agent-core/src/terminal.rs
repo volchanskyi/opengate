@@ -1,17 +1,25 @@
 //! PTY-backed terminal session that forwards terminal data as `TerminalFrame`s.
 
+mod hangup;
+
 use std::io::{Read, Write};
+use std::os::fd::{AsRawFd, BorrowedFd};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use mesh_protocol::{Frame, TerminalFrame};
-use portable_pty::{native_pty_system, CommandBuilder, PtySize};
-use tokio::sync::mpsc;
-use tracing::{debug, warn};
+use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
+use tokio::sync::{mpsc, oneshot};
+use tracing::debug;
+
+pub use hangup::HangupRequest;
 
 use crate::session::outbox::Outbox;
 use crate::session::TerminalHandle;
 use crate::session_error::SessionError;
+
+/// How long the reader waits for output before checking whether the terminal was hung up.
+const READ_POLL_MS: libc::c_int = 100;
 
 /// Manages a PTY-backed terminal session.
 pub struct TerminalSession {
@@ -44,52 +52,86 @@ impl TerminalSession {
         let mut cmd = CommandBuilder::new(&shell);
         cmd.env("TERM", "xterm-256color");
 
-        let mut child = self
-            .pair
-            .slave
+        let portable_pty::PtyPair { master, slave } = self.pair;
+        let child = slave
             .spawn_command(cmd)
             .map_err(|e| SessionError::Terminal(e.to_string()))?;
+        // The shell holds the only open slave, so its exit ends the terminal.
+        drop(slave);
 
-        let reader = self
-            .pair
-            .master
-            .try_clone_reader()
-            .map_err(|e| SessionError::Terminal(e.to_string()))?;
-
-        let writer = self
-            .pair
-            .master
+        let reader = PollingReader::new(&*master)?;
+        let writer = master
             .take_writer()
             .map_err(|e| SessionError::Terminal(e.to_string()))?;
 
         let (stdin_tx, stdin_rx) = mpsc::channel::<Vec<u8>>(64);
         let (resize_tx, resize_rx) = mpsc::channel::<(u16, u16)>(8);
+        let (hangup_tx, hangup_rx) = oneshot::channel();
         let shutdown = Arc::new(AtomicBool::new(false));
 
-        let reader_running = running.clone();
         let reader_shutdown = shutdown.clone();
-        tokio::task::spawn_blocking(move || {
-            pty_reader_loop(reader, outbox, reader_running, reader_shutdown);
+        let reader = tokio::task::spawn_blocking(move || {
+            pty_reader_loop(Box::new(reader), outbox, running, reader_shutdown);
         });
 
         let writer_shutdown = shutdown.clone();
-        tokio::task::spawn_blocking(move || {
+        let writer = tokio::task::spawn_blocking(move || {
             stdin_writer_loop(writer, stdin_rx, writer_shutdown);
         });
 
-        let master = self.pair.master;
-        let resize_shutdown = shutdown.clone();
-        tokio::spawn(async move {
-            resize_loop(master, resize_rx, resize_shutdown).await;
-        });
+        let shell_pid = child.process_id();
+        let shell: hangup::Shell = Arc::new(Mutex::new(Some(child)));
+        let waiter = hangup::spawn_waiter(shell.clone(), shell_pid);
+        let supervisor = hangup::Supervisor {
+            master,
+            shell,
+            shutdown,
+            reader,
+            writer,
+            waiter,
+        };
+        tokio::spawn(supervisor.run(resize_rx, hangup_rx));
 
-        tokio::task::spawn_blocking(move || {
-            if let Err(e) = child.wait() {
-                debug!("PTY child wait failed: {e}");
+        Ok(TerminalHandle::new(stdin_tx, resize_tx, hangup_tx))
+    }
+}
+
+/// Reads the controlling side of the terminal, waking every [`READ_POLL_MS`] with
+/// [`std::io::ErrorKind::WouldBlock`] so its reader can notice a hang-up.
+struct PollingReader(std::fs::File);
+
+impl PollingReader {
+    fn new(master: &dyn MasterPty) -> Result<Self, SessionError> {
+        let fd = master
+            .as_raw_fd()
+            .ok_or_else(|| SessionError::Terminal("the terminal has no descriptor".to_string()))?;
+        // SAFETY: `master` keeps `fd` open for this call, and the clone is the reader's own.
+        let owned = unsafe { BorrowedFd::borrow_raw(fd) }
+            .try_clone_to_owned()
+            .map_err(|e| SessionError::Terminal(e.to_string()))?;
+        Ok(Self(std::fs::File::from(owned)))
+    }
+}
+
+impl Read for PollingReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let mut ready = libc::pollfd {
+            fd: self.0.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // SAFETY: one pollfd that outlives the call.
+        match unsafe { libc::poll(&mut ready, 1, READ_POLL_MS) } {
+            0 => Err(std::io::ErrorKind::WouldBlock.into()),
+            n if n < 0 => {
+                let e = std::io::Error::last_os_error();
+                match e.kind() {
+                    std::io::ErrorKind::Interrupted => Err(std::io::ErrorKind::WouldBlock.into()),
+                    _ => Err(e),
+                }
             }
-        });
-
-        Ok(TerminalHandle::new(stdin_tx, resize_tx, shutdown))
+            _ => self.0.read(buf),
+        }
     }
 }
 
@@ -116,6 +158,7 @@ pub(crate) fn pty_reader_loop(
                     }
                 }
             }
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
             Err(e) => {
                 debug!("PTY read error: {e}");
                 break;
@@ -139,26 +182,6 @@ pub(crate) fn stdin_writer_loop(
         if let Err(e) = writer.flush() {
             debug!("PTY writer flush failed: {e}");
             break;
-        }
-    }
-}
-
-async fn resize_loop(
-    master: Box<dyn portable_pty::MasterPty + Send>,
-    mut rx: mpsc::Receiver<(u16, u16)>,
-    shutdown: Arc<AtomicBool>,
-) {
-    while let Some((cols, rows)) = rx.recv().await {
-        if shutdown.load(Ordering::Relaxed) {
-            break;
-        }
-        if let Err(e) = master.resize(PtySize {
-            rows,
-            cols,
-            pixel_width: 0,
-            pixel_height: 0,
-        }) {
-            warn!("PTY resize error: {e}");
         }
     }
 }
@@ -257,6 +280,30 @@ mod tests {
         }
         let mut lanes = read_all(Box::new(ErrReader), true, false).await;
         assert!(lanes.try_next().is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn pty_reader_loop_keeps_reading_through_quiet_polls() {
+        struct QuietThenData(u8);
+        impl Read for QuietThenData {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                self.0 += 1;
+                match self.0 {
+                    1 | 2 => Err(std::io::ErrorKind::WouldBlock.into()),
+                    3 => {
+                        buf[..2].copy_from_slice(b"ok");
+                        Ok(2)
+                    }
+                    _ => Ok(0),
+                }
+            }
+        }
+        let mut lanes = read_all(Box::new(QuietThenData(0)), true, false).await;
+        let data = lanes.try_next().expect("the output after the quiet polls");
+        match mesh_protocol::Frame::decode(&data).unwrap().0 {
+            mesh_protocol::Frame::Terminal(tf) => assert_eq!(tf.data, b"ok"),
+            other => panic!("expected Terminal frame, got {other:?}"),
+        }
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

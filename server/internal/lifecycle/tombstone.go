@@ -62,6 +62,18 @@ func (s *TombstoneStore) IsDeviceTombstoned(ctx context.Context, tenantID, devic
 	return exists, nil
 }
 
+// IsDeviceNumberDeleted reports whether any tenant ever deleted a device under this number, which
+// enrolment never hands out again.
+func (s *TombstoneStore) IsDeviceNumberDeleted(ctx context.Context, deviceID uuid.UUID) (bool, error) {
+	var exists bool
+	err := s.db.QueryRowContext(ctx,
+		`SELECT EXISTS (SELECT 1 FROM deleted_ids WHERE device_id = $1)`, deviceID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check deleted device number: %w", err)
+	}
+	return exists, nil
+}
+
 // IsTenantTombstoned reports whether a whole tenant is tombstoned.
 func (s *TombstoneStore) IsTenantTombstoned(ctx context.Context, tenantID uuid.UUID) (bool, error) {
 	var exists bool

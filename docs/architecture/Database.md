@@ -16,6 +16,8 @@
   - [Rule configuration](#rule-configuration)
   - [Investigations](#investigations)
   - [Data lifecycle](#data-lifecycle)
+  - [Machine certificates](#machine-certificates)
+  - [Console sessions](#console-sessions)
 - [Migrations](#migrations)
 - [Backups](#backups)
 - [Data directory](#data-directory)
@@ -410,6 +412,34 @@ survives as the erasure proof.
   `object_deleted`, `pg_deleted`, `verified` flags), so a purge is idempotent and
   [resumes](../../server/internal/lifecycle/orchestrator.go) after a crash.
 
+### Machine certificates
+
+`device_certificates` is the certificate ledger
+([`020_device_certificates`](../../server/internal/db/migrations/020_device_certificates.up.sql)):
+one row per certificate the server issued, written before the certificate is
+sent, keyed by the leaf's SHA-256 with its device, issuer, validity, whether it
+came from enrolment or renewal, and when it was first presented. A system table
+like `deleted_ids`, outside tenant row security, because admission reads it
+before a tenant is known. The server warms an in-memory index from it at start-up
+and refuses a certificate it does not list
+([ADR-128](../adr/ADR-128-machine-identity-lifecycle.md)). A purge removes a
+device's rows, and a daily prune deletes rows that are superseded and past their
+expiry plus the expired-admission grace.
+
+`devices.identity_shared_at` and `devices.identity_shared_addresses`
+([`021_shared_identity`](../../server/internal/db/migrations/021_shared_identity.up.sql))
+record when a second live machine last presented a device's identity, and the
+two addresses it was seen from.
+
+### Console sessions
+
+`console_sessions`
+([`022_console_sessions`](../../server/internal/db/migrations/022_console_sessions.up.sql))
+holds one row per console sign-in: the SHA-256 of the session id the cookie
+carries — never the id itself — the user and tenant, the forged-request value,
+and the start and last-seen times the idle and total limits are judged by. It is
+a system table, read before a tenant is known, and sign-out deletes the row.
+
 ## Migrations
 
 Migrations live in [`server/internal/db/migrations/`](../../server/internal/db/migrations)
@@ -493,6 +523,12 @@ eleven SQLite migrations into a single flat Postgres-native migration:
 - [`019_one_session_per_host`](../../server/internal/db/migrations/019_one_session_per_host.up.sql)
   keeps each host's newest session row, makes `agent_sessions.device_id`
   unique, and adds `link_outcomes`.
+- [`020_device_certificates`](../../server/internal/db/migrations/020_device_certificates.up.sql)
+  adds the certificate ledger.
+- [`021_shared_identity`](../../server/internal/db/migrations/021_shared_identity.up.sql)
+  adds the shared-identity columns to `devices`.
+- [`022_console_sessions`](../../server/internal/db/migrations/022_console_sessions.up.sql)
+  adds the console session table.
 - Each of the above has a matching `.down.sql` walked by the rollback rehearsal.
 
 The automated rollback/dump rehearsal lives in
@@ -529,15 +565,23 @@ commands are in the chart
 
 ## Data directory
 
-The `-data-dir` flag (default: `./data`) holds the TLS/VAPID material that
-lives on disk:
+The `-data-dir` flag (default: `./data`) holds the key material that lives on
+disk:
 
 ```
 data/
-├── ca.crt      # Self-signed ECDSA P-256 CA certificate
-├── ca.key      # CA private key
-└── vapid.json  # VAPID keypair for Web Push
+├── authority/          # The master keys' role files, owner-only
+│   ├── ca.crt          # Issuing master key's certificate (ECDSA P-256)
+│   ├── ca.key          # Issuing master key
+│   └── ...             # The other role files, present only in a change of key
+├── vapid.json          # VAPID keypair for Web Push
+└── update-signing.json # Update signing key
 ```
+
+The role files are listed in [`trust.go`](../../server/internal/cert/trust.go).
+Where the chart sets `sharedKeys`, `authority/` is a memory volume a start-up
+step fills from the `opengate-authority` secret
+([Kubernetes](../infrastructure/Kubernetes.md#the-master-key)).
 
 The production database lives in the app chart's Postgres StatefulSet
 ([`postgres-statefulset.yaml`](../../deploy/helm/opengate/templates/postgres-statefulset.yaml)).

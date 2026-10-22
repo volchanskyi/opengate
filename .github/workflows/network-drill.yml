@@ -65,9 +65,9 @@ jobs:
         uses: ./.github/actions/oci-kube-setup
         with:
           oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
-          oci-user: ${{ secrets.OCI_USER_OCID }}
-          oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
-          oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
+          oci-user: ${{ secrets.OCI_WORKFLOW_USER_OCID }}
+          oci-fingerprint: ${{ secrets.OCI_WORKFLOW_FINGERPRINT }}
+          oci-private-key: ${{ secrets.OCI_WORKFLOW_PRIVATE_KEY }}
           oci-region: ${{ secrets.OCI_REGION }}
           cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
 
@@ -252,8 +252,13 @@ jobs:
           echo "::add-mask::$ENROLMENT"
           echo "DRILL_ENROLMENT_TOKEN=$ENROLMENT" >>"$GITHUB_ENV"
 
+          # The machine gets the note an installer leaves, aimed at the qualified Service name the
+          # hosts alias leaves alone.
+          PROBE_REPLY="$(probe -X POST "$DRILL_API_URL/api/v1/enroll/$ENROLMENT" \
+            -H 'Content-Type: application/json' -d '{"csr_pem":""}')"
+          NOTE="$(deploy/scripts/install-note.sh "$DRILL_ENROLL_URL" "$ENROLMENT" <<<"$PROBE_REPLY")"
           kubectl -n "$NAMESPACE" create secret generic opengate-netdrill-enrolment \
-            --from-literal=token="$ENROLMENT" \
+            --from-literal=note="$NOTE" \
             --dry-run=client -o yaml | kubectl -n "$NAMESPACE" apply -f -
 
       - name: Start the link shaper
@@ -304,7 +309,6 @@ jobs:
           MACHINE="$MACHINE_POD" RELEASE="$RELEASE" NODE_ARCH="$NODE_ARCH" \
             SERVER_POD_IP="$SHAPER_IP" \
             ENROLMENT_SECRET=opengate-netdrill-enrolment \
-            OPENGATE_ENROLL_URL="$DRILL_ENROLL_URL" \
             deploy/scripts/e2e-machine-pod.sh \
             | kubectl -n "$NAMESPACE" apply -f -
 
@@ -555,9 +559,9 @@ jobs:
         uses: ./.github/actions/oci-kube-setup
         with:
           oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
-          oci-user: ${{ secrets.OCI_USER_OCID }}
-          oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
-          oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
+          oci-user: ${{ secrets.OCI_WORKFLOW_USER_OCID }}
+          oci-fingerprint: ${{ secrets.OCI_WORKFLOW_FINGERPRINT }}
+          oci-private-key: ${{ secrets.OCI_WORKFLOW_PRIVATE_KEY }}
           oci-region: ${{ secrets.OCI_REGION }}
           cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
 

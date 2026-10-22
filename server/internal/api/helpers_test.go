@@ -119,33 +119,39 @@ func (p *testPurger) RunInBackground(*lifecycle.PurgeJob) {}
 
 func newTestServer(t *testing.T) (*Server, *auth.JWTConfig) {
 	t.Helper()
+	cfg := testServerConfig(t)
+	return NewServer(cfg), cfg.JWT
+}
+
+// testServerConfig wires a server over a fresh test store, for a test that changes one setting.
+func testServerConfig(t *testing.T) ServerConfig {
+	t.Helper()
 	store := testutil.NewTestStore(t)
-	cfg := testJWTConfig()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	devices := testutil.NewTestDevices(t, store)
-	srv := NewServer(ServerConfig{
-		Store:          store,
-		Audit:          testutil.NewTestAudit(t, store),
-		DeviceUpdates:  testutil.NewTestDeviceUpdates(t, store),
-		Enrollment:     testutil.NewTestEnrollment(t, store),
-		SecurityGroups: testutil.NewTestSecurityGroups(t, store),
-		Devices:        devices,
-		Sites:          testutil.NewTestSites(t, store),
-		Organizations:  testutil.NewTestOrganizations(t, store),
-		Hardware:       testutil.NewTestHardware(t, store),
-		WebPush:        testutil.NewTestWebPush(t, store),
-		Sessions:       testutil.NewTestSessions(t, store),
-		Users:          testutil.NewTestUsers(t, store),
-		JWT:            cfg,
-		Agents:         &stubAgentGetter{},
-		AMT:            &stubAMTOperator{},
-		Purger:         &testPurger{devices: devices},
-		Relay:          relay.NewRelay(slog.Default()),
-		Signaling:      testSignaling(t),
-		Notifier:       &notifications.NoopNotifier{},
-		Logger:         logger,
-	})
-	return srv, cfg
+	return ServerConfig{
+		Store:           store,
+		Audit:           testutil.NewTestAudit(t, store),
+		DeviceUpdates:   testutil.NewTestDeviceUpdates(t, store),
+		Enrollment:      testutil.NewTestEnrollment(t, store),
+		SecurityGroups:  testutil.NewTestSecurityGroups(t, store),
+		Devices:         devices,
+		Sites:           testutil.NewTestSites(t, store),
+		Organizations:   testutil.NewTestOrganizations(t, store),
+		Hardware:        testutil.NewTestHardware(t, store),
+		WebPush:         testutil.NewTestWebPush(t, store),
+		Sessions:        testutil.NewTestSessions(t, store),
+		Users:           testutil.NewTestUsers(t, store),
+		ConsoleSessions: testutil.NewTestConsoleSessions(t, store),
+		JWT:             testJWTConfig(),
+		Agents:          &stubAgentGetter{},
+		AMT:             &stubAMTOperator{},
+		Purger:          &testPurger{devices: devices},
+		Relay:           relay.NewRelay(slog.Default()),
+		Signaling:       testSignaling(t),
+		Notifier:        &notifications.NoopNotifier{},
+		Logger:          logger,
+	}
 }
 
 func newTestServerWithStoreAndAgents(t *testing.T, store *db.PostgresStore, agents AgentGetter, r *relay.Relay) (*Server, *auth.JWTConfig) {
@@ -154,26 +160,27 @@ func newTestServerWithStoreAndAgents(t *testing.T, store *db.PostgresStore, agen
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	devices := testutil.NewTestDevices(t, store)
 	srv := NewServer(ServerConfig{
-		Store:          store,
-		Audit:          testutil.NewTestAudit(t, store),
-		DeviceUpdates:  testutil.NewTestDeviceUpdates(t, store),
-		Enrollment:     testutil.NewTestEnrollment(t, store),
-		SecurityGroups: testutil.NewTestSecurityGroups(t, store),
-		Devices:        devices,
-		Sites:          testutil.NewTestSites(t, store),
-		Organizations:  testutil.NewTestOrganizations(t, store),
-		Hardware:       testutil.NewTestHardware(t, store),
-		WebPush:        testutil.NewTestWebPush(t, store),
-		Sessions:       testutil.NewTestSessions(t, store),
-		Users:          testutil.NewTestUsers(t, store),
-		JWT:            cfg,
-		Agents:         agents,
-		AMT:            &stubAMTOperator{},
-		Purger:         &testPurger{devices: devices},
-		Relay:          r,
-		Signaling:      testSignaling(t),
-		Notifier:       &notifications.NoopNotifier{},
-		Logger:         logger,
+		Store:           store,
+		Audit:           testutil.NewTestAudit(t, store),
+		DeviceUpdates:   testutil.NewTestDeviceUpdates(t, store),
+		Enrollment:      testutil.NewTestEnrollment(t, store),
+		SecurityGroups:  testutil.NewTestSecurityGroups(t, store),
+		Devices:         devices,
+		Sites:           testutil.NewTestSites(t, store),
+		Organizations:   testutil.NewTestOrganizations(t, store),
+		Hardware:        testutil.NewTestHardware(t, store),
+		WebPush:         testutil.NewTestWebPush(t, store),
+		Sessions:        testutil.NewTestSessions(t, store),
+		Users:           testutil.NewTestUsers(t, store),
+		ConsoleSessions: testutil.NewTestConsoleSessions(t, store),
+		JWT:             cfg,
+		Agents:          agents,
+		AMT:             &stubAMTOperator{},
+		Purger:          &testPurger{devices: devices},
+		Relay:           r,
+		Signaling:       testSignaling(t),
+		Notifier:        &notifications.NoopNotifier{},
+		Logger:          logger,
 	})
 	return srv, cfg
 }

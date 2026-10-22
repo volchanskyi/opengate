@@ -38,7 +38,7 @@ installed_version() {
     shfmt) shfmt --version 2>/dev/null | sed -n '1{s/^v//;p;}' ;;
     age | age-keygen) "$1" --version 2>/dev/null | sed -n '1{s/^v//;p;}' ;;
     zstd) zstd --version 2>/dev/null | sed -n 's/.* v\([0-9][0-9.]*\),.*/\1/p' ;;
-    govulncheck | staticcheck | gosec | go-arch-lint | oapi-codegen | gremlins)
+    govulncheck | staticcheck | gosec | go-arch-lint | oapi-codegen | gremlins | benchstat)
       go_module_version "$1"
       ;;
     # A cargo subcommand expects its own name first, as cargo would pass it.
@@ -92,6 +92,9 @@ install_command() {
       ;;
     gremlins)
       printf 'go install github.com/go-gremlins/gremlins/cmd/gremlins@v%s' "$TOOL_VERSION_GREMLINS"
+      ;;
+    benchstat)
+      printf 'scripts/install-benchstat.sh'
       ;;
     cargo-audit | cargo-deny | cargo-modules | cargo-nextest | cargo-llvm-cov | cargo-fuzz | cargo-mutants | pmat)
       printf 'cargo install --locked --version %s %s' "$(tool_version "$(manifest_key "$1")")" "$1"

@@ -28,6 +28,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/stunhelper"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
+	"github.com/volchanskyi/opengate/server/internal/testutil/machinecert"
 )
 
 // helperTestEnv is the agent QUIC listener with the helper answering on its port.
@@ -42,9 +43,11 @@ func newHelperTestEnv(t *testing.T, limits stunhelper.Limits) *helperTestEnv {
 	cm, err := cert.NewManager(t.TempDir())
 	require.NoError(t, err)
 	metrics := appmetrics.NewMetrics(prometheus.NewRegistry())
+	issuer := machinecert.NewIssuer(t, store, cm, testutil.NewTestDevices(t, store))
 
 	srv := agentapi.NewAgentServer(agentapi.AgentServerConfig{
 		Cert:          cm,
+		Issuer:        issuer,
 		Devices:       testutil.NewTestDevices(t, store),
 		Hardware:      testutil.NewTestHardware(t, store),
 		DeviceUpdates: testutil.NewTestDeviceUpdates(t, store),
@@ -73,7 +76,7 @@ func newHelperTestEnv(t *testing.T, limits stunhelper.Limits) *helperTestEnv {
 
 	return &helperTestEnv{
 		agentTestEnv: &agentTestEnv{
-			store: store, certMgr: cm, srv: srv, addr: addr, cancel: cancel,
+			store: store, certMgr: cm, issuer: issuer, srv: srv, addr: addr, cancel: cancel,
 			devices: testutil.NewTestDevices(t, store),
 		},
 		metrics: metrics,
@@ -239,9 +242,7 @@ func TestTheAgentListenerNeverOffersToLetPeersClearTheFixedBit(t *testing.T) {
 	trace := &paramsTrace{}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	tlsCert, err := env.certMgr.SignAgent(uuid.New().String(), "fixed-bit-probe")
-	require.NoError(t, err)
-	tlsCfg := env.certMgr.AgentTLSConfig(tlsCert)
+	tlsCfg := machinecert.ClientTLS(env.certMgr, machinecert.Issue(t, env.issuer, uuid.New()))
 	tlsCfg = tlsCfg.Clone()
 	tlsCfg.MinVersion = tls.VersionTLS13
 	conn, err := quic.DialAddr(ctx, env.addr, tlsCfg, &quic.Config{

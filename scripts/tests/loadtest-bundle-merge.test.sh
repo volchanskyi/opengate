@@ -346,6 +346,19 @@ assert_eq "an empty proof fails" "1" "$STATUS"
 assert_eq "and the bundle is left as it was" "null" \
   "$(jq -r '.cleanup // "null" | if type == "object" then "object" else . end' "$WORK/bundle.json")"
 
+fresh_bundle
+printf '{"processor_model":"AMD EPYC","steal_percent":4.2,"server_periods":3000,"server_throttled_periods":600,"server_throttled_share":0.2,"server_throttled_ms":2000}\n' \
+  >"$WORK/runner.json"
+run_merge "$WORK/bundle.json" --runner "$WORK/runner.json"
+assert_eq "what the runner did merges" "0" "$STATUS"
+assert_eq "and the bundle carries it as reported numbers" "4.2 600 0.2" \
+  "$(jq -r '.runner | "\(.steal_percent) \(.server_throttled_periods) \(.server_throttled_share)"' "$WORK/bundle.json")"
+
+fresh_bundle
+: >"$WORK/runner.json"
+run_merge "$WORK/bundle.json" --runner "$WORK/runner.json"
+assert_eq "an empty runner reading fails" "1" "$STATUS"
+
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then
   printf 'Failures:\n' >&2

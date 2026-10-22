@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # OpenGate Agent Installer
-# Usage: curl -sL https://<server>/api/v1/server/install.sh | sudo bash -s -- <ENROLLMENT_TOKEN>
+# Usage:
+#   curl -sL https://<server>/api/v1/server/install.sh | sudo bash -s -- [--fresh] <TOKEN>
+#   --fresh  enroll as a new machine even if this one already has an identity (a cloned template)
 set -euo pipefail
 
 readonly INSTALL_DIR="${OPENGATE_INSTALL_DIR:-/usr/local/bin}"
@@ -24,8 +26,15 @@ fail() {
 command -v curl >/dev/null 2>&1 || fail "curl is required but not installed"
 command -v systemctl >/dev/null 2>&1 || fail "systemd is required but not found"
 
-ENROLLMENT_TOKEN="${1:-}"
-[[ -n "$ENROLLMENT_TOKEN" ]] || fail "Usage: $0 <ENROLLMENT_TOKEN>"
+ENROLLMENT_TOKEN=""
+FRESH=false
+for arg in "$@"; do
+  case "$arg" in
+    --fresh) FRESH=true ;;
+    *) ENROLLMENT_TOKEN="$arg" ;;
+  esac
+done
+[[ -n "$ENROLLMENT_TOKEN" ]] || fail "Usage: $0 [--fresh] <ENROLLMENT_TOKEN>"
 
 if [[ -n "${OPENGATE_SERVER:-}" ]]; then
   SERVER_URL="${OPENGATE_SERVER}"
@@ -62,8 +71,11 @@ ENROLL_RESPONSE=$(curl -sf --max-time 30 \
   || fail "Enrollment failed. Check token validity and server URL."
 
 SERVER_ADDR=$(echo "$ENROLL_RESPONSE" | grep -oP '"server_addr"\s*:\s*"\K[^"]*')
+# The master key stays JSON-escaped, so it is copied into the note's JSON unchanged.
+CA_PEM_JSON=$(echo "$ENROLL_RESPONSE" | grep -oP '"ca_pem"\s*:\s*"\K(?:[^"\\]|\\.)*')
 
 [[ -n "$SERVER_ADDR" ]] || fail "No server address in enrollment response"
+[[ -n "$CA_PEM_JSON" ]] || fail "No master key in enrollment response"
 
 log "Server QUIC address: ${SERVER_ADDR}"
 
@@ -165,13 +177,30 @@ install -m 0750 "${WORK_DIR}/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
 
 mkdir -p "$CONFIG_DIR"
 mkdir -p "$DATA_DIR"
+# The folder holds the identity and the note, so it is closed even when an earlier install made it.
+chmod 0700 "$DATA_DIR"
 
-# The first boot enrolls with the flags below; later restarts load the identity saved in DATA_DIR.
+# A reinstall over a half-finished self-removal resumes as a reinstall.
+rm -f "${DATA_DIR}/removed"
+
+# json_string escapes a value for a JSON string literal.
+json_string() {
+  local value="${1//\\/\\\\}"
+  printf '%s' "${value//\"/\\\"}"
+  return 0
+}
+
+# The note carries the token to the agent once, so it is owner-only from creation and appears
+# whole under its final name.
+NOTE_TMP=$(mktemp "${DATA_DIR}/.install-note.XXXXXX")
+chmod 0600 "$NOTE_TMP"
+printf '{"token":"%s","url":"%s","ca_pem":"%s","fresh":%s}\n' \
+  "$(json_string "$ENROLLMENT_TOKEN")" "$(json_string "$SERVER_URL")" "$CA_PEM_JSON" "$FRESH" \
+  >"$NOTE_TMP"
+mv -f "$NOTE_TMP" "${DATA_DIR}/install-note.json"
 
 mkdir -p "$SYSTEMD_DIR"
 UNIT_FILE="${SYSTEMD_DIR}/${SERVICE_NAME}.service"
-# The unit carries the enrollment token, so mode 0600 is set before the content is written.
-install -m 0600 /dev/null "$UNIT_FILE"
 cat >"$UNIT_FILE" <<UNIT
 [Unit]
 Description=OpenGate Agent
@@ -182,19 +211,20 @@ Wants=network-online.target
 ExecStart=${INSTALL_DIR}/${BINARY_NAME} \\
   --server-addr ${SERVER_ADDR} \\
   --server-ca ${CONFIG_DIR}/ca.pem \\
-  --data-dir ${DATA_DIR} \\
-  --enroll-url ${SERVER_URL} \\
-  --enroll-token ${ENROLLMENT_TOKEN}
+  --data-dir ${DATA_DIR}
 Restart=on-failure
 RestartForceExitStatus=42
+TimeoutStopSec=15
 User=root
 
 [Install]
 WantedBy=multi-user.target
 UNIT
 
+# A restart, so a re-run replaces a running agent with the binary just installed.
 systemctl daemon-reload
-systemctl enable --now "${SERVICE_NAME}"
+systemctl enable "${SERVICE_NAME}"
+systemctl restart "${SERVICE_NAME}"
 
 log "Agent installed and started successfully!"
 log "  Binary:  ${INSTALL_DIR}/${BINARY_NAME}"

@@ -50,6 +50,17 @@ func TestABundleIsProducedWithoutAProfile(t *testing.T) {
 
 	assert.NoError(t, bundle.Validate())
 	assert.Equal(t, "ad-hoc", bundle.Run.ProfileName)
+	assert.Equal(t, "ad-hoc", bundle.Run.ProfileDigest)
+}
+
+func TestTheBundleNamesTheProfileFileItWalked(t *testing.T) {
+	bundle := bundleFrom(t, harnessResults(), true)
+	edited, err := ParseProfile([]byte(minimalProfile + "\n# an edit that changes no field\n"))
+	require.NoError(t, err)
+
+	assert.Len(t, bundle.Run.ProfileDigest, 12)
+	assert.NotEqual(t, edited.Digest, bundle.Run.ProfileDigest,
+		"any edit to the file starts a trend of its own")
 }
 
 func TestTheBundleRecordsWhatWasOfferedAndWhatArrived(t *testing.T) {

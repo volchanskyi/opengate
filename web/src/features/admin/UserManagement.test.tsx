@@ -35,7 +35,6 @@ describe('UserManagement', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useAuthStore.setState({
-      token: 'valid-token',
       user: adminUser,
       isLoading: false,
       error: null,
@@ -110,7 +109,7 @@ describe('UserManagement', () => {
 
   it('clicking admin Yes flips to is_admin: false', () => {
     const updateUserFn = vi.fn().mockResolvedValue(undefined);
-    useAuthStore.setState({ user: regularUser, token: 'tok' });
+    useAuthStore.setState({ user: regularUser });
     useAdminStore.setState({ updateUser: updateUserFn });
     render(<UserManagement />);
     const yesBtn = screen.getByRole('button', { name: 'Yes' });

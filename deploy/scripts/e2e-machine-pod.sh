@@ -18,10 +18,6 @@ set -euo pipefail
 # The chart signs the server for this Service name, which the agent dials and verifies.
 SERVER_NAME="${RELEASE}-server"
 
-# Enrolment is HTTP to the Service, apart from the QUIC address that hostAliases sets; the
-# network drill passes a fully-qualified name, which the /etc/hosts entry does not intercept.
-ENROLL_URL="${OPENGATE_ENROLL_URL:-http://${SERVER_NAME}:8080}"
-
 cat <<POD
 apiVersion: v1
 kind: Pod
@@ -55,12 +51,17 @@ spec:
       command:
         - /bin/sh
         - -c
-        - 'while [ ! -f /tmp/ready ]; do sleep 1; done; exec /tmp/mesh-agent'
+        # The note is copied owner-only before the first start, as the installer leaves it.
+        - >-
+          while [ ! -f /tmp/ready ]; do sleep 1; done;
+          mkdir -p /tmp/agent;
+          if [ ! -f /tmp/agent/device_id.txt ]; then
+          cp /run/opengate/install-note.json /tmp/agent/install-note.json;
+          chmod 0600 /tmp/agent/install-note.json; fi;
+          exec /tmp/mesh-agent
       env:
         - name: OPENGATE_SERVER_ADDR
           value: ${SERVER_NAME}:9090
-        - name: OPENGATE_ENROLL_URL
-          value: ${ENROLL_URL}
         - name: OPENGATE_DATA_DIR
           value: /tmp/agent
         # The non-root container cannot write /var/log, so logs rotate here, where the server reads
@@ -71,12 +72,6 @@ spec:
           value: /tmp/agent/ca.pem
         - name: RUST_LOG
           value: info
-        # The enrolment token is minted per run, expires within the hour and comes from a Secret.
-        - name: OPENGATE_ENROLL_TOKEN
-          valueFrom:
-            secretKeyRef:
-              name: ${ENROLMENT_SECRET}
-              key: token
       # The node is a single Always-Free worker carrying production as well, so
       # a machine here asks for very little and is capped well below it.
       resources:
@@ -91,4 +86,16 @@ spec:
         capabilities:
           drop:
             - ALL
+      # The install note holds a token minted per run that expires within the hour.
+      volumeMounts:
+        - name: install-note
+          mountPath: /run/opengate
+          readOnly: true
+  volumes:
+    - name: install-note
+      secret:
+        secretName: ${ENROLMENT_SECRET}
+        items:
+          - key: note
+            path: install-note.json
 POD

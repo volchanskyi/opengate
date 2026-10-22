@@ -83,7 +83,6 @@ describe('AgentSetupPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useAuthStore.setState({
-      token: 'valid-token',
       user: adminUser,
       isLoading: false,
       error: null,
@@ -276,14 +275,14 @@ describe('AgentSetupPage', () => {
 
   it('fetchEnrollmentTokens is called on admin mount but skipped for non-admin', () => {
     const adminFetch = vi.fn();
-    useAuthStore.setState({ user: adminUser, token: 't' });
+    useAuthStore.setState({ user: adminUser });
     useUpdateStore.setState({ fetchEnrollmentTokens: adminFetch, enrollmentTokens: [] });
     const { unmount } = render(<AgentSetupPage />);
     expect(adminFetch).toHaveBeenCalled();
     unmount();
 
     const userFetch = vi.fn();
-    useAuthStore.setState({ user: regularUser, token: 't' });
+    useAuthStore.setState({ user: regularUser });
     useUpdateStore.setState({ fetchEnrollmentTokens: userFetch, enrollmentTokens: [] });
     render(<AgentSetupPage />);
     expect(userFetch).not.toHaveBeenCalled();

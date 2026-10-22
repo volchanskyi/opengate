@@ -20,8 +20,10 @@ without anyone watching them.
 [`deploy/ingress-nginx/values.yaml`](../../deploy/ingress-nginx/values.yaml) and
 its chart version in the tool manifest.
 [`ingress-controller-apply.sh`](../../deploy/scripts/ingress-controller-apply.sh)
-installs them on every production deploy, behind that deploy's approval, since
-staging and production share the one controller; the nightly configuration job
+installs them from the approval-gated `cluster` job in
+[`cd.yml`](../../.github/workflows/cd.yml), whenever a commit changes them, since
+staging and production share the one controller and the routine deploys' login
+cannot write cluster-wide objects ([ADR-128](./ADR-128-machine-identity-lifecycle.md)); the nightly configuration job
 in [`terraform-drift.yml`](../../.github/workflows/terraform-drift.yml) reads
 them back and fails on any difference. The load balancer's subnet is Terraform's
 and is read from the running Service, because another subnet would move the load

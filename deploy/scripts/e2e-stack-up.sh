@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Brings up the browser test stack: a database, a server, two real machines and a browser server,
-# with agent-a and the browser each behind a router. The machines enrol with a token it mints.
+# with agent-a and the browser each behind a router. The machines enrol with a note it writes.
 
 set -euo pipefail
 
@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ROOT="$(cd "$DEPLOY_DIR/.." && pwd)"
 COMPOSE_FILE="$DEPLOY_DIR/docker-compose.test.yml"
-AGENT_ENV="$DEPLOY_DIR/.e2e-agent.env"
+AGENT_NOTE="$DEPLOY_DIR/.e2e-agent-note.json"
 AGENT_BINARY="$DEPLOY_DIR/agent-bin/mesh-agent"
 
 # The stack's networks use gateway priority and trusted host interfaces, which Engine 28 added.
@@ -41,8 +41,13 @@ if [ ! -f "$AGENT_BINARY" ]; then
   exit 1
 fi
 
+# One build from one reading of the tree: the server holds its master key in memory, so a later
+# build that changed its image would recreate it under a key the machines' note does not name.
+echo "▶ building every image"
+compose build
+
 echo "▶ bringing up the database and the server"
-compose up -d --build --wait postgres server
+compose up -d --wait postgres server
 
 # A refusal is not fatal: registering an existing account is normal on a re-run.
 bearer_token() {
@@ -75,12 +80,18 @@ if [ -z "$enrolment" ]; then
   exit 1
 fi
 
-umask 077
-printf 'OPENGATE_ENROLL_TOKEN=%s\n' "$enrolment" >"$AGENT_ENV"
+# The note is what the installer leaves: the token, the URL the machines reach the server by, and
+# the master key the probe announced. The containers' unprivileged user reads it through a mount.
+probe="$(curl -sS -X POST "$BASE_URL/api/v1/enroll/$enrolment" \
+  -H 'Content-Type: application/json' -d '{"csr_pem":""}')"
+"$SCRIPT_DIR/install-note.sh" http://server:8080 "$enrolment" <<<"$probe" >"$AGENT_NOTE"
+chmod 0644 "$AGENT_NOTE"
 
 echo "▶ starting the machines and the browser server behind their routers"
-compose up -d --build agent-a agent-b
-compose up -d --build --wait browser
+compose up -d agent-a agent-b
+# agent-c and its copy start only inside the machine-lifecycle spec, which owns their state.
+compose create agent-c agent-c-copy
+compose up -d --wait browser
 
 echo "▶ waiting for both machines to come online"
 for attempt in $(seq 1 60); do

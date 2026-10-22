@@ -65,6 +65,7 @@ A step whose work was refused must not report success.
 - A requirement belongs to the process, not to the path a workflow spells. The
   closure covers every script the named one runs or sources, minus what that
   script sets for itself.
+- A path a script only prints is data, not a call.
 - The scope is one job plus the workflow-level `env`. Jobs are never pooled.
 - A contract stated in one file and satisfied in another is checked in neither
   unless something is made to read both.

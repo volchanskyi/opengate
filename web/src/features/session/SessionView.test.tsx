@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { useConnectionStore } from './state/connection-store';
 import { useAuthStore } from '../../state/auth-store';
+import { identityOf, SIGNED_IN_KEY } from '../../lib/console-session';
 import { holdsSessionTab } from './session-tab';
 import { SessionView } from './SessionView';
 import { useToastStore } from '../../lib/feedback/toast-store';
@@ -31,11 +32,15 @@ vi.mock('../../lib/api', () => ({
   },
 }));
 
-function jwt(uid: string, tenant: string): string {
-  return `h.${btoa(JSON.stringify({ uid, tenant })).replace(/=+$/, '')}.s`;
-}
-
-const ALICE = jwt('alice', 'northwind');
+const ALICE_USER = {
+  id: 'alice',
+  email: 'alice@northwind.test',
+  display_name: 'Alice',
+  is_admin: false,
+  created_at: '',
+  updated_at: '',
+};
+const ALICE = identityOf('alice', 'northwind');
 
 const DEVICE = {
   id: 'dev-1',
@@ -84,8 +89,8 @@ describe('SessionView', () => {
     mockGet.mockImplementation((path: string) => Promise.resolve(answer(path)));
     mockPost.mockResolvedValue(opened());
     useConnectionStore.setState({ state: 'connected', path: { direct: false }, closedReason: null, transport: null, connect, disconnect });
-    useAuthStore.setState({ token: ALICE });
-    localStorage.setItem('token', ALICE);
+    useAuthStore.setState({ user: ALICE_USER, tenantId: 'northwind' });
+    localStorage.setItem(SIGNED_IN_KEY, ALICE);
     window.name = '';
   });
 
@@ -98,7 +103,7 @@ describe('SessionView', () => {
 
   it('opens a session on the host in the address and joins it with the relay and helpers the server named', async () => {
     renderPage();
-    await waitFor(() => expect(connect).toHaveBeenCalledWith('tok', 'wss://edge.test/ws/relay/tok', ALICE, ['stun:helper.test:9090']));
+    await waitFor(() => expect(connect).toHaveBeenCalledWith('tok', 'wss://edge.test/ws/relay/tok', ['stun:helper.test:9090']));
     expect(mockPost).toHaveBeenCalledWith('/api/v1/sessions', expect.objectContaining({ body: expect.objectContaining({ device_id: 'dev-1' }) }));
   });
 
@@ -169,8 +174,8 @@ describe('SessionView', () => {
     renderPage();
     await screen.findByRole('tab', { name: 'Terminal' });
     act(() => {
-      localStorage.removeItem('token');
-      window.dispatchEvent(new StorageEvent('storage', { key: 'token', newValue: null }));
+      localStorage.removeItem(SIGNED_IN_KEY);
+      window.dispatchEvent(new StorageEvent('storage', { key: SIGNED_IN_KEY, newValue: null }));
     });
     expect(await screen.findByText('Signed out')).toBeInTheDocument();
     expect(disconnect).toHaveBeenCalled();
@@ -181,8 +186,8 @@ describe('SessionView', () => {
     mockPost.mockReturnValue(new Promise((resolve) => { reply = resolve; }));
     renderPage();
     act(() => {
-      localStorage.removeItem('token');
-      window.dispatchEvent(new StorageEvent('storage', { key: 'token', newValue: null }));
+      localStorage.removeItem(SIGNED_IN_KEY);
+      window.dispatchEvent(new StorageEvent('storage', { key: SIGNED_IN_KEY, newValue: null }));
     });
     await act(async () => reply(opened()));
     expect(await screen.findByText('Signed out')).toBeInTheDocument();

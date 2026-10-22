@@ -11,7 +11,7 @@ set -euo pipefail
 LOG="${1:?usage: $0 <check-log> <go.mod>}"
 GO_MOD="${2:?usage: $0 <check-log> <go.mod>}"
 
-PURPOSE='Checks that the tool the weekly soak uses to trace leaked memory to whatever holds it can still read memory dumps from the current Go version.'
+PURPOSE="Checks our memory-leak tracer still reads the current Go version's memory dumps. The weekly long test uses it to find what holds leaked memory."
 
 printf '## Core Walk\n\n%s\n\n' "$PURPOSE"
 if [ ! -s "$LOG" ]; then

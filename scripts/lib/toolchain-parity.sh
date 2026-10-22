@@ -158,7 +158,7 @@ toolchain_parity_check() {
 # one missing here fails scripts/tests/tool-version-parity.test.sh.
 TOOLCHAIN_PINNED_TOOLS=(
   jq shellcheck shfmt age age-keygen zstd
-  govulncheck staticcheck gosec go-arch-lint oapi-codegen
+  govulncheck staticcheck gosec go-arch-lint oapi-codegen benchstat
   cargo-audit cargo-deny cargo-modules cargo-nextest cargo-llvm-cov
   checkov yamllint conftest gitleaks hadolint helm kubeconform tflint trivy
   actionlint semgrep pmat

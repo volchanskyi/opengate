@@ -13,7 +13,8 @@ import {
 import {
   arrivalScenarios,
   arrivalTechnicians,
-  measuredThresholds,
+  exportOnly,
+  measuredExports,
   phases,
 } from "../lib/profile.js";
 
@@ -27,16 +28,10 @@ const WALK = phases();
 export const options = {
   // Arrivals keep the declared rate when the server slows; dropped_iterations reports a shortfall.
   scenarios: arrivalScenarios(WALK, REQUESTS_PER_PASS),
+  // The measured phase's requests and any dropped arrivals join the export; the profile judges them.
   thresholds: Object.assign(
-    {
-      http_req_duration: ["p(99)<500"],
-      http_req_failed: ["rate<0.001"],
-      dropped_iterations: ["count<1"],
-    },
-    measuredThresholds(WALK, {
-      http_req_duration: ["p(99)<500"],
-      http_req_failed: ["rate<0.001"],
-    })
+    { dropped_iterations: exportOnly("counter") },
+    measuredExports(WALK, { http_req_duration: "trend", http_req_failed: "rate" })
   ),
 };
 

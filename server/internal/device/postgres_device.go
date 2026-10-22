@@ -25,6 +25,7 @@ func NewPostgresDevices(db *sql.DB) *PostgresDevices {
 // and the holder of the device's one session.
 const deviceSelect = `SELECT d.id, d.organization_id, d.site_id, d.hostname, d.os, d.os_display, d.agent_version, d.capabilities, d.status, d.last_seen, d.created_at, d.updated_at,
 	        d.maintenance_on, d.maintenance_since, d.maintenance_by, d.maintenance_reason,
+	        d.identity_shared_at, d.identity_shared_addresses,
 	        h.amt_available, a.status, a.uuid,
 	        s.user_id, s.created_at, COALESCE(NULLIF(u.display_name, ''), u.email, '')
 	 FROM devices d
@@ -38,6 +39,7 @@ const (
 	// The single-row reads spell deviceSelect out in one literal, which a test holds equal to it.
 	getDeviceQuery = `SELECT d.id, d.organization_id, d.site_id, d.hostname, d.os, d.os_display, d.agent_version, d.capabilities, d.status, d.last_seen, d.created_at, d.updated_at,
 	        d.maintenance_on, d.maintenance_since, d.maintenance_by, d.maintenance_reason,
+	        d.identity_shared_at, d.identity_shared_addresses,
 	        h.amt_available, a.status, a.uuid,
 	        s.user_id, s.created_at, COALESCE(NULLIF(u.display_name, ''), u.email, '')
 	 FROM devices d
@@ -74,6 +76,7 @@ const (
 
 	getDeviceByAMTUUIDQuery = `SELECT d.id, d.organization_id, d.site_id, d.hostname, d.os, d.os_display, d.agent_version, d.capabilities, d.status, d.last_seen, d.created_at, d.updated_at,
 	        d.maintenance_on, d.maintenance_since, d.maintenance_by, d.maintenance_reason,
+	        d.identity_shared_at, d.identity_shared_addresses,
 	        h.amt_available, a.status, a.uuid,
 	        s.user_id, s.created_at, COALESCE(NULLIF(u.display_name, ''), u.email, '')
 	 FROM devices d
@@ -95,8 +98,11 @@ func scanDevice(sc interface{ Scan(...any) error }) (*Device, error) {
 	var holderID uuid.NullUUID
 	var heldSince sql.NullTime
 	var holderName string
+	var sharedAt sql.NullTime
+	var sharedFrom []string
 	if err := sc.Scan(&d.ID, &d.OrganizationID, &siteID, &d.Hostname, &d.OS, &d.OsDisplay, &d.AgentVersion, &capsJSON, &d.Status, &d.LastSeen, &d.CreatedAt, &d.UpdatedAt,
 		&d.MaintenanceOn, &maintSince, &maintBy, &d.MaintenanceReason,
+		&sharedAt, &sharedFrom,
 		&amtAvailable, &amtStatus, &amtUUID,
 		&holderID, &heldSince, &holderName); err != nil {
 		return nil, err
@@ -112,6 +118,10 @@ func scanDevice(sc interface{ Scan(...any) error }) (*Device, error) {
 	}
 	if maintBy.Valid {
 		d.MaintenanceBy = &maintBy.UUID
+	}
+	if sharedAt.Valid {
+		d.IdentitySharedAt = &sharedAt.Time
+		d.IdentitySharedAddresses = sharedFrom
 	}
 	d.AMT = buildAMT(amtAvailable, amtStatus, amtUUID)
 	if len(capsJSON) > 0 {

@@ -14,12 +14,15 @@ new authority and every enrolled agent stops being able to connect.
 
 ## Decision
 
-**The four files are mounted read-only from the chart's existing Kubernetes
-Secret**, each through its own path, and `/data` becomes writable scratch space
-rather than the home of anything that matters.
-
-The server already loads key files when it finds them, so this needs no branch
-in application code.
+**The files come from Kubernetes Secrets**, and `/data` becomes writable scratch
+space rather than the home of anything that matters. The push-notification
+keypair and the update-signing key are mounted read-only from the chart's
+existing Secret, each through its own path. The master key's role files come
+from a Secret of their own, `opengate-authority`, which only the server may read
+([ADR-128](./ADR-128-machine-identity-lifecycle.md)): a start-up step copies them
+into a memory volume readable by the server's user alone, and `-ca-must-exist`
+makes a server that finds no master key refuse to start instead of generating
+one.
 
 A shared read-write filesystem was rejected: this material is written once and
 read many times, which is what a Secret is for.

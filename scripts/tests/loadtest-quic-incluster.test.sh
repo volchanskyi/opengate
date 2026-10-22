@@ -78,7 +78,15 @@ announce="\${HARNESS_ANNOUNCE:-1}"
 if [ "\$announce" = "1" ]; then
   echo 'Starting QUIC load test: 100 agents across 1 tenant(s) → opengate-staging-server:9090'
 fi
+if [ -n "\${HARNESS_REFUSAL:-}" ]; then
+  echo "::error::the run did not start: \$HARNESS_REFUSAL"
+  printf 'done\n' >>"$WORK/harness-ends.txt"
+  exit 3
+fi
 sleep "\${HARNESS_HOLD:-0.3}"
+if [ "\${HARNESS_WALKS:-1}" = "1" ]; then
+  echo "Walk started at \$(date +%s)"
+fi
 if [ "\${HARNESS_FILES:-1}" = "1" ]; then
   echo 'Estate filed'
 fi
@@ -311,7 +319,56 @@ else
 fi
 
 reset_pod
-HARNESS_FILES=0 HARNESS_HOLD=0.2 "$SHIM" start -- harness >/dev/null 2>&1
+"$SHIM" start -- harness >/dev/null 2>&1
+rc=0
+"$SHIM" await-walk >/dev/null 2>&1 || rc=$?
+assert_eq "a harness that found room is seen walking" "0" "$rc"
+
+reset_pod
+refusal='the shared server stayed 89–93% busy for 30 minutes, past the 85% the run allows'
+HARNESS_REFUSAL="$refusal" "$SHIM" start -- harness >/dev/null 2>&1 || true
+rc=0
+out="$("$SHIM" await-walk 2>&1)" || rc=$?
+if [ "$rc" -ne 0 ]; then
+  pass "a harness that found no room is not waited out"
+else
+  fail "a harness that found no room was reported walking"
+fi
+assert_contains "and the refusal names the busy server" "$refusal" "$out"
+
+reset_pod
+HARNESS_WALKS=0 HARNESS_HOLD=5 "$SHIM" start -- harness >/dev/null 2>&1
+rc=0
+LOADTEST_QUIC_WALK_TIMEOUT_SECONDS=1 "$SHIM" await-walk >/dev/null 2>&1 || rc=$?
+if [ "$rc" -ne 0 ]; then
+  pass "a walk that never began within its wait is refused"
+else
+  fail "a walk that never began was reported begun"
+fi
+
+step_line() { awk -v needle="$1" 'index($0, needle) { print NR; exit }' "$WORKFLOW"; }
+walk_line="$(step_line 'loadtest-quic-incluster.sh await-walk')"
+quiet_line="$(step_line 'staging-lease.sh quiet-open')"
+filed_line="$(step_line 'loadtest-quic-incluster.sh await-filed')"
+if [ -n "$walk_line" ] && [ -n "$quiet_line" ] && [ -n "$filed_line" ] \
+  && [ "$walk_line" -lt "$quiet_line" ] && [ "$quiet_line" -lt "$filed_line" ]; then
+  pass "shared alerts are held back only once the harness has found room"
+else
+  fail "the workflow must wait for the walk, then open the quiet period, then wait for the estate"
+fi
+acquire_block="$(awk '
+  /^[[:space:]]*- name: Take the staging namespace/ { found = 1; next }
+  found && /^[[:space:]]*- name:/ { exit }
+  found { print }
+' "$WORKFLOW")"
+if grep -qE 'STAGING_LEASE_QUIET:[[:space:]]*later' <<<"$acquire_block"; then
+  pass "the load test's claim leaves shared alerts on"
+else
+  fail "the load test's claim must defer its quiet period (STAGING_LEASE_QUIET: later)"
+fi
+
+reset_pod
+HARNESS_FILES=0 HARNESS_WALKS=0 HARNESS_HOLD=0.2 "$SHIM" start -- harness >/dev/null 2>&1
 rc=0
 started="$("$SHIM" walk-started-at 2>/dev/null)" || rc=$?
 if [ "$rc" -ne 0 ] && [ -z "$started" ]; then

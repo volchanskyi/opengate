@@ -180,8 +180,10 @@ func (a *Technician) joinRelay(token string) (*websocket.Conn, error) {
 	require.NoError(a.t, err)
 	relay.Scheme = "ws"
 	relay.Path = "/ws/relay/" + token
-	relay.RawQuery = url.Values{"side": {"browser"}, "auth": {a.token}}.Encode()
-	conn, _, err := websocket.Dial(a.t.Context(), relay.String(), nil)
+	relay.RawQuery = url.Values{"side": {"browser"}}.Encode()
+	conn, _, err := websocket.Dial(a.t.Context(), relay.String(), &websocket.DialOptions{
+		HTTPHeader: http.Header{"Authorization": {"Bearer " + a.token}},
+	})
 	if err != nil {
 		return nil, err
 	}

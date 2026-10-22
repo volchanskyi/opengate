@@ -2,12 +2,22 @@
 //! applies updates; exit code 42 asks the service manager to restart.
 
 mod backfill_loop;
+mod cert_renewal;
+mod client_tls;
 mod clock;
+mod control_loop;
+mod device_logs;
 mod edge_sentinel;
+mod enrollment;
 mod event_watch;
+mod handshake;
+mod hardware_report;
 mod host_logs;
+mod lifecycle;
 mod logs;
+mod requests;
 mod retro_job;
+mod stop;
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -15,9 +25,6 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha384};
-use tokio::io::AsyncWriteExt;
 use tracing::{debug, error, info, warn};
 
 /// OpenGate mesh agent.
@@ -28,11 +35,11 @@ struct Args {
     #[arg(long, env = "OPENGATE_SERVER_ADDR")]
     server_addr: String,
 
-    /// Path to the server CA certificate PEM file.
+    /// Path to the PEM bundle of master keys the agent trusts.
     #[arg(long, env = "OPENGATE_SERVER_CA")]
     server_ca: PathBuf,
 
-    /// Data directory for identity, keys, and temporary files.
+    /// Data directory for identity, keys, the install note, and temporary files.
     #[arg(long, default_value = "/var/lib/mesh-agent", env = "OPENGATE_DATA_DIR")]
     data_dir: PathBuf,
 
@@ -43,214 +50,11 @@ struct Args {
     /// Ed25519 public key hex for verifying update signatures (optional).
     #[arg(long, env = "OPENGATE_UPDATE_PUBLIC_KEY")]
     update_public_key: Option<String>,
-
-    /// Enrollment URL (e.g. https://opengate.example.com). Used on first boot
-    /// to obtain a CA-signed certificate via CSR enrollment.
-    #[arg(long, env = "OPENGATE_ENROLL_URL")]
-    enroll_url: Option<String>,
-
-    /// Enrollment token for first-boot CSR enrollment.
-    #[arg(long, env = "OPENGATE_ENROLL_TOKEN")]
-    enroll_token: Option<String>,
 }
 
-/// Exit code that tells systemd (RestartForceExitStatus=42) to restart the agent
-/// after a successful binary update.
-const EXIT_CODE_RESTART: i32 = 42;
-
-/// Request body for the enrollment endpoint.
-#[derive(Serialize)]
-struct EnrollRequestBody {
-    csr_pem: String,
-}
-
-/// Response from the enrollment endpoint.
-#[derive(Deserialize)]
-struct EnrollResponse {
-    ca_pem: String,
-    cert_pem: Option<String>,
-    server_addr: String,
-    update_signing_key: Option<String>,
-}
-
-/// Perform first-boot enrollment: generate CSR, POST to server, save signed cert + CA.
-async fn enroll(
-    enroll_url: &str,
-    enroll_token: &str,
-    data_dir: &std::path::Path,
-    server_ca_path: &std::path::Path,
-) -> Result<mesh_agent_core::AgentIdentity> {
-    info!("first boot detected, starting CSR enrollment");
-
-    let pending =
-        mesh_agent_core::PendingIdentity::generate(data_dir).context("generate enrollment CSR")?;
-
-    info!(device_id = %pending.device_id.0, "generated enrollment CSR");
-
-    let url = format!(
-        "{}/api/v1/enroll/{}",
-        enroll_url.trim_end_matches('/'),
-        enroll_token
-    );
-
-    let client = reqwest::Client::builder()
-        .danger_accept_invalid_certs(true) // first boot — no CA yet
-        .build()
-        .context("build HTTP client")?;
-
-    let resp = client
-        .post(&url)
-        .json(&EnrollRequestBody {
-            csr_pem: pending.csr_pem,
-        })
-        .send()
-        .await
-        .context("enrollment HTTP request")?;
-
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        anyhow::bail!("enrollment failed: HTTP {status}: {body}");
-    }
-
-    let enroll_resp: EnrollResponse = resp.json().await.context("parse enrollment response")?;
-
-    let cert_pem = enroll_resp
-        .cert_pem
-        .ok_or_else(|| anyhow::anyhow!("server did not return a signed certificate"))?;
-
-    let cert_der = pem::parse(cert_pem.as_bytes()).context("decode cert PEM from server")?;
-
-    mesh_agent_core::AgentIdentity::save_signed_cert(data_dir, cert_der.contents())
-        .context("save signed certificate")?;
-
-    tokio::fs::write(server_ca_path, &enroll_resp.ca_pem)
-        .await
-        .context("save server CA certificate")?;
-
-    if let Some(ref key_hex) = enroll_resp.update_signing_key {
-        let key_path = data_dir.join("update-signing-key.hex");
-        tokio::fs::write(&key_path, key_hex)
-            .await
-            .context("save update signing key")?;
-        info!("saved update signing key from enrollment");
-    }
-
-    info!(server_addr = %enroll_resp.server_addr, "enrollment complete");
-
-    let identity = mesh_agent_core::AgentIdentity::load_or_create(data_dir)
-        .context("load identity after enrollment")?;
-
-    Ok(identity)
-}
-
-/// Check if enrollment is needed (no complete identity on disk).
-fn needs_enrollment(data_dir: &std::path::Path) -> bool {
-    let id_exists = data_dir.join(mesh_agent_core::DEVICE_ID_FILE).exists();
-    let cert_exists = data_dir.join(mesh_agent_core::CERT_FILE).exists();
-    let key_exists = data_dir.join(mesh_agent_core::KEY_FILE).exists();
-    !(id_exists && cert_exists && key_exists)
-}
-
-/// Build the quinn QUIC client config with mTLS.
-fn build_quic_config(
-    ca_pem: &str,
-    identity: &mesh_agent_core::AgentIdentity,
-) -> Result<quinn::ClientConfig> {
-    let server_certs = rustls_pemfile::certs(&mut ca_pem.as_bytes())
-        .collect::<Result<Vec<_>, _>>()
-        .context("parse CA PEM")?;
-
-    let mut root_store = rustls::RootCertStore::empty();
-    for cert in server_certs {
-        root_store.add(cert).context("add CA cert")?;
-    }
-
-    let client_cert = rustls::pki_types::CertificateDer::from(identity.cert_der.clone());
-    let client_key = rustls::pki_types::PrivateKeyDer::Pkcs8(
-        rustls::pki_types::PrivatePkcs8KeyDer::from(identity.key_der.clone()),
-    );
-
-    let mut tls_config = rustls::ClientConfig::builder()
-        .with_root_certificates(root_store)
-        .with_client_auth_cert(vec![client_cert], client_key)
-        .context("build TLS config")?;
-
-    tls_config.alpn_protocols = vec![b"opengate".to_vec()];
-
-    let mut quinn_config = quinn::ClientConfig::new(Arc::new(
-        quinn::crypto::rustls::QuicClientConfig::try_from(tls_config)?,
-    ));
-
-    // Match server QUIC transport config: MaxIdleTimeout=90s, KeepAlivePeriod=30s.
-    let mut transport = quinn::TransportConfig::default();
-    transport.max_idle_timeout(Some(
-        std::time::Duration::from_secs(90)
-            .try_into()
-            .context("idle timeout")?,
-    ));
-    transport.keep_alive_interval(Some(std::time::Duration::from_secs(30)));
-    quinn_config.transport_config(Arc::new(transport));
-
-    Ok(quinn_config)
-}
-
-/// Sends AgentHello first, since the stream opener must write before the peer can accept it.
-/// Returns the server CA cert hash from ServerHello, which drives the 0x14 fast path.
-async fn perform_full_handshake(
-    send: &mut quinn::SendStream,
-    recv: &mut quinn::RecvStream,
-    cert_der: &[u8],
-) -> Result<[u8; 48]> {
-    let agent_cert_hash: [u8; 48] = Sha384::digest(cert_der).into();
-
-    let mut nonce = [0u8; 32];
-    getrandom::fill(&mut nonce).context("generate nonce")?;
-
-    let agent_hello = mesh_protocol::HandshakeMessage::AgentHello {
-        nonce,
-        agent_cert_hash,
-    };
-    send.write_all(&agent_hello.encode_binary())
-        .await
-        .context("write AgentHello")?;
-    send.flush().await.context("flush AgentHello")?;
-
-    // Read ServerHello (81 bytes: 1 type + 32 nonce + 48 cert_hash)
-    let mut hello_buf = [0u8; 81];
-    recv.read_exact(&mut hello_buf)
-        .await
-        .context("read ServerHello")?;
-
-    let server_hello =
-        mesh_protocol::HandshakeMessage::decode_binary(&hello_buf).context("decode ServerHello")?;
-
-    match server_hello {
-        mesh_protocol::HandshakeMessage::ServerHello { cert_hash, .. } => {
-            info!("received ServerHello");
-            info!("handshake complete");
-            Ok(cert_hash)
-        }
-        other => anyhow::bail!("expected ServerHello, got {:?}", other),
-    }
-}
-
-/// Sends SkipAuth with the cached CA cert hash; the server answers only a stale hash, by closing
-/// the connection, which fails registration and sends the caller to a full handshake.
-async fn perform_fast_handshake(
-    send: &mut quinn::SendStream,
-    cached_ca_hash: &[u8; 48],
-) -> Result<()> {
-    let skip_auth = mesh_protocol::HandshakeMessage::SkipAuth {
-        cached_cert_hash: *cached_ca_hash,
-    };
-    send.write_all(&skip_auth.encode_binary())
-        .await
-        .context("write SkipAuth")?;
-    send.flush().await.context("flush SkipAuth")?;
-    info!("sent fast-path SkipAuth");
-    Ok(())
-}
+/// Exit code that tells systemd (RestartForceExitStatus=42) to restart the agent, after a binary
+/// update or a new identity.
+pub(crate) const EXIT_CODE_RESTART: i32 = 42;
 
 /// Default log directory for persistent log files.
 const LOG_DIR: &str = "/var/log/mesh-agent";
@@ -266,6 +70,12 @@ const HOST_METRIC_TELEMETRY_CAP: usize = 16;
 
 /// Footprint cap for the local store in MiB, enforced by coarsest-first eviction.
 const EDGE_STORE_CAP_MB: u64 = 512;
+
+/// How long a stop waits for the background tasks, inside the unit's 15 s `TimeoutStopSec`.
+const BACKGROUND_GRACE: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// How long the runtime waits for blocking work still running after the background grace.
+const RUNTIME_GRACE: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// Sets up tracing on stdout plus a daily-rotated file when the log directory is writable.
 /// Returns the file guard to hold for the program lifetime, or `None` for stdout-only logging.
@@ -317,14 +127,21 @@ fn setup_logging(log_dir: &Path) -> Option<tracing_appender::non_blocking::Worke
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     // Parsing before logging setup lets `--help`, `--version` and bad arguments exit without
     // creating the log directory.
     let args = Args::parse();
 
     let _log_guard = setup_logging(&args.log_dir);
 
+    let runtime = tokio::runtime::Runtime::new().context("start the async runtime")?;
+    let result = runtime.block_on(run(args));
+    // A blocking call still running past the grace is abandoned, so it cannot hold the exit.
+    runtime.shutdown_timeout(RUNTIME_GRACE);
+    result
+}
+
+async fn run(args: Args) -> Result<()> {
     info!(
         version = env!("AGENT_VERSION"),
         server_addr = %args.server_addr,
@@ -335,122 +152,180 @@ async fn main() -> Result<()> {
     // The data directory is owner-only because it holds the device's mTLS private key.
     mesh_agent_core::ensure_private_dir(&args.data_dir).context("create data directory")?;
 
-    // Enrollment writes the CA PEM and update signing key, so it runs before they are read.
-    let identity = if needs_enrollment(&args.data_dir) {
-        match (&args.enroll_url, &args.enroll_token) {
-            (Some(url), Some(token)) => enroll(url, token, &args.data_dir, &args.server_ca).await?,
-            _ => {
-                anyhow::bail!(
-                    "no agent identity found at {} and --enroll-url / --enroll-token not set; \
-                     cannot connect without enrollment",
-                    args.data_dir.display()
-                );
-            }
-        }
-    } else {
-        mesh_agent_core::AgentIdentity::load_or_create(&args.data_dir)
-            .context("load agent identity")?
+    let paths = lifecycle::Paths {
+        data_dir: args.data_dir.clone(),
+        server_ca: args.server_ca.clone(),
+    };
+    // An interrupted save is settled before anything reads the identity.
+    mesh_agent_core::identity_store::recover(&paths.data_dir, &paths.staged_targets())
+        .context("recover an interrupted identity save")?;
+    let identity = match lifecycle::start_up(&paths).await? {
+        lifecycle::StartUp::Remove => lifecycle::self_remove(&paths),
+        lifecycle::StartUp::Connect(identity) => identity,
     };
 
-    // The CLI flag takes precedence over the key file enrollment saves, so this follows enrollment.
-    let update_public_key: Option<[u8; 32]> = match &args.update_public_key {
-        Some(hex_str) => Some(parse_ed25519_pubkey(hex_str)?),
-        None => {
-            let key_path = args.data_dir.join("update-signing-key.hex");
-            match tokio::fs::read_to_string(&key_path).await {
-                Ok(hex_str) => {
-                    let key = parse_ed25519_pubkey(hex_str.trim())?;
-                    info!("loaded update signing key from enrollment");
-                    Some(key)
-                }
-                Err(e) => {
-                    warn!(
-                        path = %key_path.display(),
-                        error = %e,
-                        "no update public key configured, auto-updates disabled"
-                    );
-                    None
-                }
-            }
-        }
-    };
-
+    let update_public_key = update_public_key(&args).await?;
     info!(device_id = %identity.device_id.0, "agent identity loaded");
 
     let ca_pem = tokio::fs::read_to_string(&args.server_ca)
         .await
-        .context("read server CA certificate")?;
-
-    // The QUIC config borrows `ca_pem`, so it is built before `ca_pem` moves into `AgentConfig`.
-    let quinn_config = build_quic_config(&ca_pem, &identity)?;
-
-    let config = mesh_agent_core::AgentConfig {
-        server_addr: args.server_addr,
-        server_ca_pem: ca_pem,
-        data_dir: args.data_dir.clone(),
-    };
+        .context("read the trusted master keys")?;
+    let tls = client_tls::ClientTls::load(&identity, &ca_pem)?;
 
     let update_config = update_public_key.map(|key| mesh_agent_core::UpdateConfig {
         signing_public_key: key,
         current_binary_path: std::env::current_exe()
             .unwrap_or_else(|_| PathBuf::from("mesh-agent")),
         data_dir: args.data_dir.clone(),
+        download: mesh_agent_core::update::DownloadLimits::default(),
     });
+    let pending_update = start_update_watchdog(&args.data_dir, &update_config).await;
 
-    // An update sentinel starts a watchdog that rolls back and restarts unless registration
-    // succeeds within 60 seconds.
-    let pending_update = mesh_agent_core::update::is_update_pending(&args.data_dir);
-    let watchdog_cancel = Arc::new(tokio::sync::Notify::new());
-    if pending_update {
-        let count = mesh_agent_core::update::rollback_count(&args.data_dir).await;
-        if count >= mesh_agent_core::update::MAX_ROLLBACKS {
-            error!(
-                count,
-                "max rollback attempts reached, leaving current binary in place"
-            );
-            mesh_agent_core::update::clear_update_pending(&args.data_dir).await;
-            mesh_agent_core::update::reset_rollback_count(&args.data_dir).await;
-        } else {
-            info!(
-                count,
-                "post-update watchdog active, will rollback if registration fails within 60s"
-            );
-            spawn_update_watchdog(&args.data_dir, &update_config, watchdog_cancel.clone());
-        }
-    }
-
-    let lifecycle = platform_linux::create_service_lifecycle();
-
+    let service = platform_linux::create_service_lifecycle();
     let endpoint = quinn::Endpoint::client("0.0.0.0:0".parse::<SocketAddr>()?)?;
-
-    lifecycle.notify_ready();
+    // The stop request is heard from readiness on, so one arriving while background work starts
+    // ends the agent cleanly.
+    let sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    service.notify_ready();
     info!("agent ready, connecting to server");
 
+    let background = spawn_background(&args.data_dir);
+    let Background {
+        telemetry,
+        shared,
+        backfill,
+        stop,
+        tasks,
+    } = background;
+    let agent = control_loop::Agent {
+        paths,
+        server_addr: args.server_addr,
+        log_dir: args.log_dir,
+        identity,
+        tls,
+        endpoint,
+        service,
+        update_config: update_config.map(std::sync::Arc::new),
+        pending_update,
+        telemetry,
+        shared,
+        backfill,
+        renewal: cert_renewal::Renewal::new(),
+        requests: requests::Requests::default(),
+        cached_ca_hash: None,
+        force_full_next: false,
+    };
+    let result = control_loop::run(agent, sigterm).await;
+    stop_background(&stop, tasks).await;
+    result
+}
+
+/// Asks the background tasks to stop and waits for them up to [`BACKGROUND_GRACE`].
+async fn stop_background(stop: &stop::Stop, tasks: Vec<tokio::task::JoinHandle<()>>) {
+    stop.request();
+    let total = tasks.len();
+    let joined = tokio::time::timeout(BACKGROUND_GRACE, async {
+        for task in tasks {
+            if let Err(e) = task.await {
+                warn!(error = %e, "a background task ended abnormally");
+            }
+        }
+    })
+    .await;
+    match joined {
+        Ok(()) => info!(tasks = total, "background tasks stopped"),
+        Err(_) => warn!(
+            grace = ?BACKGROUND_GRACE,
+            "background tasks still running at exit, leaving them"
+        ),
+    }
+}
+
+/// The update-signing key: the flag, else the key enrollment saved, else none.
+async fn update_public_key(args: &Args) -> Result<Option<[u8; 32]>> {
+    if let Some(hex_str) = &args.update_public_key {
+        return parse_ed25519_pubkey(hex_str).map(Some);
+    }
+    let key_path = args.data_dir.join(lifecycle::UPDATE_SIGNING_KEY_FILE);
+    match tokio::fs::read_to_string(&key_path).await {
+        Ok(hex_str) => {
+            let key = parse_ed25519_pubkey(hex_str.trim())?;
+            info!("loaded update signing key from enrollment");
+            Ok(Some(key))
+        }
+        Err(e) => {
+            warn!(
+                path = %key_path.display(),
+                error = %e,
+                "no update public key configured, auto-updates disabled"
+            );
+            Ok(None)
+        }
+    }
+}
+
+/// Starts the post-update watchdog when an update sentinel is present; it rolls back and restarts
+/// unless the server acknowledges the agent within 60 seconds.
+async fn start_update_watchdog(
+    data_dir: &Path,
+    update_config: &Option<mesh_agent_core::UpdateConfig>,
+) -> Option<control_loop::PendingUpdate> {
+    if !mesh_agent_core::update::is_update_pending(data_dir) {
+        return None;
+    }
+    let count = mesh_agent_core::update::rollback_count(data_dir).await;
+    if count >= mesh_agent_core::update::MAX_ROLLBACKS {
+        error!(
+            count,
+            "max rollback attempts reached, leaving current binary in place"
+        );
+        mesh_agent_core::update::clear_update_pending(data_dir).await;
+        mesh_agent_core::update::reset_rollback_count(data_dir).await;
+        return None;
+    }
+    info!(
+        count,
+        "post-update watchdog active, will rollback unless acknowledged within 60s"
+    );
+    let watchdog_cancel = Arc::new(tokio::sync::Notify::new());
+    spawn_update_watchdog(data_dir, update_config, watchdog_cancel.clone());
+    Some(control_loop::PendingUpdate { watchdog_cancel })
+}
+
+/// The background tasks' handles the control loop needs, and what stops them.
+struct Background {
+    telemetry: control_loop::Telemetry,
+    shared: control_loop::Shared,
+    backfill: Option<backfill_loop::BackfillCoordinator>,
+    stop: stop::Stop,
+    tasks: Vec<tokio::task::JoinHandle<()>>,
+}
+
+/// Starts the sampler, discovery, event watch and retro scans over the local store.
+fn spawn_background(data_dir: &Path) -> Background {
     // The local store holds min/max/last and 1 s raw, which central keeps only as averages; the
     // backfill coordinator shares it, and sampling continues without persistence if it cannot open.
     let shared_sink: Option<edge_sentinel::SharedSink> = {
-        let path = args.data_dir.join("edge-tsdb");
+        let path = data_dir.join("edge-tsdb");
         info!(path = %path.display(), cap_mb = EDGE_STORE_CAP_MB, "edge-sentinel local store");
         let cfg = edge_sentinel::StoreConfig {
             path,
             cap_bytes: EDGE_STORE_CAP_MB.saturating_mul(1024 * 1024),
         };
-        edge_sentinel::open_sink(&cfg).map(|s| std::sync::Arc::new(std::sync::Mutex::new(s)))
+        edge_sentinel::open_sink(&cfg).map(|s| Arc::new(std::sync::Mutex::new(s)))
     };
 
     // Collectors hold clones of this gate and pause while it reads maintenance; the control
     // channel stays live.
     let maintenance = mesh_agent_core::maintenance::MaintenanceGate::new();
-
     // The sampler owns the evaluator; the control loop installs rulesets through this mailbox.
     let alert_rules_mailbox: edge_sentinel::AlertRulesMailbox =
-        std::sync::Arc::new(std::sync::Mutex::new(None));
+        Arc::new(std::sync::Mutex::new(None));
     // The sampler, event watch and retro scan share one queue, so one bound and one hourly
     // allowance cover the machine.
     let alert_sink = mesh_agent_core::alerts::AlertSink::default();
     // The event watch publishes which rules its log reader can answer; the sampler reports them.
-    let event_coverage: event_watch::EventCoverage =
-        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let event_coverage: event_watch::EventCoverage = Arc::new(std::sync::Mutex::new(Vec::new()));
     let (health_tx, health_rx) =
         std::sync::mpsc::sync_channel::<mesh_protocol::ControlMessage>(HEALTH_TELEMETRY_CAP);
     // Host-metric windows reach the control loop over a bounded channel drained on the heartbeat.
@@ -458,675 +333,74 @@ async fn main() -> Result<()> {
         std::sync::mpsc::sync_channel::<mesh_protocol::ControlMessage>(HOST_METRIC_TELEMETRY_CAP);
     // The sampler publishes host load each second for background work that needs an idle machine.
     let host_load = edge_sentinel::LoadSignal::new();
-    let _edge_sentinel_sampler = {
-        info!("edge-sentinel sampler starting");
-        let alerts = edge_sentinel::AlertWiring {
-            rules: alert_rules_mailbox.clone(),
-            health_tx,
-            alert_sink: alert_sink.clone(),
-            event_coverage: event_coverage.clone(),
-        };
-        edge_sentinel::spawn_sampler(
-            edge_sentinel::SamplerOutputs {
-                sink: shared_sink.clone(),
-                alerts: Some(alerts),
-                host_metric_tx: Some(host_metric_tx),
-                load: host_load.clone(),
-            },
-            maintenance.clone(),
-        )
-    };
-
-    // The backfill coordinator exists only when the local store opened, and gates the `Backfill`
-    // capability.
-    let mut backfill = shared_sink
-        .clone()
-        .map(backfill_loop::BackfillCoordinator::new);
+    let stop = stop::Stop::new();
+    let mut tasks = Vec::with_capacity(4);
+    info!("edge-sentinel sampler starting");
+    tasks.push(edge_sentinel::spawn_sampler(
+        edge_sentinel::SamplerOutputs {
+            sink: shared_sink.clone(),
+            alerts: Some(edge_sentinel::AlertWiring {
+                rules: alert_rules_mailbox.clone(),
+                health_tx,
+                alert_sink: alert_sink.clone(),
+                event_coverage: event_coverage.clone(),
+            }),
+            host_metric_tx: Some(host_metric_tx),
+            load: host_load.clone(),
+        },
+        maintenance.clone(),
+        stop.clone(),
+    ));
 
     let (discovery_tx, discovery_rx) =
         std::sync::mpsc::sync_channel::<mesh_protocol::ControlMessage>(DISCOVERY_TELEMETRY_CAP);
-    let _edge_discovery = edge_sentinel::spawn_discovery(discovery_tx, maintenance.clone());
-
-    let _event_watch =
-        event_watch::spawn_event_watch(alert_sink.clone(), maintenance.clone(), event_coverage);
+    tasks.push(edge_sentinel::spawn_discovery(
+        discovery_tx,
+        maintenance.clone(),
+        stop.clone(),
+    ));
+    tasks.push(event_watch::spawn_event_watch(
+        alert_sink.clone(),
+        maintenance.clone(),
+        event_coverage,
+        stop.clone(),
+    ));
 
     // Retro scans compare against the ruleset the control loop last installed, so a scan stops
     // when its own rule version is replaced.
-    let installed_rules: retro_job::InstalledRules =
-        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-    let _retro_scans = {
-        let store_config = shared_sink
-            .as_ref()
-            .and_then(|sink| sink.lock().ok().map(|sink| sink.config()))
-            .unwrap_or_default();
-        retro_job::spawn_retro_scans(retro_job::RetroWiring {
-            sink: alert_sink.clone(),
-            rules: installed_rules.clone(),
-            store: shared_sink.clone(),
-            maintenance: maintenance.clone(),
-            load: host_load,
-            data_dir: args.data_dir.clone(),
-            store_config,
-        })
-    };
-
-    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
-
-    // `cached_ca_hash` comes from the first ServerHello and switches reconnects to SkipAuth;
-    // `force_full_next` forces one full handshake after a fast-path failure such as a rotated CA.
-    let mut cached_ca_hash: Option<[u8; 48]> = None;
-    let mut force_full_next = false;
-
-    // The flap guard bounds the reconnect rate after a session drops right after registering,
-    // and jitter de-synchronises a reconnecting herd.
-    let mut governor = mesh_agent_core::ReconnectGovernor::new();
-    let mut reconnect_rng = rand::rng();
-
-    'outer: loop {
-        let connect_result = mesh_agent_core::reconnect_with_backoff(
-            || {
-                let addr_str = config.server_addr.clone();
-                let qc = quinn_config.clone();
-                let ep = endpoint.clone();
-                async move {
-                    // The host part of the address is the TLS server name.
-                    let sni_host = addr_str
-                        .rsplit_once(':')
-                        .map(|(h, _)| h)
-                        .unwrap_or(&addr_str);
-
-                    let addr: SocketAddr = match addr_str.parse() {
-                        Ok(a) => a,
-                        Err(_) => tokio::net::lookup_host(&addr_str)
-                            .await
-                            .map_err(|e| format!("resolve server addr: {e}"))?
-                            .next()
-                            .ok_or_else(|| format!("no addresses found for {addr_str}"))?,
-                    };
-                    let conn = ep
-                        .connect_with(qc, addr, sni_host)
-                        .map_err(|e| format!("QUIC connect: {e}"))?
-                        .await
-                        .map_err(|e| format!("QUIC establish: {e}"))?;
-                    // Agent opens the bidirectional control stream and writes first.
-                    let (send, recv) = conn
-                        .open_bi()
-                        .await
-                        .map_err(|e| format!("open bi stream: {e}"))?;
-                    Ok::<_, String>((send, recv))
-                }
-            },
-            10,
-        )
-        .await;
-
-        let (mut send, mut recv) = match connect_result {
-            Ok(streams) => streams,
-            Err(e) => {
-                error!(error = %e, "all reconnect attempts failed, exiting");
-                lifecycle.notify_stopping();
-                return Err(e.into());
-            }
-        };
-
-        // The fast path needs a cached CA hash and no early fast-path rejection on the last try.
-        let used_fast_path = cached_ca_hash.is_some() && !force_full_next;
-        let handshake = if used_fast_path {
-            perform_fast_handshake(&mut send, &cached_ca_hash.unwrap())
-                .await
-                .map(|()| None)
-        } else {
-            perform_full_handshake(&mut send, &mut recv, &identity.cert_der)
-                .await
-                .map(Some)
-        };
-        match handshake {
-            Ok(Some(ca_hash)) => {
-                // A full handshake refreshes the cached CA hash and clears a fast-path failure.
-                cached_ca_hash = Some(ca_hash);
-                force_full_next = false;
-            }
-            Ok(None) => {} // fast path: keep the existing cached hash
-            Err(e) => {
-                warn!(error = %e, "handshake failed, will reconnect");
-                if used_fast_path {
-                    force_full_next = true;
-                }
-                continue;
-            }
-        }
-
-        let stream = mesh_agent_core::AsyncControlStream::new(tokio::io::join(recv, send));
-        let mut conn = mesh_agent_core::AgentConnection::new(stream);
-
-        // Backfill is advertised only when the local store opened (see `agent_capabilities`).
-        let capabilities = agent_capabilities(backfill.is_some());
-        if let Err(e) = conn
-            .send_control(mesh_protocol::ControlMessage::AgentRegister {
-                capabilities,
-                hostname: gethostname::gethostname().to_string_lossy().to_string(),
-                os: os_pretty_name(),
-                arch: std::env::consts::ARCH.to_string(),
-                version: env!("AGENT_VERSION").to_string(),
-            })
-            .await
-        {
-            // A fast-path registration failure suggests a stale CA hash, so the next try is full.
-            warn!(error = %e, "failed to send AgentRegister, will reconnect");
-            if used_fast_path {
-                force_full_next = true;
-            }
-            continue;
-        }
-
-        force_full_next = false;
-        // The server pushes `SetMaintenanceMode(true)` only for a device in maintenance, so every
-        // registration starts Active.
-        maintenance.set(false);
-        // The flap guard at the loop's end compares against this to tell a stable session.
-        let connected_at = std::time::Instant::now();
-        info!(
-            fast_path = used_fast_path,
-            "registered with server, entering control loop"
-        );
-
-        if pending_update {
-            watchdog_cancel.notify_one();
-            mesh_agent_core::update::clear_update_pending(&args.data_dir).await;
-            mesh_agent_core::update::reset_rollback_count(&args.data_dir).await;
-            info!("post-update verification passed, sentinel cleared");
-        }
-
-        // `bf_send_at` paces the drain to the granted rate and `bf_retry_at` schedules a deferred
-        // re-request; both stay `None` until a grant or defer arrives.
-        let mut bf_send_at: Option<tokio::time::Instant> = None;
-        let mut bf_retry_at: Option<tokio::time::Instant> = None;
-        if let Some(bf) = backfill.as_mut() {
-            if let Some(msg) = bf.start_session().await {
-                match conn.send_control(msg).await {
-                    Ok(()) => debug!("backfill: requested admission slot"),
-                    Err(e) => warn!(error = %e, "backfill slot request failed"),
-                }
-            }
-        }
-
-        let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(60));
-        heartbeat.tick().await;
-        loop {
-            tokio::select! {
-                biased;
-                _ = tokio::signal::ctrl_c() => {
-                    info!("received SIGINT, shutting down");
-                    break 'outer;
-                }
-                _ = sigterm.recv() => {
-                    info!("received SIGTERM, shutting down");
-                    break 'outer;
-                }
-                _ = heartbeat.tick() => {
-                    let now = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_secs() as i64)
-                        .unwrap_or(0);
-                    if let Err(e) = conn.send_control(
-                        mesh_protocol::ControlMessage::AgentHeartbeat { timestamp: now },
-                    ).await {
-                        warn!(error = %e, "heartbeat failed, will reconnect");
-                        break;
-                    }
-                    tracing::debug!("heartbeat sent");
-                    if backfill.as_ref().is_some_and(backfill_loop::BackfillCoordinator::is_draining) {
-                        tracing::debug!("backfill: reconnect drain in progress");
-                    }
-
-                    // Draining into a Vec first keeps every receiver out of the send await.
-                    let mut windows: Vec<mesh_protocol::ControlMessage> =
-                        std::iter::from_fn(|| host_metric_rx.try_recv().ok()).collect();
-                    windows.extend(std::iter::from_fn(|| discovery_rx.try_recv().ok()));
-                    windows.extend(std::iter::from_fn(|| health_rx.try_recv().ok()));
-                    let mut telemetry_lost = false;
-                    for window in windows {
-                        if let Err(e) = conn.send_control(window).await {
-                            warn!(error = %e, "telemetry send failed, will reconnect");
-                            telemetry_lost = true;
-                            break;
-                        }
-                    }
-                    if telemetry_lost {
-                        break;
-                    }
-
-                    // Alerts go last: a failed telemetry send leaves them queued in the sink.
-                    if !send_queued_alerts(&mut conn, &alert_sink).await {
-                        break;
-                    }
-                }
-                _ = sleep_until_opt(bf_send_at) => {
-                    // Sends one batch, or a re-slot request when the grant expired mid-drain.
-                    bf_send_at = None;
-                    if let Some(bf) = backfill.as_mut() {
-                        if let Some(msg) = bf.next_batch().await {
-                            if let Err(e) = conn.send_control(msg).await {
-                                warn!(error = %e, "backfill send failed, will reconnect");
-                                break;
-                            }
-                        }
-                    }
-                }
-                _ = sleep_until_opt(bf_retry_at) => {
-                    // A deferred admission slot's jittered retry has elapsed.
-                    bf_retry_at = None;
-                    if let Some(bf) = backfill.as_mut() {
-                        if let Some(msg) = bf.start_session().await {
-                            if let Err(e) = conn.send_control(msg).await {
-                                warn!(error = %e, "backfill retry request failed, will reconnect");
-                                break;
-                            }
-                        }
-                    }
-                }
-                msg = conn.receive_control() => {
-                    match msg {
-                        Ok(mesh_protocol::ControlMessage::SessionRequest {
-                            token, relay_url, permissions, ice_servers,
-                        }) => {
-                            let capture: Box<dyn mesh_agent_core::ScreenCapture> =
-                                Box::new(mesh_agent_core::NullCapture);
-                            let injector: Box<dyn mesh_agent_core::InputInjector> =
-                                Box::new(mesh_agent_core::NullInput);
-                            match conn.handle_session_request(
-                                token, relay_url, permissions, ice_servers, capture, injector,
-                            ).await {
-                                Ok(_handle) => {} // session runs independently
-                                Err(e) => warn!(error = %e, "failed to accept session"),
-                            }
-                        }
-                        Ok(mesh_protocol::ControlMessage::AgentUpdate {
-                            version, url, sha256, signature,
-                        }) => {
-                            if let Some(ref uc) = update_config {
-                                if should_skip_version(&version) {
-                                    info!(version, "update skipped: already up to date");
-                                    send_update_ack(&mut conn, version, true, "already up to date".into()).await;
-                                    continue;
-                                }
-
-                                match mesh_agent_core::update::apply_update(
-                                    uc, &version, &url, &sha256, &signature,
-                                ).await {
-                                    Ok(true) => {
-                                        info!(version, "update applied, restarting");
-                                        send_update_ack(&mut conn, version, true, String::new()).await;
-                                        lifecycle.notify_stopping();
-                                        std::process::exit(EXIT_CODE_RESTART);
-                                    }
-                                    Ok(false) => info!("update skipped (same version)"),
-                                    Err(e) => {
-                                        error!(error = %e, "update failed");
-                                        send_update_ack(&mut conn, version, false, e.to_string()).await;
-                                    }
-                                }
-                            }
-                        }
-                        Ok(mesh_protocol::ControlMessage::AgentDeregistered { reason }) => {
-                            warn!(reason, "device deregistered by server, cleaning up");
-                            uninstall_agent(&args.data_dir);
-                            lifecycle.notify_stopping();
-                            info!("agent fully uninstalled, exiting");
-                            std::process::exit(0);
-                        }
-                        Ok(mesh_protocol::ControlMessage::RestartAgent { reason }) => {
-                            info!(reason, "restart requested by server, exiting with code 42");
-                            lifecycle.notify_stopping();
-                            std::process::exit(EXIT_CODE_RESTART);
-                        }
-                        Ok(mesh_protocol::ControlMessage::RequestHardwareReport) => {
-                            info!("hardware report requested by server");
-                            match std::panic::catch_unwind(collect_hardware_info) {
-                                Ok(report) => {
-                                    if let Err(e) = conn.send_control(report).await {
-                                        warn!(error = %e, "failed to send hardware report");
-                                    }
-                                }
-                                Err(_) => {
-                                    let msg = mesh_protocol::ControlMessage::HardwareReportError {
-                                        error: "failed to collect hardware info".to_string(),
-                                    };
-                                    if let Err(e) = conn.send_control(msg).await {
-                                        warn!(error = %e, "failed to send hardware report error");
-                                    }
-                                }
-                            }
-                        }
-                        Ok(mesh_protocol::ControlMessage::RequestDeviceLogs {
-                            log_level,
-                            time_from,
-                            time_to,
-                            search,
-                            log_offset,
-                            log_limit,
-                            source,
-                            unit,
-                        }) => {
-                            info!(%source, "device logs requested by server");
-                            let filter = logs::LogFilter {
-                                level: if log_level.is_empty() { None } else { Some(log_level) },
-                                time_from: if time_from.is_empty() { None } else { Some(time_from) },
-                                time_to: if time_to.is_empty() { None } else { Some(time_to) },
-                                search: if search.is_empty() { None } else { Some(search) },
-                                offset: log_offset,
-                                limit: log_limit,
-                            };
-                            // "self" or "" reads the agent's own files; any other source
-                            // is a host log source, refused by name where the host has no reader.
-                            let outcome = if source.is_empty() || source == "self" {
-                                logs::LogCollector::new(args.log_dir.clone())
-                                    .collect(&filter)
-                                    .map(|result| (result, Vec::new()))
-                                    .map_err(anyhow::Error::from)
-                            } else {
-                                host_logs::collect_system_logs(&source, &filter, &unit)
-                                    .map_err(anyhow::Error::from)
-                            };
-                            match outcome {
-                                Ok((mut result, available_units)) => {
-                                    // Edge-side redaction is the first of two
-                                    // independent guards on secret-dense raw lines.
-                                    host_logs::redact_entries(&mut result.entries);
-                                    let msg = mesh_protocol::ControlMessage::DeviceLogsResponse {
-                                        log_entries: result.entries,
-                                        total_count: result.total_count,
-                                        has_more: result.has_more,
-                                        available_units,
-                                    };
-                                    if let Err(e) = conn.send_control(msg).await {
-                                        warn!(error = %e, "failed to send device logs response");
-                                    }
-                                }
-                                Err(e) => {
-                                    let msg = mesh_protocol::ControlMessage::DeviceLogsError {
-                                        error: e.to_string(),
-                                    };
-                                    if let Err(e) = conn.send_control(msg).await {
-                                        warn!(error = %e, "failed to send device logs error");
-                                    }
-                                }
-                            }
-                        }
-                        Ok(mesh_protocol::ControlMessage::GrantBackfill { rate, deadline }) => {
-                            if let Some(bf) = backfill.as_mut() {
-                                info!(rate, deadline, "backfill: admission slot granted");
-                                bf.on_grant(rate, deadline);
-                                bf_send_at = Some(tokio::time::Instant::now());
-                            }
-                        }
-                        Ok(mesh_protocol::ControlMessage::DeferBackfill { retry_after }) => {
-                            if let Some(bf) = backfill.as_mut() {
-                                let delay = bf.on_defer(retry_after);
-                                debug!(retry_after, delay_s = delay.as_secs(), "backfill: deferred");
-                                bf_retry_at = Some(tokio::time::Instant::now() + delay);
-                            }
-                        }
-                        Ok(mesh_protocol::ControlMessage::MetricBackfillAck { tier, cursor }) => {
-                            if let Some(bf) = backfill.as_mut() {
-                                let delay = bf.on_ack(tier, cursor).await;
-                                bf_send_at = Some(tokio::time::Instant::now() + delay);
-                            }
-                        }
-                        Ok(mesh_protocol::ControlMessage::RequestLocalHistory {
-                            dim, from_ts, to_ts, max_points,
-                        }) => {
-                            if let Some(bf) = backfill.as_ref() {
-                                let resp = bf.answer_history(dim, from_ts, to_ts, max_points).await;
-                                if let Err(e) = conn.send_control(resp).await {
-                                    warn!(error = %e, "failed to send local-history response");
-                                }
-                            }
-                        }
-                        Ok(mesh_protocol::ControlMessage::SetMaintenanceMode { enabled }) => {
-                            // The applied state is echoed so the server can track convergence.
-                            maintenance.set(enabled);
-                            info!(enabled, "maintenance mode set by server");
-                            if let Err(e) = conn.send_control(
-                                mesh_protocol::ControlMessage::MaintenanceApplied { enabled },
-                            ).await {
-                                warn!(error = %e, "failed to send MaintenanceApplied, will reconnect");
-                                break;
-                            }
-                        }
-                        Ok(mesh_protocol::ControlMessage::PushAlertRules { rules, device_hourly_ceiling }) => {
-                            // The sampler installs the mailbox ruleset on its next tick.
-                            debug!(count = rules.len(), ceiling = device_hourly_ceiling, "edge-sentinel: threshold-alert ruleset received");
-                            // The per-machine alert allowance applies on arrival, not at restart.
-                            alert_sink.set_ceiling(device_hourly_ceiling);
-                            if let Ok(mut installed) = installed_rules.lock() {
-                                installed.clone_from(&rules);
-                            }
-                            if let Ok(mut slot) = alert_rules_mailbox.lock() {
-                                *slot = Some(rules);
-                            }
-                        }
-                        Ok(_other) => { /* ignore unknown messages */ }
-                        Err(e) if e.to_string().contains("ping received") => {
-                            // Ping was handled (pong sent), continue listening
-                            continue;
-                        }
-                        Err(mesh_agent_core::ConnectionError::Io(_)) => {
-                            warn!("connection lost, will reconnect");
-                            break;
-                        }
-                        Err(e) => {
-                            warn!(error = %e, "control error, will reconnect");
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        // A drop within the stability window backs off before reconnecting; a long session
-        // resets the backoff.
-        if let Some(delay) = governor.record_disconnect(connected_at.elapsed(), &mut reconnect_rng)
-        {
-            warn!(
-                delay_ms = delay.as_millis(),
-                flap_count = governor.flap_count(),
-                "connection dropped shortly after registering, backing off before reconnect"
-            );
-            tokio::time::sleep(delay).await;
-        }
-    }
-
-    lifecycle.notify_stopping();
-    info!("mesh-agent stopped");
-    Ok(())
-}
-
-/// Sleeps until `at`, or forever when `at` is `None`, so a `select!` arm can hold an optional
-/// deadline.
-async fn sleep_until_opt(at: Option<tokio::time::Instant>) {
-    match at {
-        Some(t) => tokio::time::sleep_until(t).await,
-        None => std::future::pending::<()>().await,
-    }
-}
-
-/// Collects hardware inventory from the local system.
-fn collect_hardware_info() -> mesh_protocol::ControlMessage {
-    use sysinfo::{Disks, System};
-
-    let sys = System::new_all();
-
-    let cpu_model = sys
-        .cpus()
-        .first()
-        .map(|c| c.brand().to_string())
+    let installed_rules: retro_job::InstalledRules = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let store_config = shared_sink
+        .as_ref()
+        .and_then(|sink| sink.lock().ok().map(|sink| sink.config()))
         .unwrap_or_default();
-    let cpu_cores = sys.cpus().len() as u32;
-    let ram_total_mb = sys.total_memory() / (1024 * 1024);
+    tasks.push(retro_job::spawn_retro_scans(retro_job::RetroWiring {
+        sink: alert_sink.clone(),
+        rules: installed_rules.clone(),
+        store: shared_sink.clone(),
+        maintenance: maintenance.clone(),
+        load: host_load,
+        data_dir: data_dir.to_path_buf(),
+        store_config,
+        stop: stop.clone(),
+    }));
 
-    let disks = Disks::new_with_refreshed_list();
-    let (disk_total, disk_free) = disks.iter().fold((0u64, 0u64), |(t, f), d| {
-        (t + d.total_space(), f + d.available_space())
-    });
-
-    let network_interfaces = collect_network_interfaces();
-    let amt = mesh_agent_core::amt_detect::detect();
-
-    mesh_protocol::ControlMessage::HardwareReport {
-        cpu_model,
-        cpu_cores,
-        ram_total_mb,
-        disk_total_mb: disk_total / (1024 * 1024),
-        disk_free_mb: disk_free / (1024 * 1024),
-        network_interfaces,
-        system_uuid: mesh_agent_core::hardware::system_uuid(),
-        amt_available: amt.available,
-        amt_version: amt.version,
-    }
-}
-
-/// Collects network interface information using libc getifaddrs.
-fn collect_network_interfaces() -> Vec<mesh_protocol::NetworkInterface> {
-    use std::collections::HashMap;
-    use std::ffi::CStr;
-    use std::net::{Ipv4Addr, Ipv6Addr};
-
-    let mut interfaces: HashMap<String, mesh_protocol::NetworkInterface> = HashMap::new();
-
-    unsafe {
-        let mut ifaddrs: *mut libc::ifaddrs = std::ptr::null_mut();
-        if libc::getifaddrs(&mut ifaddrs) != 0 {
-            return Vec::new();
-        }
-
-        let mut current = ifaddrs;
-        while !current.is_null() {
-            let ifa = &*current;
-            let name = CStr::from_ptr(ifa.ifa_name).to_string_lossy().to_string();
-
-            let entry =
-                interfaces
-                    .entry(name.clone())
-                    .or_insert_with(|| mesh_protocol::NetworkInterface {
-                        name: name.clone(),
-                        mac: String::new(),
-                        ipv4: Vec::new(),
-                        ipv6: Vec::new(),
-                    });
-
-            if !ifa.ifa_addr.is_null() {
-                let family = (*ifa.ifa_addr).sa_family as i32;
-                if family == libc::AF_INET {
-                    let addr = &*(ifa.ifa_addr as *const libc::sockaddr_in);
-                    let ip = Ipv4Addr::from(u32::from_be(addr.sin_addr.s_addr));
-                    entry.ipv4.push(ip.to_string());
-                } else if family == libc::AF_INET6 {
-                    let addr = &*(ifa.ifa_addr as *const libc::sockaddr_in6);
-                    let ip = Ipv6Addr::from(addr.sin6_addr.s6_addr);
-                    entry.ipv6.push(ip.to_string());
-                } else if family == libc::AF_PACKET {
-                    let addr = &*(ifa.ifa_addr as *const libc::sockaddr_ll);
-                    if addr.sll_halen == 6 {
-                        entry.mac = format!(
-                            "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-                            addr.sll_addr[0],
-                            addr.sll_addr[1],
-                            addr.sll_addr[2],
-                            addr.sll_addr[3],
-                            addr.sll_addr[4],
-                            addr.sll_addr[5],
-                        );
-                    }
-                }
-            }
-
-            current = ifa.ifa_next;
-        }
-
-        libc::freeifaddrs(ifaddrs);
-    }
-
-    interfaces.into_values().collect()
-}
-
-fn uninstall_agent(data_dir: &std::path::Path) {
-    const SERVICE_NAME: &str = "mesh-agent";
-    const CONFIG_DIR: &str = "/etc/opengate-agent";
-    const INSTALL_DIR: &str = "/usr/local/bin";
-    const BINARY_NAME: &str = "mesh-agent";
-
-    stop_systemd_service(SERVICE_NAME);
-    remove_identity_files(data_dir);
-    remove_dirs(&[data_dir.to_path_buf(), std::path::PathBuf::from(CONFIG_DIR)]);
-    remove_systemd_unit(SERVICE_NAME);
-    daemon_reload();
-    remove_binary(INSTALL_DIR, BINARY_NAME);
-
-    info!("agent uninstalled: service stopped, files removed");
-}
-
-fn stop_systemd_service(name: &str) {
-    use std::process::Command;
-    for action in &["stop", "disable"] {
-        if let Err(e) = Command::new("systemctl").args([action, name]).output() {
-            warn!(action, error = %e, "systemctl command failed");
-        }
-    }
-}
-
-fn remove_identity_files(data_dir: &std::path::Path) {
-    let identity_files = [
-        mesh_agent_core::DEVICE_ID_FILE,
-        mesh_agent_core::CERT_FILE,
-        mesh_agent_core::KEY_FILE,
-        "server_ca.pem",
-    ];
-    for filename in &identity_files {
-        try_remove_file(&data_dir.join(filename), "identity file");
-    }
-}
-
-fn remove_dirs(dirs: &[std::path::PathBuf]) {
-    for dir in dirs {
-        if dir.exists() {
-            if let Err(e) = std::fs::remove_dir_all(dir) {
-                warn!(dir = %dir.display(), error = %e, "failed to remove directory");
-            }
-        }
-    }
-}
-
-fn remove_systemd_unit(name: &str) {
-    let path = std::path::PathBuf::from(format!("/etc/systemd/system/{name}.service"));
-    try_remove_file(&path, "service file");
-}
-
-fn daemon_reload() {
-    use std::process::Command;
-    // Non-systemd hosts will fail here harmlessly — log at debug.
-    match Command::new("systemctl").arg("daemon-reload").output() {
-        Ok(out) if !out.status.success() => {
-            debug!(
-                stderr = %String::from_utf8_lossy(&out.stderr),
-                "systemctl daemon-reload exited non-zero"
-            );
-        }
-        Err(e) => debug!(error = %e, "systemctl daemon-reload not available"),
-        _ => {}
-    }
-}
-
-fn remove_binary(install_dir: &str, name: &str) {
-    let path = std::path::PathBuf::from(install_dir).join(name);
-    try_remove_file(&path, "binary");
-}
-
-fn try_remove_file(path: &std::path::Path, kind: &str) {
-    if path.exists() {
-        if let Err(e) = std::fs::remove_file(path) {
-            warn!(file = %path.display(), error = %e, kind, "failed to remove file");
-        }
+    Background {
+        telemetry: control_loop::Telemetry {
+            health_rx,
+            host_metric_rx,
+            discovery_rx,
+        },
+        shared: control_loop::Shared {
+            alert_sink,
+            alert_rules_mailbox,
+            installed_rules,
+            maintenance,
+        },
+        // The backfill coordinator exists only when the local store opened, and gates the
+        // `Backfill` capability.
+        backfill: shared_sink.map(backfill_loop::BackfillCoordinator::new),
+        stop,
+        tasks,
     }
 }
 
@@ -1139,7 +413,7 @@ fn parse_ed25519_pubkey(hex_str: &str) -> Result<[u8; 32]> {
 }
 
 /// Skips an incoming semver at or below `AGENT_VERSION`; a version that fails to parse proceeds.
-fn should_skip_version(incoming: &str) -> bool {
+pub(crate) fn should_skip_version(incoming: &str) -> bool {
     let current = env!("AGENT_VERSION");
     match (
         semver::Version::parse(current),
@@ -1152,7 +426,7 @@ fn should_skip_version(incoming: &str) -> bool {
 
 /// Sends every queued alert and returns whether the connection is still usable; a failed send
 /// returns the rest to the sink for the server's duplicate check to resolve after reconnect.
-async fn send_queued_alerts<S: mesh_agent_core::ControlStream>(
+pub(crate) async fn send_queued_alerts<S: mesh_agent_core::ControlStream>(
     conn: &mut mesh_agent_core::AgentConnection<S>,
     sink: &mesh_agent_core::alerts::AlertSink,
 ) -> bool {
@@ -1197,7 +471,7 @@ async fn send_queued_alerts<S: mesh_agent_core::ControlStream>(
 }
 
 /// Sends an `AgentUpdateAck` control message, ignoring send failures.
-async fn send_update_ack<S: mesh_agent_core::ControlStream>(
+pub(crate) async fn send_update_ack<S: mesh_agent_core::ControlStream>(
     conn: &mut mesh_agent_core::AgentConnection<S>,
     version: String,
     success: bool,
@@ -1215,7 +489,8 @@ async fn send_update_ack<S: mesh_agent_core::ControlStream>(
     }
 }
 
-/// Spawns the post-update watchdog, which rolls back and restarts if registration takes over 60s.
+/// Spawns the post-update watchdog, which rolls back and restarts if no acknowledgement arrives
+/// within 60s.
 fn spawn_update_watchdog(
     data_dir: &Path,
     update_config: &Option<mesh_agent_core::UpdateConfig>,
@@ -1229,7 +504,7 @@ fn spawn_update_watchdog(
     tokio::spawn(async move {
         tokio::select! {
             _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {
-                error!("watchdog: registration did not complete in 60s, rolling back");
+                error!("watchdog: no acknowledgement in 60s, rolling back");
                 mesh_agent_core::update::increment_rollback_count(&data_dir).await;
                 match mesh_agent_core::update::rollback(&binary_path).await {
                     Ok(true) => {
@@ -1241,14 +516,14 @@ fn spawn_update_watchdog(
                 }
             }
             _ = cancel.notified() => {
-                // A successful registration stands the watchdog down.
+                // The server's acknowledgement stands the watchdog down.
             }
         }
     });
 }
 
 /// Returns `PRETTY_NAME` from `/etc/os-release`, or `std::env::consts::OS` when it is unreadable.
-fn os_pretty_name() -> String {
+pub(crate) fn os_pretty_name() -> String {
     #[cfg(target_os = "linux")]
     {
         if let Ok(contents) = std::fs::read_to_string("/etc/os-release") {
@@ -1263,7 +538,7 @@ fn os_pretty_name() -> String {
 }
 
 /// Capabilities advertised on registration; `Backfill` needs the local store (`has_local_store`).
-fn agent_capabilities(has_local_store: bool) -> Vec<mesh_protocol::AgentCapability> {
+pub(crate) fn agent_capabilities(has_local_store: bool) -> Vec<mesh_protocol::AgentCapability> {
     use mesh_protocol::AgentCapability;
     let mut caps = vec![
         AgentCapability::Terminal,
@@ -1365,82 +640,6 @@ mod tests {
     fn test_cli_args_missing_server_ca() {
         let result = Args::try_parse_from(["mesh-agent", "--server-addr", "127.0.0.1:9090"]);
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_build_quic_config_valid_certs() {
-        let ca_key = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256).unwrap();
-        let mut ca_params = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
-        ca_params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
-        ca_params.distinguished_name.push(
-            rcgen::DnType::CommonName,
-            rcgen::DnValue::Utf8String("Test CA".to_string()),
-        );
-        let ca_cert = ca_params.self_signed(&ca_key).unwrap();
-        let ca_pem = ca_cert.pem();
-
-        let dir = tempfile::tempdir().unwrap();
-        let identity = mesh_agent_core::AgentIdentity::load_or_create(dir.path()).unwrap();
-
-        let result = build_quic_config(&ca_pem, &identity);
-        assert!(
-            result.is_ok(),
-            "expected valid config, got: {:?}",
-            result.err()
-        );
-    }
-
-    #[test]
-    fn test_build_quic_config_empty_ca_pem() {
-        let dir = tempfile::tempdir().unwrap();
-        let identity = mesh_agent_core::AgentIdentity::load_or_create(dir.path()).unwrap();
-
-        let result = build_quic_config("", &identity);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_cli_args_with_enrollment_flags() {
-        let args = Args::try_parse_from([
-            "mesh-agent",
-            "--server-addr",
-            "127.0.0.1:9090",
-            "--server-ca",
-            "/tmp/ca.pem",
-            "--enroll-url",
-            "https://opengate.example.com",
-            "--enroll-token",
-            "abc123",
-        ])
-        .unwrap();
-        assert_eq!(
-            args.enroll_url,
-            Some("https://opengate.example.com".to_string())
-        );
-        assert_eq!(args.enroll_token, Some("abc123".to_string()));
-    }
-
-    #[test]
-    fn test_needs_enrollment_empty_dir() {
-        let dir = tempfile::tempdir().unwrap();
-        assert!(needs_enrollment(dir.path()));
-    }
-
-    #[test]
-    fn test_needs_enrollment_complete_identity() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("device_id.txt"), "test-id").unwrap();
-        std::fs::write(dir.path().join("agent.crt"), b"cert").unwrap();
-        std::fs::write(dir.path().join("agent.key"), b"key").unwrap();
-        assert!(!needs_enrollment(dir.path()));
-    }
-
-    #[test]
-    fn test_needs_enrollment_partial_identity() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("device_id.txt"), "test-id").unwrap();
-        std::fs::write(dir.path().join("agent.key"), b"key").unwrap();
-        assert!(needs_enrollment(dir.path()));
     }
 
     #[test]

@@ -36,9 +36,10 @@ const (
 // Conn is a message-oriented connection: each ReadMessage and WriteMessage
 // handles exactly one complete message.
 type Conn interface {
-	// ReadMessage blocks until one complete message is available or an error occurs.
-	ReadMessage() ([]byte, error)
-	// WriteMessage sends one complete message.
+	// ReadMessage blocks until one complete message is available or an error occurs; the caller
+	// releases the message once it is done with it.
+	ReadMessage() (Message, error)
+	// WriteMessage sends one complete message; data is valid only until it returns.
 	WriteMessage(data []byte) error
 	// Close closes the connection.
 	Close() error
@@ -342,12 +343,14 @@ func (r *Relay) release(token protocol.SessionToken, val any, s *session) {
 func (r *Relay) copyMessages(dst, src Conn, direction string, tp string) {
 	var count int
 	for {
-		data, err := src.ReadMessage()
+		msg, err := src.ReadMessage()
 		if err != nil {
 			r.logger.Error("relay read error", "direction", direction, "token_prefix", tp, "msgs_copied", count, "error", err)
 			return
 		}
-		if err := dst.WriteMessage(data); err != nil {
+		err = dst.WriteMessage(msg.Bytes())
+		msg.Release()
+		if err != nil {
 			r.logger.Error("relay write error", "direction", direction, "token_prefix", tp, "msgs_copied", count, "error", err)
 			return
 		}

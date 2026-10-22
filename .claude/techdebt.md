@@ -157,28 +157,6 @@ derived partly from `TypeId`, and auto-update is the largest restart cause,
 so a cache that misses on rebuilt binaries would close this by decision
 rather than by code.
 
-### `breakpoint` declares sessions its venue never opens
-
-[`breakpoint.yaml`](../load/profiles/breakpoint.yaml) declares
-`operator_arrivals_per_second` and `sessions`, and those are technician-side
-numbers a machine-side harness cannot offer. Its leg installs no browser-side
-generator, so the held sessions it names — five at its bottom rung, a hundred
-and sixty at its top — are numbers in a file.
-
-A capacity ladder that opens no session finds the load a server gives out under
-for a load nobody runs — a technician holding a remote session is the expensive
-thing the product does, and the rung it would give out at is not the rung it
-reports. What the generator needs of the runner to offer those sessions beside
-sixteen thousand machines is a reading nobody has: the ladder's one headroom
-figure covered its whole thirty-seven-minute walk, and its top rung held a tenth
-of the machines it asked for, through a path production does not have. Each
-phase now reads the generator's own room, and the machine-facing path is
-production's.
-
-**Pay-down trigger:** one night of the ladder on that path, whose readings show
-the generator's room at a rung that held. Offer the sessions then, or declare
-`sessions: 0` if the profile turns out not to want them.
-
 ### `make ssh` cannot open a session on the cluster's machine
 
 [ADR-018](../docs/adr/ADR-018-operator-node-access.md) gives an operator a shell
@@ -205,7 +183,88 @@ is closed and the debug pod becomes the documented path.
 **Pay-down trigger:** the next time anyone needs a shell on the cluster's
 machine, or any change to the cluster's machine pool.
 
+### The front-door web server can read every secret, the master key's included
+
+The program that receives every visitor's web traffic and passes it to the right
+service (the ingress controller) runs with permission to read every secret in
+the cluster. It needs that to find the certificate for each website it serves,
+and Kubernetes has no narrower setting for it. The master key now sits in a
+secret only the server may open, so this program is the one other thing that
+can still read it. In 2025 a flaw in this same program let anyone who could
+reach it run commands with its permissions (IngressNightmare, CVE-2025-1974), so
+this is the most exposed copy of that permission.
+
+The fix is to give the front door a namespace of its own: the web addresses and
+their certificates live there, each one pointing across to the real service, and
+the controller is allowed to read secrets in that namespace alone.
+[ADR-128](../docs/adr/ADR-128-machine-identity-lifecycle.md) states the gap.
+
+**Pay-down trigger:** the next upgrade or replacement of the ingress controller.
+
+### Nightly runs can still reach the master key through the machine's own files
+
+One machine runs both production and staging. Nothing limits what a pod may
+attach from the machine it runs on, and the workflows' login may start pods in
+staging and in monitoring — for load tests, drills and metric pushes. Such a pod
+can attach the machine's own files, where the master key sits while the server
+runs. The network drill also runs commands inside monitoring's node exporter,
+which already reads all of the machine's files. So a hijacked step in a nightly
+run could copy the master key and pose as the server to every customer machine.
+
+The workflows' login may also run commands inside pods — in production only
+inside the database, and in staging and monitoring for the test database reset,
+load-test cleanup, Grafana's quiet period and the drill. The security scanner
+flags that right, and it stands as an exception for the one file that grants it.
+
+The fix has four parts. Kubernetes' built-in pod-safety level "baseline" goes on
+both OpenGate namespaces, which refuses a pod that attaches the machine's files.
+The nightly runs reach monitoring through the cluster's pass-through to the
+metrics store and Grafana, instead of starting pods there. The drill reads the
+node exporter's published numbers instead of running commands inside it. The
+database reset, the load-test cleanup and Grafana's quiet period move to steps
+that need no commands run inside a pod, so the login loses that right and the
+exception goes.
+[ADR-128](../docs/adr/ADR-128-machine-identity-lifecycle.md) states the gap.
+
+**Pay-down trigger:** the next change to what the workflows' login may do, or a
+second machine joining the cluster.
+
 ## Severity: Low
+
+### The workflows' login can redirect traffic inside the OpenGate namespaces
+
+The login the nightly runs and deploys use may create and change the cluster's
+internal addresses (Services), the public web addresses (Ingresses) and the
+rules on which pod may talk to which (network policies), in the OpenGate
+namespaces and in monitoring. Helm needs that to install each release. But a
+stolen workflow key could point a web address or an internal address at a pod
+of its own and read the traffic sent there. The security scanner flags exactly
+that, and it stands as an exception for the one file that grants it.
+
+The fix is to move those three kinds of object out of the routine release into
+the job that waits for an administrator's approval, so the workflows' login can
+no longer change them; a release that changes one then waits for that approval.
+[ADR-128](../docs/adr/ADR-128-machine-identity-lifecycle.md) holds the login's
+rights.
+
+**Pay-down trigger:** the next change to what the workflows' login may do, or
+the first time a release changes a Service, an Ingress or a network policy.
+
+### The sign-in cookie is marked secure only when the browser used HTTPS
+
+The console's sign-in cookie carries the flag that keeps a browser from sending
+it over an unencrypted connection only when the browser reached the console over
+HTTPS. Every deployed address is HTTPS, so production always sets it. The local
+test stack and staging's test connection are plain HTTP, and a browser there
+would throw a flagged cookie away. The code scanner flags the cookie, and it
+stands as an exception on that one line.
+
+The fix is to serve the test stack, and staging's test connection, over HTTPS
+with a certificate of their own, then set the flag always and drop the
+exception.
+
+**Pay-down trigger:** the next change to how the test stack's browsers reach the
+console, or any deployment that answers on plain HTTP.
 
 ### The Chat tab is unreachable from any machine the browser stack can run
 

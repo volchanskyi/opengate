@@ -36,6 +36,15 @@ a value whose limit still fits in what a fully spent shard has left of the cap,
 so a mutant that starts blocking between one night and the next — before any run
 has declared it — cannot carry the job past the cap on its own.
 
+**The web leg is projected by the same rule.** Its mutants are counted by
+Stryker itself, instrumenting each shard's files with a command runner that runs
+no test ([`mutation-web-count.sh`](../../scripts/mutation-web-count.sh)), and each
+shard's projection is that count times its own measured cost per mutant plus a
+setup ceiling for the runner, the install and the first full test run. The
+console is split by feature folder — the device pages, the session tab and its
+libraries, and the rest — because one web shard ran 48 to 89 minutes on
+unchanged code and reached the cap at 96% when its mutants grew by an eighth.
+
 **Per-shard coefficient overrides are gone.** Two existed and both were
 compensating for the mismeasurement above.
 

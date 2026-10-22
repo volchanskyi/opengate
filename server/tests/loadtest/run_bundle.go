@@ -143,6 +143,7 @@ func runIdentity(in runBundleInputs, finished time.Time) RunIdentity {
 		Commit:         in.Commit,
 		ProfileName:    "ad-hoc",
 		ProfileVersion: profileSchemaVersion,
+		ProfileDigest:  "ad-hoc",
 		Family:         FamilyNormal,
 		Environment:    EnvStaging,
 		StartedAt:      in.StartedAt,
@@ -154,6 +155,7 @@ func runIdentity(in runBundleInputs, finished time.Time) RunIdentity {
 	if in.Profile != nil {
 		identity.ProfileName = in.Profile.Name
 		identity.ProfileVersion = in.Profile.SchemaVersion
+		identity.ProfileDigest = in.Profile.Digest
 		identity.Family = in.Profile.Family
 		identity.Environment = in.Profile.Environment
 	}

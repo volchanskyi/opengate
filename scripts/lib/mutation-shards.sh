@@ -30,6 +30,7 @@ mutation_rust_shards() {
     rust-core-session-dispatch
     rust-core-session-link
     rust-core-discovery
+    rust-core-identity
     rust-core-runtime-lifecycle
     rust-core-runtime
     rust-tsdb-blocks
@@ -53,7 +54,8 @@ mutation_rust_shard_package() {
     rust-core-correlate-divergence | rust-core-correlate-ranking) echo "mesh-agent-core" ;;
     rust-core-session-terminal | rust-core-session-dispatch) echo "mesh-agent-core" ;;
     rust-core-session-link) echo "mesh-agent-core" ;;
-    rust-core-discovery | rust-core-runtime-lifecycle | rust-core-runtime) echo "mesh-agent-core" ;;
+    rust-core-discovery | rust-core-identity) echo "mesh-agent-core" ;;
+    rust-core-runtime-lifecycle | rust-core-runtime) echo "mesh-agent-core" ;;
     rust-tsdb-blocks | rust-tsdb-encoding | rust-tsdb-surface) echo "edge-tsdb" ;;
     rust-agent-loops) echo "mesh-agent" ;;
     rust-protocol-wire) echo "mesh-protocol" ;;
@@ -112,7 +114,7 @@ mutation_rust_shard_units() {
       echo "file:crates/mesh-agent-core/src/correlate/rank.rs file:crates/mesh-agent-core/src/correlate/window.rs file:crates/mesh-agent-core/src/correlate/mod.rs"
       ;;
     rust-core-session-terminal)
-      echo "file:crates/mesh-agent-core/src/session/terminal_handle.rs"
+      echo "file:crates/mesh-agent-core/src/session/terminal_handle.rs file:crates/mesh-agent-core/src/terminal/hangup.rs"
       ;;
     rust-core-session-dispatch)
       echo "dir:crates/mesh-agent-core/src/session/handlers file:crates/mesh-agent-core/src/session/handler.rs file:crates/mesh-agent-core/src/session/relay.rs file:crates/mesh-agent-core/src/session/mod.rs"
@@ -121,6 +123,9 @@ mutation_rust_shard_units() {
       echo "dir:crates/mesh-agent-core/src/link file:crates/mesh-agent-core/src/session/core.rs"
       ;;
     rust-core-discovery) echo "dir:crates/mesh-agent-core/src/discovery" ;;
+    rust-core-identity)
+      echo "file:crates/mesh-agent-core/src/identity_store.rs file:crates/mesh-agent-core/src/connection.rs"
+      ;;
     rust-core-runtime-lifecycle)
       echo "file:crates/mesh-agent-core/src/update.rs file:crates/mesh-agent-core/src/maintenance.rs file:crates/mesh-agent-core/src/identity.rs file:crates/mesh-agent-core/src/platform.rs file:crates/mesh-agent-core/src/terminal.rs"
       ;;
@@ -220,12 +225,90 @@ mutation_rust_package_milliminutes_per_mutant() {
   esac
 }
 
+# Web shards are named by the features they mutate; each pays a full initial test run of its own.
 mutation_web_shards() {
-  echo "web"
+  echo "web-devices web-session web-console"
+}
+
+# Sources a web shard owns, as dir:<path> or file:<path> units relative to web/; `rest` marks the
+# catch-all, which owns every source the config mutates that its siblings leave.
+mutation_web_shard_units() {
+  case "$1" in
+    web-devices) echo "dir:src/features/devices" ;;
+    web-session)
+      echo "dir:src/lib dir:src/components dir:src/state dir:src/features/session dir:src/features/file-manager dir:src/features/remote-desktop dir:src/features/terminal dir:src/features/agent-setup"
+      ;;
+    web-console) echo "rest" ;;
+    *)
+      echo "unknown mutation shard: $1" >&2
+      return 1
+      ;;
+  esac
+}
+
+# The Stryker globs one web shard mutates, one per line, with the config's exclusions last, since
+# a --mutate on the command line replaces the config's whole list.
+mutation_web_shard_mutate() {
+  local shard="${1:?mutation shard required}"
+  local config="$MUTATION_SHARDS_LIB_DIR/../../web/stryker.config.json"
+  local units other unit
+
+  units="$(mutation_web_shard_units "$shard")" || return 1
+  if [ "$units" = "rest" ]; then
+    jq -r '.mutate[] | select(startswith("!") | not)' "$config" || return 1
+    for other in $(mutation_web_shards); do
+      [ "$(mutation_web_shard_units "$other")" = "rest" ] && continue
+      for unit in $(mutation_web_shard_units "$other"); do
+        case "$unit" in
+          dir:*) printf '!%s/**\n' "${unit#dir:}" ;;
+          file:*) printf '!%s\n' "${unit#file:}" ;;
+        esac
+      done
+    done
+  else
+    for unit in $units; do
+      case "$unit" in
+        dir:*) printf '%s/**/*.ts\n%s/**/*.tsx\n' "${unit#dir:}" "${unit#dir:}" ;;
+        file:*) printf '%s\n' "${unit#file:}" ;;
+        *)
+          echo "unknown mutation unit: $unit" >&2
+          return 1
+          ;;
+      esac
+    done
+  fi
+  jq -r '.mutate[] | select(startswith("!"))' "$config"
+}
+
+# Milliseconds one web mutant costs its shard. The slowest night on unchanged code ran 7690 mutants
+# in 4826 s; each shard takes its share by tests run, and never less than that night's mean, 628.
+mutation_web_shard_milliseconds_per_mutant() {
+  case "$1" in
+    # 7.68 tests per mutant against the night's 5.69.
+    web-devices) echo 850 ;;
+    web-session) echo 640 ;;
+    web-console) echo 630 ;;
+    *)
+      echo "unknown mutation shard: $1" >&2
+      return 1
+      ;;
+  esac
+}
+
+# What a web shard pays before its first mutant: runner, install, instrumenting and the initial
+# test run of the whole suite; 184 s measured.
+mutation_web_setup_ceiling_seconds() {
+  echo 210
+}
+
+# What one web shard may project to, in minutes: half the 90-minute cap, since unchanged code has
+# run 1.74 times slower on one night than on another.
+mutation_web_shard_budget_minutes() {
+  echo 45
 }
 
 mutation_go_shards() {
-  echo "go-api-runtime go-api-limits go-api-intake go-api-status go-api-converters go-api-identity go-api-tenancy-admin go-api-device-control go-api-device-sessions go-api-device-reads go-api-incidents go-api-rules go-api-enrollment go-api-updates-purge go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-rules go-domain-alerts-room go-domain-alerts-record go-domain-persistence go-amt go-updates-certificates go-protocol-wire go-relay-signaling go-observability-harness go-composition-root"
+  echo "go-api-runtime go-api-limits go-api-intake go-api-status go-api-converters go-api-identity go-api-console-session go-api-tenancy-admin go-api-device-control go-api-device-sessions go-api-device-reads go-api-incidents go-api-rules go-api-enrollment go-api-updates-purge go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-rules go-domain-alerts-room go-domain-alerts-record go-domain-persistence go-amt go-updates-certificates go-protocol-wire go-relay-signaling go-observability-harness go-composition-root"
 }
 
 mutation_all_shards() {
@@ -285,6 +368,9 @@ mutation_go_shard_units() {
     go-api-identity)
       echo "file:internal/api/handlers_auth.go file:internal/api/handlers_users.go file:internal/api/handlers_security_groups.go file:internal/api/handlers_security_group_members.go file:internal/api/handlers_audit.go"
       ;;
+    go-api-console-session)
+      echo "file:internal/api/session_cookie.go file:internal/api/handlers_console_session.go"
+      ;;
     go-api-tenancy-admin)
       echo "file:internal/api/handlers_organizations.go file:internal/api/handlers_sites.go file:internal/api/handlers_device_tags.go file:internal/api/handlers_alert_limits.go file:internal/api/handlers_push.go"
       ;;
@@ -314,7 +400,7 @@ mutation_go_shard_units() {
       echo "file:internal/agentapi/conn.go file:internal/agentapi/conn_register.go file:internal/agentapi/conn_guard.go file:internal/agentapi/conn_maintenance.go file:internal/agentapi/server.go file:internal/agentapi/server_connection.go file:internal/agentapi/deregister.go"
       ;;
     go-agentapi-handshake)
-      echo "file:internal/agentapi/handshaker.go file:internal/agentapi/errors.go"
+      echo "file:internal/agentapi/handshaker.go file:internal/agentapi/errors.go file:internal/agentapi/admission.go file:internal/agentapi/conn_restricted.go file:internal/agentapi/renewal.go file:internal/agentapi/renewal_sweep.go"
       ;;
     go-agentapi-backfill)
       echo "file:internal/agentapi/backfill_scheduler.go file:internal/agentapi/conn_backfill.go"
@@ -332,13 +418,13 @@ mutation_go_shard_units() {
       echo "file:internal/alerts/types.go file:internal/alerts/limits.go file:internal/alerts/noise.go file:internal/alerts/postgres.go file:internal/alerts/postgres_fold.go file:internal/alerts/postgres_lifecycle.go file:internal/alerts/postgres_limits.go file:internal/alerts/postgres_noise.go file:internal/alerts/postgres_retention.go"
       ;;
     go-domain-persistence)
-      echo "dir:internal/auth dir:internal/db dir:internal/dbtx dir:internal/device dir:internal/inventory dir:internal/lifecycle dir:internal/organization dir:internal/settings dir:internal/session dir:internal/audit dir:internal/usecase"
+      echo "dir:internal/auth dir:internal/certledger dir:internal/db dir:internal/dbtx dir:internal/device dir:internal/inventory dir:internal/lifecycle dir:internal/organization dir:internal/settings dir:internal/session dir:internal/audit dir:internal/usecase"
       ;;
     go-amt)
       echo "dir:internal/amt"
       ;;
     go-updates-certificates)
-      echo "dir:internal/updater dir:internal/cert dir:internal/notifications"
+      echo "dir:internal/updater dir:internal/cert dir:internal/devicecert dir:internal/authority dir:cmd/opengate-authority dir:internal/notifications"
       ;;
     go-protocol-wire)
       echo "dir:internal/protocol dir:internal/osutil"
@@ -372,7 +458,8 @@ mutation_go_shard_seconds_per_mutant() {
     go-api-converters) echo 68 ;;
     go-api-incidents) echo 63 ;;
     go-api-rules) echo 67 ;;
-    go-api-identity) echo 57 ;;
+    # The console session runs the identity shard's suite, so it is costed as that shard.
+    go-api-identity | go-api-console-session) echo 57 ;;
     go-api-tenancy-admin) echo 72 ;;
     go-api-enrollment) echo 53 ;;
     go-api-updates-purge) echo 64 ;;

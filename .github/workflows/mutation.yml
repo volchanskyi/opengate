@@ -103,6 +103,14 @@ jobs:
           cache-dependency-path: server/go.sum
       - name: Install gremlins
         run: go install github.com/go-gremlins/gremlins/cmd/gremlins@${{ env.GREMLINS_VERSION }}
+      # Stryker counts each web shard's mutants by instrumenting alone, which runs no install script.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install web deps
+        run: cd web && npm ci --ignore-scripts
       - name: Project every shard against the job cap
         env:
           POSTGRES_TEST_URL: postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable
@@ -142,6 +150,7 @@ jobs:
           - { language: rust, shard: rust-core-session-dispatch }
           - { language: rust, shard: rust-core-session-link }
           - { language: rust, shard: rust-core-discovery }
+          - { language: rust, shard: rust-core-identity }
           - { language: rust, shard: rust-core-runtime-lifecycle }
           - { language: rust, shard: rust-core-runtime }
           - { language: rust, shard: rust-tsdb-blocks }
@@ -149,7 +158,10 @@ jobs:
           - { language: rust, shard: rust-tsdb-surface }
           - { language: rust, shard: rust-agent-loops }
           - { language: rust, shard: rust-protocol-wire }
-          - { language: web }
+          # Web shards split by feature folder; scripts/lib/mutation-shards.sh holds the split.
+          - { language: web, shard: web-devices }
+          - { language: web, shard: web-session }
+          - { language: web, shard: web-console }
           # The internal/api shards are sized by per-mutant cost, since each mutant re-runs the
           # Postgres-backed API suite.
           - { language: go, shard: go-api-runtime }
@@ -158,6 +170,7 @@ jobs:
           - { language: go, shard: go-api-status }
           - { language: go, shard: go-api-converters }
           - { language: go, shard: go-api-identity }
+          - { language: go, shard: go-api-console-session }
           - { language: go, shard: go-api-tenancy-admin }
           - { language: go, shard: go-api-device-control }
           - { language: go, shard: go-api-device-sessions }
@@ -328,10 +341,13 @@ jobs:
           # per-mutant vitest reports out of GITHUB_STEP_SUMMARY.
           GITHUB_STEP_SUMMARY: /dev/null
         run: |
+          . scripts/lib/mutation-shards.sh
+          mutate="$(mutation_web_shard_mutate '${{ matrix.shard }}' | paste -sd, -)"
+          echo "shard ${{ matrix.shard }} mutates: $mutate"
           cd web
           # Stryker exits 0 even with surviving mutants when thresholds.break
           # is null (it is). JSON reporter writes to reports/mutation/mutation.json.
-          ./node_modules/.bin/stryker run
+          ./node_modules/.bin/stryker run --mutate "$mutate"
           "$GITHUB_WORKSPACE/scripts/assert-mutation-report.sh" stryker reports/mutation/mutation.json
 
       - name: Upload mutation artifacts (${{ matrix.shard || matrix.language }})
@@ -424,8 +440,11 @@ jobs:
             ./scripts/mutation-merge-go.sh server/mutation-report.json "${expected[@]}"
           fi
           if [ "${{ steps.status.outputs.web }}" = "true" ]; then
-            mkdir -p web/reports
-            mv artifacts/mutation-web/web/reports/mutation web/reports/mutation
+            web_expected=()
+            for shard in $(mutation_web_shards); do
+              web_expected+=("artifacts/mutation-$shard/web/reports/mutation/mutation.json")
+            done
+            ./scripts/mutation-merge-web.sh web/reports/mutation/mutation.json "${web_expected[@]}"
           fi
 
       - name: Upload mutation run status
@@ -443,9 +462,9 @@ jobs:
         uses: ./.github/actions/oci-kube-setup
         with:
           oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
-          oci-user: ${{ secrets.OCI_USER_OCID }}
-          oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
-          oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
+          oci-user: ${{ secrets.OCI_WORKFLOW_USER_OCID }}
+          oci-fingerprint: ${{ secrets.OCI_WORKFLOW_FINGERPRINT }}
+          oci-private-key: ${{ secrets.OCI_WORKFLOW_PRIVATE_KEY }}
           oci-region: ${{ secrets.OCI_REGION }}
           cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
 

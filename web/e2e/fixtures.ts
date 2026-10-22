@@ -1,5 +1,5 @@
 import { test as base, type Page } from "@playwright/test";
-import { createTestUser, createAdminUser, seedAuth, type TestUser } from "./helpers/auth-helper";
+import { createTestUser, createAdminUser, openSignedIn, type TestUser } from "./helpers/auth-helper";
 
 type Fixtures = {
   testUser: TestUser;
@@ -19,22 +19,14 @@ export const test = base.extend<Fixtures>({
     await use(user);
   },
 
-  // Both page fixtures seed the token as an init script, so the SPA boots authenticated.
+  // Both page fixtures sign their context in through the console's session endpoint.
   authedPage: async ({ page, testUser }, use) => {
-    await seedAuth(page, testUser.token);
-    await Promise.all([
-      page.waitForResponse((r) => r.url().includes("/api/v1/users/me") && r.status() === 200),
-      page.goto("/"),
-    ]);
+    await openSignedIn(page, testUser);
     await use(page);
   },
 
   adminPage: async ({ page, adminUser }, use) => {
-    await seedAuth(page, adminUser.token);
-    await Promise.all([
-      page.waitForResponse((r) => r.url().includes("/api/v1/users/me") && r.status() === 200),
-      page.goto("/"),
-    ]);
+    await openSignedIn(page, adminUser);
     await use(page);
   },
 });

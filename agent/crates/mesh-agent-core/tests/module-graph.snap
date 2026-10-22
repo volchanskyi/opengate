@@ -26,6 +26,7 @@ crate mesh_agent_core
 ├── mod file_ops: pub
 ├── mod hardware: pub
 ├── mod identity: pub
+├── mod identity_store: pub
 ├── mod link: pub
 │   ├── mod pacing: pub
 │   └── mod peer: pub(crate)
@@ -59,4 +60,5 @@ crate mesh_agent_core
 │   └── mod terminal_handle: pub(crate)
 ├── mod session_error: pub
 ├── mod terminal: pub
+│   └── mod hangup: pub(self)
 └── mod update: pub

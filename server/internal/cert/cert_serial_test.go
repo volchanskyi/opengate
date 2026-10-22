@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -25,15 +26,14 @@ func withoutRandomness(t *testing.T) {
 
 func TestSigningRefusesWhenNoSerialCanBeDrawn(t *testing.T) {
 	m := newTestManager(t)
-	csrDER := makeCSR(t, "device-001")
+	csr := deviceRequest(t, "")
 	withoutRandomness(t)
 
 	tests := []struct {
 		name string
 		sign func() error
 	}{
-		{"agent", func() error { _, err := m.SignAgent("device-001", "test-host"); return err }},
-		{"agent CSR", func() error { _, err := m.SignAgentCSR(csrDER); return err }},
+		{"device", func() error { _, err := m.IssueDevice(csr, uuid.New()); return err }},
 		{"server", func() error { _, err := m.SignServer(); return err }},
 		{"MPS", func() error { _, err := m.SignMPS(); return err }},
 	}

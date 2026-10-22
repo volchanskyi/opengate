@@ -24,7 +24,12 @@ var capabilityOutcomes = map[string][]string{
 		"TestAnEnrolmentTokenUsedTwiceGivesTwoDistinctMachines",
 		"TestAnExhaustedEnrolmentTokenIsRefused",
 		"TestAnUnknownEnrolmentTokenIsRefused",
-		"TestAMachineRebuiltWithANewCertificateIsTheSameMachine",
+		"TestEnrolmentGivesEveryMachineANumberOfTheServersChoosing",
+		"TestAMachineRenewsItsCertificateAndStaysTheSameMachine",
+		"TestAMachineWithAnExpiredCertificateIsLetInOnlyToRenew",
+		"TestACertificateTheServerNeverIssuedIsRefused",
+		"TestAStolenOldKeyStopsWorkingOnceTheMachineRenews",
+		"TestTwoMachinesSharingAnIdentityAreShownToTheTechnician",
 	},
 	"Fleet-and-Devices.md": {
 		"TestTheDashboardAgreesWithTheDeviceList",
@@ -89,6 +94,8 @@ var capabilityOutcomes = map[string][]string{
 	"Data-Erasure.md": {
 		"TestDeletingAMachineRemovesItAndStopsTrustingItsAgent",
 		"TestDeletingAMachineFromAnotherTenantIsNotFound",
+		"TestAMachineDeletedWhileOffIsToldToRemoveItselfWhenItReturns",
+		"TestAMachineDeletedLongAgoIsStillToldToRemoveItself",
 	},
 }
 

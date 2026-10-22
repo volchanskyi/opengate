@@ -52,7 +52,7 @@ describe('Device List Flow (integration)', () => {
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
-    useAuthStore.setState({ token: 'tok', user: mockUser, isLoading: false, error: null });
+    useAuthStore.setState({ user: mockUser, isLoading: false, error: null });
     useDeviceStore.setState({
       devices: [],
       sites: [

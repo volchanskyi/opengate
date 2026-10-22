@@ -18,10 +18,8 @@ func TestTheServerCountsWhetherATLSSessionResumed(t *testing.T) {
 
 	// One certificate and one session cache are held across both attempts so the second can resume.
 	deviceID := uuid.New()
-	tlsCert, err := env.srv.cert.SignAgent(deviceID.String(), "resumption-test")
-	require.NoError(t, err)
 	cache := newSignalingCache()
-	tlsCfg := env.srv.cert.AgentTLSConfig(tlsCert)
+	tlsCfg := env.machineTLS(t, deviceID)
 	tlsCfg.ClientSessionCache = cache
 
 	resumed := func(v string) float64 {

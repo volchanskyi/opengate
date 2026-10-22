@@ -8,33 +8,6 @@ metadata:
   labels:
     {{- include "mon.labels" . | nindent 4 }}
 ---
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: {{ $name }}
-  labels:
-    {{- include "mon.labels" . | nindent 4 }}
-rules:
-  # Least privilege: `role: pod` discovery needs only pod metadata, so nodes/proxy is omitted.
-  - apiGroups: [""]
-    resources: [pods]
-    verbs: [get, list, watch]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: {{ $name }}
-  labels:
-    {{- include "mon.labels" . | nindent 4 }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: {{ $name }}
-subjects:
-  - kind: ServiceAccount
-    name: {{ $name }}
-    namespace: {{ .Release.Namespace }}
----
 apiVersion: v1
 kind: ConfigMap
 metadata:

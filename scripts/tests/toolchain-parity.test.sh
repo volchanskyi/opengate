@@ -214,6 +214,7 @@ pinned_stand_ins() {
   go_stand_in gosec github.com/securego/gosec/v2 "v$TOOL_VERSION_GOSEC"
   go_stand_in go-arch-lint github.com/fe3dback/go-arch-lint "v$TOOL_VERSION_GO_ARCH_LINT"
   go_stand_in oapi-codegen github.com/oapi-codegen/oapi-codegen/v2 "v$TOOL_VERSION_OAPI_CODEGEN"
+  go_stand_in benchstat golang.org/x/perf "$TOOL_VERSION_BENCHSTAT"
   stand_in cargo-audit "cargo-audit-audit $TOOL_VERSION_CARGO_AUDIT"
   stand_in cargo-deny "cargo-deny $TOOL_VERSION_CARGO_DENY"
   stand_in cargo-modules "cargo-modules $TOOL_VERSION_CARGO_MODULES"

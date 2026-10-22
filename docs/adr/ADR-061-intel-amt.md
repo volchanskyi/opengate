@@ -32,6 +32,17 @@ other.
 **`amt_devices` holds connection state only**: the identifier, the device link,
 the tenant, and whether it is connected now.
 
+**Only the connection's message loop reads it.** A power request opens a channel
+and waits for the loop to route the device's confirmation to it, and the
+channel is a byte stream whose delivered data waits in a buffer the size of the
+window it advertised ([`mps_channel.go`](../../server/internal/amt/transport/mps_channel.go)),
+so a slow or stalled request never holds the loop or its keep-alives, and two
+readers never race on one connection. A request's context closes its channel, a
+closed channel or connection ends every read with an error, and
+[`mps_conservation_test.go`](../../server/tests/integration/mps_conservation_test.go)
+holds goroutines and heap flat across requests answered, stalled and never
+confirmed.
+
 **The badge follows capability, not connection.** A machine whose hardware can
 do this shows the badge whether or not AMT is currently connected, because the
 technician's question is "can I power-cycle this" rather than "is it dialled in

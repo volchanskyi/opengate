@@ -39,14 +39,16 @@ Run `make golden` after any protocol change. Fixtures are committed.
 
 The server is its own certificate authority, on a ten-year P-256 certificate.
 An agent enrolls by posting a PKCS#10 signing request to
-`/api/v1/enroll/{token}`; the server signs it and returns the certificate and
-its own. TLS 1.3 minimum. A device registers without a group —
-`devices.group_id` is nullable.
+`/api/v1/enroll/{token}`; the server ignores the request's subject, chooses the
+device number, and returns a certificate for that number with the trust bundle.
+How the certificate is renewed, admitted and re-signed under a new master key is
+[ADR-128](./adr/ADR-128-machine-identity-lifecycle.md). TLS 1.3 minimum. A device
+registers without a group — `devices.group_id` is nullable.
 
 Mutual authentication without depending on a public certificate authority,
 because agents run on untrusted networks. Enrollment tokens are issued by an
-administrator and used once. Losing the authority key means re-enrolling every
-agent.
+administrator with a use cap and an expiry. Losing the master key means
+re-enrolling every agent.
 
 ---
 

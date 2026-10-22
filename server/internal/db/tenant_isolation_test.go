@@ -68,9 +68,9 @@ func TestTenantIsolationCoversEveryTenantTable(t *testing.T) {
 	}
 }
 
-// tenantTablesOutsideTheContract are the erasure deny-list and progress log, which carry the
-// scope column without a policy so the erasing process can see them.
-var tenantTablesOutsideTheContract = []string{"deleted_ids", "purge_jobs"}
+// tenantTablesOutsideTheContract carry the scope column without a policy: the erasure deny-list
+// and progress log for the erasing process, and console sessions, read before a tenant is known.
+var tenantTablesOutsideTheContract = []string{"deleted_ids", "purge_jobs", "console_sessions"}
 
 func TestEveryTenantTableIsProbed(t *testing.T) {
 	s := newPostgresTestStore(t)

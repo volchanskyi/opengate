@@ -3,8 +3,11 @@
 - [Frame format](#frame-format)
   - [Frame types](#frame-types)
 - [Handshake](#handshake)
+  - [Close codes](#close-codes)
 - [Control messages](#control-messages)
   - [Message variants](#message-variants)
+  - [Certificate messages](#certificate-messages)
+  - [Request errors](#request-errors)
   - [Alert rules, breaches and coverage](#alert-rules-breaches-and-coverage)
   - [Alerts and their evidence](#alerts-and-their-evidence)
   - [Capabilities](#capabilities)
@@ -36,6 +39,9 @@ All control messages are wrapped in a framed transport:
 | `0x06` | Pong | None (single byte, no length/payload) |
 
 Ping and Pong are special: they consist of a single byte with no length prefix or payload.
+Either side may ping on the control stream; the agent answers a ping and its loop
+carries on, and the server reads a pong from an older connection as proof that a
+second live machine holds the identity.
 
 ## Handshake
 
@@ -63,6 +69,34 @@ The handshake type bytes are `0x10` (`ServerHello`), `0x11`
 reject `0x12` and `0x13`. The canonical constants live in
 [`server/internal/protocol/types.go`](../../server/internal/protocol/types.go) and
 [`agent/crates/mesh-protocol/src/types/handshake.rs`](../../agent/crates/mesh-protocol/src/types/handshake.rs).
+
+On the fast path the server accepts a cached fingerprint equal to any master key
+it trusts, so a change of master key forces no full handshakes, and it refuses a
+stale one by closing with code 2, after which the agent's next connection does
+the full handshake.
+
+### Close codes
+
+A QUIC connection between agent and server closes with an application code,
+named once on each side —
+[`close_codes.go`](../../server/internal/protocol/close_codes.go) and
+[`close_code.rs`](../../agent/crates/mesh-protocol/src/close_code.rs) — and
+pinned to [`close_codes.json`](../../testdata/golden/close_codes.json):
+
+| Code | Name | Meaning |
+|---|---|---|
+| 0 | Bye | Normal close by either side |
+| 1 | Stream accept failed | The server could not accept the control stream |
+| 2 | Handshake refused | On the fast path, a stale master-key fingerprint |
+| 3 | Device deleted | Read exactly as an `AgentDeregistered` frame |
+| 4 | Restricted session ended | Renewed, or the restricted session's time ran out |
+| 5 | Certificate refused | Too old, superseded, unvouched, or never issued by this server |
+| 6 | Replaced by a newer connection | A newer connection for the same device took over |
+
+A deleted device is sent `AgentDeregistered` before code 3, and the server waits
+for the agent to hang up — up to `removalOrderWait` in
+[`admission.go`](../../server/internal/agentapi/admission.go) — before it closes,
+so the frame is never discarded unsent.
 
 ## Control messages
 
@@ -101,6 +135,12 @@ the frame and continue. Malformed frames and oversized payloads remain fatal.
 | `AgentUpdate` | Server → Agent | `version`, `url`, `sha256`, `signature` |
 | `AgentUpdateAck` | Agent → Server | `version`, `success`, `error` |
 | `AgentDeregistered` | Server → Agent | `reason` |
+| `RenewCertificate` | Server → Agent | `reason` |
+| `CertificateSigningRequest` | Agent → Server | `csr` |
+| `CertificateIssued` | Server → Agent | `cert`, `ca_bundle` |
+| `CertificateRefused` | Server → Agent | `reason`, `retry_after` |
+| `CertificateInstalled` | Agent → Server | _(none)_ |
+| `TrustBundle` | Server → Agent | `ca_bundle` |
 | `RelayReady` | Bidirectional | _(none)_ |
 | `DirectOffer` | Browser → Agent, on the relay | `sdp` |
 | `DirectAnswer` | Agent → Browser, on the relay | `sdp` |
@@ -218,6 +258,32 @@ shipped — so a
 steady host is silent and a burst never backpressures the control stream. The
 server assigns the authoritative tenant, so the agent leaves `tenant_id`
 empty.
+
+### Certificate messages
+
+Renewal runs on the live control connection
+([ADR-128](../adr/ADR-128-machine-identity-lifecycle.md)). The server sends
+`RenewCertificate` with a reason — `due`, or `authority-change` during a change of
+master key — and waits for the answer; the agent replies with a
+`CertificateSigningRequest` carrying a DER CSR for a fresh P-256 key. The server
+answers `CertificateIssued` — the DER certificate and the PEM trust bundle — or
+`CertificateRefused` with a reason and, when it is the daily limit, the seconds to
+wait. The agent sends `CertificateInstalled` once the new identity is saved,
+which makes it the device's current certificate. The server also sends
+`TrustBundle` at each registration, and the first `TrustBundle` or
+`CertificateIssued` on a connection is the agent's proof that the server accepted
+its identity. The reasons are the `reason*` and `refused*` constants in
+[`renewal.go`](../../server/internal/agentapi/renewal.go).
+
+### Request errors
+
+An agent that does not run a log or hardware request answers
+`DeviceLogsError` or `HardwareReportError` with one of two texts, defined once on
+each side ([`request_errors.go`](../../server/internal/protocol/request_errors.go),
+[`request_error.rs`](../../agent/crates/mesh-protocol/src/request_error.rs)) and
+pinned to [`request_errors.json`](../../testdata/golden/request_errors.json):
+`busy`, when another request of its kind still runs, and `timed out`, when the
+agent stopped it at its own deadline. The API answers them with `409` and `504`.
 
 ### Alert rules, breaches and coverage
 
@@ -425,6 +491,10 @@ to ensure fixtures are always freshly generated.
 ```
 testdata/golden/
 ├── control_message_*.bin    # Framed control messages
+├── control_certificate_*.bin, go_control_*certificate*.bin, go_control_trust_bundle.bin
+│                            # Renewal messages, both directions
+├── close_codes.json         # QUIC close codes
+├── request_errors.json      # Request error texts
 ├── desktop_frame.bin        # Desktop frame (Zstd encoding)
 ├── desktop_frame_jpeg.bin   # Desktop frame (Jpeg encoding)
 ├── handshake_*.bin          # Raw handshake messages

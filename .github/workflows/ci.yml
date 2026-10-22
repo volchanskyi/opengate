@@ -69,13 +69,13 @@ jobs:
       - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
           workspaces: agent
-      - uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2
         with:
           # Pinned in scripts/lib/tool-versions.sh; a bare name is whatever
           # released this morning.
           tool: cargo-nextest@0.9.129
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2 — newer pin requires explicit tool input
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2 — newer pin requires explicit tool input
         with:
           tool: cargo-llvm-cov@0.8.5
       # One instrumented run reports pass/fail and produces lcov.info; only test files are ignored.
@@ -673,7 +673,7 @@ jobs:
       - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
           workspaces: agent/fuzz
-      - uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2
         with:
           # Pinned in scripts/lib/tool-versions.sh; a bare name is whatever
           # released this morning.
@@ -743,7 +743,10 @@ jobs:
         with:
           fetch-depth: 0  # gitleaks scans git history
 
+      # The behavioural tests judge fixed samples with benchstat.
       - uses: ./.github/actions/setup-pinned-tools
+        with:
+          with-benchstat: 'true'
       - name: Run shell lint gates
         run: make shell-check
 
@@ -894,7 +897,7 @@ jobs:
           scan-ref: deploy/
           severity: HIGH,CRITICAL
           exit-code: 1
-          trivyignores: .trivyignore
+          trivyignores: .trivyignore.yaml
       - name: Trivy Dockerfile scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -903,7 +906,7 @@ jobs:
           scan-ref: Dockerfile
           severity: HIGH,CRITICAL
           exit-code: 1
-          trivyignores: .trivyignore
+          trivyignores: .trivyignore.yaml
 
   codeql-go:
     name: CodeQL Go
@@ -918,12 +921,12 @@ jobs:
         with:
           go-version: '1.27'
           cache-dependency-path: server/go.sum
-      - uses: github/codeql-action/init@v4.38.3
+      - uses: github/codeql-action/init@v4.39.0
         with:
           languages: go
           queries: security-and-quality
-      - uses: github/codeql-action/autobuild@v4.38.3
-      - uses: github/codeql-action/analyze@v4.38.3
+      - uses: github/codeql-action/autobuild@v4.39.0
+      - uses: github/codeql-action/analyze@v4.39.0
         with:
           category: go
 
@@ -936,11 +939,11 @@ jobs:
       security-events: write
     steps:
       - uses: actions/checkout@v7
-      - uses: github/codeql-action/init@v4.38.3
+      - uses: github/codeql-action/init@v4.39.0
         with:
           languages: javascript-typescript
           queries: security-and-quality
-      - uses: github/codeql-action/analyze@v4.38.3
+      - uses: github/codeql-action/analyze@v4.39.0
         with:
           category: javascript-typescript
 
@@ -954,12 +957,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-      - uses: github/codeql-action/init@v4.38.3
+      - uses: github/codeql-action/init@v4.39.0
         with:
           languages: rust
           queries: security-and-quality
-      - uses: github/codeql-action/autobuild@v4.38.3
-      - uses: github/codeql-action/analyze@v4.38.3
+      - uses: github/codeql-action/autobuild@v4.39.0
+      - uses: github/codeql-action/analyze@v4.39.0
         with:
           category: rust
 
@@ -975,7 +978,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           # The exact patch equals server/go.mod's toolchain, so govulncheck scans the gauntlet's stdlib.
-          go-version: '1.27.2'
+          go-version: '1.27.3'
           cache-dependency-path: server/go.sum
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
       - uses: actions/setup-node@v7

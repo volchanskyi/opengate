@@ -58,7 +58,6 @@ describe('Routing (integration)', () => {
     localStorage.clear();
     vi.clearAllMocks();
     useAuthStore.setState({
-      token: null,
       user: null,
       isLoading: false,
       error: null,
@@ -102,20 +101,20 @@ describe('Routing (integration)', () => {
   });
 
   it('authenticated user sees devices page at /devices', () => {
-    useAuthStore.setState({ token: 'tok', user: mockUser });
+    useAuthStore.setState({ user: mockUser });
     renderRoute('/devices');
     expect(screen.getByText('OpenGate')).toBeInTheDocument();
     expect(screen.getByText('Welcome to OpenGate')).toBeInTheDocument();
   });
 
   it('authenticated user at / gets redirected to /devices', () => {
-    useAuthStore.setState({ token: 'tok', user: mockUser });
+    useAuthStore.setState({ user: mockUser });
     renderRoute('/');
     expect(screen.getByText('Welcome to OpenGate')).toBeInTheDocument();
   });
 
   it('shows layout with user info for authenticated user', () => {
-    useAuthStore.setState({ token: 'tok', user: mockUser });
+    useAuthStore.setState({ user: mockUser });
     renderRoute('/devices');
     expect(screen.getByText('Test User')).toBeInTheDocument();
     expect(screen.getByText('Logout')).toBeInTheDocument();

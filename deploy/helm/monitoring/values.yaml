@@ -10,6 +10,11 @@ existingSecret: opengate-monitoring-secrets
 
 storageClass: oci-bv
 
+# Monitoring's cluster-wide roles; the routine release sets this off and the approval-gated cluster
+# job renders them alone.
+clusterRBAC:
+  create: true
+
 victoriametrics:
   image: docker.io/victoriametrics/victoria-metrics:v1.114.0
   # One global retention, since OSS VictoriaMetrics has no per-series window; it alone

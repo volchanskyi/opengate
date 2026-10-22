@@ -11,6 +11,7 @@ pub mod error;
 pub mod file_ops;
 pub mod hardware;
 pub mod identity;
+pub mod identity_store;
 pub mod link;
 pub mod maintenance;
 pub mod ml;
@@ -22,8 +23,7 @@ pub mod update;
 
 pub use config::AgentConfig;
 pub use connection::{
-    full_jitter, reconnect_with_backoff, AgentConnection, AsyncControlStream, ControlStream,
-    ReconnectGovernor,
+    full_jitter, AgentConnection, AsyncControlStream, ControlStream, ReconnectGovernor,
 };
 pub use error::{AgentError, ConnectionError};
 pub use identity::{

@@ -30,7 +30,6 @@ func enrollAgainst(t *testing.T, server *httptest.Server) error {
 	_, err := EnrollAgent(context.Background(), EnrollOptions{
 		BaseURL:         server.URL,
 		EnrollmentToken: "enroll-token",
-		DeviceID:        "55555555-5555-5555-5555-555555555555",
 	})
 	return err
 }

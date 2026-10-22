@@ -85,6 +85,11 @@ type Device struct {
 
 	// Session names the technician holding the device's one session; nil while none is open.
 	Session *SessionHolder `json:"session,omitempty"`
+
+	// IdentitySharedAt is when a second live machine last presented this device's identity, and
+	// IdentitySharedAddresses the two addresses it was seen from; nil and empty when never.
+	IdentitySharedAt        *time.Time `json:"identity_shared_at,omitempty"`
+	IdentitySharedAddresses []string   `json:"identity_shared_addresses,omitempty"`
 }
 
 // SessionHolder is the technician holding a device's session, and when it started.
@@ -189,6 +194,9 @@ type Repository interface {
 	// SetMaintenance stamps entry time (kept on reason edits), user and reason; disabling clears all.
 	// Returns ErrDeviceNotFound when no device in the tenant scope matches id.
 	SetMaintenance(ctx context.Context, id DeviceID, on bool, by uuid.UUID, reason string) error
+	// RecordSharedIdentity notes that two live machines presented this device's identity, from
+	// the two addresses given.
+	RecordSharedIdentity(ctx context.Context, id DeviceID, addresses []string, at time.Time) error
 	// Counts returns the status rollup from one aggregate row; a zero organizationID counts the tenant.
 	Counts(ctx context.Context, organizationID OrganizationID) (Counts, error)
 }

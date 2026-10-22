@@ -18,10 +18,12 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/cert"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/device"
+	"github.com/volchanskyi/opengate/server/internal/devicecert"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
+	"github.com/volchanskyi/opengate/server/internal/testutil/machinecert"
 )
 
 func testLogger() *slog.Logger {
@@ -67,6 +69,7 @@ type agentTestEnv struct {
 	store   *db.PostgresStore
 	devices device.Repository
 	certMgr *cert.Manager
+	issuer  *devicecert.Issuer
 	srv     *agentapi.AgentServer
 	addr    string
 	cancel  context.CancelFunc
@@ -78,11 +81,13 @@ func newAgentTestEnv(t *testing.T) *agentTestEnv {
 	store := testutil.NewTestStore(t)
 	cm, err := cert.NewManager(t.TempDir())
 	require.NoError(t, err)
+	issuer := machinecert.NewIssuer(t, store, cm, testutil.NewTestDevices(t, store))
 
 	r := relay.NewRelay(slog.Default())
 	logger := testLogger()
 	srv := agentapi.NewAgentServer(agentapi.AgentServerConfig{
 		Cert:          cm,
+		Issuer:        issuer,
 		Devices:       testutil.NewTestDevices(t, store),
 		Hardware:      testutil.NewTestHardware(t, store),
 		DeviceUpdates: testutil.NewTestDeviceUpdates(t, store),
@@ -113,6 +118,7 @@ func newAgentTestEnv(t *testing.T) *agentTestEnv {
 	return &agentTestEnv{
 		store:   store,
 		certMgr: cm,
+		issuer:  issuer,
 		srv:     srv,
 		addr:    actualAddr,
 		cancel:  cancel,
@@ -140,10 +146,9 @@ func (e *agentTestEnv) dialAgentStream(t *testing.T, deviceID uuid.UUID) (*quic.
 	t.Helper()
 	ctx := context.Background()
 
-	tlsCert, err := e.certMgr.SignAgent(deviceID.String(), "test-agent")
-	require.NoError(t, err)
+	tlsCert := machinecert.Issue(t, e.issuer, deviceID)
 
-	conn, err := quic.DialAddr(ctx, e.addr, e.certMgr.AgentTLSConfig(tlsCert), &quic.Config{
+	conn, err := quic.DialAddr(ctx, e.addr, machinecert.ClientTLS(e.certMgr, tlsCert), &quic.Config{
 		MaxIdleTimeout: 30 * time.Second,
 	})
 	require.NoError(t, err)
@@ -156,17 +161,20 @@ func (e *agentTestEnv) dialAgentStream(t *testing.T, deviceID uuid.UUID) (*quic.
 	return stream, tlsCert.Certificate[0]
 }
 
-// Registration advertises HardwareInventory, so the server always sends RequestHardwareReport.
+// Registration advertises HardwareInventory, so the server sends RequestHardwareReport, then the
+// trust bundle that acknowledges the machine's identity.
 func drainRegisterHardwareRequest(t *testing.T, stream *quic.Stream) {
 	t.Helper()
 	require.NoError(t, stream.SetReadDeadline(time.Now().Add(5*time.Second)))
 	codec := &protocol.Codec{}
-	frameType, payload, err := codec.ReadFrame(stream)
-	require.NoError(t, err)
-	require.Equal(t, protocol.FrameControl, frameType)
-	msg, err := codec.DecodeControl(payload)
-	require.NoError(t, err)
-	require.Equal(t, protocol.MsgRequestHardwareReport, msg.Type)
+	for _, want := range []protocol.ControlMessageType{protocol.MsgRequestHardwareReport, protocol.MsgTrustBundle} {
+		frameType, payload, err := codec.ReadFrame(stream)
+		require.NoError(t, err)
+		require.Equal(t, protocol.FrameControl, frameType)
+		msg, err := codec.DecodeControl(payload)
+		require.NoError(t, err)
+		require.Equal(t, want, msg.Type)
+	}
 	require.NoError(t, stream.SetReadDeadline(time.Time{}))
 }
 

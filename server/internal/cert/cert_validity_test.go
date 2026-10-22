@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -28,26 +29,22 @@ func TestCertValidityPeriods(t *testing.T) {
 	}
 
 	const skew = 5 * time.Minute
-	const leafLife = 365 * 24 * time.Hour
-	assertValidity(t, "CA", m.CACert(), before, after, skew, 10*leafLife)
+	assertValidity(t, "CA", m.CACert(), before, after, skew, authorityValidity)
 
 	signers := []struct {
 		label string
 		sign  func() *x509.Certificate
 	}{
-		{"Agent", func() *x509.Certificate {
-			return mustSignLeaf(t, func() (*tls.Certificate, error) { return m.SignAgent("device-validity", "host.local") })
-		}},
+		{"Device", func() *x509.Certificate { return issueDevice(t, m, uuid.New()) }},
 		{"Server", func() *x509.Certificate {
 			return mustSignLeaf(t, func() (*tls.Certificate, error) { return m.SignServer() })
 		}},
 		{"MPS", func() *x509.Certificate { return mustSignLeaf(t, m.SignMPS) }},
-		{"AgentCSR", func() *x509.Certificate { return mustSignCSR(t, m, "csr-validity") }},
 	}
 	for _, s := range signers {
 		beforeSign := time.Now()
 		leaf := s.sign()
 		afterSign := time.Now()
-		assertValidity(t, s.label, leaf, beforeSign, afterSign, skew, leafLife)
+		assertValidity(t, s.label, leaf, beforeSign, afterSign, skew, leafValidity)
 	}
 }

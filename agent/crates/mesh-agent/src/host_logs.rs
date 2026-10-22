@@ -11,6 +11,9 @@ use tracing::warn;
 /// Cap on host log lines parsed per collection.
 const MAX_HOST_LINES: usize = 5_000;
 
+/// Cap on the bytes read from one `journalctl` run: 5 000 records at their largest common size.
+const MAX_JOURNAL_BYTES: u64 = 32 * 1024 * 1024;
+
 /// Cap on distinct units returned, applied after sorting; the unit filter still accepts others.
 const MAX_UNITS: usize = 200;
 
@@ -201,9 +204,9 @@ fn normalize_unit_list(raw: impl IntoIterator<Item = String>) -> Vec<String> {
 
 /// Reads the latest records for `source` with the level, time and unit filters; empty when the
 /// tool is missing or fails. `source` comes from [`resolve_requested_source`].
-pub fn collect_host_logs(source: LogSource, filter: &LogFilter, unit: &str) -> Vec<LogEntry> {
+pub async fn collect_host_logs(source: LogSource, filter: &LogFilter, unit: &str) -> Vec<LogEntry> {
     match source {
-        LogSource::Journald => collect_journald(filter, unit),
+        LogSource::Journald => collect_journald(filter, unit).await,
     }
 }
 
@@ -216,24 +219,24 @@ pub fn batch_saturated(entries: &[LogEntry]) -> bool {
 
 /// Enumerates the distinct emitting units for `source` (systemd units),
 /// normalized for the UI dropdown. Empty on any failure path.
-pub fn list_units(source: LogSource) -> Vec<String> {
+pub async fn list_units(source: LogSource) -> Vec<String> {
     match source {
-        LogSource::Journald => list_journald_units(),
+        LogSource::Journald => list_journald_units().await,
     }
 }
 
 /// Collects host logs for a source other than the agent's own files, applying the shared filter
 /// and pagination; a source with no reader here is refused by name.
-pub fn collect_system_logs(
+pub async fn collect_system_logs(
     source: &str,
     filter: &LogFilter,
     unit: &str,
 ) -> Result<(LogResult, Vec<String>), UnavailableSource> {
     let source = resolve_requested_source(source)?;
-    let raw = collect_host_logs(source, filter, unit);
+    let raw = collect_host_logs(source, filter, unit).await;
     let filtered = crate::logs::filter_entries(raw, filter);
     let result = crate::logs::paginate(filtered, filter);
-    Ok((result, list_units(source)))
+    Ok((result, list_units(source).await))
 }
 
 /// The parsed stdout of a successful `journalctl` read; a non-zero exit discards partial output.
@@ -253,30 +256,55 @@ fn units_from_exit(success: bool, stdout: &[u8]) -> Vec<String> {
     normalize_unit_list(text.lines().map(str::to_owned))
 }
 
-/// Runs `journalctl` with `args` and hands the result to `parse`; a launch failure yields the
-/// same empty answer as a failed run.
-fn run_journalctl<T>(
+/// Runs `journalctl` with `args` and hands its output to `parse`; dropping the future kills the
+/// process, and output past [`MAX_JOURNAL_BYTES`] ends it, keeping what was read.
+async fn run_journalctl<T>(
     args: impl IntoIterator<Item = String>,
     parse: fn(bool, &[u8]) -> Vec<T>,
 ) -> Vec<T> {
-    match std::process::Command::new("journalctl").args(args).output() {
-        Ok(output) => parse(output.status.success(), &output.stdout),
-        Err(_) => Vec::new(),
+    use tokio::io::AsyncReadExt;
+    let spawned = tokio::process::Command::new("journalctl")
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true)
+        .spawn();
+    let Ok(mut child) = spawned else {
+        return Vec::new();
+    };
+    let mut stdout = Vec::new();
+    if let Some(pipe) = child.stdout.take() {
+        if pipe
+            .take(MAX_JOURNAL_BYTES)
+            .read_to_end(&mut stdout)
+            .await
+            .is_err()
+        {
+            return Vec::new();
+        }
     }
+    let capped = stdout.len() as u64 >= MAX_JOURNAL_BYTES;
+    if capped && child.start_kill().is_err() {
+        warn!("journalctl ended before its output reached the cap");
+    }
+    let finished = child.wait().await.is_ok_and(|status| status.success());
+    parse(finished || capped, &stdout)
 }
 
 /// Runs `journalctl` for the most recent records under the pushed-down filter.
 /// Empty on any failure path (missing binary, non-zero exit).
-fn collect_journald(filter: &LogFilter, unit: &str) -> Vec<LogEntry> {
-    run_journalctl(build_journald_args(filter, unit), entries_from_exit)
+async fn collect_journald(filter: &LogFilter, unit: &str) -> Vec<LogEntry> {
+    run_journalctl(build_journald_args(filter, unit), entries_from_exit).await
 }
 
 /// Enumerates distinct systemd units via `journalctl -F _SYSTEMD_UNIT`; empty on failure.
-fn list_journald_units() -> Vec<String> {
+async fn list_journald_units() -> Vec<String> {
     run_journalctl(
         ["-F", "_SYSTEMD_UNIT", "--no-pager"].map(String::from),
         units_from_exit,
     )
+    .await
 }
 
 /// Redacts secrets from each message in place, the device's layer of two (the server applies
@@ -323,11 +351,12 @@ mod tests {
         assert_eq!(resolve_host_source(), None);
     }
 
-    #[test]
-    fn refused_sources_are_named_and_counted() {
+    #[tokio::test]
+    async fn refused_sources_are_named_and_counted() {
         let before = UNAVAILABLE_SOURCE_REQUESTS.load(Ordering::Relaxed);
 
         let refused = collect_system_logs("windows", &filter(None, None, None), "")
+            .await
             .expect_err("this agent reads no Windows Event Log");
         let message = refused.to_string();
         assert!(
@@ -343,7 +372,9 @@ mod tests {
         // way: `self` is the agent's own rotated files, never a host source.
         for name in ["syslog", "self", ""] {
             assert!(
-                collect_system_logs(name, &filter(None, None, None), name).is_err(),
+                collect_system_logs(name, &filter(None, None, None), name)
+                    .await
+                    .is_err(),
                 "{name:?} is not a host log source this agent reads"
             );
         }
@@ -474,20 +505,21 @@ mod tests {
         assert_eq!(entries[1].level, "INFO");
     }
 
-    #[test]
-    fn collectors_degrade_to_empty_without_their_tool() {
+    #[tokio::test]
+    async fn collectors_degrade_to_empty_without_their_tool() {
         let source = LogSource::Journald;
-        let _ = collect_host_logs(source, &filter(None, None, None), "");
-        let _ = list_units(source);
-        let _ = collect_host_logs(source, &filter(None, None, None), "$(evil)");
+        let _ = collect_host_logs(source, &filter(None, None, None), "").await;
+        let _ = list_units(source).await;
+        let _ = collect_host_logs(source, &filter(None, None, None), "$(evil)").await;
     }
 
-    #[test]
-    fn an_unlaunchable_tool_yields_the_same_nothing_as_a_failed_one() {
+    #[tokio::test]
+    async fn an_unlaunchable_tool_yields_the_same_nothing_as_a_failed_one() {
         let absent: Vec<String> = run_journalctl(
             ["--a-flag-journalctl-does-not-have".to_string()],
             units_from_exit,
-        );
+        )
+        .await;
         assert!(
             absent.is_empty(),
             "a rejected invocation contributes no units"
@@ -496,7 +528,8 @@ mod tests {
         let entries: Vec<LogEntry> = run_journalctl(
             ["--a-flag-journalctl-does-not-have".to_string()],
             entries_from_exit,
-        );
+        )
+        .await;
         assert!(
             entries.is_empty(),
             "a rejected invocation contributes no records"

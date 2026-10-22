@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"crypto/rand"
-	"crypto/x509"
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/volchanskyi/opengate/server/internal/devicecert"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
 
@@ -124,12 +124,16 @@ func (s *Server) Enroll(ctx context.Context, request EnrollRequestObject) (Enrol
 
 	// An empty csr_pem is the install script's probe: it validates the token without a use.
 	if request.Body != nil && request.Body.CsrPem != "" {
-		certPEM, err := s.signCSR(request.Body.CsrPem)
-		if err != nil {
-			s.logger.Warn("CSR signing failed", "error", err)
+		deviceID, certPEM, err := s.issueEnrolment(ctx, request.Body.CsrPem)
+		if errors.Is(err, devicecert.ErrInvalidRequest) {
+			s.logger.Warn("enrollment request refused", "error", err)
 			return Enroll400JSONResponse{Error: "invalid enrollment request"}, nil
 		}
+		if err != nil {
+			return nil, fmt.Errorf("issue enrollment certificate: %w", err)
+		}
 		result.CertPem = &certPEM
+		result.DeviceId = &deviceID
 
 		if err := s.enrollment.IncrementUseCount(ctx, et.ID); err != nil {
 			return nil, fmt.Errorf("increment token use count: %w", err)
@@ -176,31 +180,18 @@ func (s *Server) deriveEnrollHosts(ctx context.Context) (host, quicHost string) 
 	return host, quicHost
 }
 
-// signCSR decodes a PEM-encoded CSR, signs it with the server CA,
-// and returns the signed certificate as PEM.
-func (s *Server) signCSR(csrPEM string) (string, error) {
+// issueEnrolment decodes a PEM certificate request and has it signed under a device number the
+// server chooses, returning that number and the certificate as PEM.
+func (s *Server) issueEnrolment(ctx context.Context, csrPEM string) (uuid.UUID, string, error) {
 	block, _ := pem.Decode([]byte(csrPEM))
 	if block == nil || block.Type != "CERTIFICATE REQUEST" {
-		return "", fmt.Errorf("invalid CSR PEM")
+		return uuid.Nil, "", fmt.Errorf("%w: not a PEM certificate request", devicecert.ErrInvalidRequest)
 	}
-
-	csr, err := x509.ParseCertificateRequest(block.Bytes)
+	deviceID, certDER, err := s.cert.Enroll(ctx, block.Bytes)
 	if err != nil {
-		return "", fmt.Errorf("parse CSR: %w", err)
+		return uuid.Nil, "", err
 	}
-	if err := csr.CheckSignature(); err != nil {
-		return "", fmt.Errorf("CSR signature invalid: %w", err)
-	}
-
-	certDER, err := s.cert.SignAgentCSR(block.Bytes)
-	if err != nil {
-		return "", fmt.Errorf("sign agent CSR: %w", err)
-	}
-
-	return string(pem.EncodeToMemory(&pem.Block{
-		Type:  "CERTIFICATE",
-		Bytes: certDER,
-	})), nil
+	return deviceID, string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})), nil
 }
 
 // GetServerCA implements StrictServerInterface.

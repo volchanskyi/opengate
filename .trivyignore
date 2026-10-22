@@ -1,7 +1,0 @@
-# The server Deployment publishes QUIC (9090/udp) and AMT MPS (4433/tcp) via hostPort.
-KSV-0024
-
-# Host-level exporters in the monitoring stack need host PID and host paths.
-KSV-0010   # node-exporter hostPID — required to read per-process node metrics
-KSV-0121   # node-exporter hostPath /proc /sys / — required for node metrics
-KSV-0014   # readOnlyRootFilesystem — uptime-kuma + postgres write beyond their volumes

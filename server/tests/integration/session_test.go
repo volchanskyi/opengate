@@ -7,6 +7,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/cert"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/device"
+	"github.com/volchanskyi/opengate/server/internal/devicecert"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 	"net/http/httptest"
@@ -23,6 +24,7 @@ type sessionTestEnv struct {
 	devices       device.Repository
 	deviceUpdates updater.DeviceUpdateRepository
 	certMgr       *cert.Manager
+	issuer        *devicecert.Issuer
 	relay         *relay.Relay
 	agentSrv      *agentapi.AgentServer
 	agentAddr     string

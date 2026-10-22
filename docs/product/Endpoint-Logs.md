@@ -26,6 +26,13 @@ request.
 > log lines attached to an alert's evidence to see what a machine reported before
 > it went away.
 
+A machine runs one log pull at a time. A pull asked for while another is still
+reading reads *A log request is already in progress for this device*, and a pull
+the machine cannot finish within about ten seconds reads *The device did not
+return logs in time*; either way the machine stays connected and responsive, and
+the next pull runs normally. Repeated clicks never pile work onto a customer's
+machine.
+
 The response is cached for the browser session, so returning to a device page
 renders the lines already fetched instead of hitting the machine again. The caret
 collapses the returned lines without discarding the filters.

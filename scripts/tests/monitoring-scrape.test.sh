@@ -109,7 +109,7 @@ fi
 
 # Scraping each kubelet directly is authorised against nodes/metrics; nodes/proxy would let its
 # holder relay arbitrary requests through the kubelet, a privilege-escalation path.
-RBAC_FILE="$REPO_ROOT/deploy/helm/monitoring/templates/victoriametrics.yaml"
+RBAC_FILE="$REPO_ROOT/deploy/helm/monitoring/templates/cluster-rbac.yaml"
 
 # Comments are stripped first so a comment naming a grant is not read as the grant.
 rbac_rules() { sed 's/[[:space:]]*#.*$//' "$RBAC_FILE"; }

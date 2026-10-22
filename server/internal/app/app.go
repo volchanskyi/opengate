@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode"
@@ -25,9 +26,11 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/audit"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/cert"
+	"github.com/volchanskyi/opengate/server/internal/certledger"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/device"
+	"github.com/volchanskyi/opengate/server/internal/devicecert"
 	"github.com/volchanskyi/opengate/server/internal/inventory"
 	"github.com/volchanskyi/opengate/server/internal/lifecycle"
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
@@ -54,9 +57,18 @@ const jwtTokenLifetime = 24 * time.Hour
 type Config struct {
 	// Store is the open database. Its owner closes it; Build never does.
 	Store *db.PostgresStore
-	// DataDir holds the certificate authority, the VAPID keys, the update
-	// signing keys and the manifest store.
+	// DataDir holds the master keys under AuthorityDir, the VAPID keys, the update signing keys
+	// and the manifest store.
 	DataDir string
+	// CAMustExist refuses to start without the issuing master key, which is never generated then.
+	CAMustExist bool
+	// CACompromisedSince dates the leak a vouched-only master key was dropped for; zero when none.
+	CACompromisedSince time.Time
+	// CertExpiredGrace is how long past expiry a certificate is admitted to renew; zero keeps the
+	// default.
+	CertExpiredGrace time.Duration
+	// Clock is the time certificate issuance, renewal and expiry read; nil reads the wall clock.
+	Clock func() time.Time
 	// JWTSecret signs operator tokens. At least minJWTSecretLen bytes.
 	JWTSecret string
 	// Logger receives everything the assembly and the servers say.
@@ -129,6 +141,8 @@ type Assembly struct {
 
 	// Cert is the certificate authority machines are enrolled against.
 	Cert *cert.Manager
+	// DeviceCerts issues and records machine certificates; its ledger is what admission reads.
+	DeviceCerts *devicecert.Issuer
 	// JWT is the operator token configuration.
 	JWT *auth.JWTConfig
 
@@ -157,12 +171,45 @@ type Assembly struct {
 	Sessions       session.Repository
 	Enrollment     updater.EnrollmentTokenRepository
 	Tombstones     *lifecycle.TombstoneStore
+	// ConsoleSessions holds console sign-ins, which the background sweep ages out.
+	ConsoleSessions auth.ConsoleSessionRepository
 
 	// Logger is the logger every component above was given.
 	Logger *slog.Logger
 
 	// githubRepo is the release feed agent manifests are synced from, read by the periodic sync.
 	githubRepo string
+	// clock is the time console sessions are judged by.
+	clock func() time.Time
+}
+
+// consoleClock is the clock console sessions are judged by: the configured one, or the wall clock.
+func consoleClock(clock func() time.Time) func() time.Time {
+	if clock != nil {
+		return clock
+	}
+	return time.Now
+}
+
+// AuthorityDir is the folder under DataDir holding the master keys' role files.
+const AuthorityDir = "authority"
+
+// certOptions turns the master-key settings into the certificate manager's options.
+func (c Config) certOptions() []cert.Option {
+	var opts []cert.Option
+	if c.CAMustExist {
+		opts = append(opts, cert.WithMustExist())
+	}
+	if !c.CACompromisedSince.IsZero() {
+		opts = append(opts, cert.WithCompromisedSince(c.CACompromisedSince))
+	}
+	if c.CertExpiredGrace > 0 {
+		opts = append(opts, cert.WithExpiredGrace(c.CertExpiredGrace))
+	}
+	if c.Clock != nil {
+		opts = append(opts, cert.WithClock(c.Clock))
+	}
+	return opts
 }
 
 // validate refuses a configuration with a hole in it, naming the missing port up front.
@@ -191,6 +238,11 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 	if err := os.MkdirAll(cfg.DataDir, 0750); err != nil {
 		return nil, fmt.Errorf("app: create data dir: %w", err)
 	}
+	if !cfg.CAMustExist {
+		if err := os.MkdirAll(filepath.Join(cfg.DataDir, AuthorityDir), 0o700); err != nil {
+			return nil, fmt.Errorf("app: create authority dir: %w", err)
+		}
+	}
 
 	logger := cfg.Logger
 	store := cfg.Store
@@ -209,10 +261,15 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 		return nil, fmt.Errorf("app: reset device statuses: %w", err)
 	}
 
-	certMgr, err := cert.NewManager(cfg.DataDir)
+	certMgr, err := cert.NewManager(filepath.Join(cfg.DataDir, AuthorityDir), cfg.certOptions()...)
 	if err != nil {
 		return nil, fmt.Errorf("app: init certificate manager: %w", err)
 	}
+	ledger := certledger.New(store.DB(), logger)
+	if err := ledger.Warm(ctx); err != nil {
+		return nil, fmt.Errorf("app: %w", err)
+	}
+	deviceIssuer := devicecert.NewIssuer(certMgr, ledger, repos.devices, tombstoneStore)
 
 	jwtCfg := &auth.JWTConfig{Secret: cfg.JWTSecret, Issuer: "opengate", Duration: jwtTokenLifetime}
 
@@ -274,6 +331,7 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 		// it and the catalogue that says the rule exists are both wired here.
 		AlertStore:    alertStore,
 		RuleCatalogue: ruleCatalogue,
+		Issuer:        deviceIssuer,
 		Logger:        logger,
 	})
 
@@ -326,10 +384,12 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 		AMTHandlers:           amt.NewHandlers(management),
 		Sessions:              repos.sessions,
 		Users:                 repos.users,
+		ConsoleSessions:       repos.consoleSessions,
+		Clock:                 cfg.Clock,
 		JWT:                   jwtCfg,
 		Agents:                agentControl,
 		AMT:                   management,
-		Cert:                  certMgr,
+		Cert:                  deviceIssuer,
 		TelemetryReader:       telemetryPorts.reader,
 		Purger:                purger,
 		PurgeJobs:             purgeJobs,
@@ -378,6 +438,7 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 		Metrics:         appMetrics,
 		MetricsRegistry: metricsRegistry,
 		Cert:            certMgr,
+		DeviceCerts:     deviceIssuer,
 		JWT:             jwtCfg,
 		Alerts:          alertStore,
 		Rules:           ruleCatalogue,
@@ -395,8 +456,10 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 		Sessions:        repos.sessions,
 		Enrollment:      repos.enrollment,
 		Tombstones:      tombstoneStore,
+		ConsoleSessions: repos.consoleSessions,
 		Logger:          logger,
 		githubRepo:      cfg.GitHubRepo,
+		clock:           consoleClock(cfg.Clock),
 	}, nil
 }
 
@@ -410,36 +473,38 @@ func amtOperator(cfg Config, svc *amt.Service) amt.Operator {
 
 // repositories is every persistence adapter, sharing one pool and the db_query_* metrics.
 type repositories struct {
-	audit          audit.Repository
-	deviceUpdates  updater.DeviceUpdateRepository
-	enrollment     updater.EnrollmentTokenRepository
-	securityGroups auth.SecurityGroupRepository
-	devices        device.Repository
-	sites          device.SiteRepository
-	organizations  organization.Repository
-	hardware       device.HardwareRepository
-	webPush        notifications.WebPushRepository
-	amt            amt.Repository
-	sessions       session.Repository
-	users          auth.UserRepository
-	inventory      inventory.Repository
+	audit           audit.Repository
+	deviceUpdates   updater.DeviceUpdateRepository
+	enrollment      updater.EnrollmentTokenRepository
+	securityGroups  auth.SecurityGroupRepository
+	devices         device.Repository
+	sites           device.SiteRepository
+	organizations   organization.Repository
+	hardware        device.HardwareRepository
+	webPush         notifications.WebPushRepository
+	amt             amt.Repository
+	sessions        session.Repository
+	users           auth.UserRepository
+	consoleSessions auth.ConsoleSessionRepository
+	inventory       inventory.Repository
 }
 
 func newRepositories(sqlDB *sql.DB, m *appmetrics.Metrics) repositories {
 	return repositories{
-		audit:          audit.NewInstrumented(audit.NewPostgres(sqlDB), m),
-		deviceUpdates:  updater.NewInstrumentedDeviceUpdates(updater.NewPostgresDeviceUpdates(sqlDB), m),
-		enrollment:     updater.NewInstrumentedEnrollment(updater.NewPostgresEnrollment(sqlDB), m),
-		securityGroups: auth.NewInstrumentedSecurityGroups(auth.NewPostgresSecurityGroups(sqlDB), m),
-		devices:        device.NewInstrumentedDevices(device.NewPostgresDevices(sqlDB), m),
-		sites:          device.NewInstrumentedSites(device.NewPostgresSites(sqlDB), m),
-		organizations:  organization.NewInstrumented(organization.NewPostgresOrganizations(sqlDB), m),
-		hardware:       device.NewInstrumentedHardware(device.NewPostgresHardware(sqlDB), m),
-		webPush:        notifications.NewInstrumentedWebPush(notifications.NewPostgresWebPush(sqlDB), m),
-		amt:            amt.NewInstrumented(amt.NewPostgresAMTDevices(sqlDB), m),
-		sessions:       session.NewInstrumented(session.NewPostgresSessions(sqlDB), m),
-		users:          auth.NewInstrumentedUsers(auth.NewPostgresUsers(sqlDB), m),
-		inventory:      inventory.NewPostgresInventoryRepository(sqlDB),
+		audit:           audit.NewInstrumented(audit.NewPostgres(sqlDB), m),
+		deviceUpdates:   updater.NewInstrumentedDeviceUpdates(updater.NewPostgresDeviceUpdates(sqlDB), m),
+		enrollment:      updater.NewInstrumentedEnrollment(updater.NewPostgresEnrollment(sqlDB), m),
+		securityGroups:  auth.NewInstrumentedSecurityGroups(auth.NewPostgresSecurityGroups(sqlDB), m),
+		devices:         device.NewInstrumentedDevices(device.NewPostgresDevices(sqlDB), m),
+		sites:           device.NewInstrumentedSites(device.NewPostgresSites(sqlDB), m),
+		organizations:   organization.NewInstrumented(organization.NewPostgresOrganizations(sqlDB), m),
+		hardware:        device.NewInstrumentedHardware(device.NewPostgresHardware(sqlDB), m),
+		webPush:         notifications.NewInstrumentedWebPush(notifications.NewPostgresWebPush(sqlDB), m),
+		amt:             amt.NewInstrumented(amt.NewPostgresAMTDevices(sqlDB), m),
+		sessions:        session.NewInstrumented(session.NewPostgresSessions(sqlDB), m),
+		users:           auth.NewInstrumentedUsers(auth.NewPostgresUsers(sqlDB), m),
+		consoleSessions: auth.NewPostgresConsoleSessions(sqlDB),
+		inventory:       inventory.NewPostgresInventoryRepository(sqlDB),
 	}
 }
 

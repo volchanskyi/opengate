@@ -18,17 +18,20 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/device"
+	"github.com/volchanskyi/opengate/server/internal/devicecert"
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
+	"github.com/volchanskyi/opengate/server/internal/testutil/machinecert"
 )
 
 type acceptEnv struct {
 	srv     *AgentServer
 	addr    string
 	devices device.Repository
+	issuer  *devicecert.Issuer
 	cancel  context.CancelFunc
 }
 
@@ -43,7 +46,9 @@ func newAcceptEnvWithMetrics(t *testing.T, m *appmetrics.Metrics) *acceptEnv {
 	devices := testutil.NewTestDevices(t, store)
 	cm, err := cert.NewManager(t.TempDir())
 	require.NoError(t, err)
+	issuer := machinecert.NewIssuer(t, store, cm, devices)
 	srv := NewAgentServer(AgentServerConfig{
+		Issuer:        issuer,
 		Cert:          cm,
 		Devices:       devices,
 		Hardware:      testutil.NewTestHardware(t, store),
@@ -70,16 +75,20 @@ func newAcceptEnvWithMetrics(t *testing.T, m *appmetrics.Metrics) *acceptEnv {
 			t.Error("the QUIC listener did not stop when its context was cancelled")
 		}
 	})
-	return &acceptEnv{srv: srv, addr: addr, devices: devices, cancel: cancel}
+	return &acceptEnv{srv: srv, addr: addr, devices: devices, issuer: issuer, cancel: cancel}
+}
+
+// machineTLS is a recorded certificate for deviceID and the configuration to dial with it.
+func (e *acceptEnv) machineTLS(t *testing.T, deviceID uuid.UUID) *tls.Config {
+	t.Helper()
+	return clientTLS(e.srv.cert, machinecert.Issue(t, e.issuer, deviceID))
 }
 
 // dial sends the AgentHello and stops; a deleted machine is closed right after the handshake,
 // so a read after dial races that close.
 func (e *acceptEnv) dial(t *testing.T, deviceID uuid.UUID) (*quic.Conn, *quic.Stream) {
 	t.Helper()
-	tlsCert, err := e.srv.cert.SignAgent(deviceID.String(), "accept-test")
-	require.NoError(t, err)
-	return e.dialWith(t, e.srv.cert.AgentTLSConfig(tlsCert))
+	return e.dialWith(t, e.machineTLS(t, deviceID))
 }
 
 // dialWith dials over a caller-kept config so one certificate and session cache span
@@ -209,29 +218,6 @@ func TestAMachineThatConnectsBecomesVisibleAndThenOffline(t *testing.T) {
 	t.Fatal("a machine that left was never marked offline")
 }
 
-func TestAMachineTheAdministratorDeletedIsTurnedAway(t *testing.T) {
-	env := newAcceptEnv(t)
-	deviceID := uuid.New()
-	env.srv.tombstones.Store(deviceID, time.Now())
-
-	conn, _ := env.dial(t, deviceID)
-
-	select {
-	case <-conn.Context().Done():
-	case <-time.After(10 * time.Second):
-		t.Fatal("a deleted machine was left holding an open connection")
-	}
-	var appErr *quic.ApplicationError
-	require.ErrorAs(t, context.Cause(conn.Context()), &appErr,
-		"the server closes the connection itself rather than letting it time out")
-	assert.Equal(t, quic.ApplicationErrorCode(3), appErr.ErrorCode)
-	assert.Contains(t, appErr.ErrorMessage, "deregistered",
-		"and says why, so the machine stops trying")
-
-	assert.Equal(t, 0, env.srv.ConnectedAgentCount(),
-		"a machine turned away at the door never joins the fleet")
-}
-
 func TestAMachineTheDatabaseHasNotSeenStillRegisters(t *testing.T) {
 	env := newAcceptEnv(t)
 	deviceID := uuid.New()
@@ -243,51 +229,4 @@ func TestAMachineTheDatabaseHasNotSeenStillRegisters(t *testing.T) {
 	ac := env.srv.GetAgent(protocol.DeviceID(deviceID))
 	require.NotNil(t, ac)
 	assert.Equal(t, uuid.Nil, ac.SiteID, "a machine nobody has filed yet is in no site")
-}
-
-func TestASecondConnectionLeavesTheLiveOneAlone(t *testing.T) {
-	env := newAcceptEnv(t)
-	deviceID := uuid.New()
-	ctx := dbtx.WithDefaultTenant(context.Background(), false)
-	require.NoError(t, env.devices.Upsert(ctx, &device.Device{
-		ID:       deviceID,
-		Hostname: "the-machine",
-		OS:       "linux",
-		Status:   db.StatusOffline,
-	}))
-
-	_, first := env.connect(t, deviceID)
-	register(t, first, "the-machine")
-	waitForCount(t, env.srv, 1)
-	// Online before the reconnect is the state the older connection's teardown must not undo.
-	waitForStatus(t, env, deviceID, db.StatusOnline)
-	firstConn := env.srv.GetAgent(protocol.DeviceID(deviceID))
-	require.NotNil(t, firstConn)
-
-	_, second := env.connect(t, deviceID)
-	register(t, second, "the-machine")
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		if env.srv.GetAgent(protocol.DeviceID(deviceID)) != firstConn {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	require.NotSame(t, firstConn, env.srv.GetAgent(protocol.DeviceID(deviceID)),
-		"the newer connection is the one the fleet holds")
-
-	// The connected-agents gauge reads this count, so a second connection must not inflate it.
-	assert.Equal(t, 1, env.srv.ConnectedAgentCount(),
-		"two connections to one machine is still one machine")
-
-	require.NoError(t, first.Close())
-	waitForCount(t, env.srv, 1)
-
-	stored, err := env.devices.Get(ctx, deviceID)
-	require.NoError(t, err)
-	assert.NotEqual(t, db.StatusOffline, stored.Status,
-		"a machine that is connected right now is not reported as gone")
-
-	require.NoError(t, second.Close())
-	waitForCount(t, env.srv, 0)
 }

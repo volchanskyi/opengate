@@ -1,6 +1,6 @@
 import { test, expect } from "./fixtures";
 import type { Browser, Page } from "@playwright/test";
-import { createAdminUser, createTestUser, type TestUser } from "./helpers/auth-helper";
+import { createAdminUser, createTestUser, signInBrowser, type TestUser } from "./helpers/auth-helper";
 import { adminToken, enrolledMachine, MACHINE_A } from "./helpers/enrolled-machine";
 import { endHostSession, openSessionTab } from "./helpers/session-tab";
 
@@ -8,7 +8,7 @@ import { endHostSession, openSessionTab } from "./helpers/session-tab";
 
 async function signedIn(browser: Browser, user: TestUser): Promise<Page> {
   const context = await browser.newContext({ baseURL: test.info().project.use.baseURL });
-  await context.addInitScript((t) => localStorage.setItem("token", t), user.token);
+  await signInBrowser(context, user);
   return context.newPage();
 }
 

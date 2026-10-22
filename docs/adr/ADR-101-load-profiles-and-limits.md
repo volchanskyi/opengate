@@ -173,9 +173,17 @@ The scale reaches a minute because the busiest runner-hosted legs register in
 ten seconds and more.
 
 **A mark that only reports never fails a night.** The run's completeness check
-prints it as a notice, and a load generator's own threshold breach on a leg
-driven past what its venue holds is a notice and a summary line: the profile's
-limits are what decide.
+prints it as a notice: the profile's limits are what decide.
+
+**A load generator's script holds no number.** The k6 scenarios carried pass
+marks of their own — request, page and relay times, a failure rate — which were a
+second home for numbers that belong in the profile, and whose breach line said
+neither which mark, nor the reading, nor whether it mattered. Each script names
+its measured phase's sub-metrics only in marks that cannot fail
+([`exportOnly`](../../load/k6/lib/profile.js)), since k6 exports a tagged
+sub-metric only when a mark names it, and k6's failed-mark exit is an error that
+names the scenario
+([`loadtest-k6-run.sh`](../../scripts/loadtest-k6-run.sh)).
 
 **A night's summary states each limit beside its reading.** Every bundle-based
 run — the load test, each performance-stack leg, the endurance run — and the

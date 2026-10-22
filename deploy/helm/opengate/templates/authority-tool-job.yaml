@@ -1,0 +1,11 @@
+{{- if .Values.authority.job.enabled -}}
+{{- /* One key-tool command, run by scripts/authority-job.sh and never by a release. */ -}}
+{{- $command := first .Values.authority.job.args -}}
+{{- $args := concat (list $command "-secret" .Values.authority.secretName) (rest .Values.authority.job.args) -}}
+{{- /* adopt alone reads the shared secret, moving its master key into the authority secret. */ -}}
+{{- $legacy := eq $command "adopt" -}}
+{{- if $legacy -}}
+{{- $args = concat $args (list "-legacy-dir" "/legacy" "-legacy-secret" .Values.server.existingSecret) -}}
+{{- end -}}
+{{- include "opengate.authority.job" (dict "root" . "name" "tool" "args" $args "legacy" $legacy) }}
+{{- end }}

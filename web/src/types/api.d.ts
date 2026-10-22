@@ -58,6 +58,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The signed-in console's session, for a page that reloads */
+        get: operations["getConsoleSession"];
+        put?: never;
+        /** Sign the console in with a session cookie */
+        post: operations["signIn"];
+        /** Sign the console out and clear its cookie */
+        delete: operations["signOut"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/session/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register a new user and sign the console in */
+        post: operations["registerConsole"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/login": {
         parameters: {
             query?: never;
@@ -1254,6 +1290,21 @@ export interface components {
         TokenResponse: {
             token: string;
         };
+        /** @description A signed-in console. The session id travels only in the HttpOnly og_session cookie; the forged-request value travels only here and in X-CSRF-Token. */
+        ConsoleSession: {
+            user: components["schemas"]["User"];
+            /** Format: uuid */
+            tenant_id: string;
+            /** @description Sent in X-CSRF-Token with every request that changes something. */
+            csrf_token: string;
+            /** @description How long the session lasts without a request. */
+            idle_timeout_seconds: number;
+            /**
+             * Format: date-time
+             * @description When the session ends however active it is.
+             */
+            expires_at: string;
+        };
         /** @description Browser-side error report for server-side log ingestion. Must never contain tokens, credentials, or PII; the stack is truncated client-side. */
         ClientErrorReport: {
             message: string;
@@ -1341,6 +1392,13 @@ export interface components {
             maintenance_reason?: string;
             amt?: components["schemas"]["DeviceAMT"];
             session?: components["schemas"]["SessionHolder"];
+            /**
+             * Format: date-time
+             * @description When a second live machine last presented this device's identity, as a cloned disk does. Absent when that never happened.
+             */
+            identity_shared_at?: string;
+            /** @description The two addresses the identity was seen from at identity_shared_at. Present only with identity_shared_at. */
+            identity_shared_addresses?: string[];
         };
         /** @description The session open on a host, named by the technician who holds it. A host takes one session at a time; absent while none is open. */
         SessionHolder: {
@@ -1391,7 +1449,7 @@ export interface components {
             healthy: number;
             unknown: number;
         };
-        /** @description Progress of a right-to-be-forgotten telemetry purge. "Logical" states mean ingest is blocked and the subject is no longer queryable; physical VictoriaMetrics compaction and offline-edge erasure complete later. */
+        /** @description Progress of a right-to-be-forgotten telemetry purge. "Logical" states mean ingest is blocked and the subject is no longer queryable; physical VictoriaMetrics compaction completes later. */
         PurgeJob: {
             /** Format: uuid */
             id: string;
@@ -1405,7 +1463,7 @@ export interface components {
             /** @enum {string} */
             scope: "device" | "tenant";
             /** @enum {string} */
-            state: "requested" | "central-logical-complete" | "central-physical-compaction-pending" | "object-delete-pending" | "edge-erase-pending" | "complete";
+            state: "requested" | "central-logical-complete" | "central-physical-compaction-pending" | "object-delete-pending" | "complete";
             vm_deleted: boolean;
             object_deleted: boolean;
             pg_deleted: boolean;
@@ -1701,9 +1759,15 @@ export interface components {
             csr_pem: string;
         };
         EnrollResponse: {
+            /** @description PEM bundle of the one or more master keys the agent trusts */
             ca_pem: string;
-            /** @description PEM-encoded agent certificate signed by the server CA */
+            /** @description PEM-encoded agent certificate signed by the issuing master key */
             cert_pem?: string;
+            /**
+             * Format: uuid
+             * @description The device number the server chose, which the certificate carries
+             */
+            device_id?: string;
             server_addr: string;
             server_domain: string;
             /** @description Hex-encoded Ed25519 public key for verifying update signatures */
@@ -2283,6 +2347,149 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TokenResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getConsoleSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The session */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsoleSession"];
+                };
+            };
+            /** @description No live session */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    signIn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Signed in; the session cookie is set */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsoleSession"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Too many failed login attempts for this account */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    signOut: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Signed out */
+            204: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No live session */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    registerConsole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterRequest"];
+            };
+        };
+        responses: {
+            /** @description Registered and signed in; the session cookie is set */
+            201: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsoleSession"];
                 };
             };
             /** @description Invalid request */

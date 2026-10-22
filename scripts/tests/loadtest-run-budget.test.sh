@@ -35,8 +35,18 @@ budget_for() { LOADTEST_HOLD="$1" "$BUDGET"; }
 field() { sed -n "s/^$2=\(.*\)$/\1/p" <<<"$1"; }
 
 out="$(budget_for 8m)"
-assert_eq "an eight-minute hold gives its pod thirty minutes" "1800" "$(field "$out" LOADTEST_POD_LIFETIME_SECONDS)"
-assert_eq "an eight-minute hold waits eighteen minutes for a verdict" "1080" "$(field "$out" LOADTEST_QUIC_COLLECT_TIMEOUT_SECONDS)"
+room="$(field "$out" LOADTEST_ROOM_WAIT_SECONDS)"
+assert_eq "the run waits up to half an hour for room on the shared server" "1800" "$room"
+assert_eq "an eight-minute hold gives its pod thirty minutes past the room wait" "$((1800 + room))" \
+  "$(field "$out" LOADTEST_POD_LIFETIME_SECONDS)"
+assert_eq "an eight-minute hold waits eighteen minutes past the room wait for a verdict" "$((1080 + room))" \
+  "$(field "$out" LOADTEST_QUIC_COLLECT_TIMEOUT_SECONDS)"
+walk_wait="$(field "$out" LOADTEST_QUIC_WALK_TIMEOUT_SECONDS)"
+if [ -n "$walk_wait" ] && [ "$walk_wait" -gt "$room" ] && [ "$walk_wait" -le $((room + 300)) ]; then
+  pass "the wait for the walk covers the room wait and a little more ($walk_wait s)"
+else
+  fail "the wait for the walk covers the room wait and a little more (walk=[$walk_wait] room=[$room])"
+fi
 
 short="$(field "$(budget_for 8m)" LOADTEST_POD_LIFETIME_SECONDS)"
 long="$(field "$(budget_for 5h)" LOADTEST_POD_LIFETIME_SECONDS)"
@@ -123,12 +133,20 @@ else
   fail "load-test.yml declares how long it waits for the namespace"
 fi
 
+# The collect wait already carries the room wait, so the sum is the claim, the room and the run.
 run_seconds="$(field "$(budget_for "${declared_hold:-8m}")" LOADTEST_QUIC_COLLECT_TIMEOUT_SECONDS)"
 needed_minutes=$(((${lease_wait:-0} + run_seconds) / 60))
 if [ -n "$job_timeout" ] && [ "$job_timeout" -ge "$needed_minutes" ]; then
   pass "the job covers the wait and the run together (${needed_minutes}m of ${job_timeout}m)"
 else
   fail "the job covers the wait and the run together (needs ${needed_minutes}m, has ${job_timeout}m)"
+fi
+
+# shellcheck disable=SC2016 # the workflow's own text, matched with its variable unexpanded
+if grep -q -- '-room-wait="${LOADTEST_ROOM_WAIT_SECONDS}s"' <<<"$workflow"; then
+  pass "the harness is handed the room wait the budget derived"
+else
+  fail "load-test.yml must hand the harness -room-wait from LOADTEST_ROOM_WAIT_SECONDS"
 fi
 
 # The walk the profile declares fits inside the hold, so machines leave only when the run ends.

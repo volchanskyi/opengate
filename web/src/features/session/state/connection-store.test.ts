@@ -64,7 +64,7 @@ describe('connection store', () => {
   });
 
   it('follows the relay and shows the session running through the server', () => {
-    useConnectionStore.getState().connect('tok', 'wss://edge.test/ws/relay/tok', 'jwt', []);
+    useConnectionStore.getState().connect('tok', 'wss://edge.test/ws/relay/tok', []);
     expect(useConnectionStore.getState().state).toBe('connecting');
     last().open();
 
@@ -75,7 +75,7 @@ describe('connection store', () => {
   });
 
   it('reports each outcome to the server for the session it belongs to', () => {
-    useConnectionStore.getState().connect('tok', 'wss://edge.test/ws/relay/tok', 'jwt', []);
+    useConnectionStore.getState().connect('tok', 'wss://edge.test/ws/relay/tok', []);
     last().open();
     expect(mockPost).toHaveBeenCalledWith('/api/v1/sessions/{token}/outcome', {
       params: { path: { token: 'tok' } },
@@ -88,7 +88,7 @@ describe('connection store', () => {
     const onControl = vi.fn();
     useConnectionStore.getState().setOnTerminalFrame(onTerminal);
     useConnectionStore.getState().listenControl(onControl);
-    useConnectionStore.getState().connect('tok', 'wss://edge.test/ws/relay/tok', 'jwt', []);
+    useConnectionStore.getState().connect('tok', 'wss://edge.test/ws/relay/tok', []);
     last().open();
 
     last().receive(encodeFrame({ type: FRAME_TERMINAL, frame: { data: new TextEncoder().encode('ok') } }));
@@ -103,7 +103,7 @@ describe('connection store', () => {
     const chat = vi.fn();
     const stopFiles = useConnectionStore.getState().listenControl(files);
     const stopChat = useConnectionStore.getState().listenControl(chat);
-    useConnectionStore.getState().connect('tok', 'wss://edge.test/ws/relay/tok', 'jwt', []);
+    useConnectionStore.getState().connect('tok', 'wss://edge.test/ws/relay/tok', []);
     last().open();
 
     last().receive(encodeFrame({ type: FRAME_CONTROL, message: { type: 'FileListError', path: '/x', error: 'denied' } }));
@@ -116,7 +116,7 @@ describe('connection store', () => {
   });
 
   it('keeps why the relay closed, for the page to show', () => {
-    useConnectionStore.getState().connect('tok', 'wss://edge.test/ws/relay/tok', 'jwt', []);
+    useConnectionStore.getState().connect('tok', 'wss://edge.test/ws/relay/tok', []);
     last().open();
     last().onclose?.({ code: 4000, reason: 'Opened elsewhere' });
 
@@ -125,16 +125,16 @@ describe('connection store', () => {
   });
 
   it('closes the earlier session when it connects again', () => {
-    useConnectionStore.getState().connect('one', 'wss://edge.test/ws/relay/one', 'jwt', []);
+    useConnectionStore.getState().connect('one', 'wss://edge.test/ws/relay/one', []);
     const first = last();
-    useConnectionStore.getState().connect('two', 'wss://edge.test/ws/relay/two', 'jwt', []);
+    useConnectionStore.getState().connect('two', 'wss://edge.test/ws/relay/two', []);
     expect(first.closed).toBe(true);
     expect(useConnectionStore.getState().token).toBe('two');
   });
 
   it('forgets the session and every feature callback on disconnect', () => {
     useConnectionStore.getState().setOnTerminalFrame(vi.fn());
-    useConnectionStore.getState().connect('tok', 'wss://edge.test/ws/relay/tok', 'jwt', []);
+    useConnectionStore.getState().connect('tok', 'wss://edge.test/ws/relay/tok', []);
     const socket = last();
     useConnectionStore.getState().disconnect();
 

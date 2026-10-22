@@ -7,10 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-
-	"github.com/google/uuid"
-
-	"github.com/volchanskyi/opengate/server/internal/cert"
 )
 
 // agentCredentials issues the TLS material one simulated machine dials with.
@@ -18,27 +14,19 @@ type agentCredentials interface {
 	forAgent(ctx context.Context, plan tenantAgent) (*tls.Config, error)
 }
 
-// newAgentCredentials picks the source: the server signs when an enrollment URL is given, and
-// the harness signs against a local authority in dataDir otherwise.
-func newAgentCredentials(dataDir, enrollURL, enrollToken string) (agentCredentials, error) {
-	if enrollURL != "" {
-		if enrollToken == "" {
-			return nil, errors.New("enrolling needs a token; mint one through the admin API before the run")
-		}
-		if err := CheckTarget(enrollURL); err != nil {
-			return nil, err
-		}
-		return enrolledCredentials{baseURL: enrollURL, token: enrollToken}, nil
+// newAgentCredentials enrols every machine through the server, which admits only the
+// certificates it recorded issuing.
+func newAgentCredentials(enrollURL, enrollToken string) (agentCredentials, error) {
+	if enrollURL == "" {
+		return nil, errors.New("the harness enrols through the server: pass -enroll-url, since the server admits only the certificates it issued")
 	}
-
-	if dataDir == "" {
-		return nil, errors.New("without an enrollment URL the harness needs a data directory holding a certificate authority")
+	if enrollToken == "" {
+		return nil, errors.New("enrolling needs a token; mint one through the admin API before the run")
 	}
-	manager, err := cert.NewManager(dataDir)
-	if err != nil {
-		return nil, fmt.Errorf("cert manager: %w", err)
+	if err := CheckTarget(enrollURL); err != nil {
+		return nil, err
 	}
-	return localCredentials{manager: manager}, nil
+	return enrolledCredentials{baseURL: enrollURL, token: enrollToken}, nil
 }
 
 // enrolledCredentials asks the server for a certificate, keeping private keys on the harness
@@ -52,7 +40,6 @@ func (c enrolledCredentials) forAgent(ctx context.Context, plan tenantAgent) (*t
 	issued, err := EnrollAgent(ctx, EnrollOptions{
 		BaseURL:         c.baseURL,
 		EnrollmentToken: c.token,
-		DeviceID:        uuid.New().String(),
 		Hostname:        plan.hostname,
 		// The machine's arrival and its later filing share one per-address allowance.
 		PresentedAddress: presentedAddress(plan.agentIndex),
@@ -61,21 +48,6 @@ func (c enrolledCredentials) forAgent(ctx context.Context, plan tenantAgent) (*t
 		return nil, fmt.Errorf("enroll %s: %w", plan.hostname, err)
 	}
 	return issued.AgentTLSConfig()
-}
-
-// localCredentials signs against an authority this process owns, for a stack the run brought
-// up itself.
-type localCredentials struct {
-	manager *cert.Manager
-}
-
-func (c localCredentials) forAgent(_ context.Context, plan tenantAgent) (*tls.Config, error) {
-	deviceID := uuid.New()
-	issued, err := c.manager.SignAgent(deviceID.String(), plan.hostname)
-	if err != nil {
-		return nil, fmt.Errorf("sign cert for %s: %w", plan.hostname, err)
-	}
-	return c.manager.AgentTLSConfig(issued), nil
 }
 
 // deviceIDFrom reads a machine's identifier from the common name of the certificate it dials

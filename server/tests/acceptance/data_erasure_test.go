@@ -40,8 +40,8 @@ func TestDeletingAMachineRemovesItAndStopsTrustingItsAgent(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, chart.Status,
 		"the readings are unreachable with the machine, or the erasure was not one")
 
-	// The agent still holds a valid certificate, so the refusal rests on the erased device row.
-	product.assertAgentIsNoLongerTrusted(machine, token)
+	// The agent still holds its certificate, and is told to remove itself when it returns.
+	product.assertToldToRemoveItself(machine, false)
 }
 
 func TestDeletingAMachineFromAnotherTenantIsNotFound(t *testing.T) {
@@ -61,16 +61,55 @@ func TestDeletingAMachineFromAnotherTenantIsNotFound(t *testing.T) {
 	require.Len(t, admin.devices(), 1, "somebody else's delete leaves the machine where it was")
 }
 
-// assertAgentIsNoLongerTrusted reconnects an erased machine's agent with its old identity and
-// requires the machine not to reappear, whether refused at the handshake or later.
-func (p *Product) assertAgentIsNoLongerTrusted(erased *Machine, enrolmentToken string) {
+// assertToldToRemoveItself brings an erased machine back with the certificate it kept and requires
+// the removal order to reach it, and the machine never to reappear.
+func (p *Product) assertToldToRemoveItself(erased *Machine, quick bool) {
 	p.t.Helper()
 
-	if err := p.tryReconnect(erased, enrolmentToken); err != nil {
-		p.t.Logf("the erased machine's agent was refused at the door: %v", err)
-	}
+	back := p.returnWith(erased.identity, erased.Hostname, quick)
+	order := back.awaitMessage(p.t, protocol.MsgAgentDeregistered)
+	assert.Equal(p.t, "device deleted by administrator", order.Reason)
+	_ = back.conn.CloseWithError(0, "removing myself")
 	require.Never(p.t, func() bool {
 		_, err := p.deviceRow(erased.DeviceID)
 		return err == nil
 	}, 2*time.Second, poll, "an erased machine must not put itself back by reconnecting")
+}
+
+func TestAMachineDeletedWhileOffIsToldToRemoveItselfWhenItReturns(t *testing.T) {
+	t.Parallel()
+
+	for name, quick := range map[string]bool{"full reconnect": false, "quick reconnect": true} {
+		t.Run(name, func(t *testing.T) {
+			product := newProduct(t, WithNumericTelemetry())
+			contoso := product.arrangeCustomer("Contoso")
+			admin := product.Administrator(contoso)
+			machine := product.Machine(admin.mintEnrolmentToken("Head Office").Token, "contoso-vm")
+			machine.AwaitOnline()
+			machine.Disconnect()
+
+			require.Equal(t, http.StatusNoContent,
+				admin.Delete("/api/v1/devices/"+machine.DeviceID.String()).Status)
+
+			product.assertToldToRemoveItself(machine, quick)
+		})
+	}
+}
+
+func TestAMachineDeletedLongAgoIsStillToldToRemoveItself(t *testing.T) {
+	t.Parallel()
+
+	product := newProduct(t, WithNumericTelemetry())
+	contoso := product.arrangeCustomer("Contoso")
+	admin := product.Administrator(contoso)
+	machine := product.Machine(admin.mintEnrolmentToken("Head Office").Token, "contoso-old-laptop")
+	machine.AwaitOnline()
+	machine.Disconnect()
+	require.Equal(t, http.StatusNoContent,
+		admin.Delete("/api/v1/devices/"+machine.DeviceID.String()).Status)
+
+	// Its certificate expired more than the 90 days the product admits an expired one to renew.
+	product.Advance(90*24*time.Hour + 91*24*time.Hour)
+
+	product.assertToldToRemoveItself(machine, false)
 }

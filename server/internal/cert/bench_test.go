@@ -1,7 +1,13 @@
 package cert
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 func benchManager(b *testing.B) *Manager {
@@ -25,9 +31,22 @@ func runSigning(b *testing.B, sign func(*Manager) error) {
 	}
 }
 
-func BenchmarkManager_SignAgent(b *testing.B) {
+func BenchmarkManager_IssueDevice(b *testing.B) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		b.Fatal(err)
+	}
+	der, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{}, key)
+	if err != nil {
+		b.Fatal(err)
+	}
+	csr, err := ParseDeviceRequest(der)
+	if err != nil {
+		b.Fatal(err)
+	}
+	id := uuid.New()
 	runSigning(b, func(m *Manager) error {
-		_, err := m.SignAgent("device-001", "test-host")
+		_, err := m.IssueDevice(csr, id)
 		return err
 	})
 }

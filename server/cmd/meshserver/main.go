@@ -37,6 +37,9 @@ func main() {
 	amtPass := flag.String("amt-pass", "", "AMT WSMAN password for device management")
 	agentRelayURL := flag.String("agent-relay-url", "", "scheme and host machines dial for the relay, e.g. wss://opengate.example.com (or OPENGATE_AGENT_RELAY_URL); required")
 	iceServers := flag.String("ice-servers", "", "comma-separated STUN URLs both session sides ask for their public address (or OPENGATE_ICE_SERVERS)")
+	caMustExist := flag.Bool("ca-must-exist", false, "refuse to start without the issuing master key instead of generating one")
+	caCompromisedSince := flag.String("ca-compromised-since", "", "RFC 3339 time a vouched-only master key leaked; certificates it signed earlier stay vouched")
+	certExpiredGrace := flag.Duration("cert-expired-grace", 0, "how long past expiry a certificate is admitted to renew (default 90 days)")
 	flag.Parse()
 
 	level := slog.LevelInfo
@@ -44,6 +47,12 @@ func main() {
 		level = slog.LevelDebug
 	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
+
+	compromisedSince, err := parseOptionalTime(*caCompromisedSince)
+	if err != nil {
+		logger.Error("ca-compromised-since must be an RFC 3339 time", "error", err)
+		os.Exit(1)
+	}
 
 	secret := firstNonEmpty(*jwtSecret, os.Getenv("JWT_SECRET"))
 	if secret == "" {
@@ -73,6 +82,9 @@ func main() {
 	assembly, err := app.Build(ctx, app.Config{
 		Store:              store,
 		DataDir:            *dataDir,
+		CAMustExist:        *caMustExist,
+		CACompromisedSince: compromisedSince,
+		CertExpiredGrace:   *certExpiredGrace,
 		JWTSecret:          secret,
 		Logger:             logger,
 		VictoriaMetricsURL: firstNonEmpty(*victoriaMetricsURL, os.Getenv("OPENGATE_VICTORIAMETRICS_URL")),
@@ -205,4 +217,12 @@ var productionSchedule = app.BackgroundSchedule{
 
 	// Four passes a day keep rows close to the horizon and each pass small.
 	RetentionSweep: 6 * time.Hour,
+}
+
+// parseOptionalTime reads an RFC 3339 time, an empty string being the zero time.
+func parseOptionalTime(value string) (time.Time, error) {
+	if value == "" {
+		return time.Time{}, nil
+	}
+	return time.Parse(time.RFC3339, value)
 }

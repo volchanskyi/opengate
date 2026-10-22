@@ -27,7 +27,7 @@ function jobAt(state: string, overrides: Record<string, unknown> = {}) {
 describe('DataLifecycle', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useAuthStore.setState({ tenantId, token: 't', user: null, hydrated: true, error: null });
+    useAuthStore.setState({ tenantId, user: null, hydrated: true, error: null });
     useToastStore.setState({ addToast });
   });
 
@@ -69,7 +69,6 @@ describe('DataLifecycle', () => {
     ['central-logical-complete', 'Central stores logically erased'],
     ['central-physical-compaction-pending', 'Awaiting VictoriaMetrics compaction'],
     ['object-delete-pending', 'Deleting cold-tier objects'],
-    ['edge-erase-pending', 'Awaiting edge erasure'],
     ['complete', 'Complete'],
   ])('renders the exact %s state label', async (state, label) => {
     vi.mocked(api.POST).mockResolvedValue(jobAt(state));

@@ -78,17 +78,20 @@ cat >"$BIN_DIR/kubectl" <<'EOF'
 #!/usr/bin/env bash
 set -uo pipefail
 printf '%s\n' "$*" >>"${KUBECTL_ARGS:-/dev/null}"
-# One export line per series: a reading a night, the last being last night's.
+metric=benchmark_ns_op
+[[ "$*" =~ match\[\]=([a-z_]+) ]] && metric="${BASH_REMATCH[1]}"
+# One export line per series of the asked metric: a reading a night, the last being last night's.
 series() {
-  local bench="$1" lang="$2" n i=0 v stamps=()
-  shift 2
+  local want="$1" bench="$2" lang="$3" n i=0 v stamps=()
+  shift 3
+  [ "$want" = "$metric" ] || return 0
   n=$#
   for v in "$@"; do
     stamps+=("$(((STORE_MIDNIGHT - (n - i) * 86400 + 36000) * 1000))")
     i=$((i + 1))
   done
-  printf '{"metric":{"__name__":"benchmark_ns_op","env":"ci","benchmark":"%s","lang":"%s"},"values":[%s],"timestamps":[%s]}\n' \
-    "$bench" "$lang" "$(IFS=,; printf '%s' "$*")" "$(IFS=,; printf '%s' "${stamps[*]}")"
+  printf '{"metric":{"__name__":"%s","env":"ci","benchmark":"%s","lang":"%s"},"values":[%s],"timestamps":[%s]}\n' \
+    "$metric" "$bench" "$lang" "$(IFS=,; printf '%s' "$*")" "$(IFS=,; printf '%s' "${stamps[*]}")"
 }
 nights() { for _ in $(seq 1 "$2"); do printf '%s ' "$1"; done; }
 case "${VM_PROFILE:-full}" in
@@ -96,16 +99,29 @@ case "${VM_PROFILE:-full}" in
   twelve)
     # Twelve nights on eight commits: four commits ran two nights each at 100
     # ns, then four ran one night each at 400–700.
-    series BenchmarkEncodeFrame go 100 100 100 100 100 100 100 100 400 500 600 700
+    series benchmark_ns_op BenchmarkEncodeFrame go 100 100 100 100 100 100 100 100 400 500 600 700
+    ;;
+  history)
+    # Ten nights at 100 ns before the change on the 26th, then three at 200.
+    series benchmark_ns_op BenchmarkEncodeFrame go 100 100 100 100 100 100 100 100 100 100 200 200 200
+    ;;
+  fresh)
+    # A benchmark with no committed numbers, ${VM_COUNT:-3} nights since its history began.
+    read -r -a ns <<<"$(nights 100 "${VM_COUNT:-3}")"
+    read -r -a allocs <<<"$(nights 2 "${VM_COUNT:-3}")"
+    read -r -a bytes <<<"$(nights 64 "${VM_COUNT:-3}")"
+    series benchmark_ns_op BenchmarkFresh go "${ns[@]}"
+    series benchmark_allocs_op BenchmarkFresh go "${allocs[@]}"
+    series benchmark_bytes_op BenchmarkFresh go "${bytes[@]}"
     ;;
   *)
     # ${VM_COUNT:-10} nights per series — fewer than NS_MIN_WINDOW_SAMPLES forces cold-start.
     read -r -a encode <<<"$(nights 123 "${VM_COUNT:-10}")"
     read -r -a decode <<<"$(nights 245 "${VM_COUNT:-10}")"
     read -r -a rust <<<"$(nights 987 "${VM_COUNT:-10}")"
-    series BenchmarkEncodeFrame go "${encode[@]}"
-    series BenchmarkDecodeFrame go "${decode[@]}"
-    series encode_frame rust "${rust[@]}"
+    series benchmark_ns_op BenchmarkEncodeFrame go "${encode[@]}"
+    series benchmark_ns_op BenchmarkDecodeFrame go "${decode[@]}"
+    series benchmark_ns_op encode_frame rust "${rust[@]}"
     ;;
 esac
 exit "${KUBECTL_STATUS:-0}"
@@ -123,6 +139,8 @@ VM_RUN_STARTED_AT="$(date -u -d '2026-09-29 10:33' +%s)"
 STORE_MIDNIGHT="$(date -u -d '2026-09-29 00:00' +%s)"
 export VM_RUN_STARTED_AT STORE_MIDNIGHT
 export BENCHMARK_SUMMARY_FILE="$WORK/benchmark-summary.md"
+export BENCHMARK_FLAGGED_FILE="$WORK/flagged.tsv"
+export BENCHMARK_WINDOW_FILE="$WORK/window.txt"
 
 echo "kubectl hermeticity:"
 assert_eq "kubectl resolves to the test mock" "$BIN_DIR/kubectl" "$(command -v kubectl)"
@@ -174,16 +192,32 @@ echo
 echo "ns/op VM-window gate:"
 
 # Relative rule, isolated: 200 ns/op > window median 123 × (1 + 0.50) = 184.5, but
-# < absolute ceiling (baseline 120 × 2 = 240). Only the window rule may fire.
+# < absolute ceiling (baseline 120 × 2 = 240). A Go timing past its line is re-run before it fails.
 write_go_ns 200
-if OUT="$(run_ns_gate 2>&1)"; then
-  fail "ns/op over the window band should fail red"
+rc=0
+OUT="$(run_ns_gate 2>&1)" || rc=$?
+assert_eq "a Go timing past the window band is flagged, not failed" "0" "$rc"
+assert_eq "the flagged benchmark, its line and its nights" "BenchmarkEncodeFrame	184.5	10" \
+  "$(cat "$BENCHMARK_FLAGGED_FILE")"
+assert_eq "the window file holds one Go-format line a night" "10" \
+  "$(grep -c '^BenchmarkEncodeFrame 1 123 ns/op$' "$BENCHMARK_WINDOW_FILE")"
+if grep -q '^REGRESSION_ALERT:' <<<"$OUT"; then
+  fail "a flagged timing raises no alert of its own"
 else
-  if grep -q '^REGRESSION_ALERT:.*ns_op' <<<"$OUT"; then
-    pass "ns/op over window median×1.5 reds and alerts (relative rule)"
-  else
-    fail "ns/op window regression should emit an ns_op alert (got: $OUT)"
-  fi
+  pass "a flagged timing raises no alert of its own"
+fi
+
+# Criterion's estimate is the mean of its own samples, so a Rust timing past its line fails at once.
+mkdir -p "$WORK/criterion-slow/encode_frame/new"
+printf '{"mean":{"point_estimate":1600.0}}\n' >"$WORK/criterion-slow/encode_frame/new/estimates.json"
+write_go_ns 123
+if OUT="$(GO_BENCH_FILE="$WORK/go-ns.txt" CRITERION_ROOT="$WORK/criterion-slow" \
+  BASELINE_FILE="$WORK/baseline.json" "$SUMMARIZE" 2>&1)"; then
+  fail "a Rust timing past its line fails"
+elif grep -q '^REGRESSION_ALERT:.*rust/encode_frame ns_op' <<<"$OUT"; then
+  pass "a Rust timing past its line fails"
+else
+  fail "a Rust timing past its line fails (got: $OUT)"
 fi
 
 # The window is nights read by date, so a re-run of tonight is excluded by its date.
@@ -195,13 +229,9 @@ fi
 
 # Over twelve nights on eight commits the median is 100 ns, so 200 ns is past the band of 150.
 write_go_ns 200
-if OUT="$(VM_PROFILE=twelve run_ns_gate 2>&1)"; then
-  fail "twelve nights on eight commits are judged against the twelve-night median"
-elif grep -q '^REGRESSION_ALERT:.*ns_op: 100 ' <<<"$OUT"; then
-  pass "twelve nights on eight commits are judged against the twelve-night median"
-else
-  fail "twelve nights on eight commits are judged against the twelve-night median (got: $OUT)"
-fi
+VM_PROFILE=twelve run_ns_gate >/dev/null 2>&1 || true
+assert_eq "twelve nights on eight commits are judged against the twelve-night median" \
+  "BenchmarkEncodeFrame	150	12" "$(cat "$BENCHMARK_FLAGGED_FILE")"
 
 # Sub-tol: 150 ns/op < 184.5 band and < 240 ceiling ⇒ silent (no red).
 write_go_ns 150
@@ -212,18 +242,17 @@ else
 fi
 
 # Absolute ceiling, isolated: window empty (cold-start) so the relative rule is
-# skipped; 300 ns/op > baseline 120 × 2 = 240 ⇒ the absolute backstop reds.
+# skipped; 300 ns/op > baseline 120 × 2 = 240 ⇒ flagged against the ceiling.
 write_go_ns 300
-if VM_PROFILE=empty run_ns_gate >/dev/null 2>&1; then
-  fail "ns/op over the absolute ceiling should fail even with no window history"
-else
-  pass "ns/op over baseline×2 reds via the absolute backstop (cold-start)"
-fi
+VM_PROFILE=empty run_ns_gate >/dev/null 2>&1 || true
+assert_eq "ns/op over baseline×2 is flagged against the ceiling (cold-start)" \
+  "BenchmarkEncodeFrame	240	0" "$(cat "$BENCHMARK_FLAGGED_FILE")"
 
 write_go_ns 150
 rc=0
 VM_PROFILE=empty run_ns_gate >/dev/null 2>&1 || rc=$?
 assert_eq "empty window under ceiling is fail-open (exit 0)" "0" "$rc"
+assert_eq "a timing inside its line flags nothing" "" "$(cat "$BENCHMARK_FLAGGED_FILE")"
 
 write_go_ns 200
 rc=0
@@ -249,10 +278,10 @@ if grep -qxF "$(summary_table_header | sed -n 1p)" <<<"$table"; then
 else
   fail "the page is the four-column table (got: $table)"
 fi
-if grep -qF "| go/BenchmarkEncodeFrame $(summary_term ns/op) | ≤ 184.5 ns (nights' median × 1.5); ≤ 240 ns (baseline × 2) | 200 ns | FAIL |" <<<"$table"; then
-  pass "a timing past the nights' band is FAIL, with both of its limits named"
+if grep -qF "| go/BenchmarkEncodeFrame $(summary_term ns/op) | ≤ 184.5 ns (nights' median × 1.5); ≤ 240 ns (baseline × 2) | 200 ns | re-run |" <<<"$table"; then
+  pass "a Go timing past the nights' band is re-run, with both of its limits named"
 else
-  fail "a timing past the nights' band is FAIL, with both of its limits named (got: $table)"
+  fail "a Go timing past the nights' band is re-run, with both of its limits named (got: $table)"
 fi
 if grep -qF "| go/BenchmarkEncodeFrame $(summary_term allocs/op) | ≤ 2.04 (baseline 2 + 2 %) | 2 | pass |" <<<"$table"; then
   pass "an allocation count inside its baseline passes"
@@ -262,10 +291,64 @@ fi
 if grep -q '^- \*\*' <<<"$table"; then fail "no legend follows the table"; else pass "no legend follows the table"; fi
 
 echo
+echo "history_from:"
+cat >"$WORK/baseline-history.json" <<'JSON'
+{
+  "version": 1,
+  "default_tolerances": { "allocs_op": 0.02, "bytes_op": 0.02 },
+  "benchmarks": [
+    { "name": "BenchmarkEncodeFrame", "lang": "go", "bytes_op": 64, "allocs_op": 2,
+      "history_from": "2026-09-26" },
+    { "name": "BenchmarkFresh", "lang": "go", "history_from": "2026-09-26" },
+    { "name": "encode_frame", "lang": "rust", "ns_op": 900.0, "bytes_op": null, "allocs_op": null }
+  ]
+}
+JSON
+run_history() {
+  GO_BENCH_FILE="$WORK/go-history.txt" CRITERION_ROOT="$WORK/criterion" \
+    BASELINE_FILE="$WORK/baseline-history.json" GITHUB_SHA="deadbeef" "$SUMMARIZE"
+}
+
+# The ten nights at 100 ns predate the change, so 250 ns is held to the three nights at 200 only.
+printf 'BenchmarkEncodeFrame-8   1000000   250 ns/op   64 B/op   2 allocs/op\n' >"$WORK/go-history.txt"
+rc=0
+VM_PROFILE=history run_history >/dev/null 2>&1 || rc=$?
+assert_eq "nights before history_from are left out of the window" "0" "$rc"
+assert_eq "a timing inside the band of the nights since history_from flags nothing" "" \
+  "$(cat "$BENCHMARK_FLAGGED_FILE")"
+
+printf 'BenchmarkFresh-8   1000000   100 ns/op   64 B/op   3 allocs/op\n' >"$WORK/go-history.txt"
+if VM_PROFILE=fresh run_history >/dev/null 2>&1; then
+  fail "a row with no numbers is held to the median of its nights once three exist"
+else
+  pass "a row with no numbers is held to the median of its nights once three exist"
+fi
+
+rc=0
+VM_PROFILE=fresh VM_COUNT=2 run_history >/dev/null 2>&1 || rc=$?
+assert_eq "a row with fewer than three nights since history_from is reported, not gated" "0" "$rc"
+BENCHMARK_SUMMARY_FILE="$WORK/fresh-table.md" VM_PROFILE=fresh VM_COUNT=2 run_history >/dev/null 2>&1 || true
+if grep -qF "| go/BenchmarkFresh $(summary_term allocs/op) | no limit yet (2 of 3 nights since 2026-09-26) | 3 | — |" "$WORK/fresh-table.md"; then
+  pass "the page says how many nights a new row still needs"
+else
+  fail "the page says how many nights a new row still needs (got: $(cat "$WORK/fresh-table.md"))"
+fi
+
+printf 'BenchmarkFresh-8   1000000   200 ns/op   64 B/op   2 allocs/op\n' >"$WORK/go-history.txt"
+VM_PROFILE=fresh run_history >/dev/null 2>&1 || true
+assert_eq "a row with no numbers is flagged against its nights' band" "BenchmarkFresh	150	3" \
+  "$(cat "$BENCHMARK_FLAGGED_FILE")"
+
+echo
 echo "baseline generation:"
 BASELINE_OUT="$(GO_BENCH_FILE="$WORK/go.txt" CRITERION_ROOT="$WORK/criterion" "$SUMMARIZE" --update-baseline)"
 assert_eq "baseline version" "1" "$(jq -r '.version' <<<"$BASELINE_OUT")"
 assert_eq "baseline contains three rows" "3" "$(jq -r '.benchmarks | length' <<<"$BASELINE_OUT")"
+assert_eq "no unread time tolerance is written" "null" "$(jq -r '.default_tolerances.ns_op' <<<"$BASELINE_OUT")"
+KEPT="$(GO_BENCH_FILE="$WORK/go.txt" CRITERION_ROOT="$WORK/criterion" BASELINE_FILE="$WORK/baseline-history.json" \
+  "$SUMMARIZE" --update-baseline)"
+assert_eq "a regenerated baseline keeps each row's history_from" "2026-09-26" \
+  "$(jq -r '.benchmarks[] | select(.name == "BenchmarkEncodeFrame") | .history_from' <<<"$KEPT")"
 
 rc=0
 GO_BENCH_FILE="$WORK/missing.txt" CRITERION_ROOT="$WORK/criterion" BASELINE_FILE="$WORK/baseline.json" "$SUMMARIZE" >/dev/null 2>&1 || rc=$?

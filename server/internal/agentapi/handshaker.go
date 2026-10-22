@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"slices"
 
 	"github.com/google/uuid"
 	"github.com/volchanskyi/opengate/server/internal/cert"
@@ -26,16 +27,18 @@ type HandshakeResult struct {
 
 // Handshaker performs the binary mTLS handshake with a newly connected agent.
 type Handshaker struct {
-	// caCertHash is the SHA-384 of the CA certificate, computed once because both handshake
-	// paths use it on every connection.
+	// caCertHash is the SHA-384 of the issuing master key, which ServerHello announces.
 	caCertHash [48]byte
+	// trusted holds the SHA-384 of every trusted master key, any of which the fast path accepts,
+	// so a changeover forces no fleet-wide full handshakes.
+	trusted [][48]byte
 	// rand is the randomness source for the ServerHello nonce.
 	rand io.Reader
 }
 
-// NewHandshaker creates a new Handshaker bound to the CA the manager holds.
+// NewHandshaker creates a new Handshaker bound to the trust set the manager holds.
 func NewHandshaker(cm *cert.Manager) *Handshaker {
-	return &Handshaker{caCertHash: sha512.Sum384(cm.CACert().Raw), rand: rand.Reader}
+	return &Handshaker{caCertHash: cm.IssuerHash(), trusted: cm.TrustedHashes(), rand: rand.Reader}
 }
 
 // PerformHandshake authenticates an agent from its first message, 0x11 AgentHello (full path)
@@ -96,7 +99,7 @@ func (h *Handshaker) fastHandshake(stream io.Reader, peerCerts [][]byte) (*Hands
 	if _, err := io.ReadFull(stream, cachedHash[:]); err != nil {
 		return nil, fmt.Errorf("read SkipAuth: %w", err)
 	}
-	if cachedHash != h.caCertHash {
+	if !slices.Contains(h.trusted, cachedHash) {
 		return nil, fmt.Errorf("%w: stale CA cert hash on fast path", ErrHandshakeFailed)
 	}
 

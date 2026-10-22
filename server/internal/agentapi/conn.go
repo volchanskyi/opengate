@@ -2,6 +2,7 @@ package agentapi
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -9,8 +10,13 @@ import (
 	"math"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/quic-go/quic-go"
+
+	"github.com/volchanskyi/opengate/server/internal/cert"
+	"github.com/volchanskyi/opengate/server/internal/certledger"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/inventory"
@@ -96,6 +102,40 @@ type AgentConn struct {
 	// released marks a connection the server has let go. A QUIC write lands in the local send buffer
 	// with nobody reading the far end, so this flag is what refuses a send to a departed machine.
 	released atomic.Bool
+
+	// quicConn is the connection the stream rides, closed with a code to refuse or replace it.
+	quicConn *quic.Conn
+	// certFP and leaf are the certificate the connection presented, or the renewal it installed.
+	certFP certledger.Fingerprint
+	leaf   *x509.Certificate
+	// authority is the trusted master key that signed leaf.
+	authority cert.Authority
+	// restricted marks a connection admitted only to renew or receive its removal order.
+	restricted bool
+	// renewal issues renewed certificates; renewalState is this connection's offer.
+	renewal      *renewals
+	renewalState renewalState
+	// trustBundle is sent once registration completes, as the acknowledgement of the identity.
+	trustBundle []byte
+
+	// pongs carries the pongs the read loop records, which a liveness probe waits on.
+	pongs chan struct{}
+}
+
+// answersPing sends a ping and reports whether the machine's pong arrives within wait; the read
+// loop records the pong.
+func (a *AgentConn) answersPing(wait time.Duration) bool {
+	if a.pongs == nil || a.writeFrame(protocol.FramePing, nil) != nil {
+		return false
+	}
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-a.pongs:
+		return true
+	case <-timer.C:
+		return false
+	}
 }
 
 // markReleased records that the server has let this connection go, so sendControl refuses from
@@ -370,6 +410,20 @@ func (a *AgentConn) Close() error {
 	return nil
 }
 
+// handleUpdateAck logs how an agent update went and records it against the device.
+func (a *AgentConn) handleUpdateAck(ctx context.Context, msg *protocol.ControlMessage) {
+	status := updater.StatusSuccess
+	if msg.Success != nil && *msg.Success {
+		a.logger.Info("agent update applied", "device_id", a.DeviceID, "version", msg.Version)
+	} else {
+		status = updater.StatusFailed
+		a.logger.Warn("agent update failed", "device_id", a.DeviceID, "version", msg.Version, "error", msg.AckError)
+	}
+	if err := a.deviceUpdates.SetStatus(ctx, a.DeviceID, msg.Version, status, msg.AckError); err != nil {
+		a.logger.Warn("persist update ack failed", "device_id", a.DeviceID, "error", err)
+	}
+}
+
 // handleControl reads and dispatches a single control message from the stream.
 func (a *AgentConn) handleControl(ctx context.Context) error {
 	if _, ok := dbtx.TenantFromContext(ctx); !ok {
@@ -384,6 +438,13 @@ func (a *AgentConn) handleControl(ctx context.Context) error {
 	if frameType == protocol.FramePing {
 		return a.writeFrame(protocol.FramePong, nil)
 	}
+	if frameType == protocol.FramePong {
+		select {
+		case a.pongs <- struct{}{}:
+		default:
+		}
+		return nil
+	}
 
 	if frameType != protocol.FrameControl {
 		return fmt.Errorf("%w: expected control frame, got 0x%02x", ErrUnexpectedMessage, frameType)
@@ -392,6 +453,10 @@ func (a *AgentConn) handleControl(ctx context.Context) error {
 	msg, err := a.codec.DecodeControl(payload)
 	if err != nil {
 		return fmt.Errorf("decode control: %w", err)
+	}
+
+	if a.restricted {
+		return a.dispatchRestricted(ctx, msg)
 	}
 
 	// A purged device is rejected on every write path, which closes the race between the purge
@@ -412,20 +477,7 @@ func (a *AgentConn) handleControl(ctx context.Context) error {
 		a.logger.Info("session rejected", "device_id", a.DeviceID, "token_prefix", protocol.RedactToken(string(msg.Token)), "reason", msg.Reason)
 		return nil
 	case protocol.MsgAgentUpdateAck:
-		success := msg.Success != nil && *msg.Success
-		if success {
-			a.logger.Info("agent update applied", "device_id", a.DeviceID, "version", msg.Version)
-		} else {
-			a.logger.Warn("agent update failed", "device_id", a.DeviceID, "version", msg.Version, "error", msg.AckError)
-		}
-
-		status := updater.StatusSuccess
-		if !success {
-			status = updater.StatusFailed
-		}
-		if err := a.deviceUpdates.SetStatus(ctx, a.DeviceID, msg.Version, status, msg.AckError); err != nil {
-			a.logger.Warn("persist update ack failed", "device_id", a.DeviceID, "error", err)
-		}
+		a.handleUpdateAck(ctx, msg)
 		return nil
 	case protocol.MsgHardwareReport:
 		return a.handleHardwareReport(ctx, msg)
@@ -454,6 +506,10 @@ func (a *AgentConn) handleControl(ctx context.Context) error {
 		return a.handleMaintenanceApplied(msg)
 	case protocol.MsgAgentAlert:
 		return a.handleAgentAlert(ctx, msg, len(payload))
+	case protocol.MsgCertificateSigningRequest:
+		return a.handleCertificateRequest(ctx, msg)
+	case protocol.MsgCertificateInstalled:
+		return a.handleCertificateInstalled(ctx)
 	default:
 		a.logger.Debug("ignoring unknown control message", "device_id", a.DeviceID, "type", msg.Type)
 		return nil

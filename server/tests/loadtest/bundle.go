@@ -21,12 +21,15 @@ type RunIdentity struct {
 	Commit string `json:"commit"`
 	// ProfileName and ProfileVersion together say what was asked for, because a profile is
 	// edited in place.
-	ProfileName    string      `json:"profile_name"`
-	ProfileVersion int         `json:"profile_version"`
-	Family         Family      `json:"family"`
-	Environment    Environment `json:"environment"`
-	StartedAt      time.Time   `json:"started_at"`
-	FinishedAt     time.Time   `json:"finished_at"`
+	ProfileName    string `json:"profile_name"`
+	ProfileVersion int    `json:"profile_version"`
+	// ProfileDigest names the profile file's bytes, so an edit that keeps the version starts a
+	// trend of its own.
+	ProfileDigest string      `json:"profile_digest"`
+	Family        Family      `json:"family"`
+	Environment   Environment `json:"environment"`
+	StartedAt     time.Time   `json:"started_at"`
+	FinishedAt    time.Time   `json:"finished_at"`
 }
 
 // Fingerprint describes one side of the measurement; a latency figure is a property of the

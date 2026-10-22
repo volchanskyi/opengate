@@ -312,38 +312,13 @@ func TestRelayWebSocket(t *testing.T) {
 		}
 		for name, credential := range cases {
 			t.Run(name, func(t *testing.T) {
-				assertBrowserRejected(t, "?side=browser&auth="+credential)
+				if credential == "" {
+					assertBrowserRejected(t, testSideBrowser)
+					return
+				}
+				assertBrowserRejected(t, testSideBrowser, testBearerPrefix+credential)
 			})
 		}
-		// The header transport must be judged identically to the query param.
-		t.Run("forged bearer header", func(t *testing.T) {
-			assertBrowserRejected(t, testSideBrowser, testBearerPrefix+forged)
-		})
-	})
-
-	t.Run("browser_auth_via_query_param", func(t *testing.T) {
-		ts, srv, cfg := newRelayTestServer(t)
-		ctx := relayTestCtx(t, 10*time.Second)
-
-		token, jwtToken := seedRelaySession(t, ctx, srv, cfg)
-
-		// Agent connects
-		agentConn := dialWS(t, ctx, ts.URL, testPathWSRelay+token+testSideAgent, nil)
-		defer agentConn.Close(websocket.StatusNormalClosure, "")
-
-		// Browser connects with JWT via query param (no Authorization header)
-		browserConn := dialWS(t, ctx, ts.URL, testPathWSRelay+token+"?side=browser&auth="+jwtToken, nil)
-		defer browserConn.Close(websocket.StatusNormalClosure, "")
-
-		waitForRelayWired(t, ctx, srv, protocol.SessionToken(token))
-
-		// Verify data flows
-		err := agentConn.Write(ctx, websocket.MessageBinary, []byte("from-agent"))
-		require.NoError(t, err)
-
-		_, data, err := browserConn.Read(ctx)
-		require.NoError(t, err)
-		assert.Equal(t, []byte("from-agent"), data)
 	})
 
 	t.Run("browser_connects_waits", func(t *testing.T) {

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import createClient, { type Middleware } from 'openapi-fetch';
 import { api, QUERY_SERIALIZER } from './api';
+import { lastRequest, noteRequest, setCsrfToken } from './console-session';
 
 // Records the options and middleware of the first client built, which is the one api.ts builds.
 const shipped = vi.hoisted(() => ({
@@ -54,7 +55,7 @@ async function attachCredentialTo(request: Request): Promise<Request> {
 
 describe('the shared api client', () => {
   beforeEach(() => {
-    localStorage.clear();
+    setCsrfToken(null);
   });
 
   it('is the client the module built, and carries the shared query serializer', () => {
@@ -62,27 +63,43 @@ describe('the shared api client', () => {
     expect(shipped.options?.querySerializer).toBe(QUERY_SERIALIZER);
   });
 
-  it('attaches the technician credential as a Bearer token', async () => {
-    localStorage.setItem('token', 'test-jwt-token');
+  it('sends the forged-request value on a change, and nothing that names the technician', async () => {
+    setCsrfToken('csrf-value');
 
-    const request = await attachCredentialTo(new Request(`${ORIGIN}/api/v1/health`));
+    const request = await attachCredentialTo(new Request(`${ORIGIN}/api/v1/sites`, { method: 'POST' }));
 
-    expect(request.headers.get('Authorization')).toBe('Bearer test-jwt-token');
-  });
-
-  it('sends no credential when nobody is signed in', async () => {
-    const request = await attachCredentialTo(new Request(`${ORIGIN}/api/v1/health`));
-
+    expect(request.headers.get('X-CSRF-Token')).toBe('csrf-value');
     expect(request.headers.get('Authorization')).toBeNull();
   });
 
-  it('leaves a header the caller set alone when nobody is signed in', async () => {
+  it('sends no forged-request value on a read', async () => {
+    setCsrfToken('csrf-value');
+
+    const request = await attachCredentialTo(new Request(`${ORIGIN}/api/v1/health`));
+
+    expect(request.headers.get('X-CSRF-Token')).toBeNull();
+  });
+
+  it('sends none before a sign-in', async () => {
+    const request = await attachCredentialTo(new Request(`${ORIGIN}/api/v1/sites`, { method: 'POST' }));
+
+    expect(request.headers.get('X-CSRF-Token')).toBeNull();
+  });
+
+  it('counts every request as activity, which renews the idle clock', async () => {
+    noteRequest(0);
+
+    await attachCredentialTo(new Request(`${ORIGIN}/api/v1/health`));
+
+    expect(lastRequest()).toBeGreaterThan(0);
+  });
+
+  it('leaves a header the caller set alone', async () => {
     const request = await attachCredentialTo(
       new Request(`${ORIGIN}/api/v1/health`, { headers: { Accept: 'application/json' } }),
     );
 
     expect(request.headers.get('Accept')).toBe('application/json');
-    expect(request.headers.get('Authorization')).toBeNull();
   });
 });
 

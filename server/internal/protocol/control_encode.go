@@ -4,7 +4,7 @@ import "github.com/vmihailenco/msgpack/v5"
 
 // controlFieldCount is the number of msgpack-encoded fields ControlMessage declares; the
 // positionally indexed controlFieldPresence and encodeControlField must track the struct.
-const controlFieldCount = 102
+const controlFieldCount = 105
 
 // Each put* helper writes one map entry through the encoder method the reflection encoder picks
 // for that Go type, keeping the integer widths and so the bytes identical.
@@ -207,6 +207,9 @@ func (m *ControlMessage) controlFieldPresence() [controlFieldCount]bool {
 	present[99] = m.Backfilled != nil
 	present[100] = m.EvidenceCodec != ""
 	present[101] = len(m.Evidence) != 0
+	present[102] = len(m.CSR) != 0
+	present[103] = len(m.Cert) != 0
+	present[104] = m.CABundle != ""
 	return present
 }
 
@@ -228,6 +231,8 @@ func (m *ControlMessage) encodeControlField(enc *msgpack.Encoder, i int) error {
 		return m.encodeInventoryField(enc, i)
 	case i <= 101:
 		return m.encodeAlertField(enc, i)
+	case i <= 104:
+		return m.encodeCertificateField(enc, i)
 	}
 	return nil
 }
@@ -481,6 +486,20 @@ func (m *ControlMessage) encodeAlertField(enc *msgpack.Encoder, i int) error {
 		return putString(enc, "evidence_codec", string(m.EvidenceCodec))
 	case 101:
 		return putBytes(enc, "evidence", m.Evidence)
+	}
+	return nil
+}
+
+// encodeCertificateField writes one of fields 102–104: a certificate request, a certificate, and
+// the trust bundle.
+func (m *ControlMessage) encodeCertificateField(enc *msgpack.Encoder, i int) error {
+	switch i {
+	case 102:
+		return putBytes(enc, "csr", m.CSR)
+	case 103:
+		return putBytes(enc, "cert", m.Cert)
+	case 104:
+		return putString(enc, "ca_bundle", m.CABundle)
 	}
 	return nil
 }

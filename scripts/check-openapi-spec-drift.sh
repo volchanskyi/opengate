@@ -14,9 +14,9 @@ if [ ! -f "$SPEC" ]; then
   exit 1
 fi
 
-# Operations that are public by design: pre-auth register and login, enroll (single-use
-# token in the path) and browser crash reporting (size-bounded, rate-limited, write-only).
-ALLOWED_PUBLIC_MUTATIONS="register login enroll reportClientError"
+# Operations that are public by design: pre-auth register and login and their console-cookie
+# forms, enroll (token in the path) and browser crash reporting (size-bounded, rate-limited).
+ALLOWED_PUBLIC_MUTATIONS="register login signIn registerConsole enroll reportClientError"
 
 python3 - "$SPEC" "$ALLOWED_PUBLIC_MUTATIONS" <<'PY'
 import re, sys

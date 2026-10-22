@@ -8,38 +8,6 @@ metadata:
   labels:
     {{- include "mon.labels" . | nindent 4 }}
 ---
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: {{ $name }}
-  labels:
-    {{- include "mon.labels" . | nindent 4 }}
-rules:
-  # Discovery in vmagent-scrape.yaml needs read-only list/watch on pods, endpoints, services, nodes.
-  - apiGroups: [""]
-    resources: [pods, endpoints, services, nodes]
-    verbs: [get, list, watch]
-  # The kubelet authorises /metrics/cadvisor against nodes/metrics; nodes/proxy would let its
-  # holder relay arbitrary requests through the kubelet.
-  - apiGroups: [""]
-    resources: [nodes/metrics]
-    verbs: [get]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: {{ $name }}
-  labels:
-    {{- include "mon.labels" . | nindent 4 }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: {{ $name }}
-subjects:
-  - kind: ServiceAccount
-    name: {{ $name }}
-    namespace: {{ .Release.Namespace }}
----
 apiVersion: v1
 kind: ConfigMap
 metadata:

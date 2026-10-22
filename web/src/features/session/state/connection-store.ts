@@ -21,7 +21,7 @@ interface ConnectionStore {
   /** Why the relay closed, as the server said it: "Opened elsewhere", "Ended by <name>". */
   closedReason: string | null;
 
-  connect: (token: string, relayUrl: string, authToken: string, helpers: string[]) => void;
+  connect: (token: string, relayUrl: string, helpers: string[]) => void;
   disconnect: () => void;
 
   /** Every feature listening for control messages; each takes the types it handles. */
@@ -71,7 +71,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
   setOnTerminalFrame: (cb) => set({ onTerminalFrame: cb }),
   setOnFileFrame: (cb) => set({ onFileFrame: cb }),
 
-  connect: (token, relayUrl, authToken, helpers) => {
+  connect: (token, relayUrl, helpers) => {
     get().transport?.disconnect();
 
     const events: SessionChannelEvents = {
@@ -90,7 +90,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
 
     const transport = new SessionChannel(events, helpers);
     set({ transport, token, error: null, closedReason: null, path: THROUGH_SERVER });
-    transport.connect(relayUrl, authToken);
+    transport.connect(relayUrl);
   },
 
   disconnect: () => {

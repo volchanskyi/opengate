@@ -32,3 +32,9 @@ output "backup_policy_ocid" {
   value       = module.backups.policy_ocid
   sensitive   = true
 }
+
+output "workflow_user_id" {
+  description = "OCID of the workflows' cluster login — the OCI_WORKFLOW_USER_OCID GitHub secret"
+  value       = module.workflow_identity.user_id
+  sensitive   = true
+}

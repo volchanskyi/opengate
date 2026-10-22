@@ -16,130 +16,80 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/volchanskyi/opengate/server/internal/amt/transport"
 )
 
-type fakeMPSConn struct {
-	netConn   net.Conn
-	ch        *transport.Channel
-	openErr   error
-	openCalls int
+// stream is the client's end of a pipe whose other end the simulator answers.
+type stream struct {
+	net.Conn
+	closed chan struct{}
+	once   sync.Once
 }
 
-func (f *fakeMPSConn) OpenChannel(_ string, _ uint16) (*transport.Channel, error) {
-	f.openCalls++
+func (s *stream) Close() error {
+	s.once.Do(func() { close(s.closed) })
+	return s.Conn.Close()
+}
+
+// fakeDial hands out one stream per call and counts the calls.
+type fakeDial struct {
+	mu      sync.Mutex
+	streams []*stream
+	openErr error
+	serve   func(amtSide net.Conn)
+}
+
+func (f *fakeDial) dial(_ context.Context) (io.ReadWriteCloser, error) {
 	if f.openErr != nil {
 		return nil, f.openErr
 	}
-	return f.ch, nil
+	clientSide, amtSide := net.Pipe()
+	s := &stream{Conn: clientSide, closed: make(chan struct{})}
+	f.mu.Lock()
+	f.streams = append(f.streams, s)
+	f.mu.Unlock()
+	go f.serve(amtSide)
+	return s, nil
 }
 
-func (f *fakeMPSConn) NetConn() net.Conn { return f.netConn }
-
-type amtSimulator struct {
-	t        *testing.T
-	conn     net.Conn
-	ch       *transport.Channel
-	handler  func(req *http.Request) []byte
-	done     chan struct{}
-	requests int
+func (f *fakeDial) calls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.streams)
 }
 
-func (a *amtSimulator) run() {
-	defer close(a.done)
-	for {
-		req, err := readOneHTTPRequest(a.conn)
-		if err != nil {
-			return
-		}
-		a.requests++
-		resp := a.handler(req)
-		// Do sets OnData before writing the request, so the pipe read orders OnData visibly here.
-		if cb := a.ch.OnData; cb != nil {
-			cb(resp)
+// answer serves each HTTP request read from amtSide with handler's response.
+func answer(handler func(req *http.Request) []byte) func(net.Conn) {
+	return func(amtSide net.Conn) {
+		defer amtSide.Close()
+		reader := bufio.NewReader(amtSide)
+		for {
+			req, err := http.ReadRequest(reader)
+			if err != nil {
+				return
+			}
+			body, err := io.ReadAll(req.Body)
+			if err != nil {
+				return
+			}
+			req.Body = io.NopCloser(bytes.NewReader(body))
+			if _, err := amtSide.Write(handler(req)); err != nil {
+				return
+			}
 		}
 	}
 }
 
-// The client writes headers then body, so the request is complete only once both have arrived;
-// replying earlier deadlocks both ends.
-func readOneHTTPRequest(c net.Conn) (*http.Request, error) {
-	var acc bytes.Buffer
-	for {
-		msgType, payload, err := transport.ReadMessage(c)
-		if err != nil {
-			return nil, err
-		}
-		if msgType != transport.APFChannelData {
-			continue
-		}
-		cd, err := transport.ParseChannelData(payload)
-		if err != nil {
-			return nil, err
-		}
-		acc.Write(cd.Data)
+func discard() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
 
-		buf := acc.Bytes()
-		headerEnd := bytes.Index(buf, []byte("\r\n\r\n"))
-		if headerEnd < 0 {
-			continue
-		}
-		bodyStart := headerEnd + 4
-		r, parseErr := http.ReadRequest(bufio.NewReader(bytes.NewReader(buf)))
-		if parseErr != nil {
-			continue
-		}
-		wantBody := max(0, int(r.ContentLength))
-		if len(buf)-bodyStart < wantBody {
-			continue
-		}
-		r.Body = io.NopCloser(bytes.NewReader(buf[bodyStart : bodyStart+wantBody]))
-		return r, nil
-	}
+func newWireFixture(t *testing.T, handler func(req *http.Request) []byte) (*Client, *fakeDial) {
+	t.Helper()
+	dial := &fakeDial{serve: answer(handler)}
+	return NewClient(dial.dial, "admin", "P@ssw0rd", discard()), dial
 }
 
 const pipeTestTimeout = 5 * time.Second
-
-// The pipe is unbuffered, so deadlines keep a silent simulator from blocking the client's Read.
-func newDeadlinePipe(t *testing.T) (net.Conn, net.Conn) {
-	t.Helper()
-	a, b := net.Pipe()
-	deadline := time.Now().Add(pipeTestTimeout)
-	require.NoError(t, a.SetDeadline(deadline))
-	require.NoError(t, b.SetDeadline(deadline))
-	return a, b
-}
-
-func newWireFixture(t *testing.T, handler func(req *http.Request) []byte) (*Client, *fakeMPSConn, func()) {
-	t.Helper()
-	clientSide, amtSide := newDeadlinePipe(t)
-	ch := &transport.Channel{LocalID: 1, RemoteID: 42, Type: "direct-tcpip"}
-
-	fconn := &fakeMPSConn{netConn: clientSide, ch: ch}
-	sim := &amtSimulator{
-		t:       t,
-		conn:    amtSide,
-		ch:      ch,
-		handler: handler,
-		done:    make(chan struct{}),
-	}
-	go sim.run()
-
-	client := NewClient(fconn, "admin", "P@ssw0rd",
-		slog.New(slog.NewTextHandler(io.Discard, nil)))
-
-	cleanup := func() {
-		_ = clientSide.Close()
-		_ = amtSide.Close()
-		select {
-		case <-sim.done:
-		case <-time.After(time.Second):
-			t.Log("amt simulator did not exit cleanly")
-		}
-	}
-	return client, fconn, cleanup
-}
 
 func httpOK(body string) []byte {
 	return fmt.Appendf(nil,
@@ -163,15 +113,71 @@ func minimalSOAPEnvelope(body string) string {
 
 func TestClientDo_HappyPathNoAuth(t *testing.T) {
 	body := minimalSOAPEnvelope(`<r:Response>ok</r:Response>`)
-	client, fconn, cleanup := newWireFixture(t, func(_ *http.Request) []byte {
+	client, fconn := newWireFixture(t, func(_ *http.Request) []byte {
 		return httpOK(body)
 	})
-	defer cleanup()
 
 	resp, err := client.Do(context.Background(), "TestAction", []byte("req-payload"))
 	require.NoError(t, err)
 	assert.Contains(t, string(resp), "ok")
-	assert.Equal(t, 1, fconn.openCalls)
+	require.Equal(t, 1, fconn.calls())
+	select {
+	case <-fconn.streams[0].closed:
+	default:
+		t.Fatal("Do left its stream open")
+	}
+}
+
+func TestClientDo_HonoursItsContext(t *testing.T) {
+	dial := &fakeDial{serve: func(amtSide net.Conn) {
+		// The device reads the request and never answers.
+		_, _ = io.Copy(io.Discard, amtSide)
+	}}
+	client := NewClient(dial.dial, "admin", "x", discard())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	_, err := client.Do(ctx, "TestAction", []byte("req"))
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Less(t, time.Since(started), pipeTestTimeout)
+	select {
+	case <-dial.streams[0].closed:
+	default:
+		t.Fatal("Do left its stream open")
+	}
+}
+
+func TestClientDo_RequestsOnOneClientRunSideBySide(t *testing.T) {
+	release := make(chan struct{})
+	var mu sync.Mutex
+	waiting := 0
+	client, _ := newWireFixture(t, func(_ *http.Request) []byte {
+		mu.Lock()
+		waiting++
+		if waiting == 2 {
+			close(release)
+		}
+		mu.Unlock()
+		// Each answer waits for the other request to arrive, so serial requests never finish.
+		select {
+		case <-release:
+		case <-time.After(pipeTestTimeout):
+		}
+		return httpOK(minimalSOAPEnvelope(`<r:OK/>`))
+	})
+
+	errs := make(chan error, 2)
+	for range 2 {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			_, err := client.Do(ctx, "TestAction", []byte("req"))
+			errs <- err
+		}()
+	}
+	require.NoError(t, <-errs)
+	require.NoError(t, <-errs)
 }
 
 func TestClientDo_DigestRetrySucceeds(t *testing.T) {
@@ -179,7 +185,7 @@ func TestClientDo_DigestRetrySucceeds(t *testing.T) {
 	var seenAuth string
 	var mu sync.Mutex
 	calls := 0
-	client, _, cleanup := newWireFixture(t, func(req *http.Request) []byte {
+	client, _ := newWireFixture(t, func(req *http.Request) []byte {
 		mu.Lock()
 		calls++
 		c := calls
@@ -192,7 +198,6 @@ func TestClientDo_DigestRetrySucceeds(t *testing.T) {
 		mu.Unlock()
 		return httpOK(body)
 	})
-	defer cleanup()
 
 	resp, err := client.Do(context.Background(), "TestAction", []byte("req"))
 	require.NoError(t, err)
@@ -206,14 +211,13 @@ func TestClientDo_DigestRetrySucceeds(t *testing.T) {
 
 func TestClientDo_DigestRetryFinalNon200ReturnsError(t *testing.T) {
 	calls := 0
-	client, _, cleanup := newWireFixture(t, func(_ *http.Request) []byte {
+	client, _ := newWireFixture(t, func(_ *http.Request) []byte {
 		calls++
 		if calls == 1 {
 			return httpUnauthorized("r", "n")
 		}
 		return []byte("HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n")
 	})
-	defer cleanup()
 
 	_, err := client.Do(context.Background(), "TestAction", []byte("req"))
 	require.Error(t, err)
@@ -221,10 +225,9 @@ func TestClientDo_DigestRetryFinalNon200ReturnsError(t *testing.T) {
 }
 
 func TestClientDo_MalformedHTTPResponseFails(t *testing.T) {
-	client, _, cleanup := newWireFixture(t, func(_ *http.Request) []byte {
+	client, _ := newWireFixture(t, func(_ *http.Request) []byte {
 		return []byte("not an HTTP response at all\r\n")
 	})
-	defer cleanup()
 
 	_, err := client.Do(context.Background(), "TestAction", []byte("req"))
 	require.Error(t, err)
@@ -232,16 +235,8 @@ func TestClientDo_MalformedHTTPResponseFails(t *testing.T) {
 }
 
 func TestClientDo_OpenChannelFailurePropagates(t *testing.T) {
-	clientSide, amtSide := newDeadlinePipe(t)
-	defer clientSide.Close()
-	defer amtSide.Close()
-
-	fconn := &fakeMPSConn{
-		netConn: clientSide,
-		openErr: fmt.Errorf("simulated open failure"),
-	}
-	client := NewClient(fconn, "admin", "x",
-		slog.New(slog.NewTextHandler(io.Discard, nil)))
+	dial := &fakeDial{openErr: fmt.Errorf("simulated open failure")}
+	client := NewClient(dial.dial, "admin", "x", discard())
 
 	_, err := client.Do(context.Background(), "TestAction", []byte("req"))
 	require.Error(t, err)
@@ -250,12 +245,11 @@ func TestClientDo_OpenChannelFailurePropagates(t *testing.T) {
 }
 
 func TestClientDo_DigestChallengeRejected(t *testing.T) {
-	client, _, cleanup := newWireFixture(t, func(_ *http.Request) []byte {
+	client, _ := newWireFixture(t, func(_ *http.Request) []byte {
 		return []byte("HTTP/1.1 401 Unauthorized\r\n" +
 			"WWW-Authenticate: Basic realm=\"x\"\r\n" +
 			"Content-Length: 0\r\n\r\n")
 	})
-	defer cleanup()
 
 	_, err := client.Do(context.Background(), "TestAction", []byte("req"))
 	require.Error(t, err)
@@ -266,13 +260,12 @@ func TestRequestPowerStateChange_SendsExpectedAction(t *testing.T) {
 	body := minimalSOAPEnvelope(`<r:OK/>`)
 	var seenAction string
 	var mu sync.Mutex
-	client, _, cleanup := newWireFixture(t, func(req *http.Request) []byte {
+	client, _ := newWireFixture(t, func(req *http.Request) []byte {
 		mu.Lock()
 		seenAction = req.URL.Path
 		mu.Unlock()
 		return httpOK(body)
 	})
-	defer cleanup()
 
 	err := client.RequestPowerStateChange(context.Background(), HardReset)
 	require.NoError(t, err)
@@ -288,10 +281,9 @@ func TestGetDeviceInfo_ParsesFields(t *testing.T) {
 			`<p:Model>Optiplex 9020</p:Model>` +
 			`</p:CIM_ComputerSystem>`)
 
-	client, _, cleanup := newWireFixture(t, func(_ *http.Request) []byte {
+	client, _ := newWireFixture(t, func(_ *http.Request) []byte {
 		return httpOK(respBody)
 	})
-	defer cleanup()
 
 	info, err := client.GetDeviceInfo(context.Background())
 	require.NoError(t, err)
@@ -301,10 +293,9 @@ func TestGetDeviceInfo_ParsesFields(t *testing.T) {
 }
 
 func TestGetDeviceInfo_MalformedEnvelopeReturnsEmptyInfo(t *testing.T) {
-	client, _, cleanup := newWireFixture(t, func(_ *http.Request) []byte {
+	client, _ := newWireFixture(t, func(_ *http.Request) []byte {
 		return httpOK("not xml at all <<<<")
 	})
-	defer cleanup()
 
 	info, err := client.GetDeviceInfo(context.Background())
 	require.NoError(t, err)
@@ -315,10 +306,9 @@ func TestGetDeviceInfo_MalformedEnvelopeReturnsEmptyInfo(t *testing.T) {
 
 func TestGetPowerState_ParsesEnabledState(t *testing.T) {
 	respBody := minimalSOAPEnvelope(`<p:EnabledState>2</p:EnabledState>`)
-	client, _, cleanup := newWireFixture(t, func(_ *http.Request) []byte {
+	client, _ := newWireFixture(t, func(_ *http.Request) []byte {
 		return httpOK(respBody)
 	})
-	defer cleanup()
 
 	state, err := client.GetPowerState(context.Background())
 	require.NoError(t, err)
@@ -327,10 +317,9 @@ func TestGetPowerState_ParsesEnabledState(t *testing.T) {
 
 func TestGetPowerState_NonNumericEnabledStateReturnsError(t *testing.T) {
 	respBody := minimalSOAPEnvelope(`<p:EnabledState>oops</p:EnabledState>`)
-	client, _, cleanup := newWireFixture(t, func(_ *http.Request) []byte {
+	client, _ := newWireFixture(t, func(_ *http.Request) []byte {
 		return httpOK(respBody)
 	})
-	defer cleanup()
 
 	_, err := client.GetPowerState(context.Background())
 	require.Error(t, err)
@@ -338,10 +327,9 @@ func TestGetPowerState_NonNumericEnabledStateReturnsError(t *testing.T) {
 }
 
 func TestGetPowerState_EmptyBodyReturnsError(t *testing.T) {
-	client, _, cleanup := newWireFixture(t, func(_ *http.Request) []byte {
+	client, _ := newWireFixture(t, func(_ *http.Request) []byte {
 		return httpOK(`<?xml version="1.0"?><s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"></s:Envelope>`)
 	})
-	defer cleanup()
 
 	_, err := client.GetPowerState(context.Background())
 	require.Error(t, err)

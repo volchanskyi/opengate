@@ -7,8 +7,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/volchanskyi/opengate/server/internal/db"
 )
 
 // enrolmentToken is the credential a machine being installed presents to enrol.
@@ -114,31 +112,4 @@ func TestAnUnknownEnrolmentTokenIsRefused(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, product.enrolAttempt("not-a-real-token").Status)
 }
 
-func TestAMachineRebuiltWithANewCertificateIsTheSameMachine(t *testing.T) {
-	t.Parallel()
-
-	product := newProduct(t)
-	contoso := product.arrangeCustomer("Contoso")
-	admin := product.Administrator(contoso)
-	token := admin.mintEnrolmentToken("rebuild")
-
-	original := product.Machine(token.Token, "contoso-workstation")
-	original.AwaitOnline()
-	original.Disconnect()
-
-	// Only the rebuild sends this hostname, so it marks the rebuild's registration reaching the row.
-	const reimaged = "contoso-workstation-reimaged"
-	rebuilt := product.MachineWithIdentity(token.Token, original.DeviceID, reimaged)
-	require.Eventually(t, func() bool {
-		d, err := product.deviceRow(rebuilt.DeviceID)
-		return err == nil && d.Hostname == reimaged && d.Status == db.StatusOnline
-	}, eventually, poll, "the rebuilt machine must come back online under its own registration")
-
-	assert.Len(t, admin.devices(), 1, "a rebuilt machine is the same machine, not a duplicate")
-
-	// The replaced connection's teardown must not write the device offline.
-	assert.Never(t, func() bool {
-		d, err := product.deviceRow(rebuilt.DeviceID)
-		return err == nil && d.Status != db.StatusOnline
-	}, eventually, poll, "a machine that is connected stays online while the connection it replaced departs")
-}
+// csrNaming is a request for a fresh key whose subject names cn.

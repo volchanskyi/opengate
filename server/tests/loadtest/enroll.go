@@ -8,7 +8,6 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -23,8 +22,7 @@ type EnrollOptions struct {
 	BaseURL string
 	// EnrollmentToken is minted through the admin API before the run and spent during it.
 	EnrollmentToken string
-	DeviceID        string
-	// Hostname is the name this machine presents; empty falls back to the device id.
+	// Hostname is the name this machine presents.
 	Hostname string
 	// PresentedAddress is the address this machine arrives from, counted per address by the
 	// server. Empty presents nothing.
@@ -32,9 +30,10 @@ type EnrollOptions struct {
 }
 
 // IssuedCertificate is what an enrolled machine holds: its signed certificate and private key,
-// plus the authority to verify the server with.
+// the device number the server chose, and the authority to verify the server with.
 type IssuedCertificate struct {
 	Certificate tls.Certificate
+	DeviceID    string
 	CAPEM       string
 	ServerAddr  string
 }
@@ -50,9 +49,6 @@ func EnrollAgent(ctx context.Context, opts EnrollOptions) (*IssuedCertificate, e
 	}
 	if opts.EnrollmentToken == "" {
 		return nil, errors.New("enrollment needs a token; mint one through the admin API before the run")
-	}
-	if opts.DeviceID == "" {
-		return nil, errors.New("enrollment needs a device id")
 	}
 
 	key, csrPEM, err := signingRequest(opts)
@@ -72,8 +68,12 @@ func EnrollAgent(ctx context.Context, opts EnrollOptions) (*IssuedCertificate, e
 	if err != nil {
 		return nil, fmt.Errorf("enrollment returned a certificate that does not match the key sent for it: %w", err)
 	}
+	if cert.Leaf == nil || cert.Leaf.Subject.CommonName != response.DeviceID {
+		return nil, fmt.Errorf("%w: the reply names device %q but its certificate carries another", ErrEnrollmentFailed, response.DeviceID)
+	}
 	return &IssuedCertificate{
 		Certificate: cert,
+		DeviceID:    response.DeviceID,
 		CAPEM:       response.CAPEM,
 		ServerAddr:  response.ServerAddr,
 	}, nil
@@ -82,6 +82,7 @@ func EnrollAgent(ctx context.Context, opts EnrollOptions) (*IssuedCertificate, e
 // enrollResponse is the shape the endpoint answers with.
 type enrollResponse struct {
 	CertPEM    string `json:"cert_pem"`
+	DeviceID   string `json:"device_id"`
 	CAPEM      string `json:"ca_pem"`
 	ServerAddr string `json:"server_addr"`
 }
@@ -94,13 +95,10 @@ func signingRequest(opts EnrollOptions) (*ecdsa.PrivateKey, []byte, error) {
 		return nil, nil, fmt.Errorf("generate agent key: %w", err)
 	}
 
-	hostname := opts.Hostname
-	if hostname == "" {
-		hostname = opts.DeviceID
-	}
-	template := &x509.CertificateRequest{
-		Subject:  pkix.Name{CommonName: opts.DeviceID},
-		DNSNames: []string{hostname},
+	// The server chooses the device number, so the request names none.
+	template := &x509.CertificateRequest{}
+	if opts.Hostname != "" {
+		template.DNSNames = []string{opts.Hostname}
 	}
 	csrDER, err := x509.CreateCertificateRequest(rand.Reader, template, key)
 	if err != nil {

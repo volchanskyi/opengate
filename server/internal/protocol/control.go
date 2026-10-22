@@ -77,6 +77,15 @@ const (
 	// MsgAgentAlert is the only alert transport: one alert carries everything the device knows
 	// about why it fired, since the server holds no high-resolution history.
 	MsgAgentAlert ControlMessageType = "AgentAlert"
+
+	// Certificate renewal over the live connection, and the trust bundle whose arrival tells the
+	// agent the server accepted its identity.
+	MsgRenewCertificate          ControlMessageType = "RenewCertificate"
+	MsgCertificateSigningRequest ControlMessageType = "CertificateSigningRequest"
+	MsgCertificateIssued         ControlMessageType = "CertificateIssued"
+	MsgCertificateRefused        ControlMessageType = "CertificateRefused"
+	MsgCertificateInstalled      ControlMessageType = "CertificateInstalled"
+	MsgTrustBundle               ControlMessageType = "TrustBundle"
 )
 
 // AlertSeverity is how bad an alert is, serialized as the Rust AlertSeverity variant name.
@@ -318,6 +327,12 @@ type ControlMessage struct {
 	// Evidence is a compressed AlertEvidence. Empty is a legal alert: the device
 	// had nothing to attach, which still says the machine is in trouble.
 	Evidence []byte `msgpack:"evidence,omitempty"`
+
+	// CertificateSigningRequest carries a DER request; CertificateIssued a DER certificate and,
+	// with TrustBundle, the PEM bundle of master keys the agent trusts.
+	CSR      []byte `msgpack:"csr,omitempty"`
+	Cert     []byte `msgpack:"cert,omitempty"`
+	CABundle string `msgpack:"ca_bundle,omitempty"`
 }
 
 // RankedDim is one dimension the device's own correlation engine ranked at the

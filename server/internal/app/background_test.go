@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/volchanskyi/opengate/server/internal/auth"
 	"io"
 	"log/slog"
 	"testing"
@@ -47,10 +48,10 @@ func (r *sweepRepo) DeleteStale(_ context.Context, _ time.Time, keep []string) (
 // nopConn is a relay.Conn that carries no traffic.
 type nopConn struct{}
 
-func (nopConn) ReadMessage() ([]byte, error) { select {} }
-func (nopConn) WriteMessage([]byte) error    { return nil }
-func (nopConn) Close() error                 { return nil }
-func (nopConn) End(string) error             { return nil }
+func (nopConn) ReadMessage() (relay.Message, error) { select {} }
+func (nopConn) WriteMessage([]byte) error           { return nil }
+func (nopConn) Close() error                        { return nil }
+func (nopConn) End(string) error                    { return nil }
 
 func TestLiveRelayTokens_MirrorsTheRelay(t *testing.T) {
 	agentRelay := relay.NewRelay(slog.Default())
@@ -300,4 +301,27 @@ func TestARetentionSweepThatReclaimedSomething(t *testing.T) {
 			assert.Empty(t, buf.String())
 		})
 	}
+}
+
+// expiredSessionCollector records the cut-offs a console session sweep was handed.
+type expiredSessionCollector struct {
+	idleBefore, startedBefore time.Time
+}
+
+func (c *expiredSessionCollector) DeleteExpired(_ context.Context, idleBefore, startedBefore time.Time) (int64, error) {
+	c.idleBefore, c.startedBefore = idleBefore, startedBefore
+	return 0, nil
+}
+
+func TestTheConsoleSessionSweepCutsAtBothLimits(t *testing.T) {
+	collector := &expiredSessionCollector{}
+	now := time.Date(2026, 10, 16, 18, 0, 0, 0, time.UTC)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	startConsoleSessionSweepLoop(ctx, testSchedule.SessionSweep, collector, func() time.Time { return now },
+		slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	assert.Equal(t, now.Add(-auth.ConsoleIdleLimit), collector.idleBefore)
+	assert.Equal(t, now.Add(-auth.ConsoleTotalLimit), collector.startedBefore)
 }

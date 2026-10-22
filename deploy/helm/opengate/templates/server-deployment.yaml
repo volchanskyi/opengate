@@ -33,6 +33,29 @@ spec:
         fsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
+      {{- if .Values.server.sharedKeys.enabled }}
+      initContainers:
+        # A secret volume's files are readable by the pod's group, so the role files are copied
+        # into memory, readable by the server's user alone.
+        - name: authority-stage
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["opengate-authority", "stage", "-from", "/authority-secret", "-to", "/data/authority"]
+          resources:
+            {{- toYaml .Values.authority.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: authority-secret
+              mountPath: /authority-secret
+              readOnly: true
+            - name: authority
+              mountPath: /data/authority
+      {{- end }}
       containers:
         - name: server
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -56,6 +79,13 @@ spec:
             - "$(AMT_PASS)"
             - "-vapid-contact"
             - "$(VAPID_CONTACT)"
+            {{- if .Values.server.sharedKeys.enabled }}
+            - "-ca-must-exist"
+            {{- end }}
+            {{- with .Values.authority.compromisedSince }}
+            - "-ca-compromised-since"
+            - {{ . | quote }}
+            {{- end }}
           env:
             # POSTGRES_APP_PASSWORD precedes DATABASE_URL so Kubernetes resolves the reference.
             - name: POSTGRES_APP_PASSWORD
@@ -158,15 +188,10 @@ spec:
             - name: data
               mountPath: /data
             {{- if .Values.server.sharedKeys.enabled }}
+            - name: authority
+              mountPath: /data/authority
+              readOnly: true
             # Shared keypairs mount read-only over /data so every replica serves the same keys.
-            - name: keys
-              mountPath: /data/ca.crt
-              subPath: ca.crt
-              readOnly: true
-            - name: keys
-              mountPath: /data/ca.key
-              subPath: ca.key
-              readOnly: true
             - name: keys
               mountPath: /data/vapid.json
               subPath: vapid.json
@@ -188,14 +213,18 @@ spec:
             claimName: {{ include "opengate.fullname" . }}-server-data
           {{- end }}
         {{- if .Values.server.sharedKeys.enabled }}
+        - name: authority-secret
+          secret:
+            secretName: {{ .Values.authority.secretName }}
+            defaultMode: 0400
+        - name: authority
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
         - name: keys
           secret:
             secretName: {{ .Values.server.existingSecret }}
             items:
-              - key: ca.crt
-                path: ca.crt
-              - key: ca.key
-                path: ca.key
               - key: vapid.json
                 path: vapid.json
               - key: update-signing.json

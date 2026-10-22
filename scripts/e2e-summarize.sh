@@ -25,7 +25,7 @@ REPORT="$2"
 case "$RUN" in
   performance)
     TITLE='E2E Performance'
-    PURPOSE="Times typing and downloads over routers shaped to an office line, and the page's memory through a long download, against the limits the product promises."
+    PURPOSE="Checks typing and downloads over a slowed office line. Checks the page's memory during a long download. Each result is held to the product's promised limit."
     ;;
   cross-browser)
     TITLE='E2E Cross-Browser'

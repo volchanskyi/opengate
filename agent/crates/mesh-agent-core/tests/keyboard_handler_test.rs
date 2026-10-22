@@ -1,6 +1,5 @@
 //! Integration test for `KeyboardHandler`.
 
-use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use mesh_agent_core::platform::{InputError, InputInjector};
@@ -58,7 +57,7 @@ async fn key_press_dispatches_to_injector_and_terminal_when_pressed() {
     let rec = CallRecorder::new();
     let (stdin_tx, mut stdin_rx) = mpsc::channel(8);
     let (resize_tx, _resize_rx) = mpsc::channel(8);
-    let term = TerminalHandle::new(stdin_tx, resize_tx, Arc::new(AtomicBool::new(false)));
+    let term = TerminalHandle::new(stdin_tx, resize_tx, tokio::sync::oneshot::channel().0);
 
     KeyboardHandler::handle_key_press(&perms(true), &rec, Some(&term), KeyCode::KeyA, true);
 

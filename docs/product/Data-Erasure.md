@@ -5,6 +5,7 @@
   - [Incident counts](#incident-counts)
 - [Purging a tenant](#purging-a-tenant)
 - [Nothing comes back](#nothing-comes-back)
+- [The machine's own copy](#the-machines-own-copy)
 - [Records that age out](#records-that-age-out)
 - [Database backups](#database-backups)
 - [Related](#related)
@@ -24,7 +25,7 @@ right-to-be-forgotten request.
 | Device records, inventory and process history | Erased with the device | Every device in the tenant |
 | Alerts and their evidence | Erased, and affected incidents repaired | Alerts, incidents and their history erased |
 | Cold-tier archives, where configured | That device's data | The tenant's data |
-| The agent's own local store | Wiped when the agent next connects | Every agent in the tenant |
+| The agent's own local store | Wiped by the agent, which then removes itself — see [The machine's own copy](#the-machines-own-copy) | Every agent in the tenant |
 | **Audit events** | **Retained** — they are the proof the erasure happened | **Retained** |
 
 The tenant record itself is retained for a tenant purge: it anchors the retained
@@ -37,7 +38,8 @@ audit trail and the deny-list.
 
 From the device page, **Delete device**, behind a confirm step. The agent is
 deregistered, the machine's data is erased, and the machine cannot re-register
-with the same identity.
+with the same identity. Reinstalling the agent on that machine adds it back as a
+new device with a new number and none of the erased history.
 
 ### Incident counts
 
@@ -64,8 +66,10 @@ A purge is a persisted, resumable job. It reports progress through these stages:
 | `central-logical-complete` | Deletion issued in the metric store; database rows removed |
 | `central-physical-compaction-pending` | Waiting for the metric store to confirm it is empty |
 | `object-delete-pending` | Clearing cold-tier archives, where one exists |
-| `edge-erase-pending` | Waiting for agents to reconnect and wipe their local stores |
 | `complete` | Verified empty |
+
+A purge completes on the server's stores alone; each machine's own copy goes as
+described below, and the job does not wait for it.
 
 **Logical completion is not physical completion.** Once ingest is blocked and the
 subject is no longer queryable, the data is gone as far as anything can read it;
@@ -83,7 +87,8 @@ checks it, so no live stream, in-flight catch-up, or misbehaving agent can
 re-create purged data:
 
 - A connected agent is deregistered immediately.
-- An offline agent is denied by its own identity the moment it reconnects.
+- An offline agent is told it was deleted the moment it reconnects, however long
+  it was away.
 - A tenant-level entry covers all of its devices.
 
 The deny-list holds identifiers and the scope of the purge — never telemetry — so
@@ -92,6 +97,22 @@ it is kept indefinitely at negligible cost.
 A periodic sweep also removes any metric series whose device no longer exists, as
 a second line of defence: the stores are not one transaction, so a partially
 failed purge is caught rather than left behind.
+
+## The machine's own copy
+
+The agent keeps its own readings and queued alerts on the machine. When its
+device is deleted, the agent wipes that copy and its identity, then uninstalls
+itself: at once if it is online, otherwise the next time it connects. The removal
+finishes even if the machine loses power halfway through. The console does not
+track this step, since an offline machine may never come back.
+
+**One limit.** A machine can only be told to remove itself while the server
+still trusts the master key that signed its identity. The master key is replaced
+about once a decade, and the old one is dropped a few months after the change. A
+deleted machine that stays offline through all of that can no longer be reached:
+it keeps its own copy until someone uninstalls the agent by hand: run
+`systemctl disable --now mesh-agent`, then delete the four locations
+[Agent Deployment](./Agent-Deployment.md#step-2--install-the-agent) lists.
 
 ## Records that age out
 

@@ -14,7 +14,8 @@ import {
 import {
   arrivalScenarios,
   arrivalTechnicians,
-  measuredThresholds,
+  exportOnly,
+  measuredExports,
   phases,
 } from "../lib/profile.js";
 
@@ -32,24 +33,10 @@ const WALK = phases();
 
 export const options = {
   scenarios: arrivalScenarios(WALK, REQUESTS_PER_JOURNEY),
-  // Run-wide marks, repeated over the measured phase; naming its sub-metric puts it in the export.
+  // The measured phase's requests and any dropped arrivals join the export; the profile judges them.
   thresholds: Object.assign(
-    {
-      http_req_duration: ["p(95)<100"],
-      http_req_failed: ["rate<0.01"],
-      // A glance at the fleet.
-      "journey_device_list_ms": ["p(95)<300"],
-      // One machine's page fans out to inventory, history and readings, so it gets more room.
-      "journey_device_detail_ms": ["p(95)<500"],
-      // The mark is the server accepting the maintenance instruction, not the machine acting on it.
-      "journey_command_accept_ms": ["p(95)<1000"],
-      // The generator could not keep the rate the profile declared.
-      dropped_iterations: ["count<1"],
-    },
-    measuredThresholds(WALK, {
-      http_req_duration: ["p(95)<100"],
-      http_req_failed: ["rate<0.01"],
-    })
+    { dropped_iterations: exportOnly("counter") },
+    measuredExports(WALK, { http_req_duration: "trend", http_req_failed: "rate" })
   ),
 };
 

@@ -53,7 +53,6 @@ run_check() {
 
 echo "loadtest-run-completeness:"
 
-rm -f "$WORK/k6"/*.thresholds
 rows api-baseline concurrent-agents relay-throughput quic-agents
 run_check
 assert_eq "a complete night exits 0" "0" "$STATUS"
@@ -79,14 +78,12 @@ run_check
 assert_eq "an unexpected scenario is invalid" "invalid" "$(jq -r '.result' "$WORK/completeness.json")"
 assert_eq "an unexpected scenario is named" "ad-hoc" "$(jq -r '.unexpected_scenarios | join(",")' "$WORK/completeness.json")"
 
-# A breached mark is a measurement, so it stays in the trend and the night goes red.
+# The profile's limits alone judge a night, so files the k6 scripts leave decide nothing.
 rows api-baseline concurrent-agents relay-throughput quic-agents
 printf 'api-baseline\n' >"$WORK/k6/api-baseline.thresholds"
 run_check
-assert_eq "a breached mark exits 4" "4" "$STATUS"
-assert_eq "a breached mark is a failure, not an invalid run" "failed" "$(jq -r '.result' "$WORK/completeness.json")"
-assert_eq "a breached mark is named" "api-baseline" "$(jq -r '.threshold_breaches | join(",")' "$WORK/completeness.json")"
-rm -f "$WORK/k6"/*.thresholds
+assert_eq "a file beside the k6 exports is no verdict" "0" "$STATUS"
+assert_eq "and the record holds no k6 marks" "null" "$(jq -r '.threshold_breaches' "$WORK/completeness.json")"
 
 rowsWithError() {
   local scenario="$1" rate="$2"
@@ -134,7 +131,6 @@ run_check_with_bundle() {
     "$CHECK" "$WORK/summary.json" "$WORK/completeness.json" >"$WORK/out.txt" 2>"$WORK/err.txt" || STATUS=$?
 }
 
-rm -f "$WORK/k6"/*.thresholds
 rows api-baseline concurrent-agents relay-throughput quic-agents
 
 bundle_verdict invalid "target restarted mid-run: the process answering at the end started at 1756761838, not 1756761000"
@@ -174,7 +170,7 @@ run_check_with_gates() {
     "$CHECK" "$WORK/summary.json" "$WORK/completeness.json" >"$WORK/out.txt" 2>"$WORK/err.txt" || STATUS=$?
 }
 
-rm -f "$WORK/k6"/*.thresholds "$WORK/bundle.json"
+rm -f "$WORK/bundle.json"
 rows api-baseline concurrent-agents relay-throughput quic-agents
 
 jq -n '[{enforced: true, message: "k6/api-baseline/http latency_p95_ms is 260, past the 200 it is held to"}]' >"$WORK/gates.json"
@@ -217,6 +213,23 @@ assert_eq "and records no breaches" "0" "$(jq '.gate_breaches | length' "$WORK/c
 STATUS=0
 "$CHECK" "$WORK/nope.json" >/dev/null 2>&1 || STATUS=$?
 assert_eq "a missing summary exits 2" "2" "$STATUS"
+
+# A harness the shared server never made room for leaves a bundle naming why, and no rows.
+reason='the shared server stayed 89–93% busy for 30 minutes, past the 85% the run allows'
+jq -n --arg reason "$reason" '{not_started: {reason: $reason, ceiling_percent: 85,
+  waited_seconds: 1800, readings_percent: [89, 93]}}' >"$WORK/not-started.json"
+: >"$WORK/empty-summary.json"
+STATUS=0
+LOADTEST_BUNDLE="$WORK/not-started.json" LOADTEST_K6_SUMMARY_DIR="$WORK/k6" GITHUB_SHA="deadbeef" \
+  "$CHECK" "$WORK/empty-summary.json" "$WORK/completeness.json" >"$WORK/out.txt" 2>"$WORK/err.txt" || STATUS=$?
+assert_eq "a run the server made no room for exits 3, out of the trend" "3" "$STATUS"
+assert_eq "it is recorded as not started" "not_started" "$(jq -r '.result' "$WORK/completeness.json")"
+assert_eq "the record carries the harness's reason" "$reason" "$(jq -r '.reason' "$WORK/completeness.json")"
+if grep -qF -- "$reason" "$WORK/err.txt"; then
+  pass "the error names the busy server"
+else
+  fail "the error names the busy server (got=[$(cat "$WORK/err.txt")])"
+fi
 
 echo
 echo "Summary: $PASS passed, $FAIL failed"

@@ -71,6 +71,20 @@ its window fails the run. A leg driven to or past what its runner can take
 swings by orders of magnitude on unchanged code, so its window is reported and
 its profile's fixed limits decide.
 
+**A held leg fails on two of three nights, and a slow night does not set the
+next one's yardstick.** Registration time on the held legs jumps between two
+modes on the same code — 5–10 ms and 350–840 ms, with nothing between — and five
+of seven red nights were that jump. A night past its line is pushed with
+`flagged="1"` and the window leaves it out, so one slow night never moves the
+median the next is judged by; a held leg fails only when it is past its line on
+two of its last three nights. The performance stack's `workload` label carries a
+digest of the profile file beside its name, so a change in what a leg offers
+starts a fresh window instead of being judged against the old load. Each leg's
+bundle also records what the runner did — processor steal, and the server
+container's throttling counters
+([`perf-runner-record.sh`](../../scripts/perf-runner-record.sh)) — so a slow
+night can be told apart as the machine's or the code's.
+
 ## Consequences
 
 Retention is the store's, which is 30 days, so a run's own bundle is

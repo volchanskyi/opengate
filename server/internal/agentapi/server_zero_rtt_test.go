@@ -14,10 +14,8 @@ func TestProductionListenerRefusesEarlyData(t *testing.T) {
 	env := newAcceptEnv(t)
 
 	// One certificate and one session cache span both attempts; the cache carries the ticket.
-	tlsCert, err := env.srv.cert.SignAgent(uuid.NewString(), "early-data-test")
-	require.NoError(t, err)
 	cache := newSignalingCache()
-	tlsCfg := env.srv.cert.AgentTLSConfig(tlsCert)
+	tlsCfg := env.machineTLS(t, uuid.New())
 	tlsCfg.ClientSessionCache = cache
 
 	// waitForTicket fails when the listener issues no ticket, since no reconnect could resume.

@@ -39,7 +39,6 @@ mod tests {
     use super::*;
     use crate::platform::InputError;
     use mesh_protocol::MouseButton;
-    use std::sync::atomic::AtomicBool;
     use std::sync::Arc;
     use std::sync::Mutex;
     use tokio::sync::mpsc;
@@ -95,7 +94,7 @@ mod tests {
         let (stdin_tx, stdin_rx) = mpsc::channel(8);
         let (resize_tx, _) = mpsc::channel(8);
         (
-            TerminalHandle::new(stdin_tx, resize_tx, Arc::new(AtomicBool::new(false))),
+            TerminalHandle::new(stdin_tx, resize_tx, tokio::sync::oneshot::channel().0),
             stdin_rx,
         )
     }

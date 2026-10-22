@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# Runs the load generator inside a processor and memory allowance of its own.
+# Runs a load generator inside the processor and memory allowance every generator of the leg shares.
 # A share that cannot be applied is announced and the run continues; the bundle records the outcome.
 #
 # Usage:
 #   loadtest-generator-share.sh <processors> <memory> -- <command...>
 set -euo pipefail
+
+# Every generator given the allowance runs in this slice, so the harness and the technician
+# scenarios share one processor quota and one memory cap.
+GENERATOR_SLICE="opengate-generator.slice"
 
 usage() {
   echo "usage: $0 <processors> <memory> -- <command...>" >&2
@@ -29,12 +33,12 @@ main() {
     exec "$@"
   fi
 
-  # A scope keeps this shell's standard streams; setpriv drops back to the invoking user so the
-  # bundle stays readable by the runner user.
-  echo "generator allowance: ${processors} processors, ${memory} memory" >&2
-  exec sudo -n systemd-run --scope --quiet \
-    --property="CPUQuota=$(quota_percent "$processors")" \
-    --property="MemoryMax=${memory}" \
+  # The limits sit on the slice, which a later generator's scope joins. A scope keeps this shell's
+  # standard streams; setpriv drops back to the invoking user so the bundle stays readable.
+  echo "generator allowance: ${processors} processors, ${memory} memory, shared in $GENERATOR_SLICE" >&2
+  sudo -n systemctl set-property --runtime "$GENERATOR_SLICE" \
+    "CPUQuota=$(quota_percent "$processors")" "MemoryMax=${memory}"
+  exec sudo -n systemd-run --scope --quiet --slice="$GENERATOR_SLICE" \
     -- setpriv --reuid="$(id -u)" --regid="$(id -g)" --init-groups "$@"
 }
 

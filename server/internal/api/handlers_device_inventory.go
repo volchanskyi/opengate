@@ -126,7 +126,7 @@ func logPullResult(err error) string {
 		return metrics.LogPullUnsupported
 	case errors.Is(err, agentapi.ErrLogsBusy):
 		return metrics.LogPullBusy
-	case errors.Is(err, context.DeadlineExceeded):
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, agentapi.ErrLogsTimedOut):
 		return metrics.LogPullTimeout
 	default:
 		return metrics.LogPullError
@@ -141,7 +141,7 @@ func logsBrokerErrorResponse(err error) (GetDeviceLogsResponseObject, error) {
 		return GetDeviceLogs404JSONResponse{Error: "logs not available"}, nil
 	case errors.Is(err, agentapi.ErrLogsBusy):
 		return GetDeviceLogs409JSONResponse{Error: "a log request is already in progress for this device"}, nil
-	case errors.Is(err, context.DeadlineExceeded):
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, agentapi.ErrLogsTimedOut):
 		return GetDeviceLogs504JSONResponse{Error: "device did not return logs in time"}, nil
 	default:
 		return nil, err

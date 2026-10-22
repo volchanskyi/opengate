@@ -3,13 +3,12 @@ package wsman
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"strings"
-	"sync"
 
 	"github.com/volchanskyi/opengate/server/internal/amt/transport"
 )
@@ -17,47 +16,59 @@ import (
 // amtWSManPort is the default WSMAN HTTP port on AMT devices.
 const amtWSManPort = 16992
 
-// MPSConn is the subset of *transport.Conn the WSMAN client uses.
-type MPSConn interface {
-	OpenChannel(targetAddr string, targetPort uint16) (*transport.Channel, error)
-	NetConn() net.Conn
+// Dial opens a byte stream to the device's WSMAN port; closing the stream ends it.
+type Dial func(ctx context.Context) (io.ReadWriteCloser, error)
+
+// OverMPS dials the device's WSMAN port through its CIRA connection.
+func OverMPS(conn *transport.Conn) Dial {
+	return func(ctx context.Context) (io.ReadWriteCloser, error) {
+		ch, err := conn.OpenChannel(ctx, "127.0.0.1", amtWSManPort)
+		if err != nil {
+			return nil, err
+		}
+		return ch, nil
+	}
 }
 
-// Client sends WSMAN requests over an APF channel to an AMT device.
+// Client sends WSMAN requests to an AMT device, each over a stream of its own, so requests on
+// one client run side by side.
 type Client struct {
-	conn   MPSConn
+	dial   Dial
 	auth   DigestAuth
-	mu     sync.Mutex // one WSMAN request at a time per connection
 	logger *slog.Logger
 }
 
-// NewClient creates a WSMAN client for the given MPS connection.
-func NewClient(conn MPSConn, username, password string, logger *slog.Logger) *Client {
+// NewClient creates a WSMAN client that reaches the device through dial.
+func NewClient(dial Dial, username, password string, logger *slog.Logger) *Client {
 	return &Client{
-		conn:   conn,
+		dial:   dial,
 		auth:   DigestAuth{Username: username, Password: password},
 		logger: logger,
 	}
 }
 
-// Do sends a WSMAN request over a new channel, answers a Digest challenge, and returns the body.
+// Do sends a WSMAN request over a new stream, answers a Digest challenge, and returns the body.
+// The stream closes when ctx ends, which ends a read the device never answers.
 func (c *Client) Do(ctx context.Context, soapAction string, body []byte) ([]byte, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	ch, err := c.conn.OpenChannel("127.0.0.1", amtWSManPort)
+	stream, err := c.dial(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("wsman: open channel: %w", err)
 	}
-	defer c.closeChannel(ch)
+	stop := context.AfterFunc(ctx, func() { c.close(stream) })
+	defer func() {
+		stop()
+		c.close(stream)
+	}()
 
-	cc := NewChannelConn(func(data []byte) error {
-		return transport.WriteChannelData(c.conn.NetConn(), ch.RemoteID, data)
-	})
-	ch.SetOnData(cc.Feed)
-	defer cc.Close()
+	respBody, err := c.exchange(stream, soapAction, body)
+	if err != nil && ctx.Err() != nil {
+		return nil, fmt.Errorf("wsman: %w", errors.Join(ctx.Err(), err))
+	}
+	return respBody, err
+}
 
-	status, respBody, wwwAuth, err := c.doHTTP(cc, soapAction, body, "")
+func (c *Client) exchange(stream io.ReadWriter, soapAction string, body []byte) ([]byte, error) {
+	status, respBody, wwwAuth, err := c.doHTTP(stream, soapAction, body, "")
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +77,7 @@ func (c *Client) Do(ctx context.Context, soapAction string, body []byte) ([]byte
 		if err != nil {
 			return nil, fmt.Errorf("wsman: digest auth: %w", err)
 		}
-		status, respBody, _, err = c.doHTTP(cc, soapAction, body, authHeader)
+		status, respBody, _, err = c.doHTTP(stream, soapAction, body, authHeader)
 		if err != nil {
 			return nil, err
 		}
@@ -78,7 +89,7 @@ func (c *Client) Do(ctx context.Context, soapAction string, body []byte) ([]byte
 }
 
 // doHTTP sends one HTTP POST to /wsman and reads the response.
-func (c *Client) doHTTP(cc *ChannelConn, soapAction string, body []byte, authHeader string) (int, []byte, string, error) {
+func (c *Client) doHTTP(cc io.ReadWriter, soapAction string, body []byte, authHeader string) (int, []byte, string, error) {
 	var sb strings.Builder
 	sb.WriteString("POST /wsman HTTP/1.1\r\n")
 	sb.WriteString(fmt.Sprintf("Host: 127.0.0.1:%d\r\n", amtWSManPort))
@@ -111,7 +122,9 @@ func (c *Client) doHTTP(cc *ChannelConn, soapAction string, body []byte, authHea
 	return resp.StatusCode, respBody, wwwAuth, nil
 }
 
-// closeChannel sends a channel close and ignores errors (best effort).
-func (c *Client) closeChannel(ch *transport.Channel) {
-	_ = transport.WriteChannelClose(c.conn.NetConn(), ch.RemoteID)
+// close ends the stream; a second close of a channel is a no-op.
+func (c *Client) close(stream io.Closer) {
+	if err := stream.Close(); err != nil {
+		c.logger.Debug("wsman: close stream", "error", err)
+	}
 }

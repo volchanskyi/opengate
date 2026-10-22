@@ -74,11 +74,11 @@ type reportingFleet interface {
 	Results() []agentResult
 }
 
-// runWorkload walks the profile's phases, or offers the whole fleet at once when there is none.
-// The fleet and the filer share the held credentials, so no machine is filed under a new identity.
+// runWorkload walks the profile's phases under the venue's readings, or offers the whole fleet at
+// once without one; fleet and filer share credentials, so no machine is filed under a new identity.
 func runWorkload(profile *Profile, agents int, agentPlan []tenantAgent,
 	credentials agentCredentials, addr string, opts loadOptions, readings PhaseReadings,
-	filer *estateFiler,
+	filer *estateFiler, clock Clock, venue SafetyReader,
 ) ([]agentResult, []PhaseResult, *float64, string) {
 	if profile == nil {
 		return runFlat(agents, agentPlan, credentials, addr, opts, readings.Busy, filer)
@@ -95,7 +95,7 @@ func runWorkload(profile *Profile, agents int, agentPlan []tenantAgent,
 		estateStart(roster, credentials, addr, opts, filer),
 		phaseProbe(agentPlan, credentials, addr, opts))
 
-	results, phases, err := runProfile(profile, fleet, NewRealClock(), VenueNodeReading, readings)
+	results, phases, err := runProfile(profile, fleet, clock, venue, readings)
 	if err != nil {
 		log.Fatalf("phases: %v", err)
 	}

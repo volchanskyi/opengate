@@ -1,95 +1,111 @@
 import { create } from 'zustand';
 import { api } from '../lib/api';
 import { apiAction } from './api-action';
+import { identityOf, setCsrfToken, SIGNED_IN_KEY } from '../lib/console-session';
 import type { components } from '../types/api';
 
 type User = components['schemas']['User'];
+type ConsoleSession = components['schemas']['ConsoleSession'];
 
 interface AuthState {
-  token: string | null;
-  tenantId: string | null;
   user: User | null;
+  tenantId: string | null;
+  /** How long the session lasts without a request, as the server set it. */
+  idleTimeoutSeconds: number | null;
   isLoading: boolean;
   hydrated: boolean;
   error: string | null;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, displayName: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
+  /** Forgets a session the server already ended, as an expired idle clock or a 401 says. */
+  signedOutLocally: () => void;
   fetchMe: () => Promise<void>;
   hydrate: () => Promise<void>;
 }
 
-export function tenantIdFromToken(token: string): string | null {
-  const payload = token.split('.')[1];
-  if (!payload) {
-    return null;
-  }
+/** Writes the marker other tabs watch; it names the account, never a credential. */
+function markSignedIn(identity: string | null): void {
   try {
-    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
-    const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), '=');
-    const claims = JSON.parse(globalThis.atob(padded)) as { tenant?: unknown };
-    return typeof claims.tenant === 'string' && claims.tenant.length > 0 ? claims.tenant : null;
+    if (identity === null) {
+      localStorage.removeItem(SIGNED_IN_KEY);
+    } else {
+      localStorage.setItem(SIGNED_IN_KEY, identity);
+    }
   } catch {
-    return null;
+    // Storage that cannot be written leaves other tabs unaware, which the server's 401 corrects.
   }
 }
 
-export const useAuthStore = create<AuthState>((set, get) => ({
-  token: null,
-  tenantId: null,
-  user: null,
-  isLoading: false,
-  hydrated: false,
-  error: null,
+export const useAuthStore = create<AuthState>((set, get) => {
+  const signedIn = (session: ConsoleSession) => {
+    setCsrfToken(session.csrf_token);
+    markSignedIn(identityOf(session.user.id, session.tenant_id));
+    set({
+      user: session.user,
+      tenantId: session.tenant_id,
+      idleTimeoutSeconds: session.idle_timeout_seconds,
+    });
+  };
 
-  login: async (email, password) => {
-    const res = await apiAction(set, () =>
-      api.POST('/api/v1/auth/login', { body: { email, password } }),
-    );
-    if (res.ok) {
-      localStorage.setItem('token', res.data.token);
-      set({ token: res.data.token, tenantId: tenantIdFromToken(res.data.token) });
-      await get().fetchMe();
-    }
-  },
+  return {
+    user: null,
+    tenantId: null,
+    idleTimeoutSeconds: null,
+    isLoading: false,
+    hydrated: false,
+    error: null,
 
-  register: async (email, password, displayName) => {
-    const res = await apiAction(set, () =>
-      api.POST('/api/v1/auth/register', {
-        body: { email, password, display_name: displayName },
-      }),
-    );
-    if (res.ok) {
-      localStorage.setItem('token', res.data.token);
-      set({ token: res.data.token, tenantId: tenantIdFromToken(res.data.token) });
-      await get().fetchMe();
-    }
-  },
-
-  logout: () => {
-    localStorage.removeItem('token');
-    set({ token: null, tenantId: null, user: null, error: null });
-  },
-
-  fetchMe: async () => {
-    const { data, error, response } = await api.GET('/api/v1/users/me');
-    if (error) {
-      if (response.status === 401) {
-        get().logout();
+    login: async (email, password) => {
+      const res = await apiAction(set, () =>
+        api.POST('/api/v1/auth/session', { body: { email, password } }),
+      );
+      if (res.ok) {
+        signedIn(res.data);
       }
-      return;
-    }
-    set({ user: data });
-  },
+    },
 
-  hydrate: async () => {
-    const token = localStorage.getItem('token');
-    if (!token) {
+    register: async (email, password, displayName) => {
+      const res = await apiAction(set, () =>
+        api.POST('/api/v1/auth/session/register', {
+          body: { email, password, display_name: displayName },
+        }),
+      );
+      if (res.ok) {
+        signedIn(res.data);
+      }
+    },
+
+    logout: async () => {
+      await api.DELETE('/api/v1/auth/session');
+      get().signedOutLocally();
+    },
+
+    signedOutLocally: () => {
+      setCsrfToken(null);
+      markSignedIn(null);
+      set({ user: null, tenantId: null, idleTimeoutSeconds: null, error: null });
+    },
+
+    fetchMe: async () => {
+      const { data, error, response } = await api.GET('/api/v1/users/me');
+      if (error) {
+        if (response.status === 401) {
+          get().signedOutLocally();
+        }
+        return;
+      }
+      set({ user: data });
+    },
+
+    hydrate: async () => {
+      const { data, error } = await api.GET('/api/v1/auth/session');
+      if (error) {
+        get().signedOutLocally();
+      } else {
+        signedIn(data);
+      }
       set({ hydrated: true });
-      return;
-    }
-    set({ token, tenantId: tenantIdFromToken(token) });
-    await get().fetchMe();
-    set({ hydrated: true });
-  },
-}));
+    },
+  };
+});

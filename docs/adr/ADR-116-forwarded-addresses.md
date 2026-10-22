@@ -19,9 +19,35 @@ address the connection came from.
 
 **A signed-in request is counted under its account, not its address.**
 [`AccountRateLimiter`](../../server/internal/api/ratelimit.go) keys a request
-whose bearer token validates by the account it names, so forty technicians
-behind one office connection each keep their own allowance; a request with no
-token, or one that fails validation, is counted by its address as above.
+whose bearer token validates by the account it names, and one carrying a
+genuine console session cookie by that session, so forty technicians behind one
+office connection each keep their own allowance; a request with neither, or one
+that fails validation, is counted by its address as above.
+
+**The console signs in with a cookie no script can read.** The console's 24-hour
+pass sat in page storage, was read on every request, and travelled in the live
+session's address as `?auth=`, where it landed in the edge's access logs; there
+was no idle sign-out, and sign-out could not end a bare pass. OWASP's session
+guidance is followed instead
+([`session_cookie.go`](../../server/internal/api/session_cookie.go)):
+
+- sign-in sets `og_session` — `HttpOnly`, `SameSite=Strict`, `Path=/`, no
+  `Domain`, `Secure` whenever the request reached the server over TLS — and the
+  server keeps only the session id's SHA-256;
+- every request that changes something carries the session's synchronizer value
+  in `X-CSRF-Token`, which reaches the page only in the sign-in reply and
+  `GET /auth/session` and lives in page memory, so nothing a sibling site plants
+  can stand in for it; a request with a bearer header is exempt, because a
+  browser never adds one by itself;
+- the server signs a session out after 30 minutes idle or 8 hours in all, and
+  sign-out deletes its row; the console warns two minutes before the idle limit;
+- the relay takes the cookie or a bearer header and refuses an `Origin` other
+  than the console's own — the lesson of MeshCentral's CVE-2024-26135 — and
+  re-checks the session behind each open browser side every 30 minutes, closing
+  it once that session was signed out or passed its 8 hours. Console idleness
+  alone never closes it, so a long repair is not cut off.
+
+The bearer login stays for scripts, load runs and the agent side of the relay.
 
 **The address a machine dials for a session is a setting, never read from a
 request.** The server sends a host the relay address in

@@ -4,6 +4,7 @@
 - [Opening a session](#opening-a-session)
 - [One technician per machine](#one-technician-per-machine)
 - [How a session ends](#how-a-session-ends)
+  - [Programs left running in the terminal](#programs-left-running-in-the-terminal)
 - [Which tabs appear](#which-tabs-appear)
 - [How the connection works](#how-the-connection-works)
   - [What each side learns](#what-each-side-learns)
@@ -72,10 +73,27 @@ For the technician who holds the machine, the button changes:
 | You open the machine again somewhere else | The old tab reads **Opened elsewhere** |
 | You, or an administrator, end the session from the device page | The tab reads **Ended by <name>** |
 | You sign out in any tab of this browser | Every session tab of this browser ends, reading **Signed out** |
+| Your sign-in ends elsewhere — signed out from another browser, or 8 hours after you signed in | The session closes within 30 minutes, reading **your console session ended** |
 | The connection is lost and does not come back | **Connection lost — reconnect** |
 
 Signing out at the end of the day closes the root terminal on the customer's
-server in the other tab with it.
+server in the other tab with it. A console left idle for 30 minutes signs out,
+but an open session is never cut off for that: a long repair keeps its session
+for as long as the sign-in it was opened under lasts.
+
+### Programs left running in the terminal
+
+Closing a session hangs up its terminal, as closing an SSH connection does. The
+shell and the program in the foreground are told to stop, and one that has not
+stopped two seconds later is ended. A program started with `nohup`, or inside
+`tmux` or `screen`, ignores the hang-up on purpose and keeps running — but only
+until the agent next restarts, which an agent update, a reinstall or a crash
+does. To start a job that must outlive the agent, run it as a service of its
+own:
+
+```bash
+systemd-run --unit=nightly-backup /usr/local/bin/backup.sh
+```
 
 ## Which tabs appear
 

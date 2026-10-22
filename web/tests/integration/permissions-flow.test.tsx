@@ -86,7 +86,6 @@ describe('Permissions Flow (integration)', () => {
     localStorage.clear();
     vi.clearAllMocks();
     useAuthStore.setState({
-      token: 'test-token',
       user: adminUser,
       isLoading: false,
       hydrated: true,

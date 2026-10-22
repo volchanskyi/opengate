@@ -92,6 +92,14 @@ module "backups" {
   lifecycle_days   = var.backup_lifecycle_days
 }
 
+# The workflows' own cloud login; the cluster grants it only what deploys and nightly runs need.
+module "workflow_identity" {
+  source = "./modules/workflow-identity"
+
+  tenancy_id     = var.tenancy_ocid
+  compartment_id = local.compartment_id
+}
+
 # These blocks map existing state addresses onto the module-prefixed ones, avoiding recreation.
 
 moved {

@@ -67,7 +67,7 @@ describe('Device Detail Flow (integration)', () => {
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
-    useAuthStore.setState({ token: 'tok', user: mockUser, isLoading: false, error: null });
+    useAuthStore.setState({ user: mockUser, isLoading: false, error: null });
     useDeviceStore.setState({
       selectedDevice: mockDevice,
       devices: [],
@@ -129,7 +129,7 @@ describe('Device Detail Flow (integration)', () => {
   });
 
   it('redirects to login when unauthenticated', () => {
-    useAuthStore.setState({ token: null, user: null });
+    useAuthStore.setState({ user: null });
     renderDeviceDetailFlow();
     expect(screen.getByText('Login Page')).toBeInTheDocument();
   });

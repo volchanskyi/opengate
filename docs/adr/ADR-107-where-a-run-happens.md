@@ -67,9 +67,29 @@ rather than a timeout.
 **A busy-machine ceiling is read differently depending on who owns the machine.** On a
 box the run owns, the run queue at the instant of the check, uncapped — a node
 committed to four times what it has and one exactly full are different findings.
-On a box the run is a guest on, the last minute, because the instant says more
-about the neighbour than about the run. A measure that could not read reports
-so; an unread figure is not a machine at rest.
+On a box the run is a guest on, the processor's busy share across the whole
+node, from two readings of the kernel's processor counters — ten seconds apart
+for the first reading, and since the last one after that — because the instant
+says more about the neighbour than about the run. A load average was weighed and
+rejected: it counts tasks waiting on more than the processor, carries a burst
+that began before the run, and read a node 20–24% busy as 89% committed. A
+measure that could not read reports so; an unread figure is not a machine at
+rest.
+
+**A guest finds the node busy, and waits for room.** Past the ceiling it reads
+again after a wait that starts at 15 seconds and doubles to at most five
+minutes, each a random time between half and all of its step so the readings
+never lock onto a busy spell that repeats on a clock, and it walks at the first
+reading under the ceiling
+([`room_wait.go`](../../server/tests/loadtest/room_wait.go)). The wait runs before
+the walk is announced, so the browser-side load joins a walk that has begun, and
+is bounded by one figure, `LOADTEST_ROOM_WAIT_SECONDS` in
+[`loadtest-run-budget.sh`](../../scripts/loadtest-run-budget.sh), which every
+wait and lifetime downstream adds. A night that found no room is **not started**:
+its readings go into the bundle, it stays out of the trend, and the alert quotes
+them. The shared server's alerts stay on while the run waits, since a server busy
+for a reason of its own is what they are for; the quiet period opens once the
+harness has found room.
 
 **The shared-processor ceiling is read once, before the run offers anything.**
 Processor time is taken in turns rather than used up, so a reading during the

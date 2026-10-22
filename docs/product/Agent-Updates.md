@@ -30,7 +30,8 @@ sequenceDiagram
   Agent->>Agent: replace binary, keep a backup, mark the update pending
   Agent-->>Server: AgentUpdateAck
   Agent->>Agent: restart
-  Agent->>Server: register — update confirmed healthy
+  Agent->>Server: register
+  Server-->>Agent: accepted — update confirmed healthy
 ```
 
 ## Publishing builds
@@ -90,9 +91,9 @@ so the agent protects itself in four layers:
 2. **Pending marker** — after a successful swap the agent records that an update
    is awaiting proof.
 3. **Watchdog** — on the next start, an agent carrying that marker has 60 seconds
-   to register with the server. If it registers, the marker is cleared and the
-   update is confirmed. If it does not, the agent restores the backup and
-   restarts.
+   to be accepted by the server. If the server accepts it, the marker is cleared
+   and the update is confirmed. If it does not — the server cannot be reached, or
+   refuses the connection — the agent restores the backup and restarts.
 4. **Loop protection** — after two consecutive rollbacks the agent stops rolling
    back and clears the marker, so two bad binaries cannot bounce a machine
    forever.

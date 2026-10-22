@@ -73,12 +73,25 @@ The venue also decides *how* the machine is read, which
 [ADR-107](../adr/ADR-107-where-a-run-happens.md) settles.
 A run that owns its box is read at the instant it looks, because the minute
 before that look is the job's own image build. A run that is a guest on a cluster
-node is read over the last minute, because that minute is production going about
-its business and is exactly what a ceiling protecting a neighbour asks about — and
-because the instant quantises into steps as coarse as the node is small. Which of
+node reads the processor's busy share across the whole node, from two readings
+of the kernel's processor counters — ten seconds apart before the walk, and since
+the last reading after that. A load average counts tasks waiting on more than the
+processor, and on one night it read a node 20–24% busy as 89% committed. Which of
 the two a run is comes from whether the kernel gives it a processor allowance of
 its own, the same question that decides whose room the generator's reading
 describes.
+
+A guest that finds the node past its ceiling before the walk waits for room
+rather than refusing at once ([`room_wait.go`](../../server/tests/loadtest/room_wait.go)):
+it reads again after a wait that starts at 15 seconds and doubles to at most five
+minutes, each a random time between half and all of its step so the readings
+never lock onto a busy spell that repeats on a clock, and walks at the first
+reading under the ceiling. Past `LOADTEST_ROOM_WAIT_SECONDS`
+([`loadtest-run-budget.sh`](../../scripts/loadtest-run-budget.sh)) it stops, and
+the night is recorded as **not started** with the readings it took, kept out of
+the trend, and quoted in the alert. The staging claim's quiet period for the
+shared server's alerts opens only once the harness has found room, so a server
+busy for a reason of its own still alerts while the run waits.
 
 **Bundles** are versioned JSON, one per run, uploaded as a workflow artifact. A
 bundle carries what produced the numbers, on what hardware, against how much
@@ -241,7 +254,8 @@ The harness answers each session's machine side on these venues for the same
 reason it does on the endurance one, and
 [`perf-stack.test.sh`](../../scripts/tests/perf-stack.test.sh) holds each family
 to offering what its own profiles declare and to folding what it offers, in both
-directions.
+directions. The breakpoint ladder offers each rung's declared sessions too, and
+its bundle sets the sessions opened beside the sessions declared.
 [ADR-101](../adr/ADR-101-load-profiles-and-limits.md) is
 the decision behind all of that, and behind the two things that made the sweeps
 readable in the first place: the rungs sit below what the rest of the stack
@@ -258,11 +272,11 @@ through, and it identifies itself by declaring `gave_out:`; in exchange it owes 
 rung at or below the ceiling and one above, or nothing in it can be named as the
 last that held. See [ADR-107](../adr/ADR-107-where-a-run-happens.md).
 
-On the sweep legs the generator runs inside a declared processor and memory
-allowance of its own
-([`loadtest-generator-share.sh`](../../scripts/loadtest-generator-share.sh)), so
-the stack's four consumers are four declarations rather than three and a
-remainder. A machine that cannot grant one says so and the run goes ahead
+On the sweep legs the generators run inside a declared processor and memory
+allowance of their own
+([`loadtest-generator-share.sh`](../../scripts/loadtest-generator-share.sh)) — the
+machine harness and the browser-side k6 in one shared slice — so the stack's
+consumers are declarations rather than a remainder. A machine that cannot grant one says so and the run goes ahead
 unbounded, and the bundle's headroom scope is what says which of the two
 happened. The endurance run takes the remainder instead: its stack's three
 services declare well under half the runner's processors between them and the
@@ -407,9 +421,12 @@ healthy system nobody finished asking — so `dropped_iterations` is a number th
 profiles hold to a limit.
 
 Tagging by phase is also what lets a percentile be taken over the load rather
-than over the climb to it. A profile marks one phase `measured: true`, the
-generator names that phase's sub-metric in a threshold, and both the canonical
-row and the bundle read that sub-metric where it exists. A generator joins the
+than over the climb to it. A profile marks one phase `measured: true`, and the
+generator names that phase's sub-metric in a mark that cannot fail
+(`exportOnly` in [`profile.js`](../../load/k6/lib/profile.js)) — k6 exports a
+tagged sub-metric only when a mark names it — and both the canonical row and the
+bundle read that sub-metric where it exists. The scripts hold no other mark and
+no number: every limit lives in the profile. A generator joins the
 walk where the walk is, from the start time the harness announces — one that
 started the shape again from its beginning would hold its steady window open
 past the drain.
@@ -480,13 +497,12 @@ checks every path and query parameter they send — and every one
 in the gauntlet rather than in the nightly.
 
 [`scripts/loadtest-k6-run.sh`](../../scripts/loadtest-k6-run.sh) runs each scenario and
-keeps its summary export only when the run produced a measurement. A failed
-threshold counts as one; a script exception does not, and its export is discarded so
-the handful of requests `setup()` managed never enters the trend the regression
-check compares against. A breached threshold is recorded beside the export rather
-than failing the scenario, because whether a mark is blocking is the profile's
-decision — a mark set tighter than the measurement's own spread would otherwise
-fail every night from the day it was tightened.
+keeps its summary export only when the run produced a measurement. A script
+exception does not, and its export is discarded so the handful of requests
+`setup()` managed never enters the trend the regression check compares against.
+k6's own failed-mark exit is an error that names the scenario: the scripts declare
+no mark that can fail, so one firing means a script has grown a limit that
+belongs in the profile.
 
 Against staging, k6 itself runs in a short-lived cluster pod through
 [`scripts/loadtest-k6-incluster.sh`](../../scripts/loadtest-k6-incluster.sh), which
@@ -525,8 +541,9 @@ because an absent figure is honest where a local write under registration's name
 is not.
 
 ```bash
-# Default: 100 machines against a local stack that owns its own authority
-cd server && go run ./tests/loadtest/ -agents=100 -addr=127.0.0.1:9090
+# 100 machines against a local stack, enrolled with a token minted for the run
+cd server && go run ./tests/loadtest/ -agents=100 -addr=127.0.0.1:9090 \
+  -enroll-url=http://127.0.0.1:8080 -enroll-token="$ENROLLMENT_TOKEN"
 
 # Against staging: build the fleet through the API as the seeded service
 # account, enrol the way an installer does, hold the fleet connected, and answer
@@ -551,11 +568,13 @@ arrive by enrolling with a credential the run mints and spends. `-fixture-size`
 picks which of the three committed fleets to build and `-fixture-seed` decides
 it, so the same seed reproduces the same fleet exactly.
 
-The certificate authority's private key never leaves the cluster. Against
-anything shared the harness keeps its own private keys and sends signing
-requests, spending a token minted for the run and deleted after it; only a local
-stack, whose authority is as disposable as the stack around it, is signed for
-directly.
+Every machine enrols through the server, because the server admits only
+certificates it issued ([ADR-128](../adr/ADR-128-machine-identity-lifecycle.md)):
+the harness keeps its own private keys and sends signing requests, spending a
+token minted for the run and deleted after it, and takes each machine's number
+from the certificate the server returns. A machine whose first dial never
+arrived dials once more, as a real agent retries, and the bundle reports the
+retries; only a dial that fails again counts against the run's error limit.
 
 Every address the harness dials goes through one allowlist — the configured
 target and the relay URL that arrives inside a session request alike — so a field
@@ -708,7 +727,10 @@ cd agent && cargo bench -p mesh-protocol -p mesh-agent-core -p edge-tsdb --bench
 The committed [`benchmarks/baseline.json`](../../benchmarks/baseline.json) holds CI's own
 readings and no other: each row is the median of the nightly runs that measured the code it
 describes. A benchmark CI has not measured yet has no row and is reported without a limit,
-until a baseline run with the workflow's `update-baseline` input includes it. Every commit
+until a baseline run with the workflow's `update-baseline` input includes it. A row may carry
+a `history_from` date instead of numbers: the nights before it are ignored, and from the
+third CI night after it the row is held to those nights' median, for time and allocations
+alike — so a benchmark changed on purpose, or a new one, starts gating with no second commit. Every commit
 holds its Go allocations to the baseline in the gauntlet, at the processor count the nightly
 runs at, where a workstation allocates as CI's runner does; time per call depends on the
 machine and is held by the nightly alone. Allocation regressions above the baseline tolerance fail the workflow, and so

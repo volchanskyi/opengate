@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Derives the generator pod lifetime and the verdict wait from the declared fleet hold and prints
-# them as KEY=value lines for $GITHUB_ENV.
+# Derives the generator pod lifetime and the waits for the walk and the verdict from the declared
+# fleet hold and the room wait, and prints them as KEY=value lines for $GITHUB_ENV.
 #
 # Environment:
 #   LOADTEST_HOLD                 how long the fleet is held, as a Go duration such as 8m (required)
@@ -13,6 +13,14 @@ set -euo pipefail
 
 SETUP_SECONDS="${LOADTEST_SETUP_SECONDS:-600}"
 TEARDOWN_SECONDS="${LOADTEST_TEARDOWN_SECONDS:-720}"
+
+# How long the harness waits for the shared server's processor to drop under the profile's
+# ceiling before it walks; the harness reads it as -room-wait.
+ROOM_WAIT_SECONDS=1800
+
+# What the wait for the walk allows beyond the room wait: the harness's first ten-second reading
+# and the gap between questions to the pod.
+WALK_MARGIN_SECONDS=120
 
 : "${LOADTEST_HOLD:?LOADTEST_HOLD is required: every other figure here is derived from it}"
 
@@ -47,12 +55,15 @@ main() {
   local hold collect lifetime
   hold="$(duration_seconds "$LOADTEST_HOLD")"
 
-  # The wait for the verdict begins after the k6 scenarios beside the fleet have run.
-  collect=$((SETUP_SECONDS + hold))
+  # The wait for the verdict begins after the k6 scenarios beside the fleet have run, and a run
+  # that waited for room walks that much later.
+  collect=$((SETUP_SECONDS + ROOM_WAIT_SECONDS + hold))
   # The pod outlives the verdict by the room the bundle copy needs.
   lifetime=$((collect + TEARDOWN_SECONDS))
 
   printf 'LOADTEST_HOLD_SECONDS=%s\n' "$hold"
+  printf 'LOADTEST_ROOM_WAIT_SECONDS=%s\n' "$ROOM_WAIT_SECONDS"
+  printf 'LOADTEST_QUIC_WALK_TIMEOUT_SECONDS=%s\n' "$((ROOM_WAIT_SECONDS + WALK_MARGIN_SECONDS))"
   printf 'LOADTEST_POD_LIFETIME_SECONDS=%s\n' "$lifetime"
   printf 'LOADTEST_QUIC_COLLECT_TIMEOUT_SECONDS=%s\n' "$collect"
 }

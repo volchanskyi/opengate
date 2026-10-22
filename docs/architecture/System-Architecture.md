@@ -7,6 +7,7 @@
 - [Connections](#connections)
   - [Agent to server](#agent-to-server)
     - [Enrollment on first boot](#enrollment-on-first-boot)
+    - [Certificates after enrollment](#certificates-after-enrollment)
   - [The agent binary](#the-agent-binary)
   - [Browser to server](#browser-to-server)
 - [Data flow](#data-flow)
@@ -125,17 +126,48 @@ sequenceDiagram
 
 #### Enrollment on first boot
 
-On first boot (no identity files on disk), the agent performs CSR-based enrollment:
+The agent enrolls when its start-up decision says to — no identity yet, a
+`--fresh` install, a different server, or a device the server deleted — and the
+only input it enrolls with is the install note the installer leaves in its data
+folder: the join code, the server address and the master keys the server
+announced. The decision table is in
+[`lifecycle.rs`](../../agent/crates/mesh-agent/src/lifecycle.rs) and its reasons
+in [ADR-128](../adr/ADR-128-machine-identity-lifecycle.md).
 
-1. Agent generates an ECDSA P-256 key pair and PKCS#10 CSR with device UUID as CN
+1. Agent generates an ECDSA P-256 key pair and a PKCS#10 CSR
 2. Agent POSTs the CSR to `POST /api/v1/enroll/{token}` with `{"csr_pem": "..."}`
-3. Server validates the enrollment token, signs the CSR with its CA, returns the signed cert PEM + CA PEM
-4. Agent saves the CA-signed cert, CA PEM, device ID, and private key to disk
-5. Agent proceeds to QUIC mTLS connection using the CA-signed cert
+3. Server validates the token, ignores the CSR's subject, chooses a device number with no device, deleted or certificate row ([`issuer.go`](../../server/internal/devicecert/issuer.go)), signs a certificate for it, records it in the certificate ledger, and returns the certificate, the device number and the trust bundle
+4. Agent checks that the certificate carries the returned number and chains to the note's master keys, then saves the identity, the trust bundle and the update signing key through the crash-safe store ([`identity_store.rs`](../../agent/crates/mesh-agent-core/src/identity_store.rs)), deleting the note in the same commit
+5. Agent proceeds to the QUIC mTLS connection using the new certificate
 
-The `--enroll-url` and `--enroll-token` CLI flags (or `OPENGATE_ENROLL_URL`/`OPENGATE_ENROLL_TOKEN` env vars) provide the enrollment parameters. On subsequent restarts, the agent loads its saved identity and skips enrollment.
+On later starts the agent loads its saved identity. The enrollment response also
+includes the server's Ed25519 update signing key (if configured), which the agent
+saves for verifying future OTA updates without requiring the
+`--update-public-key` CLI flag.
 
-The enrollment response also includes the server's Ed25519 update signing key (if configured), which the agent saves to disk for verifying future OTA updates without requiring the `--update-public-key` CLI flag.
+#### Certificates after enrollment
+
+- **Renewal** runs over the live control connection: the server offers
+  `RenewCertificate` once two thirds of the presented certificate's life has
+  passed, the agent answers with a CSR for a fresh key, and installs the
+  `CertificateIssued` reply without reconnecting
+  ([`renewal.go`](../../server/internal/agentapi/renewal.go),
+  [`cert_renewal.rs`](../../agent/crates/mesh-agent/src/cert_renewal.rs))
+- **Admission** classifies every client certificate in `VerifyConnection`, on
+  resumed handshakes too ([`classify.go`](../../server/internal/cert/classify.go)),
+  and then checks it against the in-memory index of the certificate ledger: a
+  certificate the server never issued, or one a renewal superseded, is closed
+  with code 5
+- **An expired certificate** inside the grace is served by a restricted
+  connection that holds no repository and accepts only registration and renewal
+  ([`conn_restricted.go`](../../server/internal/agentapi/conn_restricted.go)); a
+  deleted device's connection at any age receives its removal order first
+  ([`admission.go`](../../server/internal/agentapi/admission.go))
+- **A second connection** for one device replaces the first, which is closed
+  with code 6 after a liveness ping decides whether two machines share the
+  identity
+
+The close codes are listed in [Wire Protocol](Wire-Protocol.md#close-codes).
 
 The agent opens the control stream and speaks first; the server branches on the
 first handshake byte in
@@ -148,23 +180,23 @@ begin. Message layout details live in [Wire Protocol](Wire-Protocol.md).
 
 The `mesh-agent` binary (`agent/crates/mesh-agent/src/main.rs`) is the entry point for the Rust agent. It handles:
 
-- **CSR enrollment**: On first boot, generates CSR and enrolls via HTTP to obtain a CA-signed certificate
+- **Start-up decision and enrollment**: Reads its data folder and the install note, finishes a half-done removal or enrolls where the table says, and otherwise loads its identity — see [Enrollment on first boot](#enrollment-on-first-boot)
 - **QUIC mTLS connection**: Connects to the server using `quinn` with ALPN protocol `"opengate"`, client cert from the agent's identity, and the server CA for root verification
 - **Binary handshake**: Sends `AgentHello` first on the cold path, reads `ServerHello` for the CA hash, and may use `SkipAuth` on reconnect
 - **Registration**: Sends `AgentRegister` with hostname, OS, architecture, version, and capabilities. Linux reports Terminal, FileManager, HardwareInventory, and DeviceLogs; desktop capture/input capabilities are platform-specific.
-- **Control loop**: Dispatches `SessionRequest` (spawns session handler), capability-gated hardware/log requests, `AgentUpdate` (semver check, apply, ack, exit code 42 for systemd restart), and pings
+- **Control loop**: Dispatches `SessionRequest` (spawns session handler), capability-gated hardware/log requests, `AgentUpdate` (semver check, apply, ack, exit code 42 for systemd restart), renewal messages, and pings. Log reads, hardware reports and update downloads each run in a task of their own with a deadline, one at a time per kind, so a stalled request never delays a heartbeat ([`requests.rs`](../../agent/crates/mesh-agent/src/requests.rs))
 - **Edge Sentinel sampler**: A background sampler on every agent reads bounded local host/process metrics, trains a pure-Rust k=2 anomaly ensemble on a warm-up window, and scores each sample, with local allocation/RSS guards and a Criterion footprint bench.
 - **Edge Sentinel local store**: On every agent, the local store persists each sampled dimension with its inline anomaly bit into the agent-local multi-tier TSDB (`edge-tsdb::store::LocalTsdb`) under the data dir — the sovereign copy of min/max/last + 1 s raw that central `avg`-only VictoriaMetrics does not keep, read back on demand by later backfill. It is built on `redb`: T0 1 s raw + T1 60 s + T2 3600 s rollups in three tables written per commit as one atomic transaction, a fixed-point-per-metric compact codec, a coarsest-first disk cap that never fills the host disk, format-version migration, MVCC snapshot reads, optional cold-tier DEFLATE (pure-Rust, no `zstd`), and a deprovision purge. See [ADR-052](../adr/ADR-052-agent-local-store.md).
 - **Edge Sentinel correlation**: When something fires on a device, the agent ranks which of its own dimensions broke pattern over the event window against the stretch before it (`mesh-agent-core::correlate`), blending a two-sample Kolmogorov–Smirnov distribution shift, the share of readings outside the baseline's band, and how far the mean moved against the baseline's own scale. It reads the local store through an MVCC snapshot, so the sampler keeps writing underneath, and every run is bounded in dimensions, readings and wall-clock. The ranking travels with the alert, so an investigator opens it already knowing what else moved — and it ranks the 1 s detail only the device holds. See [ADR-068](../adr/ADR-068-system-event-rules.md).
 - **Edge Sentinel auto-discovery**: A background task on every agent profiles the host non-intrusively — listening ports (`/proc/net`, with the owning process basename), systemd services, database engines inferred from listening ports, containers via a read-only docker/podman CLI, and installed packages (dpkg/rpm) — into a bounded, secret-free `DiscoveryReport` (`mesh-agent-core::discovery`). No network scanning; each category is capped, and the task profiles on a long interval and ships a report over a bounded channel **only when the profile changed**. Advertises the `Discovery` capability.
 - **Auto-update**: Downloads binary, verifies SHA-256 + Ed25519 signature, atomic replace with `.prev` backup, rollback watchdog on restart. See [Agent Updates](../product/Agent-Updates.md)
-- **Deregistration**: On receiving `AgentDeregistered`, removes local identity files (certs, keys, device ID) and exits cleanly. The server maintains an in-memory tombstone set to reject reconnection attempts from deleted devices
-- **Reconnection**: Exponential backoff (1s→30s cap, 10 max attempts) via `reconnect_with_backoff`
-- **Graceful shutdown**: `tokio::select!` on SIGINT/SIGTERM with systemd `sd_notify` lifecycle notifications
+- **Removal order**: On `AgentDeregistered` or close code 3, starts over with an install note when one is present, and otherwise removes itself in an order that resumes after a crash or a power cut. The server keeps an in-memory deny list of deleted devices and delivers the order before it closes
+- **Reconnection**: Jittered backoff between 1 s and 30 s, without limit; a refused certificate or an unknown server chain is logged once an hour
+- **Graceful shutdown**: On SIGINT/SIGTERM the background loops are asked to stop and given [`BACKGROUND_GRACE`](../../agent/crates/mesh-agent/src/main.rs), then the runtime is shut down with a bound of its own, under systemd `sd_notify` lifecycle notifications
 
 ### Browser to server
 
-Standard HTTP with JWT bearer-token authentication. Passwords are bcrypt-hashed and stored in PostgreSQL. The REST API is defined by an OpenAPI 3.0.3 spec (`api/openapi.yaml`) and served by an `oapi-codegen` strict server on a chi v5 router. The same spec generates TypeScript types for the web client via `openapi-typescript` + `openapi-fetch`. See [API Reference](API-Reference.md) for endpoint details.
+The console signs in to a server-side session held in an `HttpOnly`, `SameSite=Strict` cookie, with a synchronizer value in `X-CSRF-Token` on every request that changes something ([`session_cookie.go`](../../server/internal/api/session_cookie.go)); scripts and load runs sign in with a JWT bearer token. Passwords are bcrypt-hashed and stored in PostgreSQL. The REST API is defined by an OpenAPI 3.0.3 spec (`api/openapi.yaml`) and served by an `oapi-codegen` strict server on a chi v5 router. The same spec generates TypeScript types for the web client via `openapi-typescript` + `openapi-fetch`. See [API Reference](API-Reference.md) for endpoint details.
 
 ## Data flow
 
@@ -208,12 +240,13 @@ sequenceDiagram
 2. Agent receives a `SessionRequest` control message with the same token, the relay address the server is configured with (`OPENGATE_AGENT_RELAY_URL`, never read from a request — [ADR-116](../adr/ADR-116-forwarded-addresses.md)) and the same helpers
 3. Both sides connect to the relay WebSocket at `/ws/relay/{token}` with their side parameter; the relay admits a browser side only from the session's holder
 4. The relay pipes binary frames bidirectionally — desktop, terminal, file, and control frames all flow through the same connection
-5. Browser authenticates via `?auth=<jwt>` query parameter (browser WebSocket API cannot set custom headers)
+5. The browser side authenticates with the console's session cookie, and the upgrade is refused for an `Origin` other than the console's own; other clients send a bearer token in the `Authorization` header. The server re-checks the console session behind each open browser side every [`LiveSessionRecheck`](../../server/internal/api/api.go) and closes it once that session was signed out or passed its total limit
 6. When the relay releases a token, its `OnSessionEnd` callback deletes the DB session record through a background, relay-scoped repository operation, keeping the session table consistent with active connections
 
 ### Limits and cleanup
 
-- **Max message size**: 4 MiB per WebSocket message (prevents memory exhaustion from oversized frames); each side's sending point caps its frames far below it, and a directory listing travels in pages
+- **Max message size**: [`MaxMessageSize`](../../server/internal/relay/message.go) per WebSocket message (prevents memory exhaustion from oversized frames); each side's sending point caps its frames far below it, and a directory listing travels in pages
+- **Forwarding buffers**: Each message is read into a buffer borrowed from a size-classed pool and returned after the write, so an idle session holds no buffer and a 256 KiB file piece costs no fresh allocation
 - **Ending a session from outside it**: `Relay.End` closes both sides of a live session with close code `StatusSessionEnded` and a reason the session tab shows — "Opened elsewhere" when its holder opens the host again, "Ended by <name>" when the holder or an administrator deletes it
 - **Orphaned session cleanup**: When a relay send to an agent fails, the server automatically cleans up the orphaned session record from the database
 - **Bounded unpaired release**: The relay bounds how long either side may wait for its peer. If that deadline expires, the handler releases the token — dropping the entry, the active-session count and the session row together
@@ -270,7 +303,7 @@ sequenceDiagram
   AgentAPI->>Agent: SessionRequest
   Agent-->>AgentAPI: SessionAccept
   REST-->>Browser: token + relay_url + ice_servers
-  Browser->>Relay: connect ?side=browser&auth=jwt
+  Browser->>Relay: connect ?side=browser with the session cookie
   opt agent accepts before peer deadline
     Agent->>Relay: connect ?side=agent
   end
@@ -431,7 +464,7 @@ Intel AMT Device              MPS Server
 
 ### Design decisions
 
-- **RSA 2048 certs**: Intel AMT firmware requires RSA keys (not ECDSA). The MPS cert is signed by the same ECDSA CA using `cert.SignMPS()`
+- **RSA 2048 certs**: Intel AMT firmware requires RSA keys (not ECDSA). The MPS cert is signed by the MPS master key — `mps-ca.crt`, which defaults to the issuing master key — using `cert.SignMPS()`, and re-signed before it expires
 - **TLS 1.2 minimum**: Supports AMT 11.0+ firmware (2015+) while maintaining modern security
 - **APF protocol**: Based on SSH channel semantics (RFC 4254) with Intel extensions — message types for service request/accept, user auth, channel open/data/close, and port forwarding
 - **AMT device tracking**: Separate `amt_devices` table (UUID primary key, hostname, model, firmware, status) independent from the agent `devices` table

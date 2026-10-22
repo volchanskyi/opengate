@@ -1,10 +1,8 @@
-import type { Page, APIRequestContext } from "@playwright/test";
+import type { Page, APIRequestContext, BrowserContext } from "@playwright/test";
 import { register, login, getMe } from "./api-helper";
 
 function uniqueEmail(): string {
-  const ts = Date.now();
-  const rand = Math.random().toString(36).slice(2, 8);
-  return `e2e-${ts}-${rand}@test.local`;
+  return `e2e-${Date.now()}-${crypto.randomUUID().slice(0, 8)}@test.local`;
 }
 
 export interface TestUser {
@@ -64,9 +62,27 @@ async function getBootstrapAdminToken(
   return login(request, email, password);
 }
 
-// Init scripts re-run on every navigation, so the SPA boots authenticated on its first load.
-export async function seedAuth(page: Page, token: string): Promise<void> {
-  await page.addInitScript((t) => {
-    localStorage.setItem("token", t);
-  }, token);
+/**
+ * Signs the browser context in through the console's own session endpoint, so every page it opens
+ * carries the session cookie, exactly as after the sign-in form.
+ */
+export async function signInBrowser(
+  context: BrowserContext,
+  user: Pick<TestUser, "email" | "password">
+): Promise<void> {
+  const resp = await context.request.post("/api/v1/auth/session", {
+    data: { email: user.email, password: user.password },
+  });
+  if (!resp.ok()) {
+    throw new Error(`Console sign-in failed: ${resp.status()} ${await resp.text()}`);
+  }
+}
+
+/** Signs the page's context in and opens the console, once its session answers. */
+export async function openSignedIn(page: Page, user: TestUser): Promise<void> {
+  await signInBrowser(page.context(), user);
+  await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith("/api/v1/auth/session") && r.status() === 200),
+    page.goto("/"),
+  ]);
 }

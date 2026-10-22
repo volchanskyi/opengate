@@ -140,6 +140,9 @@ func forwardMigrationSteps() []rehearsalStep {
 		{note: "019 kept one session per host",
 			before: seedHeldSessions,
 			verify: assertOneSessionPerHost},
+		{note: "020 added the certificate ledger", verify: assertCertificateLedger},
+		{note: "021 let a device row record a shared identity", verify: assertSharedIdentityColumns},
+		{note: "022 added console sessions", verify: assertConsoleSessions},
 	}
 }
 
@@ -163,6 +166,9 @@ func assertHeadSchema(t *testing.T, ctx context.Context, db *sql.DB) {
 	assertRuleAdministrationIntroduced(t, ctx, db)
 	assertRetentionIndexesIntroduced(t, ctx, db)
 	assertOneSessionPerHost(t, ctx, db)
+	assertCertificateLedger(t, ctx, db)
+	assertSharedIdentityColumns(t, ctx, db)
+	assertConsoleSessions(t, ctx, db)
 }
 
 // rollBackAndVerify walks the migrations down one step at a time, newest migration first.
@@ -172,6 +178,9 @@ func rollBackAndVerify(t *testing.T, ctx context.Context, dbURL string, db *sql.
 		note   string
 		verify func(*testing.T, context.Context, *sql.DB)
 	}{
+		{"022 removed console sessions", assertConsoleSessionsDownReversal},
+		{"021 removed the shared-identity columns", assertSharedIdentityDownReversal},
+		{"020 removed the certificate ledger", assertCertificateLedgerDownReversal},
 		{"019 lifted the one-session rule and its outcome flags", assertOneSessionPerHostDownReversal},
 		{"018 restored the process table", assertProcessReportDownReversal},
 		{"017 removed the orders the age sweep reads", assertRetentionIndexesDownReversal},

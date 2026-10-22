@@ -210,10 +210,18 @@ release — and both bring up the machines the specs name.
 [`enrolled-machine.ts`](../../web/e2e/helpers/enrolled-machine.ts) pins those
 names in one place: `agent-a` is what the device pages are read against,
 `agent-b` is the expendable one, for a spec that wants to disturb a machine.
+The local stack carries two more, `agent-c` and `agent-c-copy`, which only
+[`machine-lifecycle.spec.ts`](../../web/e2e/machine-lifecycle.spec.ts) starts:
+`agent-c` keeps its data folder on a named volume, so its identity survives a
+stop and a start, and `agent-c-copy` starts from a copy of that folder, as a
+cloned disk would. The spec deletes a machine while it is off, reinstalls over a
+deleted machine, repairs a live one, cuts the power during a fresh reinstall,
+reinstalls over a half-finished removal, and runs two copies of one identity,
+reading each container's log, data folder and exit beside the console.
 
 [`docker-compose.test.yml`](../../deploy/docker-compose.test.yml) runs the local
-stack — a database, a server listening for machines, and two agents with pinned
-hostnames — on three networks: an "internet" one, and an office and a home
+stack — a database, a metrics store, a server listening for machines, and the
+agents with pinned hostnames — on three networks: an "internet" one, and an office and a home
 network each behind a router container
 ([`router.sh`](../../deploy/router/router.sh)) that translates addresses, limits
 the rate and drops UDP when a spec tells it to. `agent-a` sits behind the office
@@ -230,10 +238,17 @@ direct-link address on a page it reached over IPv6 loopback. The networks need
 Docker Engine 28, which the bring-up checks first.
 
 The machines install the way a real one does.
-[`e2e-stack-up.sh`](../../deploy/scripts/e2e-stack-up.sh) starts the database and
-the server, signs in as the bootstrap operator, mints an enrolment token through
-the public endpoint, and starts both agents with it; each generates its own key,
-asks to be signed, and connects. No private key is copied and no test-only
+[`e2e-stack-up.sh`](../../deploy/scripts/e2e-stack-up.sh) builds every image once,
+from one reading of the tree — the server keeps its master key in memory, so a
+second build would start it under a key the machines' note does not name — then
+starts the database, the metrics store and the server, signs in as the bootstrap
+operator, mints an enrolment token through the public endpoint, and writes the
+install note the installer would
+([`install-note.sh`](../../deploy/scripts/install-note.sh)). Each agent's start
+step ([`agent-start.sh`](../../deploy/agent-start.sh)) copies that note into its
+data folder owner-only, as the installer does; each agent then generates its own
+key, asks to be signed, and connects. The metrics store is there because erasing
+a device erases its series too, and a server with no store refuses the delete. No private key is copied and no test-only
 affordance exists in the shipped server. `make e2e` and Playwright's `webServer`
 both call that script, so the two paths cannot stand up different stacks.
 
@@ -373,6 +388,7 @@ by an order of magnitude on both legs:
 |---|---|---|
 | Rust | The per-mutant rebuild of its cargo package — `mesh-agent-core` relinks twenty-six test binaries, `edge-tsdb` far fewer | `mutation_rust_package_milliminutes_per_mutant` |
 | Go | Re-running the test packages that cover the mutated line — an `internal/api` handler re-pays the Postgres-backed API suite and the integration tests that reach it, an `internal/agentapi` mutant an in-process harness | `mutation_go_shard_seconds_per_mutant` |
+| Web | Re-running the Vitest files that cover the mutated line, which differs by feature folder — the device pages, the session tab and the rest of the console | `mutation_web_shard_milliseconds_per_mutant` |
 
 Both numbers come from completed nightly shards and are re-measured from a run
 rather than lowered to make a shard fit.
@@ -383,7 +399,14 @@ has outgrown the job cap is reported in a few minutes instead of taking the whol
 nightly down with it after ninety. The Go count comes from a `gremlins` dry-run
 rather than from the source, because a Go mutant runs only where coverage reaches
 it: adding an integration test grows a shard without a line of production code
-changing.
+changing. The web count comes from Stryker itself, instrumenting each shard's
+files with a command runner that runs no test
+([`mutation-web-count.sh`](../../scripts/mutation-web-count.sh)), so a console
+grown past a shard's budget is reported by that check rather than by a shard cut
+off at the cap.
+The web shards' reports are joined into one by
+[`mutation-merge-web.sh`](../../scripts/mutation-merge-web.sh), which refuses two
+shards reporting one file.
 
 A shard's wall clock has a second term the count does not reach.
 `CONDITIONALS_NEGATION` on a loop's exit condition produces a mutant that never
@@ -515,7 +538,8 @@ header what a technician does in it, so the directory listing is the index.
 
 Custom Playwright fixtures in `web/e2e/fixtures.ts` provide:
 - `testUser` — registers a fresh user via API before each test
-- `authedPage` — a page with auth token pre-injected into localStorage
+- `authedPage` — a page signed in through the console's session endpoint, so
+  the browser context holds the session cookie, as a technician's would
 
 ### Shared backend state
 

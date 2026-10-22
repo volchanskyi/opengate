@@ -39,10 +39,7 @@ func benchmarkHandshake(b *testing.B, request func(h *Handshaker, peerCertDER []
 	if err != nil {
 		b.Fatal(err)
 	}
-	agentCert, err := mgr.SignAgent(uuid.New().String(), "test-host")
-	if err != nil {
-		b.Fatal(err)
-	}
+	agentCert := deviceCert(b, mgr, uuid.New())
 	h := NewHandshaker(mgr)
 	peerCertDER := agentCert.Certificate[0]
 	peerCerts := [][]byte{peerCertDER}

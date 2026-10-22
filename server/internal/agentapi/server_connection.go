@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"sync"
 	"time"
 
@@ -17,7 +18,8 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// accept handles a single QUIC connection.
+// accept handles a single QUIC connection: the handshake, then admission, which removes a deleted
+// machine, refuses a certificate the ledger does not vouch for, and restricts an expired one.
 func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 	logger := s.logger.With("remote_addr", conn.RemoteAddr())
 
@@ -34,7 +36,21 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 	logger = logger.With("device_id", result.DeviceID)
 	logger.Info("handshake complete", "fast_path", result.Skipped)
 
-	if s.rejectIfTombstoned(stream, conn, result.DeviceID, logger) {
+	if s.isTombstoned(result.DeviceID) {
+		s.deliverRemovalOrder(stream, conn, logger)
+		return
+	}
+
+	verdict := s.admit(conn.ConnectionState().TLS.PeerCertificates)
+	if verdict.refusal != "" {
+		s.refuse(conn, verdict, logger)
+		return
+	}
+	if superseded := s.issuer.Ledger().MarkSeen(verdict.fp, s.cert.Now()); len(superseded) > 0 {
+		s.closeSuperseded(superseded)
+	}
+	if verdict.restricted() {
+		s.serveRestricted(ctx, stream, conn, verdict, logger)
 		return
 	}
 
@@ -46,7 +62,7 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 		DeviceID:      deviceID,
 		TenantID:      agentTenantID(ctx),
 		SiteID:        siteID,
-		isTombstoned:  func() bool { _, ok := s.tombstones.Load(deviceID); return ok },
+		isTombstoned:  func() bool { return s.isTombstoned(deviceID) },
 		stream:        stream,
 		codec:         &protocol.Codec{},
 		devices:       s.devices,
@@ -63,6 +79,13 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 		settings:      s.settings,
 		metrics:       s.metrics,
 		logger:        logger,
+		quicConn:      conn,
+		certFP:        verdict.fp,
+		leaf:          verdict.class.Leaf,
+		authority:     verdict.class.Authority,
+		renewal:       s.renewals,
+		trustBundle:   s.cert.CACertPEM(),
+		pongs:         make(chan struct{}, 1),
 	}
 
 	s.registerConn(ctx, ac, hostname)
@@ -70,14 +93,18 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 	s.runControlLoop(ctx, ac, logger)
 }
 
-// registerConn stores the connection in the server map and emits an online event.
-// The count follows the machine, so a replacement connection is not counted as a second arrival.
+// registerConn stores the connection in the server map and emits an online event. The newest
+// connection for a device wins: an older one is probed, then closed with code 6.
 func (s *AgentServer) registerConn(ctx context.Context, ac *AgentConn, hostname string) {
 	leave := s.statusGate.enter(ac.DeviceID)
-	if _, replaced := s.conns.Swap(ac.DeviceID, ac); !replaced {
+	older, replaced := s.conns.Swap(ac.DeviceID, ac)
+	if !replaced {
 		s.count.Add(1)
 	}
 	leave()
+	if replaced {
+		go s.retire(context.WithoutCancel(ctx), older.(*AgentConn), ac)
+	}
 	onlineEvt := notifications.Event{
 		Type:           notifications.EventDeviceOnline,
 		DeviceID:       ac.DeviceID,
@@ -85,6 +112,42 @@ func (s *AgentServer) registerConn(ctx context.Context, ac *AgentConn, hostname 
 		Timestamp:      time.Now(),
 	}
 	_ = s.notifier.Notify(ctx, onlineEvt)
+}
+
+// livenessProbeWait is how long a replaced connection has to answer a ping before it counts as
+// already dead.
+const livenessProbeWait = 2 * time.Second
+
+// retire closes a replaced connection with code 6. One that still answers a ping is a second live
+// machine presenting the same identity, which is logged and recorded on the device.
+func (s *AgentServer) retire(ctx context.Context, older, newer *AgentConn) {
+	live := older.answersPing(livenessProbeWait)
+	if older.quicConn != nil {
+		closeWithCode(older.quicConn, protocol.CloseReplacedByNewerConnection, "replaced by a newer connection")
+	}
+	if !live {
+		return
+	}
+	addresses := []string{remoteHost(older), remoteHost(newer)}
+	if s.sharedIdentityLog.due(older.DeviceID.String(), time.Now()) {
+		s.logger.Warn("identity in use on two machines",
+			"device_id", older.DeviceID, "addresses", addresses)
+	}
+	if err := s.devices.RecordSharedIdentity(ctx, older.DeviceID, addresses, time.Now()); err != nil {
+		s.logger.Warn("record shared identity", "device_id", older.DeviceID, "error", err)
+	}
+}
+
+// remoteHost is the address a connection arrived from, without its port.
+func remoteHost(ac *AgentConn) string {
+	if ac.quicConn == nil {
+		return ""
+	}
+	addr := ac.quicConn.RemoteAddr().String()
+	if host, _, err := net.SplitHostPort(addr); err == nil {
+		return host
+	}
+	return addr
 }
 
 // unregisterConn releases the device's status and closes the stream and
@@ -96,7 +159,7 @@ func (s *AgentServer) unregisterConn(stream *quic.Stream, conn *quic.Conn, ac *A
 	s.coverage.Forget(ac.DeviceID)
 	s.releaseDeviceStatus(ac, hostname, logger)
 	_ = stream.Close()
-	_ = conn.CloseWithError(0, "bye")
+	closeWithCode(conn, protocol.CloseBye, "bye")
 	logger.Info("agent disconnected")
 }
 
@@ -221,7 +284,7 @@ func (s *AgentServer) acceptControlStream(ctx context.Context, conn *quic.Conn, 
 	stream, err := conn.AcceptStream(acceptCtx)
 	if err != nil {
 		logger.Error("accept control stream", "error", err)
-		_ = conn.CloseWithError(1, "stream accept failed")
+		closeWithCode(conn, protocol.CloseStreamAcceptFailed, "stream accept failed")
 		return nil, err
 	}
 	return stream, nil
@@ -246,32 +309,10 @@ func (s *AgentServer) performHandshake(ctx context.Context, conn *quic.Conn, str
 	result, err := handshaker.PerformHandshake(hsCtx, stream, peerCerts)
 	if err != nil {
 		logger.Error("handshake failed", "error", err)
-		_ = conn.CloseWithError(2, "handshake failed")
+		closeWithCode(conn, protocol.CloseHandshakeRefused, "handshake failed")
 		return nil, err
 	}
 	return result, nil
-}
-
-// rejectIfTombstoned closes the connection with a deregister message if the
-// device has been tombstoned. Returns true if the device was rejected.
-func (s *AgentServer) rejectIfTombstoned(stream *quic.Stream, conn *quic.Conn, deviceID uuid.UUID, logger *slog.Logger) bool {
-	if _, tombstoned := s.tombstones.Load(deviceID); !tombstoned {
-		return false
-	}
-	logger.Info("rejecting tombstoned device")
-	codec := &protocol.Codec{}
-	msg := &protocol.ControlMessage{
-		Type:   protocol.MsgAgentDeregistered,
-		Reason: "device deleted by administrator",
-	}
-	if payload, err := codec.EncodeControl(msg); err != nil {
-		logger.Warn("encode tombstone deregister", "error", err)
-	} else if err := codec.WriteFrame(stream, protocol.FrameControl, payload); err != nil {
-		logger.Warn("write tombstone deregister frame", "error", err)
-	}
-	_ = stream.Close()
-	_ = conn.CloseWithError(3, "device deregistered")
-	return true
 }
 
 // lookupDeviceMeta resolves the site and hostname for a device, falling back

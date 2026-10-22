@@ -89,8 +89,18 @@ func (a *AgentConn) handleDeviceLogsResponse(_ context.Context, msg *protocol.Co
 	return nil
 }
 
+// handleDeviceLogsError passes the agent's error to the waiter, naming its own refusals so the
+// caller reads them as busy or timed out.
 func (a *AgentConn) handleDeviceLogsError(msg *protocol.ControlMessage) error {
-	err := fmt.Errorf("agent device logs error: %s", msg.AckError)
+	var err error
+	switch msg.AckError {
+	case protocol.RequestBusy:
+		err = fmt.Errorf("agent: %w", ErrLogsBusy)
+	case protocol.RequestTimedOut:
+		err = fmt.Errorf("agent: %w", ErrLogsTimedOut)
+	default:
+		err = fmt.Errorf("agent device logs error: %s", msg.AckError)
+	}
 	if !a.deliverLogs(logsResult{err: err}) {
 		a.logger.Warn("device logs error from agent", "device_id", a.DeviceID, "error", msg.AckError)
 	}

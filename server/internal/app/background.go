@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/volchanskyi/opengate/server/internal/auth"
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/rules"
@@ -107,6 +108,31 @@ func startRetentionSweepLoop(
 	}.run(ctx, logger)
 }
 
+// expiredSessionSweeper removes console sessions past either limit.
+type expiredSessionSweeper interface {
+	DeleteExpired(ctx context.Context, idleBefore, startedBefore time.Time) (int64, error)
+}
+
+// startConsoleSessionSweepLoop removes console sessions left idle or past their total, which a
+// browser that was closed never comes back to end.
+func startConsoleSessionSweepLoop(ctx context.Context, every time.Duration, sessions expiredSessionSweeper,
+	now func() time.Time, logger *slog.Logger,
+) {
+	janitor{
+		every:  every,
+		atBoot: true,
+		sweep: func(ctx context.Context) (int, error) {
+			at := now()
+			removed, err := sessions.DeleteExpired(ctx, at.Add(-auth.ConsoleIdleLimit), at.Add(-auth.ConsoleTotalLimit))
+			return int(removed), err
+		},
+		failed: "console session sweep failed",
+		found: func(removed int) {
+			logger.Info("swept expired console sessions", "count", removed)
+		},
+	}.run(ctx, logger)
+}
+
 // ProductionGaugeInterval is how often the shipped binary reads the pool's statistics.
 // The pool answers under a lock that every taken connection also holds, so it is read on a timer.
 const ProductionGaugeInterval = 5 * time.Second
@@ -175,10 +201,14 @@ func (a *Assembly) StartBackgroundWorkers(ctx context.Context, sched BackgroundS
 
 	sweeper := session.NewSweeper(a.Sessions, liveRelayTokens(a.Relay), sched.SessionGrace, a.Logger)
 	go startSessionSweepLoop(ctx, sched.SessionSweep, sweeper, a.Logger)
+	go startConsoleSessionSweepLoop(ctx, sched.SessionSweep, a.ConsoleSessions, a.clock, a.Logger)
 
 	go startIncidentSweepLoop(ctx, sched.IncidentSweep, a.Alerts, groupWindows(a.Rules), a.Logger)
 
 	go startRetentionSweepLoop(ctx, sched.RetentionSweep, sched.RetentionHorizon, a.Alerts, a.Logger)
+
+	// Renewal offers, the authority census and the ledger prune share the sweep's own rhythm.
+	go a.Agents.RunCertificateMaintenance(ctx)
 
 	if a.githubRepo != "" {
 		go updater.StartPeriodicSync(ctx, a.githubRepo, 0, a.SigningKeys, a.Manifests, a.Logger)

@@ -70,7 +70,8 @@ fetch_kubeconfig() {
     --token-version 2.0.0 \
     --kube-endpoint PUBLIC_ENDPOINT
   chmod 600 "$HOME/.kube/config"
-  kubectl cluster-info >/dev/null
+  # Any signed-in login may ask who it is, so a narrowed login proves its sign-in here too.
+  kubectl auth whoami >/dev/null
   echo "kubeconfig ready"
 }
 

@@ -3,8 +3,7 @@
   "generated_at": "2026-10-14T22:01:04Z",
   "default_tolerances": {
     "allocs_op": 0.02,
-    "bytes_op": 0.02,
-    "ns_op": 1.50
+    "bytes_op": 0.02
   },
   "benchmarks": [
     {
@@ -20,6 +19,11 @@
       "ns_op": 12443,
       "bytes_op": 40644,
       "allocs_op": 7
+    },
+    {
+      "name": "BenchmarkClassify",
+      "lang": "go",
+      "history_from": "2026-10-23"
     },
     {
       "name": "BenchmarkCodec_DecodeControl",
@@ -52,16 +56,12 @@
     {
       "name": "BenchmarkDecodeServerHello",
       "lang": "go",
-      "ns_op": 4.378,
-      "bytes_op": 0,
-      "allocs_op": 0
+      "history_from": "2026-10-23"
     },
     {
       "name": "BenchmarkEncodeServerHello",
       "lang": "go",
-      "ns_op": 1.733,
-      "bytes_op": 0,
-      "allocs_op": 0
+      "history_from": "2026-10-23"
     },
     {
       "name": "BenchmarkHandshaker_PerformHandshake",
@@ -78,32 +78,24 @@
       "allocs_op": 47
     },
     {
-      "name": "BenchmarkManager_SignAgent",
+      "name": "BenchmarkManager_IssueDevice",
       "lang": "go",
-      "ns_op": 154016.5,
-      "bytes_op": 16772,
-      "allocs_op": 290
+      "history_from": "2026-10-23"
     },
     {
       "name": "BenchmarkManager_SignServer",
       "lang": "go",
-      "ns_op": 154080,
-      "bytes_op": 17124,
-      "allocs_op": 298
+      "history_from": "2026-10-23"
     },
     {
       "name": "BenchmarkNewManager_Generate",
       "lang": "go",
-      "ns_op": 296322,
-      "bytes_op": 27808,
-      "allocs_op": 400
+      "history_from": "2026-10-23"
     },
     {
       "name": "BenchmarkNewManager_Load",
       "lang": "go",
-      "ns_op": 45542,
-      "bytes_op": 7632,
-      "allocs_op": 86
+      "history_from": "2026-10-23"
     },
     {
       "name": "BenchmarkQUICHandshake_Cold",
@@ -118,6 +110,16 @@
       "ns_op": 1460553,
       "bytes_op": 303638.5,
       "allocs_op": 2373
+    },
+    {
+      "name": "BenchmarkRelayForward_FilePiece",
+      "lang": "go",
+      "history_from": "2026-10-23"
+    },
+    {
+      "name": "BenchmarkRelayForward_Keystroke",
+      "lang": "go",
+      "history_from": "2026-10-23"
     },
     {
       "name": "decode_server_hello",

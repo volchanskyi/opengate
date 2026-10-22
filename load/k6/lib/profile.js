@@ -127,17 +127,28 @@ function scenarioName(phase) {
 }
 
 /**
- * Thresholds on the measured phase's own sub-metric, alongside the run-wide ones.
- * Naming a sub-metric in a threshold also puts it in the summary export.
+ * A mark that cannot fail, on a trend, a rate or a counter. k6 exports a sub-metric, or a counter
+ * that never moved, only when a threshold names it; the profile alone holds the limits.
  */
-export function measuredThresholds(walk, metrics) {
+export function exportOnly(kind) {
+  if (kind === "rate") {
+    return ["rate>=0"];
+  }
+  return kind === "counter" ? ["count>=0"] : ["max>=0"];
+}
+
+/**
+ * Export-only marks on the measured phase's own sub-metrics, named as `{metric: "trend" | "rate"}`,
+ * which put those sub-metrics in the summary export.
+ */
+export function measuredExports(walk, metrics) {
   const window = measuredPhase(walk);
   const thresholds = {};
   if (!window) {
     return thresholds;
   }
-  for (const [metric, marks] of Object.entries(metrics)) {
-    thresholds[`${metric}{phase:${window.name}}`] = marks;
+  for (const [metric, kind] of Object.entries(metrics)) {
+    thresholds[`${metric}{phase:${window.name}}`] = exportOnly(kind);
   }
   return thresholds;
 }

@@ -73,9 +73,7 @@ func TestATunedThresholdReachesOneCustomerAndNotTheOther(t *testing.T) {
 	assert.InDelta(t, float64(tuned), inContoso.Threshold, 0.001,
 		"Contoso's machines run Contoso's number")
 
-	fabrikamMachine.Disconnect()
-	rejoined := product.MachineWithIdentity(token, fabrikamMachine.DeviceID, "fabrikam-build-agent",
-		protocol.CapTerminal, protocol.CapThresholdAlerts)
+	rejoined := fabrikamMachine.Reconnect()
 	rejoined.AwaitOnline()
 
 	inFabrikam, carried := rulesFor(rejoined.Await(protocol.MsgPushAlertRules), triageRule)
@@ -103,12 +101,9 @@ func TestAStopSwitchReachesMachinesAlreadyCarryingTheRule(t *testing.T) {
 	require.Equalf(t, http.StatusNoContent, reply.Status, "stopping the rule failed: %s", reply.Text())
 
 	require.Eventuallyf(t, func() bool {
-		machine.Disconnect()
-		rejoined := product.MachineWithIdentity(
-			admin.mintEnrolmentToken("Head Office").Token, machine.DeviceID, "contoso-build-agent",
-			protocol.CapTerminal, protocol.CapThresholdAlerts)
-		rejoined.AwaitOnline()
-		_, still := rulesFor(rejoined.Await(protocol.MsgPushAlertRules), triageRule)
+		machine = machine.Reconnect()
+		machine.AwaitOnline()
+		_, still := rulesFor(machine.Await(protocol.MsgPushAlertRules), triageRule)
 		return !still
 	}, eventually, poll, "a stopped rule must stop being sent to the estate")
 }

@@ -15,7 +15,7 @@ import {
 } from "../lib/session.js";
 import { emptyFleetReason, onlineIds } from "../lib/fleet.js";
 import {
-  measuredThresholds,
+  measuredExports,
   phases,
   sessionScenarios,
   sessionTechnicians,
@@ -45,11 +45,8 @@ export const options = {
   scenarios: sessionScenarios(WALK),
   // Setup registers one account per held session before the walk starts.
   setupTimeout: "10m",
-  // The ceiling covers three hops and two WebSocket upgrades, so it is looser than one request's.
-  thresholds: Object.assign(
-    { relay_msg_latency_ms: ["p(95)<400"] },
-    measuredThresholds(WALK, { relay_msg_latency_ms: ["p(95)<400"] })
-  ),
+  // The measured phase's keystroke round trip joins the export; the profile judges it.
+  thresholds: measuredExports(WALK, { relay_msg_latency_ms: "trend" }),
 };
 
 export function setup() {
@@ -92,13 +89,14 @@ export default function (data) {
   }
 
   const token = created.json("token");
-  // The browser WebSocket API cannot set headers, so the operator's credential rides in the query.
-  const relayUrl = `${wsBase(BASE_URL)}/ws/relay/${token}?side=browser&auth=${technician.token}`;
+  // The operator's credential travels in a header, so the address in access logs holds none.
+  const relayUrl = `${wsBase(BASE_URL)}/ws/relay/${token}?side=browser`;
+  const relayParams = { headers: { Authorization: `Bearer ${technician.token}` } };
 
   const sentAt = Date.now();
   let echoed = false;
 
-  const res = counted(ws.connect(relayUrl, {}, function (socket) {
+  const res = counted(ws.connect(relayUrl, relayParams, function (socket) {
     socket.on("open", () => socket.sendBinary(PROBE.buffer));
 
     // The echo has come back through the machine, so the elapsed time is the whole path.

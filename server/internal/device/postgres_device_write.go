@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
@@ -139,6 +140,18 @@ func (p *PostgresDevices) SetMaintenance(ctx context.Context, id DeviceID, on bo
 			   updated_at = NOW()
 			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND id = $4`,
 			on, by, reason, id)
+		return checkAffected(res, err, ErrDeviceNotFound)
+	})
+}
+
+// RecordSharedIdentity implements Repository; the machine's own row, in any tenant, is updated by
+// the connection server, which holds no tenant of its own for it.
+func (p *PostgresDevices) RecordSharedIdentity(ctx context.Context, id DeviceID, addresses []string, at time.Time) error {
+	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx,
+			`UPDATE devices SET identity_shared_at = $1, identity_shared_addresses = $2
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND id = $3`,
+			at, addresses, id)
 		return checkAffected(res, err, ErrDeviceNotFound)
 	})
 }

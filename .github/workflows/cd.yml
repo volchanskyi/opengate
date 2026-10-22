@@ -18,6 +18,8 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: volchanskyi/opengate-server
+  # Helm keeps release records in configmaps, which the workflows' login may read.
+  HELM_DRIVER: configmap
 
 permissions:
   contents: read
@@ -37,6 +39,7 @@ jobs:
       image_tag: ${{ steps.tag.outputs.tag }}
       target_digest: ${{ steps.preflight.outputs.target_digest }}
       should_skip_staging: ${{ steps.preflight.outputs.should_skip_staging }}
+      cluster_changed: ${{ steps.cluster.outputs.changed }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -88,9 +91,9 @@ jobs:
         uses: ./.github/actions/oci-kube-setup
         with:
           oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
-          oci-user: ${{ secrets.OCI_USER_OCID }}
-          oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
-          oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
+          oci-user: ${{ secrets.OCI_WORKFLOW_USER_OCID }}
+          oci-fingerprint: ${{ secrets.OCI_WORKFLOW_FINGERPRINT }}
+          oci-private-key: ${{ secrets.OCI_WORKFLOW_PRIVATE_KEY }}
           oci-region: ${{ secrets.OCI_REGION }}
           cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
 
@@ -130,6 +133,7 @@ jobs:
           echo "Running reference: ${RUNNING_REF:-<none>}"
 
           PRIOR_TAG="${RUNNING_REF##*:}"
+          [[ "$PRIOR_TAG" != sha-* ]] || echo "prior_sha=${PRIOR_TAG#sha-}" >> "$GITHUB_OUTPUT"
           if [[ -z "$RUNNING_REF" ]] || [[ "$PRIOR_TAG" != sha-* ]]; then
             echo "should_skip_staging=false" >> "$GITHUB_OUTPUT"
             echo "Pre-flight: staging is running nothing this can read → full deploy"
@@ -157,14 +161,72 @@ jobs:
           echo "should_skip_staging=true" >> "$GITHUB_OUTPUT"
           echo "::notice::Pre-flight: digest and deploy configuration unchanged → skip staging"
 
+      # The cluster job waits for approval, so it runs only when what it applies has changed since
+      # the commit staging runs, or when that commit cannot be read.
+      - name: Decide whether the cluster-wide pieces changed
+        id: cluster
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PRIOR_SHA: ${{ steps.preflight.outputs.prior_sha }}
+          GIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          . scripts/lib/cluster-paths.sh
+          mapfile -t paths < <(cluster_paths)
+          if [[ "$EVENT_NAME" == "workflow_dispatch" || -z "$PRIOR_SHA" ]] \
+             || ! git cat-file -e "${PRIOR_SHA}^{commit}" 2>/dev/null \
+             || ! git diff --quiet "$PRIOR_SHA" "$GIT_SHA" -- "${paths[@]}"; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Cluster-wide pieces changed, or the running commit is unknown → cluster job runs"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Cluster-wide pieces unchanged since ${PRIOR_SHA}"
+          fi
+
+      - name: Remove OCI credentials
+        if: always()
+        uses: ./.github/actions/oci-kube-teardown
+
+  # Applies what a routine deploy's login cannot write, as the administrator login held only by the
+  # production environment, so every run waits for approval.
+  cluster:
+    name: Apply cluster-wide pieces
+    needs: resolve-tag
+    if: needs.resolve-tag.outputs.cluster_changed == 'true'
+    runs-on: ubuntu-24.04
+    environment: production
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: OCI + kubeconfig setup
+        uses: ./.github/actions/oci-kube-setup
+        with:
+          oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
+          oci-user: ${{ secrets.OCI_ADMIN_USER_OCID }}
+          oci-fingerprint: ${{ secrets.OCI_ADMIN_FINGERPRINT }}
+          oci-private-key: ${{ secrets.OCI_ADMIN_PRIVATE_KEY }}
+          oci-region: ${{ secrets.OCI_REGION }}
+          cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
+
+      - name: Give the cluster the pieces this commit declares
+        env:
+          WORKFLOW_USER_OCID: ${{ secrets.OCI_WORKFLOW_USER_OCID }}
+          ACME_EMAIL: ${{ secrets.DEPLOY_ACME_EMAIL }}
+        run: deploy/scripts/cluster-apply.sh
+
       - name: Remove OCI credentials
         if: always()
         uses: ./.github/actions/oci-kube-teardown
 
   deploy-staging-k8s:
     name: Deploy staging
-    needs: resolve-tag
-    if: needs.resolve-tag.outputs.should_skip_staging != 'true'
+    needs: [resolve-tag, cluster]
+    # Runs past a skipped cluster job; a failed or refused one stops the deploy here.
+    if: >-
+      always() &&
+      needs.resolve-tag.result == 'success' &&
+      needs.resolve-tag.outputs.should_skip_staging != 'true' &&
+      (needs.cluster.result == 'success' || needs.cluster.result == 'skipped')
     runs-on: ubuntu-24.04
     environment: staging
     # Bounded below the lease it holds, so the job cannot outlive its own claim
@@ -196,9 +258,9 @@ jobs:
         uses: ./.github/actions/oci-kube-setup
         with:
           oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
-          oci-user: ${{ secrets.OCI_USER_OCID }}
-          oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
-          oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
+          oci-user: ${{ secrets.OCI_WORKFLOW_USER_OCID }}
+          oci-fingerprint: ${{ secrets.OCI_WORKFLOW_FINGERPRINT }}
+          oci-private-key: ${{ secrets.OCI_WORKFLOW_PRIVATE_KEY }}
           oci-region: ${{ secrets.OCI_REGION }}
           cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
 
@@ -282,23 +344,25 @@ jobs:
       - name: Make the agent binary executable
         run: install -m 0755 /tmp/agent-artifact/mesh-agent /tmp/mesh-agent
 
-      - name: Sync namespace + secret
+      - name: Sync the shared secret
         env:
           JWT_SECRET: ${{ secrets.DEPLOY_STAGING_JWT_SECRET }}
           AMT_PASS: ${{ secrets.DEPLOY_STAGING_AMT_PASS }}
           VAPID_CONTACT: ${{ secrets.DEPLOY_STAGING_VAPID_CONTACT }}
           POSTGRES_PASSWORD: ${{ secrets.DEPLOY_STAGING_POSTGRES_PASSWORD }}
           POSTGRES_APP_PASSWORD: ${{ secrets.DEPLOY_STAGING_POSTGRES_APP_PASSWORD || secrets.DEPLOY_STAGING_POSTGRES_PASSWORD }}
+        # The login may create a secret and patch this one, and reads none.
         run: |
-          kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
-          if ! kubectl -n "$NAMESPACE" get secret opengate-secrets >/dev/null 2>&1; then
-            kubectl -n "$NAMESPACE" create secret generic opengate-secrets \
-              --from-literal=JWT_SECRET="$JWT_SECRET" \
-              --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
-              --from-literal=POSTGRES_APP_PASSWORD="$POSTGRES_APP_PASSWORD" \
-              --from-literal=AMT_PASS="$AMT_PASS" \
-              --from-literal=VAPID_CONTACT="$VAPID_CONTACT"
-          else
+          set -euo pipefail
+          status=0
+          out="$(kubectl -n "$NAMESPACE" create secret generic opengate-secrets \
+            --from-literal=JWT_SECRET="$JWT_SECRET" \
+            --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+            --from-literal=POSTGRES_APP_PASSWORD="$POSTGRES_APP_PASSWORD" \
+            --from-literal=AMT_PASS="$AMT_PASS" \
+            --from-literal=VAPID_CONTACT="$VAPID_CONTACT" 2>&1)" || status=$?
+          if [ "$status" -ne 0 ]; then
+            grep -qF 'AlreadyExists' <<<"$out" || { echo "$out" >&2; exit 1; }
             APP_PASSWORD_B64="$(printf '%s' "$POSTGRES_APP_PASSWORD" | base64 | tr -d '\n')"
             kubectl -n "$NAMESPACE" patch secret opengate-secrets --type merge \
               -p "{\"data\":{\"POSTGRES_APP_PASSWORD\":\"${APP_PASSWORD_B64}\"}}"
@@ -330,6 +394,9 @@ jobs:
             --set certManager.create=false \
             --wait --timeout 5m
           kubectl -n "$NAMESPACE" rollout status "deploy/${RELEASE}-server" --timeout=300s
+
+      - name: Read back what this login may do
+        run: deploy/scripts/workflow-access-readback.sh
 
       - name: Port-forward server
         run: |
@@ -372,7 +439,7 @@ jobs:
             TRUNCATE TABLE
               security_group_members, device_hardware, device_updates,
               enrollment_tokens, amt_devices, audit_events, web_push_subscriptions,
-              agent_sessions, devices, sites, organizations, security_groups, users
+              agent_sessions, device_certificates, devices, sites, organizations, security_groups, users
             RESTART IDENTITY CASCADE;
             INSERT INTO security_groups (id, tenant_id, name, description, is_system)
             VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002', 'Administrators', 'Full system access', TRUE)
@@ -423,8 +490,12 @@ jobs:
           fi
           echo "::add-mask::$ENROLMENT"
 
+          # The machines get the note an installer leaves, aimed at the server's in-cluster name.
+          PROBE_REPLY="$(curl -sS -X POST "$BASE/api/v1/enroll/$ENROLMENT" \
+            -H 'Content-Type: application/json' -d '{"csr_pem":""}')"
+          NOTE="$(deploy/scripts/install-note.sh "http://${RELEASE}-server:8080" "$ENROLMENT" <<<"$PROBE_REPLY")"
           kubectl -n "$NAMESPACE" create secret generic "$ENROLMENT_SECRET" \
-            --from-literal=token="$ENROLMENT" \
+            --from-literal=note="$NOTE" \
             --dry-run=client -o yaml | kubectl -n "$NAMESPACE" apply -f -
 
           SERVER_POD_IP="$(kubectl -n "$NAMESPACE" get pods \
@@ -531,29 +602,31 @@ jobs:
         uses: ./.github/actions/oci-kube-setup
         with:
           oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
-          oci-user: ${{ secrets.OCI_USER_OCID }}
-          oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
-          oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
+          oci-user: ${{ secrets.OCI_WORKFLOW_USER_OCID }}
+          oci-fingerprint: ${{ secrets.OCI_WORKFLOW_FINGERPRINT }}
+          oci-private-key: ${{ secrets.OCI_WORKFLOW_PRIVATE_KEY }}
           oci-region: ${{ secrets.OCI_REGION }}
           cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
 
-      - name: Sync namespace + secret
+      - name: Sync the shared secret
         env:
           JWT_SECRET: ${{ secrets.DEPLOY_JWT_SECRET }}
           AMT_PASS: ${{ secrets.DEPLOY_AMT_PASS }}
           VAPID_CONTACT: ${{ secrets.DEPLOY_VAPID_CONTACT }}
           POSTGRES_PASSWORD: ${{ secrets.DEPLOY_POSTGRES_PASSWORD }}
           POSTGRES_APP_PASSWORD: ${{ secrets.DEPLOY_POSTGRES_APP_PASSWORD || secrets.DEPLOY_POSTGRES_PASSWORD }}
+        # The login may create a secret and patch this one, and reads none.
         run: |
-          kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
-          if ! kubectl -n "$NAMESPACE" get secret opengate-secrets >/dev/null 2>&1; then
-            kubectl -n "$NAMESPACE" create secret generic opengate-secrets \
-              --from-literal=JWT_SECRET="$JWT_SECRET" \
-              --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
-              --from-literal=POSTGRES_APP_PASSWORD="$POSTGRES_APP_PASSWORD" \
-              --from-literal=AMT_PASS="$AMT_PASS" \
-              --from-literal=VAPID_CONTACT="$VAPID_CONTACT"
-          else
+          set -euo pipefail
+          status=0
+          out="$(kubectl -n "$NAMESPACE" create secret generic opengate-secrets \
+            --from-literal=JWT_SECRET="$JWT_SECRET" \
+            --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+            --from-literal=POSTGRES_APP_PASSWORD="$POSTGRES_APP_PASSWORD" \
+            --from-literal=AMT_PASS="$AMT_PASS" \
+            --from-literal=VAPID_CONTACT="$VAPID_CONTACT" 2>&1)" || status=$?
+          if [ "$status" -ne 0 ]; then
+            grep -qF 'AlreadyExists' <<<"$out" || { echo "$out" >&2; exit 1; }
             APP_PASSWORD_B64="$(printf '%s' "$POSTGRES_APP_PASSWORD" | base64 | tr -d '\n')"
             kubectl -n "$NAMESPACE" patch secret opengate-secrets --type merge \
               -p "{\"data\":{\"POSTGRES_APP_PASSWORD\":\"${APP_PASSWORD_B64}\"}}"
@@ -574,23 +647,25 @@ jobs:
             | kubectl -n "$NAMESPACE" exec -i "statefulset/${RELEASE}-postgres" -- \
                 psql -U opengate -d opengate -v ON_ERROR_STOP=1
 
-      # Staging and production share the controller, so it changes only behind this job's approval.
-      - name: Give the ingress controller the settings this commit declares
-        run: deploy/scripts/ingress-controller-apply.sh apply
-
       - name: Helm upgrade
         env:
           DOMAIN: ${{ secrets.DEPLOY_DOMAIN }}
-          ACME_EMAIL: ${{ secrets.DEPLOY_ACME_EMAIL }}
         run: |
           helm upgrade --install "$RELEASE" deploy/helm/opengate -n "$NAMESPACE" \
             -f deploy/helm/opengate/values-production.yaml \
             --set image.tag="${IMAGE_TAG}" \
             --set server.replicas=1 \
             --set domain="$DOMAIN" \
-            --set certManager.email="$ACME_EMAIL" \
+            --set certManager.create=false \
             --wait --timeout 5m
           kubectl -n "$NAMESPACE" rollout status "deploy/${RELEASE}-server" --timeout=300s
+
+      - name: Read back what this login may do
+        run: deploy/scripts/workflow-access-readback.sh
+
+      # Dry runs only: an outside pod is refused the master key, and the server's own is admitted.
+      - name: Prove the master key's guard rule
+        run: deploy/scripts/authority-readers-check.sh
 
       # The monitoring release follows its chart on every production deploy.
       - name: Helm upgrade monitoring
@@ -600,6 +675,7 @@ jobs:
           helm upgrade --install monitoring deploy/helm/monitoring -n monitoring \
             -f deploy/helm/monitoring/values-production.yaml \
             --set domain="$DOMAIN" \
+            --set clusterRBAC.create=false \
             --wait --timeout 5m
 
       # The running store is asked what it loaded, and every panel and rule is checked for
@@ -646,7 +722,7 @@ jobs:
 
   notify-failure:
     name: Create failure issue
-    needs: [resolve-tag, deploy-staging-k8s, staging-fault-drills, deploy-production-k8s]
+    needs: [resolve-tag, cluster, deploy-staging-k8s, staging-fault-drills, deploy-production-k8s]
     if: failure()
     runs-on: ubuntu-24.04
     steps:

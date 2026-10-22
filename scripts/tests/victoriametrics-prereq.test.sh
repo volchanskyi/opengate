@@ -111,6 +111,8 @@ echo "make target exists and pins the same image as the Go harness:"
 GO_VM_IMAGE="$(grep -oE 'image = "victoriametrics/[^"]+"' "$ROOT/server/internal/testvm/testvm.go" | cut -d'"' -f2 || true)"
 MK_VM_IMAGE="$(grep -oE 'victoriametrics/victoria-metrics:[^ \\]+' "$ROOT/Makefile" | head -1 || true)"
 assert_eq "Makefile VictoriaMetrics image matches testvm's pin" "$GO_VM_IMAGE" "$MK_VM_IMAGE"
+STACK_VM_IMAGE="$(grep -oE 'image: victoriametrics/victoria-metrics:[^ ]+' "$ROOT/deploy/docker-compose.test.yml" | cut -d' ' -f2 || true)"
+assert_eq "the end-to-end stack's VictoriaMetrics image matches testvm's pin" "$GO_VM_IMAGE" "$STACK_VM_IMAGE"
 if grep -qE '^victoriametrics-test-up:' "$ROOT/Makefile"; then
   pass "make victoriametrics-test-up exists for vm_ensure_up to call"
 else

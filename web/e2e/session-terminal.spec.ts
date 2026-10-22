@@ -34,7 +34,7 @@ test.describe("Session terminal flow", () => {
     await expect(tab.locator(".xterm-rows")).toContainText("opengate-42-echoed", { timeout: 15_000 });
   });
 
-  test("the relay connection is made as the browser side of the session", async ({
+  test("the relay connection is the browser side, signed in by its cookie alone", async ({
     authedPage,
     request,
   }) => {
@@ -51,7 +51,7 @@ test.describe("Session terminal flow", () => {
 
     await expect.poll(() => observedUrl).not.toBeNull();
     expect(observedUrl).toMatch(/\bside=browser\b/);
-    expect(observedUrl).toMatch(/\bauth=[^&]+/);
+    expect(observedUrl).not.toMatch(/\bauth=/);
   });
 
   test("a session outlives the server's keep-alive with no connection error", async ({

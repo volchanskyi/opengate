@@ -462,21 +462,6 @@ func TestConnNetConn(t *testing.T) {
 	assert.Same(t, server, c.NetConn())
 }
 
-func TestChannelSetOnData(t *testing.T) {
-	ch := &Channel{}
-	assert.Nil(t, ch.OnData)
-
-	var got []byte
-	ch.SetOnData(func(b []byte) { got = b })
-	require.NotNil(t, ch.OnData)
-
-	ch.OnData([]byte("hello"))
-	assert.Equal(t, []byte("hello"), got)
-
-	ch.SetOnData(nil)
-	assert.Nil(t, ch.OnData)
-}
-
 func TestWriteChannelOpenDirect(t *testing.T) {
 	var buf bytes.Buffer
 	const senderCh uint32 = 42

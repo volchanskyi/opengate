@@ -96,11 +96,7 @@ func browserRelayURL(ctx context.Context, token protocol.SessionToken) string {
 	scheme := "wss"
 	host := "localhost"
 	if r := httpRequestFromContext(ctx); r != nil {
-		if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
-			if proto == "http" {
-				scheme = "ws"
-			}
-		} else if r.TLS == nil {
+		if !reachedOverTLS(r) {
 			scheme = "ws"
 		}
 		if r.Host != "" {
