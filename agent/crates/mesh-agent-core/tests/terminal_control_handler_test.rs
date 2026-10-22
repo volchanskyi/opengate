@@ -1,8 +1,5 @@
 //! Integration tests for `TerminalControlHandler` resize delegation.
 
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
-
 use mesh_agent_core::session::handlers::TerminalControlHandler;
 use mesh_agent_core::session::TerminalHandle;
 use tokio::sync::mpsc;
@@ -16,8 +13,8 @@ fn handle_resize_no_terminal_does_not_panic() {
 async fn handle_resize_with_terminal_forwards_dimensions() {
     let (stdin_tx, _stdin_rx) = mpsc::channel(8);
     let (resize_tx, mut resize_rx) = mpsc::channel(8);
-    let shutdown = Arc::new(AtomicBool::new(false));
-    let term = TerminalHandle::new(stdin_tx, resize_tx, shutdown);
+    let (hangup, _) = tokio::sync::oneshot::channel();
+    let term = TerminalHandle::new(stdin_tx, resize_tx, hangup);
 
     TerminalControlHandler::handle_resize(Some(&term), 132, 50);
 

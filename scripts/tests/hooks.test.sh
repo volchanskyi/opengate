@@ -1177,6 +1177,32 @@ else
   pass "verb pattern: no hook carries a copy of its own ($verb_hooks read)"
 fi
 
+# The client starts a hook from the session's working directory, so a relative command run from
+# a subfolder names no file, and the hook is skipped with no refusal.
+hook_commands="$(python3 -c '
+import json, sys
+settings = json.load(open(sys.argv[1]))
+for groups in settings.get("hooks", {}).values():
+    for group in groups:
+        for hook in group.get("hooks", []):
+            print(hook.get("command", ""))
+' "$PROJECT_ROOT/.claude/settings.json")"
+relative_demo="$(mktemp -d)"
+mkdir -p "$relative_demo/sub"
+if (cd "$relative_demo/sub" && bash -c '.claude/hooks/pretooluse-write-guard.sh' </dev/null >/dev/null 2>&1); then
+  fail "hook commands: a relative command launched from a subfolder (the defect did not reproduce)"
+else
+  pass "hook commands: a relative command launched from a subfolder names no file"
+fi
+rm -rf "$relative_demo"
+if [ -z "$hook_commands" ]; then
+  fail "hook commands: settings.json named no hook command at all"
+elif unanchored="$(grep -vE "^\"\\\$CLAUDE_PROJECT_DIR\"/\\.claude/hooks/" <<<"$hook_commands")"; then
+  fail "hook commands: not anchored to \"\$CLAUDE_PROJECT_DIR\": $(tr '\n' ' ' <<<"$unanchored")"
+else
+  pass "hook commands: every one is anchored to the project ($(wc -l <<<"$hook_commands") read)"
+fi
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

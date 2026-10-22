@@ -1,6 +1,9 @@
 package main
 
 import (
+	"fmt"
+	"os"
+	"runtime"
 	"testing"
 	"time"
 
@@ -180,52 +183,113 @@ func TestAnUnreadableRunQueueMeasuresNothing(t *testing.T) {
 	assert.False(t, ok, "a machine with no processors is not a machine at rest")
 }
 
-func TestTheGuestReadingIsTheMinuteBeforeIt(t *testing.T) {
-	percent, ok := loadAveragePercent("0.65 0.70 0.71 3/680 2442829\n", 2)
-	require.True(t, ok)
-	assert.InDelta(t, 32.5, percent, 0.01)
+// statLine is the first line of /proc/stat with the given user, system, idle, iowait and steal
+// ticks, the other fields zero.
+func statLine(user, system, idle, iowait, steal uint64) string {
+	return fmt.Sprintf("cpu  %d 0 %d %d %d 0 0 %d 0 0\ncpu0 1 2 3 4 5 6 7 8 9 10\n",
+		user, system, idle, iowait, steal)
 }
 
-func TestAnUnreadableLoadAverageMeasuresNothing(t *testing.T) {
-	for _, raw := range []string{"", "notanumber 0.70 0.71 3/680 1", "-1.00 0.70 0.71 3/680 1"} {
-		_, ok := loadAveragePercent(raw, 2)
-		assert.False(t, ok, "%q reached the ceiling as a machine at rest", raw)
+func requireBusyPercent(t *testing.T, before, after string, want float64) {
+	t.Helper()
+	first, ok := parseCPUTimes(before)
+	require.True(t, ok, "%q", before)
+	second, ok := parseCPUTimes(after)
+	require.True(t, ok, "%q", after)
+	percent, ok := busyPercent(first, second)
+	require.True(t, ok)
+	assert.InDelta(t, want, percent, 0.01)
+}
+
+func TestTheBusyShareIsTheTimeSpentWorkingBetweenTwoReadings(t *testing.T) {
+	// 200 busy ticks against 700 idle ones between the readings.
+	requireBusyPercent(t, statLine(100, 100, 800, 0, 0), statLine(200, 200, 1500, 0, 0), 22.22)
+}
+
+func TestWaitingOnTheDiskIsRoomForTheRun(t *testing.T) {
+	requireBusyPercent(t, statLine(0, 0, 0, 0, 0), statLine(10, 10, 60, 20, 0), 20)
+}
+
+func TestTimeTheHostTookBackIsNoRoomForTheRun(t *testing.T) {
+	requireBusyPercent(t, statLine(0, 0, 0, 0, 0), statLine(10, 10, 40, 0, 40), 60)
+}
+
+func TestAQueueOfWaitingTasksOnAnIdleProcessorLeavesRoomToStart(t *testing.T) {
+	// 2026-10-15 09:27: a load average of 2.97 on two processors while they were 22% busy.
+	queued, ok := runQueuePercent("2.97 2.10 1.40 5/680 2442829\n", 2)
+	require.True(t, ok)
+	require.Error(t, CheckRoomToStart(tightSafety(), NodeReading{Measured: true, CPUPercent: queued}),
+		"the queue alone reads as a node past its ceiling")
+
+	first, _ := parseCPUTimes(statLine(1000, 1000, 7000, 70, 0))
+	second, _ := parseCPUTimes(statLine(1220, 1220, 8700, 90, 0))
+	busy, ok := busyPercent(first, second)
+	require.True(t, ok)
+	assert.NoError(t, CheckRoomToStart(tightSafety(), NodeReading{Measured: true, CPUPercent: busy}),
+		"the processor itself had room")
+}
+
+func TestAnUnreadableProcessorAccountMeasuresNothing(t *testing.T) {
+	for _, raw := range []string{"", "intr 1 2 3\n", "cpu  1 2 three 4\n", "cpu  1 2\n"} {
+		_, ok := parseCPUTimes(raw)
+		assert.False(t, ok, "%q is not a processor account", raw)
 	}
-	_, ok := loadAveragePercent("0.65 0.70 0.71 3/680 1\n", 0)
-	assert.False(t, ok, "a machine with no processors is not a machine at rest")
+	same, _ := parseCPUTimes(statLine(5, 5, 5, 5, 5))
+	_, ok := busyPercent(same, same)
+	assert.False(t, ok, "no time passed, so nothing was measured")
+	later, _ := parseCPUTimes(statLine(9, 9, 9, 9, 9))
+	_, ok = busyPercent(later, same)
+	assert.False(t, ok, "counters that ran backwards measure a restart, not a machine at rest")
 }
 
-func TestTheTwoMeasuresDisagreeOnANodeThatIsNotBusy(t *testing.T) {
-	const node = "0.65 0.70 0.71 5/680 2442829\n"
-	const processors = 2
+// statSequence serves /proc/stat readings in order, failing past the last.
+func statSequence(raws ...string) func() (string, error) {
+	next := 0
+	return func() (string, error) {
+		if next >= len(raws) {
+			return "", os.ErrNotExist
+		}
+		next++
+		return raws[next-1], nil
+	}
+}
 
-	instant, ok := runQueuePercent(node, processors)
-	require.True(t, ok)
-	require.Error(t, CheckRoomToStart(tightSafety(), NodeReading{
-		Measured: true, CPUPercent: instant,
-	}), "the instant measure refuses this node")
+func TestTheGuestReadingFirstSpansTenSecondsThenTheGapSinceItsLast(t *testing.T) {
+	clock := &testClock{now: time.Unix(1_800_000_000, 0)}
+	began := clock.now
+	read := busyShareReading(clock, statSequence(
+		statLine(0, 0, 0, 0, 0), statLine(30, 30, 40, 0, 0), statLine(40, 40, 160, 0, 0)))
 
-	minute, ok := loadAveragePercent(node, processors)
+	busy, ok := read()
 	require.True(t, ok)
-	require.NoError(t, CheckRoomToStart(tightSafety(), NodeReading{
-		Measured: true, CPUPercent: minute,
-	}), "the minute measure lets it run")
+	assert.InDelta(t, 60, busy, 0.01)
+	assert.Equal(t, 10*time.Second, clock.now.Sub(began), "the first reading covers ten seconds")
+
+	busy, ok = read()
+	require.True(t, ok)
+	assert.InDelta(t, 14.29, busy, 0.01, "the second covers the time since the first")
+	assert.Equal(t, 10*time.Second, clock.now.Sub(began), "and waits for nothing")
 }
 
 func TestTheVenuePicksWhichMeasureIsHonest(t *testing.T) {
-	const node = "0.65 0.70 0.71 5/680 2442829\n"
-
-	guest, ok := venueProcessorMeasure(true)(node, 2)
+	clock := &testClock{now: time.Unix(1_800_000_000, 0)}
+	guest, ok := venueProcessorReading(true, clock, statSequence(
+		statLine(0, 0, 0, 0, 0), statLine(10, 10, 80, 0, 0)), func() (string, error) {
+		return "0.65 0.70 0.71 5/680 2442829\n", nil
+	})()
 	require.True(t, ok)
-	assert.InDelta(t, 32.5, guest, 0.01, "a guest is read over the minute production shared with it")
+	assert.InDelta(t, 20, guest, 0.01, "a guest is read by the time its processors spent working")
 
-	owner, ok := venueProcessorMeasure(false)(node, 2)
+	owner, ok := venueProcessorReading(false, clock, statSequence(), func() (string, error) {
+		return "0.65 0.70 0.71 9/680 2442829\n", nil
+	})()
 	require.True(t, ok)
-	assert.InDelta(t, 200.0, owner, 0, "a run that owns the box is read at the instant")
+	assert.InDelta(t, 8/float64(runtime.NumCPU())*100, owner, 0.001,
+		"a run that owns the box is read by its queue at the instant")
 }
 
 func TestTheVenueReadingIsAnActualMeasurement(t *testing.T) {
-	reading := VenueNodeReading()
+	reading := NewVenueReader(NewRealClock())()
 	assert.True(t, reading.Measured, "the process can read the machine it is on")
 	assert.GreaterOrEqual(t, reading.CPUPercent, 0.0)
 	assert.GreaterOrEqual(t, reading.MemoryPercent, 0.0)

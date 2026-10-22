@@ -53,6 +53,9 @@ func (b *Bundle) validateRun() []error {
 	if b.Run.ProfileVersion == 0 {
 		problems = append(problems, errors.New("run.profile_version is unset"))
 	}
+	if b.Run.ProfileDigest == "" {
+		problems = append(problems, errors.New("run.profile_digest is empty"))
+	}
 	if b.Run.StartedAt.IsZero() {
 		problems = append(problems, errors.New("run.started_at is unset"))
 	}

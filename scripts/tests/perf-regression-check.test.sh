@@ -63,13 +63,22 @@ nights() {
     >>"$WORK/store/$metric.jsonl"
 }
 
+# flagged_night METRIC LEG PHASE WORKLOAD DAYS_AGO VALUE pushes a reading as a flagged night.
+flagged_night() {
+  local metric="$1" leg="$2" phase="$3" workload="$4" ago="$5" value="$6"
+  jq -nc --arg m "$metric" --arg leg "$leg" --arg phase "$phase" --arg workload "$workload" \
+    --argjson t "[$(((MIDNIGHT - ago * 86400 + 49000) * 1000))]" --argjson v "[$value]" \
+    '{metric: {__name__: $m, env: "ci", flagged: "1", leg: $leg, phase: $phase, workload: $workload},
+      values: $v, timestamps: $t}' >>"$WORK/store/$metric.jsonl"
+}
+
 # bundle LEG PROFILE VERDICT P95 P50 — tonight's evidence for one leg.
 bundle() {
   local leg="$1" profile="$2" verdict="$3" p95="$4" p50="$5"
   mkdir -p "$WORK/legs/$leg"
   jq -n --arg profile "$profile" --arg verdict "$verdict" --argjson p95 "$p95" --argjson p50 "$p50" '{
-    run: {commit: "abc123", profile_name: $profile, profile_version: 1, environment: "runner",
-          finished_at: "2026-09-29T14:00:00Z"},
+    run: {commit: "abc123", profile_name: $profile, profile_version: 1, profile_digest: "d1",
+          environment: "runner", finished_at: "2026-09-29T14:00:00Z"},
     verdict: {result: $verdict},
     observations: [
       {series: "aggregate_error_rate", value: 0},
@@ -81,14 +90,14 @@ bundle() {
 
 run_check() {
   : >"$WORK/args"
-  PATH="$WORK/bin:$PATH" KUBECTL_ARGS="$WORK/args" STORE="$WORK/store" \
+  PATH="$WORK/bin:$PATH" KUBECTL_ARGS="$WORK/args" STORE="$WORK/store" PERF_FLAGGED_FILE="$WORK/flagged.tsv" \
     VM_RUN_STARTED_AT="${STARTED_OVERRIDE-$TONIGHT}" "$CHECK" "$@"
 }
 
 echo "perf-regression-check:"
 
-nights perf_latency_p95_ms volume-500 register volume-500/1 4.99 4.89 5.01 4.93 5.2 4.97 8.62 5.04 4.98
-nights perf_latency_p50_ms spike register spike/1 5.32 3.01 4.8 6143 5.1 3.3 4.2 5 5.4
+nights perf_latency_p95_ms volume-500 register volume-500/1/d1 4.99 4.89 5.01 4.93 5.2 4.97 8.62 5.04 4.98
+nights perf_latency_p50_ms spike register spike/1/d1 5.32 3.01 4.8 6143 5.1 3.3 4.2 5 5.4
 
 bundle volume-500 volume-500 valid 6.1 3.1
 rc=0
@@ -99,7 +108,16 @@ assert_lacks "and raises nothing" "REGRESSION_ALERT:" "$out"
 bundle volume-500 volume-500 valid 20 3.1
 rc=0
 out="$(run_check "$WORK/legs/volume-500/bundle.json" 2>&1)" || rc=$?
-assert_eq "a leg that holds its load fails past three times its nights' median" "1" "$rc"
+assert_eq "a held leg's first night past its line is flagged, not failed" "0" "$rc"
+assert_contains "and the flag names the leg, the measurement and the median" \
+  "FLAGGED:volume-500 register latency_p95_ms: 4.99 -> 20" "$out"
+assert_eq "the flagged series is written for the push" "volume-500	register	latency_p95_ms" \
+  "$(cat "$WORK/flagged.tsv")"
+
+flagged_night perf_latency_p95_ms volume-500 register volume-500/1/d1 2 19
+rc=0
+out="$(run_check "$WORK/legs/volume-500/bundle.json" 2>&1)" || rc=$?
+assert_eq "a held leg past its line on two of its last three nights fails" "1" "$rc"
 assert_contains "and names the leg, the measurement and the median" "volume-500 register latency_p95_ms: 4.99 -> 20" "$out"
 if grep -qF 'commit' "$WORK/args"; then
   fail "the window is nights by date and asks nothing about commits"
@@ -113,13 +131,29 @@ out="$(run_check "$WORK/legs/spike/bundle.json" 2>&1)" || rc=$?
 assert_eq "a saturated leg past its median is reported rather than failed" "0" "$rc"
 assert_contains "and the report names it" "REPORTED:spike register latency_p50_ms: 5 -> 6140" "$out"
 
+# Four flagged nights at 60 ms predate three ordinary nights at 5 ms; the window reads those three.
+nights perf_latency_p95_ms volume-200 register volume-200/1/d1 5 5 5
+for ago in 7 6 5 4; do flagged_night perf_latency_p95_ms volume-200 register volume-200/1/d1 "$ago" 60; done
+bundle volume-200 volume-200 valid 20 3.1
+out="$(run_check "$WORK/legs/volume-200/bundle.json" 2>&1)" || true
+assert_contains "a flagged night stays out of the window" "volume-200 register latency_p95_ms: 5 -> 20" "$out"
+
+# The same leg under an edited profile starts a window of its own.
+bundle volume-500 volume-500 valid 20 3.1
+jq '.run.profile_digest = "d2"' "$WORK/legs/volume-500/bundle.json" >"$WORK/edited.json"
+mv "$WORK/edited.json" "$WORK/legs/volume-500/bundle.json"
+rc=0
+out="$(run_check "$WORK/legs/volume-500/bundle.json" 2>&1)" || rc=$?
+assert_eq "an edited profile is compared with no night of the old one" "0" "$rc"
+assert_lacks "and flags nothing" "FLAGGED:" "$out"
+
 bundle volume-2000 volume-2000 valid 900 3.1
 rc=0
 out="$(run_check "$WORK/legs/volume-2000/bundle.json" 2>&1)" || rc=$?
 assert_eq "a leg with no window is judged by its fixed limits alone" "0" "$rc"
 
 bundle scaling-1 scaling invalid 900 3.1
-nights perf_latency_p95_ms scaling-1 register scaling/1 7.6 7.8 7.5 7.7
+nights perf_latency_p95_ms scaling-1 register scaling/1/d1 7.6 7.8 7.5 7.7
 rc=0
 out="$(run_check "$WORK/legs/scaling-1/bundle.json" 2>&1)" || rc=$?
 assert_eq "an invalid leg is not compared" "0" "$rc"

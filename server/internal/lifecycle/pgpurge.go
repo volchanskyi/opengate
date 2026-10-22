@@ -60,6 +60,11 @@ func (p *PostgresPurger) DeleteDevice(ctx context.Context, tenantID, deviceID uu
 			`DELETE FROM devices WHERE tenant_id = $1 AND id = $2`, tenantID, deviceID); err != nil {
 			return fmt.Errorf("delete device row: %w", err)
 		}
+		// The ledger holds no tenant, so the device's certificates go by number.
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM device_certificates WHERE device_id = $1`, deviceID); err != nil {
+			return fmt.Errorf("delete device certificates: %w", err)
+		}
 		return nil
 	})
 }
@@ -75,6 +80,11 @@ func (p *PostgresPurger) DeleteTenantDevices(ctx context.Context, tenantID uuid.
 	ctx = dbtx.WithTenant(ctx, tenantID, true)
 	var count int
 	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM device_certificates
+			  WHERE device_id IN (SELECT id FROM devices WHERE tenant_id = $1)`, tenantID); err != nil {
+			return fmt.Errorf("delete tenant device certificates: %w", err)
+		}
 		res, err := tx.ExecContext(ctx, `DELETE FROM devices WHERE tenant_id = $1`, tenantID)
 		if err != nil {
 			return fmt.Errorf("delete tenant devices: %w", err)

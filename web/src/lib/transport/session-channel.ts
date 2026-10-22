@@ -98,11 +98,11 @@ export class SessionChannel {
     return this.currentState;
   }
 
-  /** Opens the relay as the browser side, authenticated by the signed-in technician's token. */
-  connect(relayUrl: string, authToken: string): void {
+  /** Opens the relay as the browser side; the console's session cookie proves who it is. */
+  connect(relayUrl: string): void {
     this.setState('connecting');
     const separator = relayUrl.includes('?') ? '&' : '?';
-    const ws = new WebSocket(`${relayUrl}${separator}side=browser&auth=${encodeURIComponent(authToken)}`);
+    const ws = new WebSocket(`${relayUrl}${separator}side=browser`);
     ws.binaryType = 'arraybuffer';
     this.ws = ws;
     ws.onopen = () => {

@@ -13,7 +13,7 @@ import (
 func TestAnEnrollmentURLMeansTheServerSigns(t *testing.T) {
 	server := enrollmentServer(t)
 
-	credentials, err := newAgentCredentials("", server.URL, "enroll-token")
+	credentials, err := newAgentCredentials(server.URL, "enroll-token")
 	require.NoError(t, err)
 
 	config, err := credentials.forAgent(context.Background(), tenantAgent{hostname: "soak-t0-a0"})
@@ -22,31 +22,22 @@ func TestAnEnrollmentURLMeansTheServerSigns(t *testing.T) {
 	assert.NotNil(t, config.RootCAs, "an enrolled machine verifies the server with the authority it was handed")
 }
 
-func TestNoEnrollmentURLMeansTheHarnessSignsLocally(t *testing.T) {
-	credentials, err := newAgentCredentials(t.TempDir(), "", "")
-	require.NoError(t, err)
-
-	config, err := credentials.forAgent(context.Background(), tenantAgent{hostname: "soak-t0-a0"})
-	require.NoError(t, err)
-	require.Len(t, config.Certificates, 1)
-}
-
 func TestEnrollingWithoutATokenIsRefused(t *testing.T) {
-	_, err := newAgentCredentials("", "http://localhost:8080", "")
+	_, err := newAgentCredentials("http://localhost:8080", "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "token")
 }
 
 func TestAnEnrollmentURLOutsideTheAllowlistIsRefused(t *testing.T) {
-	_, err := newAgentCredentials("", "http://opengate-server.opengate.svc.cluster.local:8080", "tok")
+	_, err := newAgentCredentials("http://opengate-server.opengate.svc.cluster.local:8080", "tok")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not an allowed load-test target")
 }
 
-func TestNoCredentialSourceAtAllIsRefused(t *testing.T) {
-	_, err := newAgentCredentials("", "", "")
+func TestWithoutAnEnrollmentURLTheHarnessIsRefused(t *testing.T) {
+	_, err := newAgentCredentials("", "")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "certificate authority")
+	assert.Contains(t, err.Error(), "-enroll-url")
 }
 
 // countingSource is a credential source that records what it was asked for.

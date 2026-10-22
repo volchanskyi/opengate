@@ -30,7 +30,7 @@
 | 027 | A pen-test gate runs custom rules over the diff at three points, with no inline suppression | [ADR-027](../docs/adr/ADR-027-pentest-gate.md) |
 | 029 | Every test runs on every machine; a missing dependency is provisioned, never skipped around | [ADR-029](../docs/adr/ADR-029-test-determinism.md) |
 | 030 | Kubernetes on OKE, packaged with Helm, with the database in the cluster and the ingress controller's settings held by the repository | [ADR-030](../docs/adr/ADR-030-kubernetes-on-oke.md) |
-| 034 | The server's four key files are mounted from a Kubernetes Secret, so identity survives a redeploy | [ADR-034](../docs/adr/ADR-034-server-keys-from-a-secret.md) |
+| 034 | The server's key files are mounted from Kubernetes Secrets, the master key's from one only the server reads, so identity survives a redeploy | [ADR-034](../docs/adr/ADR-034-server-keys-from-a-secret.md) |
 | 035 | The cluster fits the 200 GB storage cap; the binding constraint is volume count, not size | [ADR-035](../docs/adr/ADR-035-block-volume-budget.md) |
 | 037 | QUIC with mutual TLS; the agent opens the stream, resumption carries the reconnect saving, and the port also answers the session helper | [ADR-037](../docs/adr/ADR-037-quic-transport.md) |
 | 038 | CI trends live in VictoriaMetrics; a sample names its workload and the load gate reads its baseline back | [ADR-038](../docs/adr/ADR-038-ci-trend-store.md) |
@@ -69,7 +69,7 @@
 | 098 | A test asserts on the code that ships; assertion shape is not evidence of value, and the data says so | [ADR-098](../docs/adr/ADR-098-test-value.md) |
 | 101 | The profile is the only home for the numbers — one measurement, one limit, and the window it is taken over | [ADR-101](../docs/adr/ADR-101-load-profiles-and-limits.md) |
 | 107 | Every profile has a venue; limits derive from the run's length, and the node is asked whether it has room | [ADR-107](../docs/adr/ADR-107-where-a-run-happens.md) |
-| 116 | A forwarded address is believed only from a proxy the deployment named; a signed-in request counts per account, and a machine dials a set relay address | [ADR-116](../docs/adr/ADR-116-forwarded-addresses.md) |
+| 116 | A forwarded address is believed only from a named proxy; a request counts per account or console session; a machine dials a set relay address; the console signs in by cookie | [ADR-116](../docs/adr/ADR-116-forwarded-addresses.md) |
 | 119 | A long run keeps the target's profiles and names the line that grew; a core says what still holds it | [ADR-119](../docs/adr/ADR-119-finding-a-leak.md) |
 | 121 | Signed over-the-air agent updates, pushed by the server, verified and rolled back by the agent | [ADR-121](../docs/adr/ADR-121-agent-auto-update.md) |
 | 122 | A mutation shard walks the narrowest path holding its own units; a leg publishes its score alone | [ADR-122](../docs/adr/ADR-122-mutation-walk-and-legs.md) |
@@ -78,3 +78,4 @@
 | 125 | A comment is a short positive statement about its code, checked at write time and on every commit; repeated code is read from the scanner's report for every file | [ADR-125](../docs/adr/ADR-125-comments-and-repeated-code.md) |
 | 126 | An npm advisory with no fixed release may be excepted by ID with a reason and a review date; the exception lapses on that date, on a new release, or once unreported | [ADR-126](../docs/adr/ADR-126-advisory-exceptions-lapse.md) |
 | 127 | A session moves to a direct link when the networks allow and loses nothing moving back; downloads stream, one at a time | [ADR-127](../docs/adr/ADR-127-direct-link.md) |
+| 128 | A machine's identity survives a reinstall, renews from day 60 of 90, is admitted expired only to renew or be removed, and is signed by a master key only the server can read | [ADR-128](../docs/adr/ADR-128-machine-identity-lifecycle.md) |

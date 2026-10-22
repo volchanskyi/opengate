@@ -104,6 +104,33 @@ func TestHandleDeviceLogsError_DeliversError(t *testing.T) {
 	}
 }
 
+func TestHandleDeviceLogsError_NamesTheAgentsOwnRefusals(t *testing.T) {
+	for _, tc := range []struct {
+		reply string
+		want  error
+	}{
+		{protocol.RequestBusy, ErrLogsBusy},
+		{protocol.RequestTimedOut, ErrLogsTimedOut},
+	} {
+		t.Run(tc.reply, func(t *testing.T) {
+			ac, _ := newTestAgentConn(t, uuid.New(), nil)
+			ch := make(chan logsResult, 1)
+			ac.logWaiter = ch
+			codec := &protocol.Codec{}
+			var frame bytes.Buffer
+			writeControlMsg(t, codec, &frame, &protocol.ControlMessage{
+				Type:     protocol.MsgDeviceLogsError,
+				AckError: tc.reply,
+			})
+			ac.stream = &frame
+
+			require.NoError(t, ac.handleControl(context.Background()))
+			res := <-ch
+			assert.ErrorIs(t, res.err, tc.want)
+		})
+	}
+}
+
 func TestDeliverLogs_NoWaiterDrops(t *testing.T) {
 	ac, _ := newTestAgentConn(t, uuid.New(), nil)
 	assert.False(t, ac.deliverLogs(logsResult{total: 1}))

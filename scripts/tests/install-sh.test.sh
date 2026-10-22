@@ -6,6 +6,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 INSTALLER="$REPO_ROOT/server/internal/api/install.sh"
+# The agent's own test reads this note too, so the two sides agree on its format.
+NOTE_FIXTURE="$REPO_ROOT/agent/crates/mesh-agent/tests/fixtures/install-note.json"
 
 PASS=0
 FAIL=0
@@ -53,7 +55,7 @@ while [ "$#" -gt 0 ]; do
 done
 case "$url" in
   */api/v1/enroll/*)
-    printf '%s\n' '{"server_addr":"quic.example.test:443"}'
+    printf '%s\n' '{"ca_pem":"-----BEGIN CERTIFICATE-----\nZml4dHVyZS1tYXN0ZXIta2V5\n-----END CERTIFICATE-----\n","server_addr":"quic.example.test:443","server_domain":"control.example.test"}'
     ;;
   */api/v1/updates/manifests)
     printf '[{"os":"linux","arch":"amd64","url":"https://download.example/mesh-agent","sha256":"%s"}]\n' "$STUB_SHA"
@@ -71,7 +73,12 @@ EOF
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$SYSTEMCTL_TRACE"
 EOF
-  chmod +x "$fixture/bin/curl" "$fixture/bin/systemctl"
+  cat >"$fixture/bin/mv" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$MV_TRACE"
+exec /bin/mv "$@"
+EOF
+  chmod +x "$fixture/bin/curl" "$fixture/bin/systemctl" "$fixture/bin/mv"
 }
 
 run_installer() {
@@ -89,6 +96,7 @@ run_installer() {
     STUB_ASSET="$fixture/asset" \
     STUB_SHA="$(cat "$fixture/sha")" \
     SYSTEMCTL_TRACE="$fixture/systemctl.trace" \
+    MV_TRACE="$fixture/mv.trace" \
     bash "$INSTALLER" "$@"
 }
 
@@ -97,24 +105,42 @@ echo "install.sh:"
 fixture="$TMP_ROOT/success"
 make_fixture "$fixture"
 token="enroll-token-do-not-log"
+unit="$fixture/root/etc/systemd/system/mesh-agent.service"
+note="$fixture/root/var/lib/opengate-agent/install-note.json"
 if output="$(run_installer "$fixture" "$token" 2>&1)" \
   && [ -x "$fixture/root/usr/local/bin/mesh-agent" ] \
-  && grep -qF -- "--server-addr quic.example.test:443" "$fixture/root/etc/systemd/system/mesh-agent.service" \
-  && grep -qF -- "--enroll-token $token" "$fixture/root/etc/systemd/system/mesh-agent.service" \
-  && grep -qF "enable --now mesh-agent" "$fixture/systemctl.trace" \
+  && grep -qF -- "--server-addr quic.example.test:443" "$unit" \
+  && grep -qxF "enable mesh-agent" "$fixture/systemctl.trace" \
+  && grep -qxF "restart mesh-agent" "$fixture/systemctl.trace" \
   && ! grep -qF "$token" <<<"$output"; then
-  pass "clean install writes binary/service and redacts the token from output"
+  pass "clean install writes binary/service, starts it, and redacts the token from output"
 else
-  fail "clean install writes binary/service and redacts the token from output"
+  fail "clean install writes binary/service, starts it, and redacts the token from output"
 fi
 
-# The unit's ExecStart carries the enrollment token, and that token stays usable
-# until it expires or is exhausted — so the file it sits in is root-only.
-unit="$fixture/root/etc/systemd/system/mesh-agent.service"
-if [ "$(stat -c '%a' "$unit")" = "600" ]; then
-  pass "the systemd unit holding the enrollment token is owner-only"
+if cmp -s "$note" "$NOTE_FIXTURE" && [ "$(stat -c '%a' "$note")" = "600" ]; then
+  pass "the install note matches the agent's fixture and is owner-only"
 else
-  fail "the systemd unit holding the enrollment token is owner-only (mode $(stat -c '%a' "$unit"))"
+  fail "the install note matches the agent's fixture and is owner-only ($(cat "$note" 2>&1))"
+fi
+
+if ! grep -qF "$token" "$unit" && ! grep -qF -- "--enroll" "$unit"; then
+  pass "the unit carries no token and no enrollment flag"
+else
+  fail "the unit carries no token and no enrollment flag"
+fi
+
+if grep -qE "/opengate-agent/\.install-note\.[A-Za-z0-9]+ .*/install-note\.json$" "$fixture/mv.trace" \
+  && [ -z "$(find "$fixture/root/var/lib/opengate-agent" -name '.install-note.*' -print -quit)" ]; then
+  pass "the note is written beside its final name and renamed into place"
+else
+  fail "the note is written beside its final name and renamed into place ($(cat "$fixture/mv.trace" 2>&1))"
+fi
+
+if grep -qE "^TimeoutStopSec=[0-9]+" "$unit"; then
+  pass "the unit bounds how long a stop may take"
+else
+  fail "the unit bounds how long a stop may take"
 fi
 
 # The binary is owned by root and started by a root unit, so other local accounts get no access.
@@ -126,12 +152,27 @@ else
 fi
 
 before_sha="$(sha256sum "$fixture/root/usr/local/bin/mesh-agent")"
+printf '' >"$fixture/root/var/lib/opengate-agent/removed"
+chmod 0755 "$fixture/root/var/lib/opengate-agent"
 if run_installer "$fixture" "$token" >/dev/null \
   && [ "$(sha256sum "$fixture/root/usr/local/bin/mesh-agent")" = "$before_sha" ] \
-  && [ "$(grep -cF "enable --now mesh-agent" "$fixture/systemctl.trace")" -eq 2 ]; then
-  pass "re-running the installer is idempotent"
+  && [ "$(grep -cxF "restart mesh-agent" "$fixture/systemctl.trace")" -eq 2 ] \
+  && [ ! -e "$fixture/root/var/lib/opengate-agent/removed" ] \
+  && [ "$(stat -c '%a' "$fixture/root/var/lib/opengate-agent")" = "700" ] \
+  && cmp -s "$note" "$NOTE_FIXTURE"; then
+  pass "re-running the installer restarts the agent, clears a stale removed marker and closes the data folder"
 else
-  fail "re-running the installer is idempotent"
+  fail "re-running the installer restarts the agent, clears a stale removed marker and closes the data folder"
+fi
+
+fixture="$TMP_ROOT/fresh"
+make_fixture "$fixture"
+note="$fixture/root/var/lib/opengate-agent/install-note.json"
+if run_installer "$fixture" --fresh "$token" >/dev/null \
+  && cmp -s "$note" <(sed 's/"fresh":false/"fresh":true/' "$NOTE_FIXTURE"); then
+  pass "--fresh asks the agent for a new identity"
+else
+  fail "--fresh asks the agent for a new identity ($(cat "$note" 2>&1))"
 fi
 
 fixture="$TMP_ROOT/mismatch"

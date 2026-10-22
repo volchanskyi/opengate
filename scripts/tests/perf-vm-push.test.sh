@@ -36,7 +36,8 @@ bundle() {
   mkdir -p "$dir"
   jq -n --arg profile "$profile" --arg verdict "$verdict" \
     --argjson p95 "$p95" --argjson p50 "$p50" --argjson connect "$connect" --argjson errors "$errors" '{
-      run: {commit: "abc123", profile_name: $profile, profile_version: 1, environment: "runner",
+      run: {commit: "abc123", profile_name: $profile, profile_version: 1, profile_digest: "d1",
+            environment: "runner",
             started_at: "2026-09-29T13:44:35Z", finished_at: "2026-09-29T13:51:35Z"},
       verdict: {result: $verdict},
       observations: [
@@ -74,15 +75,15 @@ check() { # description, line
   if grep -qxF -- "$2" <<<"$pushed"; then pass "$1"; else fail "$1 (missing [$2] in [$pushed])"; fi
 }
 check "a leg's registration tail is named by the leg and the workload it measured" \
-  'perf_latency_p95_ms{env="ci",leg="scaling-0.25",phase="register",workload="scaling/1"} 10000 1790689000000'
+  'perf_latency_p95_ms{env="ci",leg="scaling-0.25",phase="register",workload="scaling/1/d1"} 10000 1790689000000'
 check "and its middle case beside it" \
-  'perf_latency_p50_ms{env="ci",leg="volume-500",phase="register",workload="volume-500/1"} 3.1 1790689000000'
+  'perf_latency_p50_ms{env="ci",leg="volume-500",phase="register",workload="volume-500/1/d1"} 3.1 1790689000000'
 check "and the connect tail" \
-  'perf_latency_p95_ms{env="ci",leg="volume-500",phase="connect",workload="volume-500/1"} 2 1790689000000'
+  'perf_latency_p95_ms{env="ci",leg="volume-500",phase="connect",workload="volume-500/1/d1"} 2 1790689000000'
 check "and the error rate" \
-  'perf_error_rate{env="ci",leg="scaling-0.25",phase="aggregate",workload="scaling/1"} 0 1790689000000'
+  'perf_error_rate{env="ci",leg="scaling-0.25",phase="aggregate",workload="scaling/1/d1"} 0 1790689000000'
 check "the endurance run is a leg of its own" \
-  'perf_latency_p95_ms{env="ci",leg="soak",phase="register",workload="soak/1"} 9.11 1790689000000'
+  'perf_latency_p95_ms{env="ci",leg="soak",phase="register",workload="soak/1/d1"} 9.11 1790689000000'
 
 if grep -qF 'leg="spike"' <<<"$pushed"; then
   fail "a leg that did not measure the system stays out of the trend"
@@ -100,6 +101,14 @@ if grep -qE '[{,](commit|run_id)=' <<<"$samples"; then
 else
   pass "a leg's sample names the measurement only"
 fi
+
+printf 'volume-500\tregister\tlatency_p95_ms\n' >"$WORK/flagged.tsv"
+PERF_FLAGGED_FILE="$WORK/flagged.tsv" run_push "$WORK/perf-bundles/volume-500/bundle.json" >/dev/null 2>&1
+pushed="$(cat "$WORK/pushed")"
+check "a series the check flagged is pushed as flagged" \
+  'perf_latency_p95_ms{env="ci",flagged="1",leg="volume-500",phase="register",workload="volume-500/1/d1"} 4.99 1790689000000'
+check "and the leg's other series as they are" \
+  'perf_latency_p50_ms{env="ci",leg="volume-500",phase="register",workload="volume-500/1/d1"} 3.1 1790689000000'
 
 if out="$(run_push "$WORK/perf-bundles/spike/bundle.json" 2>&1)"; then
   fail "a night with nothing measured is refused (out=[$out])"

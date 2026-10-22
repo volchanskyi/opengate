@@ -1,0 +1,9 @@
+{
+  "bye": 0,
+  "stream_accept_failed": 1,
+  "handshake_refused": 2,
+  "device_deleted": 3,
+  "restricted_session_ended": 4,
+  "certificate_refused": 5,
+  "replaced_by_newer_connection": 6
+}

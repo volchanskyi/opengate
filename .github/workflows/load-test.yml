@@ -58,9 +58,9 @@ jobs:
   load-test:
     name: Load Tests (k6 + QUIC)
     runs-on: ubuntu-24.04
-    # The budget covers the verdict wait derived from the hold plus the 25 minute namespace claim wait.
-    # scripts/tests/loadtest-run-budget.test.sh holds the sum against this.
-    timeout-minutes: 60
+    # The budget covers the verdict wait derived from the hold and the room wait, plus the 25 minute
+    # namespace claim wait. scripts/tests/loadtest-run-budget.test.sh holds the sum against this.
+    timeout-minutes: 90
     # `environment: staging` would put its required reviewers in front of the scheduled run.
     # The job uses repository-level OCI credentials and creates short-lived test pods.
     outputs:
@@ -82,17 +82,18 @@ jobs:
         uses: ./.github/actions/oci-kube-setup
         with:
           oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
-          oci-user: ${{ secrets.OCI_USER_OCID }}
-          oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
-          oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
+          oci-user: ${{ secrets.OCI_WORKFLOW_USER_OCID }}
+          oci-fingerprint: ${{ secrets.OCI_WORKFLOW_FINGERPRINT }}
+          oci-private-key: ${{ secrets.OCI_WORKFLOW_PRIVATE_KEY }}
           oci-region: ${{ secrets.OCI_REGION }}
           cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
 
-      # The staging deploy rolls the server, truncates the account and loads the node, so each side
-      # takes the namespace first; the wait covers a deploy and a drill.
+      # A deploy and this run each take the namespace first, the wait covering a deploy and a drill;
+      # shared alerts stay on until the harness finds room, since a busy server is what they watch.
       - name: Take the staging namespace
         env:
           STAGING_LEASE_WAIT_SECONDS: "1500"
+          STAGING_LEASE_QUIET: later
         run: scripts/staging-lease.sh acquire "$STAGING_LEASE_HOLDER"
 
       # Both phases run their generator in the cluster, so both need the server pod and its arch.
@@ -241,12 +242,21 @@ jobs:
               -fixture-seed="$GITHUB_RUN_ID" \
               -relay-sessions \
               -hold="$LOADTEST_HOLD" \
+              -room-wait="${LOADTEST_ROOM_WAIT_SECONDS}s" \
               -profile="$LOADTEST_POD_PROFILE" \
               -commit="$GITHUB_SHA" \
               -target-cpus="$LOADTEST_TARGET_CPUS" \
               -target-memory-bytes="$LOADTEST_TARGET_MEMORY_BYTES" \
               -target-description="$LOADTEST_TARGET_DESCRIPTION" \
               -bundle=/tmp/loadtest-bundle
+
+      # The harness walks once the shared server's processor is under the profile's ceiling, and
+      # otherwise stops with the readings it took.
+      - name: Wait for room on the shared server
+        run: scripts/loadtest-quic-incluster.sh await-walk
+
+      - name: Hold shared alerts back while the run loads the server
+        run: scripts/staging-lease.sh quiet-open "$STAGING_LEASE_HOLDER"
 
       # Scenarios pick a building once at setup, and a machine is filed into a building only after
       # it registers, so this wait lets the filing finish first.
@@ -377,7 +387,6 @@ jobs:
           # The raw exports stage inside the workspace so the artifact layout is workspace-relative.
           mkdir -p loadtest-k6-raw
           cp "$LOADTEST_K6_SUMMARY_DIR"/*.json loadtest-k6-raw/ 2>/dev/null || true
-          cp "$LOADTEST_K6_SUMMARY_DIR"/*.thresholds loadtest-k6-raw/ 2>/dev/null || true
 
       # The profile's limits are read against the summary rows, where both halves of the night meet.
       # The breach file feeds the completeness verdict; exit 2 means the limits could not be read.
@@ -448,6 +457,7 @@ jobs:
     outputs:
       alert_text: ${{ steps.check.outputs.alert_text }}
       regression: ${{ steps.check.outputs.regression }}
+      not_started: ${{ steps.verdict.outputs.not_started }}
     env:
       # When the run started, which every sample of the night carries.
       VM_RUN_STARTED_AT: ${{ needs.load-test.outputs.started_at }}
@@ -459,9 +469,9 @@ jobs:
         uses: ./.github/actions/oci-kube-setup
         with:
           oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
-          oci-user: ${{ secrets.OCI_USER_OCID }}
-          oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
-          oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
+          oci-user: ${{ secrets.OCI_WORKFLOW_USER_OCID }}
+          oci-fingerprint: ${{ secrets.OCI_WORKFLOW_FINGERPRINT }}
+          oci-private-key: ${{ secrets.OCI_WORKFLOW_PRIVATE_KEY }}
           oci-region: ${{ secrets.OCI_REGION }}
           cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
 
@@ -473,6 +483,7 @@ jobs:
 
       # A run that measured nothing stays out of the trend, and an absent verdict fails as loudly.
       - name: Read the run's own verdict before publishing anything
+        id: verdict
         run: |
           set -euo pipefail
           VERDICT_FILE=artifacts/loadtest/loadtest-completeness.json
@@ -482,6 +493,10 @@ jobs:
           fi
           RESULT="$(jq -r '.result // empty' "$VERDICT_FILE")"
           echo "run verdict: ${RESULT:-<none>}"
+          # A night the shared server made no room for hands its reason to the alert.
+          if [ "$RESULT" = "not_started" ]; then
+            echo "not_started=$(jq -r '.reason | gsub("\n"; " ")' "$VERDICT_FILE")" >>"$GITHUB_OUTPUT"
+          fi
           if [ "$RESULT" != "valid" ] && [ "$RESULT" != "failed" ]; then
             jq . "$VERDICT_FILE"
             echo "::error::this run did not measure the system, so its rows do not enter the trend."
@@ -615,6 +630,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
           FINDING: ${{ needs.publish.outputs.regression }}
           ALERT_TEXT: ${{ needs.publish.outputs.alert_text }}
+          NOT_STARTED: ${{ needs.publish.outputs.not_started }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           JOB_STATUS: ${{ needs.publish.result }}
         run: |
@@ -625,6 +641,9 @@ jobs:
           fi
           if [ "${FINDING:-0}" = "1" ]; then
             MSG="$(printf '%s\n\nRun: %s\nTrend: Grafana dashboard "Load Test Trends" (opengate-loadtest-trend)' "$ALERT_TEXT" "$RUN_URL")"
+          elif [ -n "${NOT_STARTED:-}" ]; then
+            MSG="$(printf 'Load-test trend: the night did not start: %s. Nothing was measured.\n\nRun: %s' \
+              "$NOT_STARTED" "$RUN_URL")"
           else
             MSG="$(printf 'Load-test trend: the night did not finish (%s), so nothing was measured.\n\nRun: %s' \
               "$JOB_STATUS" "$RUN_URL")"

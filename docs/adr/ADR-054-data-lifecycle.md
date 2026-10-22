@@ -24,7 +24,26 @@ before anything is deleted, so a reconnecting agent cannot re-create what is
 being removed while the removal is in progress.
 
 **Every write path checks the deny-list.** The agent server keeps it in memory
-and refuses writes for a tombstoned subject.
+and refuses writes for a tombstoned subject. It holds bare machine numbers and
+costs 126 bytes per deleted machine, measured over 100 000 entries by
+[`tombstone_cost_test.go`](../../server/internal/agentapi/tombstone_cost_test.go),
+so it is kept for good.
+
+**The machine is told, and finishes the job itself.** A deleted machine that
+connects is sent its removal order before the connection closes: the server
+writes it, closes its sending side and waits for the machine to hang up. The
+machine wipes its own store and identity and uninstalls itself, in an order that
+resumes after a power cut ([ADR-128](./ADR-128-machine-identity-lifecycle.md)).
+The edge erasure is not a stage of the purge job — an offline machine may never
+return — and a purge completes on the server's stores alone.
+
+**The order cannot outlive the master key.** A removal order travels only over a
+mutually authenticated connection, so a deleted machine still offline when the
+master key its certificate was issued under is dropped can no longer be told to
+remove itself, and keeps its own copy until someone uninstalls it by hand. Data
+Erasure states the limit; keeping each deleted number's issuer and expiry was
+weighed and rejected, since it breaks the bare-number deny-list and still could
+not reach the machine.
 
 **Jobs are verified and resumable.** `purge_jobs` records progress per store, so
 an interrupted purge continues rather than restarting or silently stopping

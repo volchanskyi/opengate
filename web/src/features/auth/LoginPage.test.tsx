@@ -29,7 +29,6 @@ describe('LoginPage', () => {
     localStorage.clear();
     vi.clearAllMocks();
     useAuthStore.setState({
-      token: null,
       user: null,
       isLoading: false,
       error: null,
@@ -61,7 +60,6 @@ describe('LoginPage', () => {
 
   it('redirects to /devices if already authenticated', () => {
     useAuthStore.setState({
-      token: 'valid',
       user: { id: '1', email: 'a@b.com', display_name: 'A', is_admin: false, created_at: '', updated_at: '' },
     });
     renderLogin();
@@ -101,19 +99,8 @@ describe('LoginPage', () => {
     expect(btn.disabled).toBe(false);
   });
 
-  it('does not redirect when only token is set (user still null)', () => {
-    useAuthStore.setState({ token: 'valid', user: null });
-    renderLogin();
-    // Stays on Login (the `token && user` guard requires both).
-    expect(screen.getByLabelText('Email')).toBeInTheDocument();
-    expect(screen.queryByText('Devices Page')).toBeNull();
-  });
-
-  it('does not redirect when only user is set (token still null)', () => {
-    useAuthStore.setState({
-      token: null,
-      user: { id: '1', email: 'a@b.com', display_name: 'A', is_admin: false, created_at: '', updated_at: '' },
-    });
+  it('does not redirect while nobody is signed in', () => {
+    useAuthStore.setState({ user: null });
     renderLogin();
     expect(screen.getByLabelText('Email')).toBeInTheDocument();
     expect(screen.queryByText('Devices Page')).toBeNull();

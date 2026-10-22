@@ -1,17 +1,18 @@
 # One static agent binary staged into deploy/agent-bin/; the container has no systemd, so the
-# agent runs without a service lifecycle.
+# agent runs without a service lifecycle, behind a start step standing in for the installer.
 FROM alpine:3.20
 
 # hadolint ignore=DL3018
 RUN apk upgrade --no-cache \
-    && apk add --no-cache ca-certificates \
+    && apk add --no-cache bash ca-certificates \
     && addgroup -S opengate && adduser -S opengate -G opengate \
     && mkdir -p /var/lib/mesh-agent /var/log/mesh-agent \
     && chown opengate:opengate /var/lib/mesh-agent /var/log/mesh-agent
 
 COPY deploy/agent-bin/mesh-agent /usr/local/bin/mesh-agent
+COPY deploy/agent-start.sh /usr/local/bin/agent-start.sh
 
 # The agent writes only its data and log directories, so it runs unprivileged.
 USER opengate
 ENV OPENGATE_DATA_DIR=/var/lib/mesh-agent
-ENTRYPOINT ["/usr/local/bin/mesh-agent"]
+ENTRYPOINT ["/usr/local/bin/agent-start.sh"]

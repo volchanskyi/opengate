@@ -18,6 +18,8 @@ var (
 	// ErrLogsBusy indicates a raw-log pull is already in flight; responses carry no
 	// correlation id, so the broker serves one on-demand request at a time.
 	ErrLogsBusy = errors.New("device logs request already in flight")
+	// ErrLogsTimedOut indicates the agent stopped a raw-log read at its own deadline.
+	ErrLogsTimedOut = errors.New("device logs read timed out on the agent")
 	// ErrHistoryBusy indicates a deep-history pull is already in flight for the
 	// connection. Like the log broker, one on-demand request runs at a time.
 	ErrHistoryBusy = errors.New("device history request already in flight")

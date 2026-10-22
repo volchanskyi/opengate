@@ -22,6 +22,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/rules"
 	"github.com/volchanskyi/opengate/server/internal/settings"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
+	"github.com/volchanskyi/opengate/server/internal/testutil/machinecert"
 )
 
 type alertEnv struct {
@@ -39,8 +40,10 @@ func newAlertEnv(t *testing.T) *alertEnv {
 
 	cm, err := cert.NewManager(t.TempDir())
 	require.NoError(t, err)
+	issuer := machinecert.NewIssuer(t, base.store, cm, base.devices)
 	srv := agentapi.NewAgentServer(agentapi.AgentServerConfig{
 		Cert:          cm,
+		Issuer:        issuer,
 		Devices:       testutil.NewTestDevices(t, base.store),
 		Hardware:      testutil.NewTestHardware(t, base.store),
 		DeviceUpdates: testutil.NewTestDeviceUpdates(t, base.store),
@@ -73,6 +76,7 @@ func newAlertEnv(t *testing.T) *alertEnv {
 			store:   base.store,
 			devices: base.devices,
 			certMgr: cm,
+			issuer:  issuer,
 			srv:     srv,
 			addr:    addr,
 			cancel:  cancel,

@@ -12,7 +12,9 @@ import (
 
 	"github.com/quic-go/quic-go"
 	"github.com/volchanskyi/opengate/server/internal/cert"
+	"github.com/volchanskyi/opengate/server/internal/certledger"
 	"github.com/volchanskyi/opengate/server/internal/device"
+	"github.com/volchanskyi/opengate/server/internal/devicecert"
 	"github.com/volchanskyi/opengate/server/internal/inventory"
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
@@ -51,9 +53,17 @@ type AgentServer struct {
 	count          atomic.Int64
 	tombstones     sync.Map // map[protocol.DeviceID]struct{} — deleted devices (in-memory deny-list)
 	tombstoneStore tombstoneLoader
-	logger         *slog.Logger
-	addrCh         chan string // signals the actual listen address
-	addrOnce       sync.Once
+	// issuer records and renews machine certificates; admission reads its ledger.
+	issuer   *devicecert.Issuer
+	renewals *renewals
+	// restricted holds the connections admitted only to renew, which s.conns never holds.
+	restricted sync.Map // map[*AgentConn]struct{}
+	refusals   hourlyLog
+	// sharedIdentityLog logs a second live machine on one identity once an hour per device.
+	sharedIdentityLog hourlyLog
+	logger            *slog.Logger
+	addrCh            chan string // signals the actual listen address
+	addrOnce          sync.Once
 }
 
 // AgentServerConfig gathers the AgentServer constructor's dependencies.
@@ -92,11 +102,14 @@ type AgentServerConfig struct {
 	// RuleCatalogue lists the rules this build ships; an alert naming another is refused.
 	// Optional; nil accepts any rule id.
 	RuleCatalogue *rules.Catalogue
+	// Issuer records and renews machine certificates. Without one every machine is refused, since
+	// admission reads the certificate ledger.
+	Issuer *devicecert.Issuer
 }
 
 // NewAgentServer creates a new AgentServer.
 func NewAgentServer(cfg AgentServerConfig) *AgentServer {
-	return &AgentServer{
+	s := &AgentServer{
 		cert:           cfg.Cert,
 		devices:        cfg.Devices,
 		hardware:       cfg.Hardware,
@@ -117,9 +130,52 @@ func NewAgentServer(cfg AgentServerConfig) *AgentServer {
 		helper:         cfg.Helper,
 		quicHost:       cfg.QuicHost,
 		tombstoneStore: cfg.Tombstones,
+		issuer:         cfg.Issuer,
 		logger:         cfg.Logger,
 		addrCh:         make(chan string, 1),
 	}
+	if cfg.Issuer != nil {
+		s.renewals = &renewals{
+			cert:            cfg.Cert,
+			issuer:          cfg.Issuer,
+			devices:         cfg.Devices,
+			deleted:         s.isTombstoned,
+			closeSuperseded: s.closeSuperseded,
+		}
+	}
+	return s
+}
+
+// isTombstoned reports whether a device is on the in-memory deny-list.
+func (s *AgentServer) isTombstoned(id protocol.DeviceID) bool {
+	_, ok := s.tombstones.Load(id)
+	return ok
+}
+
+// closeSuperseded closes every live connection presenting one of the given certificates.
+func (s *AgentServer) closeSuperseded(prints []certledger.Fingerprint) {
+	doomed := make(map[certledger.Fingerprint]struct{}, len(prints))
+	for _, fp := range prints {
+		doomed[fp] = struct{}{}
+	}
+	s.eachLiveConn(func(ac *AgentConn) {
+		if _, hit := doomed[ac.certFP]; hit && ac.quicConn != nil {
+			s.logger.Info("closing a connection on a superseded certificate", "device_id", ac.DeviceID)
+			closeWithCode(ac.quicConn, protocol.CloseCertificateRefused, "superseded")
+		}
+	})
+}
+
+// eachLiveConn visits every admitted connection, restricted ones included.
+func (s *AgentServer) eachLiveConn(visit func(*AgentConn)) {
+	s.conns.Range(func(_, v any) bool {
+		visit(v.(*AgentConn))
+		return true
+	})
+	s.restricted.Range(func(k, _ any) bool {
+		visit(k.(*AgentConn))
+		return true
+	})
 }
 
 // ConnectedAgentCount returns the number of currently connected agents.

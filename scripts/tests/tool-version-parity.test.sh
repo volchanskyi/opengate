@@ -93,6 +93,8 @@ check_tool GO_ARCH_LINT go-arch-lint 'go install .*go-arch-lint'
 check_tool OAPI_CODEGEN oapi-codegen 'go install .*oapi-codegen'
 # scripts/install-viewcore.sh reads this pin; any literal pin of the module elsewhere must agree.
 check_tool VIEWCORE viewcore 'TOOL_VERSION_VIEWCORE|x/debug/cmd/viewcore@'
+# scripts/install-benchstat.sh reads this pin; any literal pin of the module elsewhere must agree.
+check_tool BENCHSTAT benchstat 'TOOL_VERSION_BENCHSTAT|x/perf/cmd/benchstat@'
 check_tool STATICCHECK staticcheck 'go install .*staticcheck'
 check_tool GOSEC gosec 'go install .*gosec'
 check_tool CARGO_FUZZ cargo-fuzz 'cargo install .*cargo-fuzz|tool: cargo-fuzz'
@@ -230,7 +232,7 @@ while IFS= read -r line; do
   [ -n "$line" ] || continue
   add_unpinned "go install with no version: ${line#"${line%%[![:space:]]*}"}"
 done < <(grep -E '(^|[^[:alnum:]_-])go install ' <<<"$install_lines" \
-  | grep -vE '@v?[0-9]|@\$\{\{' || true)
+  | grep -vE '@v?[0-9]|@\$\{\{|@\$\{?TOOL_VERSION_' || true)
 
 while IFS= read -r line; do
   [ -n "$line" ] || continue

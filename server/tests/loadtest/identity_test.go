@@ -10,7 +10,7 @@ import (
 )
 
 func TestAMachinesIdentifierIsReadableFromTheCredentialItDialsWith(t *testing.T) {
-	credentials, err := newAgentCredentials(t.TempDir(), "", "")
+	credentials, err := newAgentCredentials(enrollmentServer(t).URL, "enroll-token")
 	require.NoError(t, err)
 
 	config, err := credentials.forAgent(context.Background(), tenantAgent{hostname: "soak-t0-a0"})
@@ -23,7 +23,7 @@ func TestAMachinesIdentifierIsReadableFromTheCredentialItDialsWith(t *testing.T)
 }
 
 func TestTheIdentifierAMachineIsFiledUnderIsTheOneItKeeps(t *testing.T) {
-	source, err := newAgentCredentials(t.TempDir(), "", "")
+	source, err := newAgentCredentials(enrollmentServer(t).URL, "enroll-token")
 	require.NoError(t, err)
 	held := enrolOnce(source)
 

@@ -74,5 +74,13 @@ func (a *AgentConn) register(ctx context.Context, msg *protocol.ControlMessage) 
 		a.logger.Warn("request hardware report on register failed", "device_id", a.DeviceID, "error", err)
 	}
 
+	// The bundle follows the deny-list check and the device row, so its arrival is the machine's
+	// proof that the server accepted its identity.
+	if len(a.trustBundle) > 0 {
+		if err := a.SendTrustBundle(ctx, string(a.trustBundle)); err != nil {
+			a.logger.Warn("send trust bundle", "device_id", a.DeviceID, "error", err)
+		}
+	}
+	a.offerRenewal(ctx)
 	return nil
 }

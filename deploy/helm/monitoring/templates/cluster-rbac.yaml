@@ -1,0 +1,72 @@
+{{- if .Values.clusterRBAC.create -}}
+{{- /* Cluster-wide reads for log and metrics discovery, applied by the cluster job. */ -}}
+{{- $promtail := include "mon.componentName" (list . "promtail") -}}
+{{- $vm := include "mon.componentName" (list . "victoriametrics") -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $promtail }}
+  labels:
+    {{- include "mon.labels" . | nindent 4 }}
+  annotations:
+    # The routine release renders none of these, and Helm leaves a kept object in place.
+    helm.sh/resource-policy: keep
+rules:
+  # Least privilege: `role: pod` discovery needs only pod metadata, so nodes/proxy is omitted.
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $promtail }}
+  labels:
+    {{- include "mon.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $promtail }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $promtail }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $vm }}
+  labels:
+    {{- include "mon.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+rules:
+  # Discovery in vmagent-scrape.yaml needs read-only list/watch on pods, endpoints, services, nodes.
+  - apiGroups: [""]
+    resources: [pods, endpoints, services, nodes]
+    verbs: [get, list, watch]
+  # The kubelet authorises /metrics/cadvisor against nodes/metrics; nodes/proxy would let its
+  # holder relay arbitrary requests through the kubelet.
+  - apiGroups: [""]
+    resources: [nodes/metrics]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $vm }}
+  labels:
+    {{- include "mon.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $vm }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $vm }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

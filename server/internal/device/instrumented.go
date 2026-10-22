@@ -75,6 +75,12 @@ func (i *InstrumentedDevices) SetMaintenance(ctx context.Context, id DeviceID, o
 	return observe0(i.observer, "device.Device.SetMaintenance", func() error { return i.inner.SetMaintenance(ctx, id, on, by, reason) })
 }
 
+func (i *InstrumentedDevices) RecordSharedIdentity(ctx context.Context, id DeviceID, addresses []string, at time.Time) error {
+	return observe0(i.observer, "device.Device.RecordSharedIdentity", func() error {
+		return i.inner.RecordSharedIdentity(ctx, id, addresses, at)
+	})
+}
+
 func (i *InstrumentedDevices) Counts(ctx context.Context, organizationID OrganizationID) (Counts, error) {
 	return observe1(i.observer, "device.Device.Counts", func() (Counts, error) { return i.inner.Counts(ctx, organizationID) })
 }

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -8,13 +9,22 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
-	"github.com/volchanskyi/opengate/server/internal/auth"
-	"github.com/volchanskyi/opengate/server/internal/notifications"
-	"github.com/volchanskyi/opengate/server/internal/relay"
-	"github.com/volchanskyi/opengate/server/internal/testutil"
+	"io"
 	"log/slog"
 	"os"
 	"testing"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+
+	"github.com/volchanskyi/opengate/server/internal/auth"
+	"github.com/volchanskyi/opengate/server/internal/cert"
+	"github.com/volchanskyi/opengate/server/internal/certledger"
+	"github.com/volchanskyi/opengate/server/internal/devicecert"
+	"github.com/volchanskyi/opengate/server/internal/lifecycle"
+	"github.com/volchanskyi/opengate/server/internal/notifications"
+	"github.com/volchanskyi/opengate/server/internal/relay"
+	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
 // generateTestCSRPEM creates a valid PEM-encoded CERTIFICATE REQUEST for testing.
@@ -35,19 +45,15 @@ func generateTestCSRPEM() string {
 // testCSRPEM is a valid PEM-encoded CERTIFICATE REQUEST for testing.
 var testCSRPEM = generateTestCSRPEM()
 
-// stubCertProvider is a test double for CertProvider.
+// stubCertProvider answers the probe with a bundle and refuses every request to be signed.
 type stubCertProvider struct {
-	pem    []byte
-	signFn func(csrDER []byte) ([]byte, error)
+	pem []byte
 }
 
 func (s *stubCertProvider) CACertPEM() []byte { return s.pem }
 
-func (s *stubCertProvider) SignAgentCSR(csrDER []byte) ([]byte, error) {
-	if s.signFn != nil {
-		return s.signFn(csrDER)
-	}
-	return nil, fmt.Errorf("SignAgentCSR not configured")
+func (s *stubCertProvider) Enroll(context.Context, []byte) (uuid.UUID, []byte, error) {
+	return uuid.Nil, nil, fmt.Errorf("%w: this server signs nothing", devicecert.ErrInvalidRequest)
 }
 
 func newTestServerWithCert(t *testing.T) (*Server, *auth.JWTConfig) {
@@ -78,14 +84,20 @@ func newTestServerWithCert(t *testing.T) (*Server, *auth.JWTConfig) {
 	return srv, cfg
 }
 
+// newTestServerWithSigning enrols through the issuer the product uses: a real master key and a
+// real ledger, in the test's own database schema.
 func newTestServerWithSigning(t *testing.T) (*Server, *auth.JWTConfig) {
 	t.Helper()
 	srv, cfg := newTestServerWithCert(t)
-	srv.cert = &stubCertProvider{
-		pem: []byte("-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"),
-		signFn: func(_ []byte) ([]byte, error) {
-			return []byte("fake-signed-cert"), nil
-		},
-	}
+	srv.cert = newTestIssuer(t, srv)
 	return srv, cfg
+}
+
+func newTestIssuer(t *testing.T, srv *Server) *devicecert.Issuer {
+	t.Helper()
+	cm, err := cert.NewManager(t.TempDir())
+	require.NoError(t, err)
+	db := srv.store.DB()
+	ledger := certledger.New(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return devicecert.NewIssuer(cm, ledger, srv.devices, lifecycle.NewTombstoneStore(db))
 }

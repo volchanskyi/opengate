@@ -4,6 +4,7 @@
   - [Rules the structure always obeys](#rules-the-structure-always-obeys)
   - [The settings ladder](#the-settings-ladder)
 - [Users, groups and permissions](#users-groups-and-permissions)
+- [Signing in](#signing-in)
 - [Settings](#settings)
 - [Audit log](#audit-log)
 - [Related](#related)
@@ -75,6 +76,17 @@ created with the system and cannot be deleted.
 The tables behind groups and membership are in
 [Database](../architecture/Database.md#security-groups).
 
+## Signing in
+
+| Behaviour | Detail |
+|---|---|
+| Where the sign-in is kept | In a cookie the browser sends but no script on the page can read, so a harmful extension or injected script cannot carry it off |
+| Idle | A console with no activity for 30 minutes signs out; two minutes before, it offers **Stay signed in** |
+| Longest sign-in | 8 hours, however active — then sign in again |
+| Signing out | Ends the sign-in on the server, so the old cookie is useless anywhere; open sessions under it close within 30 minutes |
+| Open sessions | Never closed for console idleness, so a long repair keeps running — see [Remote Sessions](./Remote-Sessions.md#how-a-session-ends) |
+| Another website | A change requested from another site, or a session it tries to open, is refused |
+
 ## Settings
 
 The settings section is administrator-only. Every user, administrator or not, has
@@ -104,7 +116,7 @@ searchable from `/settings/audit`.
 
 | Area | Actions |
 |---|---|
-| Users and sessions | `user.register`, `user.login`, `user.update`, `user.delete`, `session.create`, `session.delete` |
+| Users and sessions | `user.register`, `user.login`, `user.logout`, `user.update`, `user.delete`, `session.create`, `session.delete` |
 | Security groups | `security_group.create`, `security_group.delete`, `security_group.add_member`, `security_group.remove_member` |
 | Devices | `device.restart`, `device.maintenance.enter`, `device.maintenance.exit`, `device.logs.read`, `device.delete` |
 | Enrollment and updates | `enrollment.create`, `enrollment.delete`, `update.publish`, `update.push` |

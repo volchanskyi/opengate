@@ -15,7 +15,6 @@ const STATE_LABEL: Record<string, string> = {
   'central-logical-complete': 'Central stores logically erased',
   'central-physical-compaction-pending': 'Awaiting VictoriaMetrics compaction',
   'object-delete-pending': 'Deleting cold-tier objects',
-  'edge-erase-pending': 'Awaiting edge erasure',
   complete: 'Complete',
 };
 

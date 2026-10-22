@@ -17,8 +17,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-const testHost = "test-host"
-
 const handshakeTestTimeout = 5 * time.Second
 
 // newHandshakeConns returns a net.Pipe whose client end has a deadline; the pipe is unbuffered,
@@ -36,11 +34,8 @@ func newTestAgentCert(t *testing.T) (*cert.Manager, string, []byte) {
 	cm, err := cert.NewManager(t.TempDir())
 	require.NoError(t, err)
 
-	deviceID := uuid.New().String()
-	tlsCert, err := cm.SignAgent(deviceID, testHost)
-	require.NoError(t, err)
-
-	return cm, deviceID, tlsCert.Certificate[0]
+	deviceID := uuid.New()
+	return cm, deviceID.String(), deviceCert(t, cm, deviceID).Certificate[0]
 }
 
 func writeAgentHello(t *testing.T, w io.Writer, agentCertHash [48]byte) {
@@ -185,9 +180,7 @@ func TestHandshaker_Rejections(t *testing.T) {
 	cm, _, agentCertDER := newTestAgentCert(t)
 	validCAHash := caCertHash(cm)
 
-	badCNCert, err := cm.SignAgent("not-a-uuid", testHost)
-	require.NoError(t, err)
-	badCNDER := badCNCert.Certificate[0]
+	badCNDER := selfSignedNamed(t, "not-a-uuid")
 
 	cases := []struct {
 		name      string

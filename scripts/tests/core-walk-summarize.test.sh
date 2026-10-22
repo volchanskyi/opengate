@@ -38,7 +38,7 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 printf 'module example\n\ngo 1.27\n\ntoolchain go1.27.1\n' >"$WORK/go.mod"
 
-PURPOSE='Checks that the tool the weekly soak uses to trace leaked memory to whatever holds it can still read memory dumps from the current Go version.'
+PURPOSE="Checks our memory-leak tracer still reads the current Go version's memory dumps. The weekly long test uses it to find what holds leaked memory."
 SECOND_PARAGRAPH=3
 
 summary() {

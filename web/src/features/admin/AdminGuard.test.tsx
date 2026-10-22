@@ -29,7 +29,6 @@ function renderGuard(initialEntries = ['/admin']) {
 describe('AdminGuard', () => {
   beforeEach(() => {
     useAuthStore.setState({
-      token: 'valid-token',
       user: null,
       isLoading: false,
       hydrated: true,
@@ -39,7 +38,6 @@ describe('AdminGuard', () => {
 
   it('redirects non-admin users to /devices', () => {
     useAuthStore.setState({
-      token: 'valid-token',
       hydrated: true,
       user: { id: '1', email: 'a@b.com', display_name: 'A', is_admin: false, created_at: '', updated_at: '' },
     });
@@ -49,7 +47,6 @@ describe('AdminGuard', () => {
 
   it('renders admin content for admin users', () => {
     useAuthStore.setState({
-      token: 'valid-token',
       hydrated: true,
       user: { id: '1', email: 'a@b.com', display_name: 'A', is_admin: true, created_at: '', updated_at: '' },
     });
@@ -58,13 +55,13 @@ describe('AdminGuard', () => {
   });
 
   it('redirects when user is null AND store is hydrated', () => {
-    useAuthStore.setState({ token: 'valid-token', user: null, hydrated: true });
+    useAuthStore.setState({ user: null, hydrated: true });
     renderGuard();
     expect(screen.getByText('Devices Page')).toBeInTheDocument();
   });
 
   it('does NOT redirect while the auth store is still hydrating', () => {
-    useAuthStore.setState({ token: 'valid-token', user: null, hydrated: false });
+    useAuthStore.setState({ user: null, hydrated: false });
     renderGuard();
     expect(screen.queryByText('Devices Page')).not.toBeInTheDocument();
     expect(screen.queryByText('Admin Content')).not.toBeInTheDocument();

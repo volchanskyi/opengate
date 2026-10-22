@@ -99,16 +99,20 @@ for shard in $(mutation_go_shards); do
   fi
 done
 
-web_file="$ARTIFACTS_DIR/mutation-web/web/reports/mutation/mutation.json"
-if [[ ! -f "$web_file" ]]; then
-  record_shard web false missing
-  web_valid=0
-elif valid_web_report "$web_file"; then
-  record_shard web true ok
-else
-  record_shard web false invalid
-  web_valid=0
-fi
+web_inputs=()
+for shard in $(mutation_web_shards); do
+  file="$ARTIFACTS_DIR/mutation-$shard/web/reports/mutation/mutation.json"
+  web_inputs+=("$file")
+  if [[ ! -f "$file" ]]; then
+    record_shard "$shard" false missing
+    web_valid=0
+  elif valid_web_report "$file"; then
+    record_shard "$shard" true ok
+  else
+    record_shard "$shard" false invalid
+    web_valid=0
+  fi
+done
 
 # Runs the merges that publish uses, so completeness holds only when the canonical merge forms.
 if [[ "$rust_valid" -eq 1 ]] \
@@ -120,6 +124,11 @@ if [[ "$go_valid" -eq 1 ]] \
   && ! "$SCRIPT_DIR/mutation-merge-go.sh" "$work/go.json" "${go_inputs[@]}" >/dev/null 2>&1; then
   all_valid=0
   go_valid=0
+fi
+if [[ "$web_valid" -eq 1 ]] \
+  && ! "$SCRIPT_DIR/mutation-merge-web.sh" "$work/web.json" "${web_inputs[@]}" >/dev/null 2>&1; then
+  all_valid=0
+  web_valid=0
 fi
 
 complete=false

@@ -24,6 +24,8 @@ docs/
 deploy/
 # The agent binary staged by `make agent-binary` stays, since agent/target is excluded above.
 !deploy/agent-bin/mesh-agent
+# The test image's start step, which copies a mounted install note as the installer writes it.
+!deploy/agent-start.sh
 
 sonar-project.properties
 .scannerwork/

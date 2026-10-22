@@ -49,6 +49,23 @@ services:
       retries: 10
       start_period: 5s
 
+  # Holds the machines' numeric telemetry; deleting a device erases its series here.
+  metrics:
+    image: victoriametrics/victoria-metrics:v1.114.0
+    container_name: opengate-test-metrics
+    command:
+      - -storageDataPath=/victoria-metrics-data
+      - -retentionPeriod=1d
+    tmpfs:
+      - /victoria-metrics-data
+    healthcheck:
+      # The store listens on IPv4 alone, and the image resolves localhost to ::1 first.
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8428/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
   server:
     build:
       context: ..
@@ -63,6 +80,7 @@ services:
       - OPENGATE_AGENT_RELAY_URL=ws://server:8080
       # The helper shares the QUIC port at the server's fixed address, which every network reaches.
       - OPENGATE_ICE_SERVERS=stun:10.77.0.10:9090
+      - OPENGATE_VICTORIAMETRICS_URL=http://metrics:8428
     # The QUIC listener is published because enrolled machines connect over QUIC.
     command:
       - "-listen"
@@ -93,6 +111,8 @@ services:
       - /data:mode=1777
     depends_on:
       postgres:
+        condition: service_healthy
+      metrics:
         condition: service_healthy
 
   # Each router translates the network behind it to its outer address and passes back only replies;
@@ -147,16 +167,18 @@ services:
       dockerfile: deploy/agent.Dockerfile
     container_name: opengate-test-agent-a
     hostname: agent-a
-    env_file:
-      # The enrolment token is a per-bring-up credential, optional so `docker compose config`
-      # validates without it.
-      - path: .e2e-agent.env
-        required: false
     environment:
       - OPENGATE_SERVER_ADDR=server:9090
       - OPENGATE_SERVER_CA=/var/lib/mesh-agent/ca.pem
-      - OPENGATE_ENROLL_URL=http://server:8080
       - RUST_LOG=info
+    volumes:
+      # The install note e2e-stack-up.sh writes per bring-up; the start step copies it in once.
+      - type: bind
+        source: .e2e-agent-note.json
+        target: /run/opengate/install-note.json
+        read_only: true
+        bind:
+          create_host_path: false
     # Sent from several CPUs, its packets cross the host's per-CPU queues out of order, and the
     # direct link reads each reordering as a loss and halves its rate. CPU 0 exists everywhere.
     cpuset: "0"
@@ -181,14 +203,18 @@ services:
       dockerfile: deploy/agent.Dockerfile
     container_name: opengate-test-agent-b
     hostname: agent-b
-    env_file:
-      - path: .e2e-agent.env
-        required: false
     environment:
       - OPENGATE_SERVER_ADDR=server:9090
       - OPENGATE_SERVER_CA=/var/lib/mesh-agent/ca.pem
-      - OPENGATE_ENROLL_URL=http://server:8080
       - RUST_LOG=info
+    volumes:
+      # The install note e2e-stack-up.sh writes per bring-up; the start step copies it in once.
+      - type: bind
+        source: .e2e-agent-note.json
+        target: /run/opengate/install-note.json
+        read_only: true
+        bind:
+          create_host_path: false
     # Sent from several CPUs, its packets cross the host's per-CPU queues out of order, and the
     # direct link reads each reordering as a loss and halves its rate. CPU 0 exists everywhere.
     cpuset: "0"
@@ -197,6 +223,61 @@ services:
         ipv4_address: 10.77.0.21
     tmpfs:
       - /var/lib/mesh-agent:mode=1777,uid=100,gid=101
+      - /var/log/mesh-agent:mode=1777,uid=100,gid=101
+    depends_on:
+      server:
+        condition: service_healthy
+
+  # agent-c's data folder is a named volume, so its identity survives a stop and a start; the
+  # machine-lifecycle spec deletes, reinstalls and copies it. The bring-up creates it stopped.
+  agent-c:
+    build:
+      context: ..
+      dockerfile: deploy/agent.Dockerfile
+    container_name: opengate-test-agent-c
+    # As the installed service: restarted after a failure or a start-over, left down after a removal.
+    restart: on-failure
+    hostname: agent-c
+    environment:
+      - OPENGATE_SERVER_ADDR=server:9090
+      - OPENGATE_SERVER_CA=/var/lib/mesh-agent/ca.pem
+      - RUST_LOG=info
+    networks:
+      default:
+        ipv4_address: 10.77.0.22
+    volumes:
+      - agent-c-data:/var/lib/mesh-agent
+      - type: bind
+        source: .e2e-agent-note.json
+        target: /run/opengate/install-note.json
+        read_only: true
+        bind:
+          create_host_path: false
+    tmpfs:
+      - /var/log/mesh-agent:mode=1777,uid=100,gid=101
+    depends_on:
+      server:
+        condition: service_healthy
+
+  # A second machine started from a copy of agent-c's data folder, as a cloned disk would be.
+  agent-c-copy:
+    build:
+      context: ..
+      dockerfile: deploy/agent.Dockerfile
+    container_name: opengate-test-agent-c-copy
+    # As the installed service: restarted after a failure or a start-over, left down after a removal.
+    restart: on-failure
+    hostname: agent-c-copy
+    environment:
+      - OPENGATE_SERVER_ADDR=server:9090
+      - OPENGATE_SERVER_CA=/var/lib/mesh-agent/ca.pem
+      - RUST_LOG=info
+    networks:
+      default:
+        ipv4_address: 10.77.0.23
+    volumes:
+      - agent-c-copy-data:/var/lib/mesh-agent
+    tmpfs:
       - /var/log/mesh-agent:mode=1777,uid=100,gid=101
     depends_on:
       server:
@@ -220,3 +301,7 @@ services:
     depends_on:
       router-home:
         condition: service_healthy
+
+volumes:
+  agent-c-data:
+  agent-c-copy-data:

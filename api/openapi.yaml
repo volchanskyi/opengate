@@ -15,6 +15,10 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: og_session
 
   schemas:
     ApiError:
@@ -54,6 +58,29 @@ components:
       properties:
         token:
           type: string
+
+    ConsoleSession:
+      type: object
+      description: >-
+        A signed-in console. The session id travels only in the HttpOnly og_session cookie; the
+        forged-request value travels only here and in X-CSRF-Token.
+      required: [user, tenant_id, csrf_token, idle_timeout_seconds, expires_at]
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        tenant_id:
+          type: string
+          format: uuid
+        csrf_token:
+          type: string
+          description: Sent in X-CSRF-Token with every request that changes something.
+        idle_timeout_seconds:
+          type: integer
+          description: How long the session lasts without a request.
+        expires_at:
+          type: string
+          format: date-time
+          description: When the session ends however active it is.
 
     ClientErrorReport:
       type: object
@@ -222,6 +249,19 @@ components:
           $ref: "#/components/schemas/DeviceAMT"
         session:
           $ref: "#/components/schemas/SessionHolder"
+        identity_shared_at:
+          type: string
+          format: date-time
+          description: >-
+            When a second live machine last presented this device's identity, as a
+            cloned disk does. Absent when that never happened.
+        identity_shared_addresses:
+          type: array
+          items:
+            type: string
+          description: >-
+            The two addresses the identity was seen from at identity_shared_at.
+            Present only with identity_shared_at.
 
     SessionHolder:
       type: object
@@ -322,7 +362,7 @@ components:
       description: >-
         Progress of a right-to-be-forgotten telemetry purge. "Logical" states
         mean ingest is blocked and the subject is no longer queryable; physical
-        VictoriaMetrics compaction and offline-edge erasure complete later.
+        VictoriaMetrics compaction completes later.
       required: [id, tenant_id, scope, state, vm_deleted, object_deleted, pg_deleted, verified, created_at, updated_at]
       properties:
         id:
@@ -345,7 +385,6 @@ components:
             - central-logical-complete
             - central-physical-compaction-pending
             - object-delete-pending
-            - edge-erase-pending
             - complete
         vm_deleted:
           type: boolean
@@ -949,9 +988,14 @@ components:
       properties:
         ca_pem:
           type: string
+          description: PEM bundle of the one or more master keys the agent trusts
         cert_pem:
           type: string
-          description: PEM-encoded agent certificate signed by the server CA
+          description: PEM-encoded agent certificate signed by the issuing master key
+        device_id:
+          type: string
+          format: uuid
+          description: The device number the server chose, which the certificate carries
         server_addr:
           type: string
         server_domain:
@@ -2002,6 +2046,110 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
 
+  /api/v1/auth/session:
+    post:
+      operationId: signIn
+      summary: Sign the console in with a session cookie
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Signed in; the session cookie is set
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsoleSession"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "429":
+          description: Too many failed login attempts for this account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+    get:
+      operationId: getConsoleSession
+      summary: The signed-in console's session, for a page that reloads
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: The session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsoleSession"
+        "401":
+          description: No live session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+    delete:
+      operationId: signOut
+      summary: Sign the console out and clear its cookie
+      security:
+        - cookieAuth: []
+      responses:
+        "204":
+          description: Signed out
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+        "401":
+          description: No live session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/auth/session/register:
+    post:
+      operationId: registerConsole
+      summary: Register a new user and sign the console in
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: Registered and signed in; the session cookie is set
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsoleSession"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
   /api/v1/auth/login:
     post:
       operationId: login
@@ -2044,6 +2192,7 @@ paths:
       summary: Get current user
       security:
         - bearerAuth: []
+        - cookieAuth: []
       responses:
         "200":
           description: Current user
@@ -2070,6 +2219,7 @@ paths:
       summary: List all users (admin only)
       security:
         - bearerAuth: []
+        - cookieAuth: []
       responses:
         "200":
           description: List of users
@@ -2098,6 +2248,7 @@ paths:
       summary: Delete user (admin only)
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -2125,6 +2276,7 @@ paths:
       summary: Update user (admin only)
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -2170,6 +2322,7 @@ paths:
       summary: Save browser push subscription
       security:
         - bearerAuth: []
+        - cookieAuth: []
       requestBody:
         required: true
         content:
@@ -2190,6 +2343,7 @@ paths:
       summary: Remove push subscription
       security:
         - bearerAuth: []
+        - cookieAuth: []
       requestBody:
         required: true
         content:
@@ -2212,6 +2366,7 @@ paths:
       summary: Get server VAPID public key
       security:
         - bearerAuth: []
+        - cookieAuth: []
       responses:
         "200":
           description: VAPID public key
@@ -2232,6 +2387,7 @@ paths:
       summary: Query audit log (admin only)
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: user_id
           in: query
@@ -2287,6 +2443,7 @@ paths:
         whole tenant.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: site_id
           in: query
@@ -2335,6 +2492,7 @@ paths:
       summary: Get device details
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -2366,6 +2524,7 @@ paths:
       summary: Update device fields
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -2415,6 +2574,7 @@ paths:
       summary: Delete device
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -2450,6 +2610,7 @@ paths:
       summary: Restart agent on device
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -2503,6 +2664,7 @@ paths:
         always describe the same set.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: organization_id
           in: query
@@ -2537,6 +2699,7 @@ paths:
         change is audited. Requires administrator access.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -2579,6 +2742,7 @@ paths:
         holder and to an administrator; the holder's tab is told who ended it.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -2614,6 +2778,7 @@ paths:
       summary: Get hardware info for a device
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -2654,6 +2819,7 @@ paths:
         is an elevated action restricted to administrators.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -2760,6 +2926,7 @@ paths:
         returned here.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -2853,6 +3020,7 @@ paths:
         bounded and the point count is capped by max_points.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -2942,6 +3110,7 @@ paths:
         Visible to any device viewer in the tenant.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -2985,6 +3154,7 @@ paths:
         unless include_archived is set.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: include_archived
           in: query
@@ -3011,6 +3181,7 @@ paths:
       summary: Add a customer (admin only)
       security:
         - bearerAuth: []
+        - cookieAuth: []
       requestBody:
         required: true
         content:
@@ -3055,6 +3226,7 @@ paths:
       summary: Get one customer
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -3086,6 +3258,7 @@ paths:
       summary: Rename, archive or restore a customer (admin only)
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -3145,6 +3318,7 @@ paths:
         deleted — a device must always have somewhere to belong.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -3190,6 +3364,7 @@ paths:
         in the caller's tenant.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -3242,6 +3417,7 @@ paths:
       description: Requires administrator access.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       requestBody:
         required: true
         content:
@@ -3281,6 +3457,7 @@ paths:
         one customer; omitting it returns the whole tenant.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: organization_id
           in: query
@@ -3311,6 +3488,7 @@ paths:
       summary: Get site details
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -3343,6 +3521,7 @@ paths:
       description: Requires administrator access.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -3378,6 +3557,7 @@ paths:
       summary: Create a relay session
       security:
         - bearerAuth: []
+        - cookieAuth: []
       requestBody:
         required: true
         content:
@@ -3422,6 +3602,7 @@ paths:
       summary: List active sessions for a device
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: device_id
           in: query
@@ -3460,6 +3641,7 @@ paths:
         and to an administrator; the holder's tab is told who ended it.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: token
           in: path
@@ -3498,6 +3680,7 @@ paths:
         session counts each outcome once however often it is reported.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: token
           in: path
@@ -3548,6 +3731,7 @@ paths:
         tenant scope, so an identity outside it answers 404.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: uuid
           in: path
@@ -3603,6 +3787,7 @@ paths:
       summary: Publish a new agent binary version (admin only)
       security:
         - bearerAuth: []
+        - cookieAuth: []
       requestBody:
         required: true
         content:
@@ -3635,6 +3820,7 @@ paths:
       summary: Push update to connected agents (admin only)
       security:
         - bearerAuth: []
+        - cookieAuth: []
       requestBody:
         required: true
         content:
@@ -3679,6 +3865,7 @@ paths:
       summary: Get per-device update status for a version (admin only)
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: version
           in: path
@@ -3713,6 +3900,7 @@ paths:
       summary: Get the Ed25519 public signing key
       security:
         - bearerAuth: []
+        - cookieAuth: []
       responses:
         "200":
           description: Signing key
@@ -3743,6 +3931,7 @@ paths:
       summary: List enrollment tokens (admin only)
       security:
         - bearerAuth: []
+        - cookieAuth: []
       responses:
         "200":
           description: List of enrollment tokens
@@ -3769,6 +3958,7 @@ paths:
       summary: Create enrollment token (admin only)
       security:
         - bearerAuth: []
+        - cookieAuth: []
       requestBody:
         required: true
         content:
@@ -3801,6 +3991,7 @@ paths:
       summary: Delete enrollment token (admin only)
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -3878,6 +4069,7 @@ paths:
       summary: Get server CA certificate PEM
       security:
         - bearerAuth: []
+        - cookieAuth: []
       responses:
         "200":
           description: CA certificate
@@ -3910,6 +4102,7 @@ paths:
       summary: List all security groups (admin only)
       security:
         - bearerAuth: []
+        - cookieAuth: []
       responses:
         "200":
           description: List of security groups
@@ -3936,6 +4129,7 @@ paths:
       summary: Create a security group (admin only)
       security:
         - bearerAuth: []
+        - cookieAuth: []
       requestBody:
         required: true
         content:
@@ -3974,6 +4168,7 @@ paths:
       summary: Get security group with members (admin only)
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -4011,6 +4206,7 @@ paths:
       summary: Delete a security group (admin only)
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -4046,6 +4242,7 @@ paths:
       summary: Add user to security group (admin only)
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -4093,6 +4290,7 @@ paths:
       summary: Remove user from security group (admin only)
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -4144,6 +4342,7 @@ paths:
         poll the returned job for completion.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: tenantId
           in: path
@@ -4177,6 +4376,7 @@ paths:
       summary: Get purge job status
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: jobId
           in: path
@@ -4221,6 +4421,7 @@ paths:
         being written to silently loses rows under an offset.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: organization_id
           in: query
@@ -4300,6 +4501,7 @@ paths:
       summary: One incident with its alerts and its timeline
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -4344,6 +4546,7 @@ paths:
         accepted move appends a line to the incident's history.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -4394,6 +4597,7 @@ paths:
       summary: Say who is working an incident
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -4444,6 +4648,7 @@ paths:
       summary: Add a note to an incident's history
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -4498,6 +4703,7 @@ paths:
         handed back as bytes.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -4552,6 +4758,7 @@ paths:
         machines in.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -4616,6 +4823,7 @@ paths:
         standing blind spot says so rather than looking healthy.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: organization_id
           in: query
@@ -4648,6 +4856,7 @@ paths:
         value a new version of the rule had to move.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: rule_id
           in: path
@@ -4689,6 +4898,7 @@ paths:
         force, and which tuned value decided it.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: rule_id
           in: path
@@ -4732,6 +4942,7 @@ paths:
         somebody can still see why — rather than reaching an estate.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: rule_id
           in: path
@@ -4791,6 +5002,7 @@ paths:
         next rung up, which is the whole point of removing it.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: rule_id
           in: path
@@ -4829,6 +5041,7 @@ paths:
         automatic pull-back is not settable through this or any other route.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: rule_id
           in: path
@@ -4891,6 +5104,7 @@ paths:
         are stopped when they come back.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: rule_id
           in: path
@@ -4944,6 +5158,7 @@ paths:
       description: Requires administrator access.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: rule_id
           in: path
@@ -4984,6 +5199,7 @@ paths:
       summary: A customer's alert budget
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: organization_id
           in: query
@@ -5013,6 +5229,7 @@ paths:
         customer's detection outright.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: organization_id
           in: query
@@ -5058,6 +5275,7 @@ paths:
       summary: A customer's label list and who carries what
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: organization_id
           in: query
@@ -5086,6 +5304,7 @@ paths:
       description: Requires administrator access.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: organization_id
           in: query
@@ -5136,6 +5355,7 @@ paths:
         rather than as a deletion.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: label_id
           in: path
@@ -5181,6 +5401,7 @@ paths:
         question twice would match every selector asking it.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       requestBody:
         required: true
         content:
@@ -5214,6 +5435,7 @@ paths:
       description: Requires administrator access.
       security:
         - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: device_id
           in: query

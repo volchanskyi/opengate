@@ -29,6 +29,26 @@ type PowerAction = components['schemas']['AMTPowerRequest']['action'];
 type DeviceAMT = components['schemas']['DeviceAMT'];
 type Device = components['schemas']['Device'];
 
+/** How long the device page warns after one identity was last seen live on two machines. */
+const SHARED_IDENTITY_WARNING_MS = 24 * 60 * 60 * 1000;
+
+/** Reports whether one identity was last seen live on two machines under a day ago. */
+function sharedRecently(device: Device): boolean {
+  const seenAt = device.identity_shared_at ? Date.parse(device.identity_shared_at) : Number.NaN;
+  return !Number.isNaN(seenAt) && Date.now() - seenAt < SHARED_IDENTITY_WARNING_MS;
+}
+
+/** Names the two machines one identity was seen on, while that sighting is under a day old. */
+function SharedIdentityWarning({ device }: { readonly device: Device }) {
+  if (!sharedRecently(device)) return null;
+  const machines = (device.identity_shared_addresses ?? []).join(' and ');
+  return (
+    <p role="alert" className="rounded border border-yellow-700 bg-yellow-900/30 px-3 py-2 text-sm text-yellow-200">
+      This identity is in use on two machines ({machines}). Reinstall one of them with --fresh.
+    </p>
+  );
+}
+
 interface AmtSectionProps {
   readonly amt: DeviceAMT | undefined;
   readonly confirmPowerAction: PowerAction | null;
@@ -323,6 +343,8 @@ export function DeviceDetail() {
             )}
           </div>
         </div>
+
+        <SharedIdentityWarning device={device} />
 
         <dl className="grid grid-cols-2 gap-3 text-sm">
           <div>

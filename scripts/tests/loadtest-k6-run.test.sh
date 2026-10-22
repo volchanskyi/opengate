@@ -81,34 +81,25 @@ else
   fail "clean run keeps the summary export"
 fi
 
-run_case 99
-assert_eq "threshold failure is reported as a measurement" "0" "$STATUS"
-if [ -f "$WORK/summaries/api-baseline.json" ]; then
-  pass "threshold failure keeps the summary export"
-else
-  fail "threshold failure keeps the summary export"
-fi
-if grep -q "threshold" "$WORK/out.txt"; then
-  pass "threshold failure is announced rather than swallowed"
-else
-  fail "threshold failure is announced rather than swallowed"
-fi
-if [ -f "$WORK/summaries/api-baseline.thresholds" ]; then
-  pass "threshold failure is recorded for the gate to read"
-else
-  fail "threshold failure is recorded for the gate to read"
-fi
-if grep -q '::notice::' "$WORK/out.txt" && ! grep -q '::warning::' "$WORK/out.txt"; then
-  pass "threshold failure is a notice, not a warning"
-else
-  fail "threshold failure is a notice, not a warning (out=[$(cat "$WORK/out.txt")])"
-fi
+# The profile alone holds the limits, so a failed mark means a script has grown one of its own,
+# and the run is refused whole.
 : >"$WORK/step-summary.md"
 CASE_SUMMARY="$WORK/step-summary.md" run_case 99
-if grep -q 'api-baseline' "$WORK/step-summary.md" && grep -qi 'threshold' "$WORK/step-summary.md"; then
-  pass "and the run's summary says which scenario crossed k6's own marks"
+assert_eq "a failed k6 mark is an error" "99" "$STATUS"
+if [ -f "$WORK/summaries/api-baseline.json" ]; then
+  fail "a failed k6 mark discards the summary export"
 else
-  fail "and the run's summary says which scenario crossed k6's own marks (summary=[$(cat "$WORK/step-summary.md")])"
+  pass "a failed k6 mark discards the summary export"
+fi
+if grep -q '::error::' "$WORK/out.txt" && grep -q 'declare none' "$WORK/out.txt"; then
+  pass "and says the scripts declare no mark that can fail"
+else
+  fail "and says the scripts declare no mark that can fail (out=[$(cat "$WORK/out.txt")])"
+fi
+if [ -s "$WORK/step-summary.md" ]; then
+  fail "the run's summary carries no line about k6's own marks (summary=[$(cat "$WORK/step-summary.md")])"
+else
+  pass "the run's summary carries no line about k6's own marks"
 fi
 
 run_case 107
@@ -124,11 +115,33 @@ else
   fail "aborted run names the scenario it discarded"
 fi
 
-run_case 0
-if [ -f "$WORK/summaries/api-baseline.thresholds" ]; then
-  fail "a clean run records no threshold breach"
+# Every mark a scenario declares only names a sub-metric for the export, so none can fail.
+failing_marks="$(grep -rnE '"(p\([0-9.]+\)|avg|med|min|max|rate|count)[[:space:]]*(<|<=|==|!=)' \
+  "$REPO_ROOT/load/k6" || true)"
+if [ -z "$failing_marks" ]; then
+  pass "no k6 scenario declares a mark that can fail"
 else
-  pass "a clean run records no threshold breach"
+  fail "the k6 scripts hold limits that belong in the profile: $failing_marks"
+fi
+# k6 v1.6.1 leaves dropped_iterations out of the export when none dropped unless a mark names it,
+# and the profile fails a night whose reading never arrived.
+missing_dropped=""
+mapfile -t arrival < <(grep -l 'arrivalScenarios(' "$REPO_ROOT"/load/k6/scenarios/*.js || true)
+for scenario in "${arrival[@]}"; do
+  grep -q 'dropped_iterations: exportOnly("counter")' "$scenario" \
+    || missing_dropped="$missing_dropped $(basename "$scenario")"
+done
+if [ "${#arrival[@]}" -eq 0 ]; then
+  fail "no arrival scenario was found to read"
+elif [ -z "$missing_dropped" ]; then
+  pass "every arrival scenario exports dropped_iterations even when none dropped"
+else
+  fail "these arrival scenarios must name dropped_iterations with exportOnly(\"counter\"):$missing_dropped"
+fi
+if grep -q 'export function exportOnly' "$REPO_ROOT/load/k6/lib/profile.js"; then
+  pass "the k6 library names the export-only mark the scenarios use"
+else
+  fail "load/k6/lib/profile.js must export exportOnly"
 fi
 
 cat >"$WORK/k6" <<'EOF'

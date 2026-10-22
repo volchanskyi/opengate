@@ -1,0 +1,20 @@
+# Accepted Trivy findings, each beside its reason; paths are relative to the scanned folder.
+misconfigurations:
+  # The server Deployment publishes QUIC (9090/udp) and AMT MPS (4433/tcp) via hostPort.
+  - id: KSV-0024
+  # node-exporter hostPID is required to read per-process node metrics.
+  - id: KSV-0010
+  # node-exporter mounts /proc, /sys and / from the host to read node metrics.
+  - id: KSV-0121
+  # uptime-kuma and postgres write beyond their volumes, so their root filesystems stay writable.
+  - id: KSV-0014
+  # The workflows' login writes the Services, Ingresses and network policies each Helm release
+  # creates, in the namespaces it deploys and tests in.
+  - id: KSV-0056
+    paths:
+      - cluster/workflow-access.yaml
+  # The workflows' login runs commands in the production database pod alone, and in staging and
+  # monitoring for the test database reset, load-test cleanup, Grafana's quiet period and the drill.
+  - id: KSV-0053
+    paths:
+      - cluster/workflow-access.yaml

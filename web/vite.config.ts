@@ -18,9 +18,11 @@ export default defineConfig({
     },
   },
   server: {
+    // Both routes keep the page's Host, so the server hands out relay addresses on this origin
+    // and its same-origin check on the relay upgrade passes.
     proxy: {
-      '/api': 'http://localhost:8080',
-      '/ws': { target: 'ws://localhost:8080', ws: true },
+      '/api': { target: 'http://localhost:8080', changeOrigin: false },
+      '/ws': { target: 'ws://localhost:8080', ws: true, changeOrigin: false },
     },
   },
 })

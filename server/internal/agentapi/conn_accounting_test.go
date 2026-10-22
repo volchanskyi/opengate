@@ -48,6 +48,8 @@ var dispatchNonIngestIdents = []string{
 	"MsgMetricBackfillBatch",
 	"MsgLocalHistoryResponse",
 	"MsgMaintenanceApplied",
+	"MsgCertificateSigningRequest",
+	"MsgCertificateInstalled",
 }
 
 // preIngestDropReasons are the bounds applied before the ingest counter fires, so their drops

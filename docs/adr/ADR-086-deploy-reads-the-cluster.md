@@ -20,6 +20,13 @@ run's conclusion said so.
 **The pre-flight reads the running deployment off the cluster.** What is
 deployed is a fact the cluster holds; asking it is one call and it cannot drift.
 
+**Whether the cluster-wide pieces changed is read the same way.** The
+pre-flight takes the commit the cluster runs and compares the paths that make up
+the cluster-wide pieces ([`cluster-paths.sh`](../../scripts/lib/cluster-paths.sh))
+between it and the target; the approval-gated `cluster` job runs on a change,
+and on a running commit it cannot read
+([ADR-128](./ADR-128-machine-identity-lifecycle.md)).
+
 **The deploy declares no cache at all** — not an explicit cache step, not a
 toolchain cache, not the cache half of a setup action, whose save is refused
 just as quietly. Losing the restore is the price. A permanently refused save

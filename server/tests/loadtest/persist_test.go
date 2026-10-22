@@ -38,6 +38,39 @@ func TestAMachineNotAskedToPersistLeavesWhenItsConnectionBreaks(t *testing.T) {
 	assert.Zero(t, res.reconnected)
 }
 
+func TestAMachineThatNeverArrivedDialsOnceMore(t *testing.T) {
+	calls := 0
+	res := persistThrough(context.Background(), loadOptions{}, func(context.Context) agentResult {
+		calls++
+		if calls == 1 {
+			return unreachable()
+		}
+		return arrived(time.Now())
+	})
+
+	assert.Equal(t, 2, calls, "a failed first dial is retried once, as an agent does")
+	assert.NoError(t, res.err, "the retry that arrived is what counts")
+	assert.Equal(t, 1, res.retried, "and the retry is reported")
+}
+
+func TestAMachineWhoseRetryFailsTooIsAFailure(t *testing.T) {
+	calls := 0
+	res := persistThrough(context.Background(), loadOptions{}, func(context.Context) agentResult {
+		calls++
+		return unreachable()
+	})
+
+	assert.Equal(t, 2, calls, "one retry and no more")
+	assert.Error(t, res.err)
+	assert.Equal(t, 1, res.retried)
+}
+
+func TestRetriedFirstDialsAreReported(t *testing.T) {
+	results := []agentResult{arrived(time.Now()), {retried: 1, arrivedAt: time.Now()}, {retried: 1, err: errors.New("x")}}
+
+	assert.Equal(t, 2, retriedFirstDials(results))
+}
+
 func TestAPersistentMachineComesBackAfterASeverance(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()

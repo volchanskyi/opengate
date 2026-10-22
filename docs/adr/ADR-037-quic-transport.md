@@ -24,19 +24,26 @@ is the agent. The server accepts in
 [`agentapi/server.go`](../../server/internal/agentapi/server.go).
 
 **The certificate is the whole authentication.** There is no second proof
-exchanged in the handshake. A peer that presents a certificate the server's own
-authority signed is that device.
+exchanged in the handshake. A peer that presents a certificate one of the
+server's trusted master keys signed, and that the server's certificate ledger
+lists as that device's current certificate, is that device; how a certificate is
+classified, renewed and admitted expired is
+[ADR-128](./ADR-128-machine-identity-lifecycle.md).
 
 **Handshake byte `0x14` saves a round trip, not cryptographic work.** An agent
-that already holds the current authority hash says so in its first message, and
-the server skips sending it back. The saving is one exchange.
+that already holds the hash of a master key the server trusts says so in its
+first message, and the server skips sending it back. The saving is one exchange.
+A stale hash is refused with close code 2, and the agent's next connection is a
+full handshake.
 
 **TLS session resumption carries the cryptographic saving.** `quic-go` issues
 session tickets on its own; the agent keeps one and presents it, which turns a
 full handshake into 1-RTT. Nothing pins the server's ticket key across a
 restart, so the first reconnect after a server restart is always a full
 handshake. Zero-RTT is not used — it would need replay protection the control
-path does not have.
+path does not have. A resumed handshake is classified like a full one, because
+the check runs in `VerifyConnection`, which Go runs on both, and a ticket for an
+expired certificate never resumes.
 
 **The agents' UDP port also answers the session helper.** The listener hands a
 packet whose first byte has its two top bits clear — never a QUIC packet, always

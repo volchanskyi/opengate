@@ -5,6 +5,9 @@ metadata:
   name: {{ .Values.certManager.issuerName }}
   labels:
     {{- include "opengate.labels" . | nindent 4 }}
+  annotations:
+    # The routine release renders none, and Helm leaves a kept object in place.
+    helm.sh/resource-policy: keep
 spec:
   acme:
     email: {{ .Values.certManager.email }}

@@ -802,7 +802,7 @@ commands = [
     if group.get("matcher") == "Write|Edit|MultiEdit"
     for hook in group.get("hooks", [])
 ]
-raise SystemExit(0 if ".claude/hooks/pretooluse-comment-check.sh" in commands else 1)
+raise SystemExit(0 if '"$CLAUDE_PROJECT_DIR"/.claude/hooks/pretooluse-comment-check.sh' in commands else 1)
 PY
   pass "settings register the comment hook"
 else

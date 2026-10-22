@@ -55,7 +55,11 @@ meaning exactly; the summarizer takes the set of complete legs and carries only
 those; and the publish job merges, summarizes, uploads and pushes per leg. A leg
 short a shard emits no score — a score over the shards that happened to finish is
 a smaller number nothing marks as partial. A run with no complete leg at all
-still fails at the publish step.
+still fails at the publish step. The web leg is several shards split by feature
+folder ([ADR-097](./ADR-097-mutation-budget.md)); their reports are joined into
+one before scoring ([`mutation-merge-web.sh`](../../scripts/mutation-merge-web.sh)),
+which refuses two shards reporting one file, since that would count its mutants
+twice.
 
 **An incomplete night is still a red night.** The gate job reads the whole-run
 `complete`, unchanged. What moved is only that the legs which did finish are

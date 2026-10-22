@@ -37,6 +37,38 @@ describe('DeviceDetail — agent version, upgrade and restart', () => {
     vi.useRealTimers();
   });
 
+  it('warns while an identity seen on two machines is under a day old', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-16T12:00:00Z'));
+    useDeviceStore.setState({
+      selectedDevice: {
+        ...mockDevice,
+        identity_shared_at: '2026-10-16T09:00:00Z',
+        identity_shared_addresses: ['203.0.113.5:41000', '198.51.100.7:52000'],
+      },
+    });
+    renderDetail();
+    expect(
+      screen.getByText(
+        'This identity is in use on two machines (203.0.113.5:41000 and 198.51.100.7:52000). Reinstall one of them with --fresh.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('drops the shared-identity warning once a day has passed', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-16T12:00:00Z'));
+    useDeviceStore.setState({
+      selectedDevice: {
+        ...mockDevice,
+        identity_shared_at: '2026-10-15T11:59:00Z',
+        identity_shared_addresses: ['203.0.113.5:41000', '198.51.100.7:52000'],
+      },
+    });
+    renderDetail();
+    expect(screen.queryByText(/in use on two machines/)).toBeNull();
+  });
+
   it('shows agent version', () => {
     renderDetail();
     expect(screen.getByText('1.0.0')).toBeInTheDocument();

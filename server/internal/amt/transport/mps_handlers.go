@@ -24,6 +24,12 @@ func (s *Server) handleMessage(mc *Conn, msgType uint8, payload []byte) error {
 	case APFChannelOpen:
 		return s.handleChannelOpen(mc, payload)
 
+	case APFChannelOpenConfirm:
+		return mc.confirmOpen(payload)
+
+	case APFChannelOpenFailure:
+		return mc.refuseOpen(payload)
+
 	case APFChannelData:
 		return s.handleChannelData(mc, payload)
 
@@ -66,10 +72,7 @@ func (s *Server) handleWindowAdj(mc *Conn, payload []byte) error {
 	}
 	recipientCh := binary.BigEndian.Uint32(payload[0:4])
 	bytesToAdd := binary.BigEndian.Uint32(payload[4:8])
-	mc.mu.RLock()
-	ch, ok := mc.channels[recipientCh]
-	mc.mu.RUnlock()
-	if ok {
+	if ch, ok := mc.channel(recipientCh); ok {
 		ch.mu.Lock()
 		ch.sendWindow += int64(bytesToAdd)
 		ch.mu.Unlock()
@@ -87,12 +90,8 @@ func (s *Server) handleChannelOpen(mc *Conn, payload []byte) error {
 	mc.mu.Lock()
 	localCh := mc.nextChanID
 	mc.nextChanID++
-	ch := &Channel{
-		LocalID:    localCh,
-		RemoteID:   co.SenderChannel,
-		Type:       co.ChannelType,
-		sendWindow: int64(co.InitialWindowSz),
-	}
+	ch := newChannel(mc, localCh, co.SenderChannel, co.ChannelType, co.InitialWindowSz)
+	ch.discard = true
 	mc.channels[localCh] = ch
 	mc.mu.Unlock()
 
@@ -106,70 +105,42 @@ func (s *Server) handleChannelOpen(mc *Conn, payload []byte) error {
 		DefaultWindowSize, DefaultMaxPacketSize)
 }
 
-// handleChannelData processes data received on an APF channel.
+// handleChannelData hands data received on an APF channel to that channel.
 func (s *Server) handleChannelData(mc *Conn, payload []byte) error {
 	cd, err := ParseChannelData(payload)
 	if err != nil {
 		return err
 	}
 
-	mc.mu.RLock()
-	ch, ok := mc.channels[cd.RecipientChannel]
-	mc.mu.RUnlock()
-
+	ch, ok := mc.channel(cd.RecipientChannel)
 	if !ok {
 		mc.logger.Warn("data for unknown channel", "channel", cd.RecipientChannel)
 		return nil
 	}
 
-	ch.mu.Lock()
-	fwd := ch.fwd
-	onData := ch.OnData
-	ch.recvConsumed += int64(len(cd.Data))
-	consumed := ch.recvConsumed
-	ch.mu.Unlock()
-
-	if onData != nil {
-		onData(cd.Data)
-	} else if fwd != nil {
-		if _, err := fwd.Write(cd.Data); err != nil {
-			mc.logger.Error("forward write error", "channel", cd.RecipientChannel, "error", err)
-			return s.handleChannelClose(mc, cd.RecipientChannel)
-		}
+	adjust, err := ch.deliver(cd.Data)
+	if err != nil {
+		mc.logger.Warn("closing channel", "channel", cd.RecipientChannel, "error", err)
+		ch.end(err)
+		mc.forget(ch.LocalID)
+		return WriteChannelClose(mc.netConn, ch.RemoteID)
 	}
-
-	// A WindowAdj goes out once consumed bytes reach half the advertised window.
-	if consumed >= int64(DefaultWindowSize)/2 {
-		ch.mu.Lock()
-		ch.recvConsumed = 0
-		ch.mu.Unlock()
-		// #nosec G115 -- consumed is bounded above by DefaultWindowSize (uint32).
-		if err := WriteChannelWindowAdj(mc.netConn, ch.RemoteID, uint32(consumed)); err != nil {
+	if adjust > 0 {
+		if err := WriteChannelWindowAdj(mc.netConn, ch.RemoteID, adjust); err != nil {
 			return fmt.Errorf("write window adjust: %w", err)
 		}
 	}
-
 	return nil
 }
 
-// handleChannelClose closes a channel and its forwarding connection.
+// handleChannelClose ends a channel the device closed and answers with a close of its own.
 func (s *Server) handleChannelClose(mc *Conn, localCh uint32) error {
-	mc.mu.Lock()
-	ch, ok := mc.channels[localCh]
-	if ok {
-		delete(mc.channels, localCh)
-	}
-	mc.mu.Unlock()
-
+	ch, ok := mc.channel(localCh)
 	if !ok {
 		return nil
 	}
-
-	ch.mu.Lock()
-	if ch.fwd != nil {
-		_ = ch.fwd.Close()
-	}
-	ch.mu.Unlock()
+	mc.forget(localCh)
+	ch.end(io.EOF)
 
 	mc.logger.Info("channel closed", "local_ch", localCh)
 	return WriteChannelClose(mc.netConn, ch.RemoteID)

@@ -176,7 +176,7 @@ echo "quiet"
 EOF
 cat >"$STEP_REPO/scripts/tests/chatty.test.sh" <<'EOF'
 #!/usr/bin/env bash
-echo "k6 scenario api-baseline crossed one of its own thresholds" >>"$GITHUB_STEP_SUMMARY"
+echo "a line a test leaves in the job summary" >>"$GITHUB_STEP_SUMMARY"
 EOF
 chmod +x "$STEP_REPO/scripts/tests/quiet.test.sh" "$STEP_REPO/scripts/tests/chatty.test.sh"
 JOB_SUMMARY="$TMP_DIR/job-summary.md"

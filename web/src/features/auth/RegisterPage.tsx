@@ -11,17 +11,16 @@ export function RegisterPage() {
   const register = useAuthStore((s) => s.register);
   const error = useAuthStore((s) => s.error);
   const isLoading = useAuthStore((s) => s.isLoading);
-  const token = useAuthStore((s) => s.token);
   const user = useAuthStore((s) => s.user);
   const navigate = useNavigate();
 
-  if (token && user) {
+  if (user) {
     return <Navigate to="/devices" replace />;
   }
 
   const handleSubmit = async () => {
     await register(email, password, displayName);
-    if (useAuthStore.getState().token) {
+    if (useAuthStore.getState().user) {
       fireAndForget(navigate('/devices'));
     }
   };

@@ -33,6 +33,10 @@ EOF
 # An empty listing projects every Go shard to zero, so the guard never runs the real dry-run.
 EMPTY_LISTING="$(mktemp)"
 export MUTATION_GO_DRYRUN_FILE="$EMPTY_LISTING"
+# Every case states its own web count; the committed web map is counted for real further down.
+MUTATION_WEB_COUNTER="$(stub_counter 1)"
+export MUTATION_WEB_COUNTER
+WEB_COUNT="$REPO_ROOT/scripts/mutation-web-count.sh"
 
 echo "== mutation-shard-budget.sh =="
 
@@ -229,6 +233,76 @@ if [ -n "${MUTATION_GO_SHARD_LISTING:-}" ]; then
   fi
 else
   pass "the committed Go shard map fits the job cap (counted by the mutation workflow, which runs the gremlins dry-run)"
+fi
+
+web_cost_bad=""
+for shard in $(mutation_web_shards); do
+  cost="$(mutation_web_shard_milliseconds_per_mutant "$shard" 2>/dev/null)"
+  [[ "$cost" =~ ^[0-9]+$ ]] && [ "$cost" -gt 0 ] || web_cost_bad="$web_cost_bad [$shard='$cost']"
+done
+if [ -z "$web_cost_bad" ]; then
+  pass "every web shard declares a measured per-mutant cost"
+else
+  fail "web shards missing a per-mutant cost:$web_cost_bad"
+fi
+
+if mutation_web_shard_milliseconds_per_mutant not-a-shard >/dev/null 2>&1; then
+  fail "an unknown web shard must not resolve to a cost"
+else
+  pass "an unknown web shard is refused rather than costed"
+fi
+
+web_budget="$(mutation_web_shard_budget_minutes)"
+if [ "$web_budget" -le 45 ]; then
+  pass "a web shard may project to half the 90-minute cap at most (${web_budget}min)"
+else
+  fail "the web budget must leave half the cap for a slow night (got ${web_budget}min)"
+fi
+
+out="$(MUTATION_WEB_COUNTER="$(stub_counter 10000)" MUTATION_SHARD_COUNTER="$(stub_counter 1)" "$GUARD" 2>&1)"
+status=$?
+if [ "$status" -ne 0 ] && grep -qE '^web-devices .*OVER' <<<"$out"; then
+  pass "an over-budget web shard is refused and named"
+else
+  fail "10000 web mutants per shard must be refused, naming the shard (status $status, got: $out)"
+fi
+
+# 3000 mutants at the devices cost plus the setup ceiling cross 45 minutes; 2600 do not.
+devices_minutes() {
+  echo $((($1 * $(mutation_web_shard_milliseconds_per_mutant web-devices) / 1000 + \
+  $(mutation_web_setup_ceiling_seconds) + 59) / 60))
+}
+out="$(MUTATION_WEB_COUNTER="$(stub_counter 2600)" MUTATION_SHARD_COUNTER="$(stub_counter 1)" "$GUARD" 2>&1)"
+row="$(awk '$1 == "web-devices" { sub(/min$/, "", $3); print $3, $4 }' <<<"$out")"
+if [ "$row" = "$(devices_minutes 2600) ok" ] && [ "$(devices_minutes 3000)" -gt "$web_budget" ]; then
+  pass "a web shard projects its mutants at its cost plus the setup ceiling ($row)"
+else
+  fail "web-devices must project 2600 mutants to $(devices_minutes 2600)min, ok (got '$row')"
+fi
+
+if [ -x "$WEB_COUNT" ]; then
+  whole="$("$WEB_COUNT" 2>/dev/null || true)"
+  sum=0
+  shard_counts=""
+  for shard in $(mutation_web_shards); do
+    n="$("$WEB_COUNT" "$shard" 2>/dev/null || true)"
+    [[ "$n" =~ ^[0-9]+$ ]] || n=x
+    shard_counts="$shard_counts $shard=$n"
+    [ "$n" = x ] || sum=$((sum + n))
+  done
+  if [[ "$whole" =~ ^[0-9]+$ ]] && [ "$whole" -gt 0 ] && [ "$sum" -eq "$whole" ]; then
+    pass "the web shards' mutants add up to the config's own ($whole), so none is lost or doubled"
+  else
+    fail "the web shards hold$shard_counts, where the config mutates '$whole'"
+  fi
+
+  if out="$(env -u MUTATION_WEB_COUNTER MUTATION_SHARD_COUNTER="$(stub_counter 1)" "$GUARD" 2>&1)"; then
+    pass "the committed web shard map fits the budget"
+  else
+    fail "the committed web shard map is over budget: $(grep -E '^web-' <<<"$out" | tr '\n' ';')"
+  fi
+else
+  fail "scripts/mutation-web-count.sh must exist and be executable"
 fi
 
 echo

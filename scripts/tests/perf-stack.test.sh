@@ -293,12 +293,9 @@ folds_gate() {
   ' <<<"$1"
 }
 
-# Legs that declare a technician load and deliberately offer none; an entry fails once its leg
-# offers a generator.
-declare -A OFFERS_NO_JOURNEYS=(
-  # The breakpoint leg raises the fleet until the server gives out, and offers no generator yet.
-  ["shapes load/profiles/breakpoint.yaml"]="the generator's room at a rung that held is a reading still to be taken"
-)
+# Legs that declare a technician load and deliberately offer none, each beside its reason; an
+# entry fails once its leg offers a generator.
+declare -A OFFERS_NO_JOURNEYS=()
 
 # Every leg names a readable profile, and at least one leg is read.
 legs_read=0

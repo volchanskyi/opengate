@@ -12,6 +12,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/signaling"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
+	"github.com/volchanskyi/opengate/server/internal/testutil/machinecert"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 	"log/slog"
 	"net/http/httptest"
@@ -61,11 +62,13 @@ func newSessionTestEnvWithAPITimeout(t *testing.T, apiTimeout time.Duration) *se
 	deviceUpdates := testutil.NewTestDeviceUpdates(t, store)
 	cm, err := cert.NewManager(t.TempDir())
 	require.NoError(t, err)
+	issuer := machinecert.NewIssuer(t, store, cm, testutil.NewTestDevices(t, store))
 
 	r := relay.NewRelay(slog.Default())
 	logger := testLogger()
 	agentSrv := agentapi.NewAgentServer(agentapi.AgentServerConfig{
 		Cert:          cm,
+		Issuer:        issuer,
 		Devices:       testutil.NewTestDevices(t, store),
 		Hardware:      testutil.NewTestHardware(t, store),
 		DeviceUpdates: deviceUpdates,
@@ -134,6 +137,7 @@ func newSessionTestEnvWithAPITimeout(t *testing.T, apiTimeout time.Duration) *se
 		devices:       testutil.NewTestDevices(t, store),
 		deviceUpdates: deviceUpdates,
 		certMgr:       cm,
+		issuer:        issuer,
 		relay:         r,
 		agentSrv:      agentSrv,
 		agentAddr:     agentAddr,

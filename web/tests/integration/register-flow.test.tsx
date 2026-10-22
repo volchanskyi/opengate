@@ -29,7 +29,6 @@ describe('Register Flow (integration)', () => {
     localStorage.clear();
     vi.clearAllMocks();
     useAuthStore.setState({
-      token: null,
       user: null,
       isLoading: false,
       error: null,
@@ -73,7 +72,6 @@ describe('Register Flow (integration)', () => {
 
   it('redirects authenticated users to /devices', () => {
     useAuthStore.setState({
-      token: 'existing-token',
       user: { id: 'u1', email: 'test@example.com', display_name: 'Test', is_admin: false, created_at: '', updated_at: '' },
     });
     renderRegisterFlow();

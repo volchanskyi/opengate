@@ -57,10 +57,19 @@ func (s *resumeTestServer) snapshot() tls.ConnectionState {
 
 func startResumeTestServer(tb testing.TB, mgr *cert.Manager) *resumeTestServer {
 	tb.Helper()
+	return startResumeTestServerWith(tb, mgr, nil)
+}
+
+// startResumeTestServerWith is startResumeTestServer whose configuration a test observes first.
+func startResumeTestServerWith(tb testing.TB, mgr *cert.Manager, observe func(*tls.Config)) *resumeTestServer {
+	tb.Helper()
 
 	tlsCfg, err := mgr.ServerTLSConfig()
 	if err != nil {
 		tb.Fatalf("server TLS config: %v", err)
+	}
+	if observe != nil {
+		observe(tlsCfg)
 	}
 	udpConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
@@ -125,11 +134,7 @@ func (s *resumeTestServer) serve(ctx context.Context, conn *quic.Conn) {
 
 func agentResumeTLSConfig(tb testing.TB, mgr *cert.Manager, cache tls.ClientSessionCache) *tls.Config {
 	tb.Helper()
-	agentCert, err := mgr.SignAgent(uuid.NewString(), "resume-test-host")
-	if err != nil {
-		tb.Fatalf("sign agent: %v", err)
-	}
-	cfg := mgr.AgentTLSConfig(agentCert)
+	cfg := clientTLS(mgr, deviceCert(tb, mgr, uuid.New()))
 	cfg.ServerName = "localhost"
 	cfg.ClientSessionCache = cache
 	cfg.NextProtos = []string{resumeTestALPN}

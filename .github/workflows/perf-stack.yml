@@ -56,6 +56,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: ./.github/actions/setup-pinned-tools
+
       - uses: actions/setup-go@v7
         with:
           go-version: '1.27'
@@ -105,6 +107,13 @@ jobs:
             | tar -xz -C /tmp
           install -m 0755 "/tmp/k6-${K6_VERSION}-linux-amd64/k6" /tmp/k6
 
+      # The host's steal and the server's throttling are read either side of the walk.
+      - name: Read the runner's counters before the walk
+        run: |
+          set -euo pipefail
+          scripts/perf-runner-record.sh snapshot \
+            "$(scripts/database-levels.sh cgroup-of opengate-perf-server)" /tmp/runner-before.json
+
       # Paths are named from the repository root and the build uses -C, so no step changes directory.
       - name: Run the scaling profile, building its fleet first
         env:
@@ -119,7 +128,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$PERF_BUNDLE_DIR" "$LOADTEST_K6_SUMMARY_DIR"
           go build -C server -trimpath -o /tmp/loadtest ./tests/loadtest/
-          scripts/loadtest-k6-alongside.sh /tmp/perf-quic.txt api-baseline relay-throughput &
+          scripts/loadtest-generator-share.sh "$PERF_GENERATOR_CPUS" "$PERF_GENERATOR_MEMORY" -- scripts/loadtest-k6-alongside.sh /tmp/perf-quic.txt api-baseline relay-throughput &
           K6_LEG=$!
           # Exit 1 is a partly arrived fleet, which is a measurement; the verdict step judges it.
           set +e
@@ -151,6 +160,17 @@ jobs:
             echo "::error::the harness did not complete a run (exit $walk)." >&2
             exit "$walk"
           fi
+
+      # Reported beside the leg's readings, so a slow night says whether the machine or the cap held it.
+      - name: Record what the runner and the server's allowance did
+        run: |
+          set -euo pipefail
+          scripts/perf-runner-record.sh snapshot \
+            "$(scripts/database-levels.sh cgroup-of opengate-perf-server)" /tmp/runner-after.json
+          scripts/perf-runner-record.sh delta /tmp/runner-before.json /tmp/runner-after.json >/tmp/runner.json
+          scripts/loadtest-bundle-merge.sh "$PERF_BUNDLE_DIR/scaling-${{ matrix.cpus }}/bundle.json" --runner /tmp/runner.json
+          jq -r '"Runner: \(.processor_model), steal \(.steal_percent)%; the server throttled in \(.server_throttled_periods) of \(.server_periods) periods (\(.server_throttled_ms) ms)"' \
+            /tmp/runner.json | tee -a "$GITHUB_STEP_SUMMARY"
 
       # The technician numbers are timed by a separate generator and merged into the leg's bundle.
       - name: Fold the technician journeys into the leg
@@ -225,6 +245,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: ./.github/actions/setup-pinned-tools
+
       - uses: actions/setup-go@v7
         with:
           go-version: '1.27'
@@ -271,13 +293,20 @@ jobs:
             | tar -xz -C /tmp
           install -m 0755 "/tmp/k6-${K6_VERSION}-linux-amd64/k6" /tmp/k6
 
+      # The host's steal and the server's throttling are read either side of the walk.
+      - name: Read the runner's counters before the walk
+        run: |
+          set -euo pipefail
+          scripts/perf-runner-record.sh snapshot \
+            "$(scripts/database-levels.sh cgroup-of opengate-perf-server)" /tmp/runner-before.json
+
       # On an empty stack the first account the server sees becomes its administrator.
       - name: Run the volume profile, building its fleet first
         run: |
           set -euo pipefail
           mkdir -p "$LOADTEST_K6_SUMMARY_DIR"
           go build -C server -trimpath -o /tmp/loadtest ./tests/loadtest/
-          scripts/loadtest-k6-alongside.sh /tmp/perf-quic.txt api-baseline relay-throughput &
+          scripts/loadtest-generator-share.sh "$PERF_GENERATOR_CPUS" "$PERF_GENERATOR_MEMORY" -- scripts/loadtest-k6-alongside.sh /tmp/perf-quic.txt api-baseline relay-throughput &
           K6_LEG=$!
           # Exit 1 is a partly arrived fleet, which is a measurement; the verdict step judges it.
           set +e
@@ -317,6 +346,17 @@ jobs:
           K6_BIN: /tmp/k6
           # The stack is per-run and reachable only from the runner; the password is generated per run.
           PERF_FIXTURE_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-Perf!
+
+      # Reported beside the leg's readings, so a slow night says whether the machine or the cap held it.
+      - name: Record what the runner and the server's allowance did
+        run: |
+          set -euo pipefail
+          scripts/perf-runner-record.sh snapshot \
+            "$(scripts/database-levels.sh cgroup-of opengate-perf-server)" /tmp/runner-after.json
+          scripts/perf-runner-record.sh delta /tmp/runner-before.json /tmp/runner-after.json >/tmp/runner.json
+          scripts/loadtest-bundle-merge.sh "$PERF_BUNDLE_DIR/volume-${{ matrix.agents }}/bundle.json" --runner /tmp/runner.json
+          jq -r '"Runner: \(.processor_model), steal \(.steal_percent)%; the server throttled in \(.server_throttled_periods) of \(.server_periods) periods (\(.server_throttled_ms) ms)"' \
+            /tmp/runner.json | tee -a "$GITHUB_STEP_SUMMARY"
 
       # The technician numbers are timed by a separate generator and merged into the leg's bundle.
       - name: Fold the technician journeys into the leg
@@ -435,8 +475,8 @@ jobs:
           - profile: breakpoint
             path: load/profiles/breakpoint.yaml
             title: Raise it until it gives (breakpoint)
-            # The breakpoint ladder holds sessions without journeys, so no k6 leg runs.
-            journeys: false
+            # The technicians open each rung's sessions inside the generator allowance the harness shares.
+            journeys: true
             # About 400 KB of generator memory per machine over a 1.25 GiB baseline is roughly 7.7 GB.
             agents: '16000'
             # The ladder runs six five-minute steps, a one-minute drain and a five-minute recovery.
@@ -444,6 +484,8 @@ jobs:
             minutes: 90
     steps:
       - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-pinned-tools
 
       - uses: actions/setup-go@v7
         with:
@@ -493,6 +535,13 @@ jobs:
             | tar -xz -C /tmp
           install -m 0755 "/tmp/k6-${K6_VERSION}-linux-amd64/k6" /tmp/k6
 
+      # The host's steal and the server's throttling are read either side of the walk.
+      - name: Read the runner's counters before the walk
+        run: |
+          set -euo pipefail
+          scripts/perf-runner-record.sh snapshot \
+            "$(scripts/database-levels.sh cgroup-of opengate-perf-server)" /tmp/runner-before.json
+
       - name: Walk the ${{ matrix.profile }} profile, building its fleet first
         run: |
           set -euo pipefail
@@ -500,7 +549,7 @@ jobs:
           go build -C server -trimpath -o /tmp/loadtest ./tests/loadtest/
           K6_LEG=""
           if [ "${JOURNEYS:-false}" = "true" ]; then
-            scripts/loadtest-k6-alongside.sh /tmp/perf-quic.txt api-baseline relay-throughput &
+            scripts/loadtest-generator-share.sh "$PERF_GENERATOR_CPUS" "$PERF_GENERATOR_MEMORY" -- scripts/loadtest-k6-alongside.sh /tmp/perf-quic.txt api-baseline relay-throughput &
             K6_LEG=$!
           fi
           # Exit 1 is a partly arrived fleet, which is a measurement; the verdict step judges it.
@@ -543,6 +592,17 @@ jobs:
           LOADTEST_K6_SUMMARY_DIR: /tmp/perf-k6
           K6_BIN: /tmp/k6
           JOURNEYS: ${{ matrix.journeys }}
+
+      # Reported beside the leg's readings, so a slow night says whether the machine or the cap held it.
+      - name: Record what the runner and the server's allowance did
+        run: |
+          set -euo pipefail
+          scripts/perf-runner-record.sh snapshot \
+            "$(scripts/database-levels.sh cgroup-of opengate-perf-server)" /tmp/runner-after.json
+          scripts/perf-runner-record.sh delta /tmp/runner-before.json /tmp/runner-after.json >/tmp/runner.json
+          scripts/loadtest-bundle-merge.sh "$PERF_BUNDLE_DIR/${{ matrix.profile }}/bundle.json" --runner /tmp/runner.json
+          jq -r '"Runner: \(.processor_model), steal \(.steal_percent)%; the server throttled in \(.server_throttled_periods) of \(.server_periods) periods (\(.server_throttled_ms) ms)"' \
+            /tmp/runner.json | tee -a "$GITHUB_STEP_SUMMARY"
 
       # The technician numbers are timed by a separate generator and merged into the leg's bundle.
       - name: Fold the technician journeys into the leg
@@ -636,6 +696,8 @@ jobs:
     env:
       # When the run started, which every sample of the night carries.
       VM_RUN_STARTED_AT: ${{ needs.started.outputs.started_at }}
+      # The check writes the series past their line here, and the push labels them flagged.
+      PERF_FLAGGED_FILE: perf-flagged.tsv
     steps:
       - uses: actions/checkout@v7
 
@@ -651,9 +713,9 @@ jobs:
         uses: ./.github/actions/oci-kube-setup
         with:
           oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
-          oci-user: ${{ secrets.OCI_USER_OCID }}
-          oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
-          oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
+          oci-user: ${{ secrets.OCI_WORKFLOW_USER_OCID }}
+          oci-fingerprint: ${{ secrets.OCI_WORKFLOW_FINGERPRINT }}
+          oci-private-key: ${{ secrets.OCI_WORKFLOW_PRIVATE_KEY }}
           oci-region: ${{ secrets.OCI_REGION }}
           cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
 

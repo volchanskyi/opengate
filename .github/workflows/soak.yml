@@ -255,6 +255,8 @@ jobs:
     env:
       # Every sample of the run carries its start time.
       VM_RUN_STARTED_AT: ${{ needs.soak.outputs.started_at }}
+      # The check writes the series past their line here, and the push labels them flagged.
+      PERF_FLAGGED_FILE: perf-flagged.tsv
     steps:
       - uses: actions/checkout@v7
 
@@ -270,9 +272,9 @@ jobs:
         uses: ./.github/actions/oci-kube-setup
         with:
           oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
-          oci-user: ${{ secrets.OCI_USER_OCID }}
-          oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
-          oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
+          oci-user: ${{ secrets.OCI_WORKFLOW_USER_OCID }}
+          oci-fingerprint: ${{ secrets.OCI_WORKFLOW_FINGERPRINT }}
+          oci-private-key: ${{ secrets.OCI_WORKFLOW_PRIVATE_KEY }}
           oci-region: ${{ secrets.OCI_REGION }}
           cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
 

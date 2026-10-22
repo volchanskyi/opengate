@@ -45,28 +45,39 @@ test.describe("Auth flows", () => {
     await expect(page.locator(".text-red-400")).toBeVisible();
   });
 
-  test("logout clears session and redirects to /login", async ({
-    authedPage,
-  }) => {
-    await authedPage.goto("/devices");
-
-    // Click logout (in the nav layout)
-    const logoutBtn = authedPage.getByRole("button", { name: /logout/i });
-    if (await logoutBtn.isVisible()) {
-      await logoutBtn.click();
-      await expect(authedPage).toHaveURL(/\/login/);
-    }
-  });
-
-  test("expired token redirects to /login", async ({ page }) => {
-    // Inject a garbage token to simulate expired session
-    await page.goto("/");
-    await page.evaluate(() => {
-      localStorage.setItem("token", "expired.token.here");
-    });
+  test("a session cookie the server does not know redirects to /login", async ({ page, baseURL }) => {
+    await page.context().addCookies([{ name: "og_session", value: "forged.value", url: baseURL! }]);
 
     await page.goto("/devices");
-    // AuthGuard should redirect to login when /me fails
     await expect(page).toHaveURL(/\/login/);
+  });
+
+  test("the console keeps no pass where a script can read it", async ({ authedPage }) => {
+    const stored = await authedPage.evaluate(() => ({
+      local: Object.keys(localStorage).map((k) => localStorage.getItem(k) ?? ""),
+      session: Object.keys(sessionStorage).map((k) => sessionStorage.getItem(k) ?? ""),
+      cookies: document.cookie,
+    }));
+    const jwtShape = /eyJ[\w-]+\.[\w-]+\.[\w-]+/;
+    for (const value of [...stored.local, ...stored.session]) {
+      expect(value).not.toMatch(jwtShape);
+    }
+    expect(stored.cookies).not.toContain("og_session");
+    const cookie = (await authedPage.context().cookies()).find((c) => c.name === "og_session");
+    expect(cookie?.httpOnly).toBe(true);
+    expect(cookie?.sameSite).toBe("Strict");
+  });
+
+  test("logout redirects to /login and makes the old cookie useless", async ({ authedPage, request }) => {
+    const before = (await authedPage.context().cookies()).find((c) => c.name === "og_session");
+    expect(before).toBeDefined();
+    await authedPage.goto("/devices");
+    await authedPage.getByRole("button", { name: /logout/i }).click();
+    await expect(authedPage).toHaveURL(/\/login/);
+
+    const replayed = await request.get("/api/v1/users/me", {
+      headers: { Cookie: `og_session=${before!.value}` },
+    });
+    expect(replayed.status()).toBe(401);
   });
 });

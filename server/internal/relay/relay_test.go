@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -39,15 +40,15 @@ func newMockConnPair(t *testing.T) (*mockConn, *mockConn) {
 	return a, b
 }
 
-func (c *mockConn) ReadMessage() ([]byte, error) {
+func (c *mockConn) ReadMessage() (Message, error) {
 	select {
 	case data, ok := <-c.readCh:
 		if !ok {
-			return nil, io.EOF
+			return Message{}, io.EOF
 		}
-		return data, nil
+		return ReadMessageFrom(bytes.NewReader(data))
 	case <-c.done:
-		return nil, io.EOF
+		return Message{}, io.EOF
 	}
 }
 
@@ -117,7 +118,7 @@ func awaitPumping(t *testing.T, agentLocal, browserLocal *mockConn) {
 	require.NoError(t, agentLocal.WriteMessage(probe))
 	got, err := browserLocal.ReadMessage()
 	require.NoError(t, err)
-	require.Equal(t, probe, got)
+	require.Equal(t, probe, got.Bytes())
 }
 
 func TestNewRelay_InitialState(t *testing.T) {
@@ -153,7 +154,7 @@ func TestRelay_Pipe_CopiesData(t *testing.T) {
 
 	data, err := browserLocal.ReadMessage()
 	require.NoError(t, err)
-	assert.Equal(t, msg, data)
+	assert.Equal(t, msg, data.Bytes())
 }
 
 func TestRelay_Pipe_Bidirectional(t *testing.T) {
@@ -163,13 +164,13 @@ func TestRelay_Pipe_Bidirectional(t *testing.T) {
 	require.NoError(t, agentLocal.WriteMessage(agentMsg))
 	data, err := browserLocal.ReadMessage()
 	require.NoError(t, err)
-	assert.Equal(t, agentMsg, data)
+	assert.Equal(t, agentMsg, data.Bytes())
 
 	browserMsg := []byte("from browser")
 	require.NoError(t, browserLocal.WriteMessage(browserMsg))
 	data, err = agentLocal.ReadMessage()
 	require.NoError(t, err)
-	assert.Equal(t, browserMsg, data)
+	assert.Equal(t, browserMsg, data.Bytes())
 }
 
 func TestRelay_Pipe_LargeMessage(t *testing.T) {
@@ -183,7 +184,7 @@ func TestRelay_Pipe_LargeMessage(t *testing.T) {
 
 	data, err := browserLocal.ReadMessage()
 	require.NoError(t, err)
-	assert.Equal(t, largeMsg, data)
+	assert.Equal(t, largeMsg, data.Bytes())
 }
 
 func TestRelay_CloseOnOneSideDisconnect(t *testing.T) {
@@ -281,7 +282,7 @@ func TestRelay_Pipe_SurvivesRegisterContextCancel(t *testing.T) {
 	require.NoError(t, agentLocal.WriteMessage(msg))
 	data, err := browserLocal.ReadMessage()
 	require.NoError(t, err)
-	assert.Equal(t, msg, data)
+	assert.Equal(t, msg, data.Bytes())
 
 	cancel()
 	time.Sleep(50 * time.Millisecond)
@@ -290,7 +291,7 @@ func TestRelay_Pipe_SurvivesRegisterContextCancel(t *testing.T) {
 	require.NoError(t, agentLocal.WriteMessage(msg2))
 	data2, err := browserLocal.ReadMessage()
 	require.NoError(t, err, "pipe should survive registration context cancellation")
-	assert.Equal(t, msg2, data2)
+	assert.Equal(t, msg2, data2.Bytes())
 
 	assert.Equal(t, 1, r.ActiveSessionCount(), "session should still be active")
 }
@@ -400,7 +401,7 @@ func TestRelay_RegistryErrors_AreNonFatal(t *testing.T) {
 	require.NoError(t, agentLocal.WriteMessage(msg))
 	got, err := browserLocal.ReadMessage()
 	require.NoError(t, err)
-	assert.Equal(t, msg, got)
+	assert.Equal(t, msg, got.Bytes())
 
 	agentLocal.Close()
 	require.Eventually(t, func() bool {

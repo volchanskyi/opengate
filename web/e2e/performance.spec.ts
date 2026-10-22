@@ -4,7 +4,7 @@ import { openFolder, openWithWorker, savedChecksum, sourceFile, startDownload } 
 import { enrolledMachine, MACHINE_A, MACHINE_B } from "./helpers/enrolled-machine";
 import { recordMeasurement } from "./helpers/measurement";
 import { endHostSession, msUntilPath, noteRelayOpen, openSessionTab, sessionPath } from "./helpers/session-tab";
-import { echoTimes, onMachine, percentile, resetRouters, router, watchEcho } from "./helpers/stack";
+import { echoTimes, onMachine, percentile, resetRouters, router, sentThrough, watchEcho } from "./helpers/stack";
 
 // The budgets R5 promises, measured on the stack: the office router holds agent-a's line to a rate
 // and a 40 ms round trip, and a 120 000-entry folder pages in while a download runs.
@@ -22,6 +22,38 @@ const RATE_FLOOR = 0.8;
 const RATE_WINDOW_S = 30;
 // Sized so the download outlasts the echo samples by more than the rate window at either rate.
 const FILE_MIB: Record<string, number> = { "10": 128, "100": 1024 };
+
+// Shares of the office line's packets sent out of order: none, the share the link must hold its
+// rate through, and a share it is only read at.
+const REORDER_PCT = [0, 1, 5];
+const REORDER_HELD_PCT = 1;
+// Sized so each download outlasts the rate window at a full line.
+const REORDER_FILE_MIB: Record<string, number> = { "10": 64, "100": 512 };
+
+/**
+ * Reads, inside the page, how long the running download takes from now until it holds every
+ * piece, and the share it already held at the start.
+ */
+async function untilDownloaded(tab: Page): Promise<{ seconds: number; share: number }> {
+  return tab.evaluate(
+    () =>
+      new Promise<{ seconds: number; share: number }>((resolve) => {
+        const read = () => {
+          const bar = document.querySelector('progress[aria-label^="Downloading "]');
+          return bar ? Number(bar.getAttribute("value")) / 100 : 1;
+        };
+        const start = { at: performance.now(), share: read() };
+        const timer = setInterval(() => {
+          if (read() < 1) return;
+          clearInterval(timer);
+          resolve({
+            seconds: (performance.now() - start.at) / 1000,
+            share: start.share,
+          });
+        }, 20);
+      }),
+  );
+}
 
 /** The running download's share received, from the transfers strip, between 0 and 1. */
 async function progressOf(tab: Page): Promise<number> {
@@ -74,21 +106,7 @@ test.describe("Performance", () => {
 
         // The rate is the line's: read in the page from here until it holds every piece, before the
         // browser's own saving of the file, which the line does not carry.
-        const { seconds, share } = await tab.evaluate(
-          () =>
-            new Promise<{ seconds: number; share: number }>((resolve) => {
-              const read = () => {
-                const bar = document.querySelector('progress[aria-label^="Downloading "]');
-                return bar ? Number(bar.getAttribute("value")) / 100 : 1;
-              };
-              const start = { at: performance.now(), share: read() };
-              const timer = setInterval(() => {
-                if (read() < 1) return;
-                clearInterval(timer);
-                resolve({ seconds: (performance.now() - start.at) / 1000, share: start.share });
-              }, 20);
-            }),
-        );
+        const { seconds, share } = await untilDownloaded(tab);
         const checksum = await savedChecksum(saved);
         const mbits = ((1 - share) * mib * 8 * 1.048576) / seconds;
         const p95 = percentile(times, 0.95);
@@ -108,6 +126,58 @@ test.describe("Performance", () => {
         expect(checksum).toBe(source);
         expect(seconds, "the rate's window").toBeGreaterThanOrEqual(RATE_WINDOW_S);
         expect(lineShare, `${mbits.toFixed(1)} Mbit/s over ${seconds.toFixed(1)} s`).toBeGreaterThanOrEqual(RATE_FLOOR);
+      });
+    }
+  }
+
+  for (const mbit of ["10", "100"]) {
+    for (const pct of REORDER_PCT) {
+      test(`over Direct at ${mbit} Mbit/s with ${pct}% of the office line's packets out of order, the download's share of the line is read`, async ({
+        authedPage,
+        request,
+      }) => {
+        test.setTimeout(300_000);
+        const mib = REORDER_FILE_MIB[mbit]!;
+        const name = `og-reorder-${mib}.bin`;
+        const source = sourceFile(MACHINE_A, name, mib);
+        router("office", "shape", mbit, "40", String(pct));
+
+        const tab = await openWithWorker(authedPage, (await enrolledMachine(request, MACHINE_A)).id);
+        await expect(sessionPath(tab)).toHaveText("Direct", {
+          timeout: 10_000,
+        });
+        await openFolder(tab, "/tmp");
+        sentThrough("office");
+        const saved = await startDownload(tab, name);
+        const { seconds, share } = await untilDownloaded(tab);
+        const sentBytes = sentThrough("office");
+        const checksum = await savedChecksum(saved);
+
+        const fileBytes = mib * 1024 * 1024;
+        const mbits = ((1 - share) * fileBytes * 8) / 1e6 / seconds;
+        const lineShare = mbits / Number(mbit);
+        const beyond = sentBytes / fileBytes - 1;
+        console.log(
+          `${mbit} Mbit/s, ${pct}% reordered: ${mbits.toFixed(1)} Mbit/s over ${seconds.toFixed(1)} s, sent ${(beyond * 100).toFixed(1)}% beyond the file`,
+        );
+        recordMeasurement(
+          `download over Direct at ${mbit} Mbit/s, ${pct}% reordered, share of the line`,
+          pct <= REORDER_HELD_PCT ? `≥ ${RATE_FLOOR * 100}%` : "read",
+          `${(lineShare * 100).toFixed(1)}% (${mbits.toFixed(1)} Mbit/s)`,
+          pct > REORDER_HELD_PCT || lineShare >= RATE_FLOOR,
+        );
+        recordMeasurement(
+          `download over Direct at ${mbit} Mbit/s, ${pct}% reordered, sent beyond the file`,
+          "read",
+          `${(beyond * 100).toFixed(1)}%`,
+          true,
+        );
+        expect(checksum).toBe(source);
+        if (pct <= REORDER_HELD_PCT) {
+          expect(lineShare, `${mbits.toFixed(1)} Mbit/s over ${seconds.toFixed(1)} s`).toBeGreaterThanOrEqual(
+            RATE_FLOOR,
+          );
+        }
       });
     }
   }

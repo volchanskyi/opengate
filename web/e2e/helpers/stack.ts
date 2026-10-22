@@ -9,10 +9,17 @@ export type RouterName = "office" | "home";
 
 /**
  * Changes a router's rules, as `router.sh` takes them: `nat keep|scramble`,
- * `udp open|blocked|helper-only`, `shape MBIT RTT_MS`, `shape off`, `reset`.
+ * `udp open|blocked|helper-only`, `shape MBIT RTT_MS [REORDER_PCT]`, `shape off`, `reset`.
  */
 export function router(name: RouterName, ...args: string[]): void {
   execFileSync("docker", ["exec", `opengate-test-router-${name}`, "router.sh", ...args], { stdio: "pipe" });
+}
+
+/** The bytes the network behind a router sent out through it since the last reading. */
+export function sentThrough(name: RouterName): number {
+  return Number(
+    execFileSync("docker", ["exec", `opengate-test-router-${name}`, "router.sh", "sent"], { encoding: "utf8" }).trim(),
+  );
 }
 
 /** Puts both routers back to translating, passing UDP and holding no rate. */

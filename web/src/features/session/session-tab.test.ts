@@ -7,13 +7,9 @@ import {
   sessionTabName,
   watchSignIn,
 } from './session-tab';
+import { identityOf, SIGNED_IN_KEY } from '../../lib/console-session';
 
-function token(claims: Record<string, unknown>): string {
-  const body = btoa(JSON.stringify(claims)).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
-  return `header.${body}.signature`;
-}
-
-const ALICE = token({ uid: 'alice', tenant: 'northwind', email: 'alice@northwind.test' });
+const ALICE = identityOf('alice', 'northwind');
 
 describe('session tab', () => {
   afterEach(() => {
@@ -111,21 +107,21 @@ describe('session tab', () => {
     }
 
     beforeEach(() => {
-      localStorage.setItem('token', ALICE);
+      localStorage.setItem(SIGNED_IN_KEY, ALICE);
     });
 
     it('ends the tab’s session when this browser signs out', () => {
       const signedOut = vi.fn();
       watchSignIn(ALICE, signedOut);
-      change('token', null);
+      change(SIGNED_IN_KEY, null);
       expect(signedOut).toHaveBeenCalledOnce();
     });
 
     it('ends it when another account or tenant signs in', () => {
       const signedOut = vi.fn();
       watchSignIn(ALICE, signedOut);
-      change('token', token({ uid: 'bob', tenant: 'northwind' }));
-      change('token', token({ uid: 'alice', tenant: 'fabrikam' }));
+      change(SIGNED_IN_KEY, identityOf('bob', 'northwind'));
+      change(SIGNED_IN_KEY, identityOf('alice', 'fabrikam'));
       expect(signedOut).toHaveBeenCalledTimes(2);
     });
 
@@ -137,14 +133,14 @@ describe('session tab', () => {
     });
 
     it('ends it at once when this browser signed out before the watch began', () => {
-      localStorage.removeItem('token');
+      localStorage.removeItem(SIGNED_IN_KEY);
       const signedOut = vi.fn();
       watchSignIn(ALICE, signedOut);
       expect(signedOut).toHaveBeenCalledOnce();
     });
 
     it('ends it at once when another account signed in before the watch began', () => {
-      localStorage.setItem('token', token({ uid: 'bob', tenant: 'northwind' }));
+      localStorage.setItem(SIGNED_IN_KEY, identityOf('bob', 'northwind'));
       const signedOut = vi.fn();
       watchSignIn(ALICE, signedOut);
       expect(signedOut).toHaveBeenCalledOnce();
@@ -160,15 +156,15 @@ describe('session tab', () => {
       expect(signedOut).not.toHaveBeenCalled();
     });
 
-    it('leaves it running when the same account’s sign-in is renewed or another key changes', () => {
+    it('leaves it running when the same account signs in again or another key changes', () => {
       const signedOut = vi.fn();
       const stop = watchSignIn(ALICE, signedOut);
-      change('token', token({ uid: 'alice', tenant: 'northwind', exp: 2_000_000_000 }));
+      change(SIGNED_IN_KEY, identityOf('alice', 'northwind'));
       change('opengate-organization', 'fabrikam');
       expect(signedOut).not.toHaveBeenCalled();
 
       stop();
-      change('token', null);
+      change(SIGNED_IN_KEY, null);
       expect(signedOut).not.toHaveBeenCalled();
     });
   });

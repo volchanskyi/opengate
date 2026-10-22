@@ -94,26 +94,10 @@ venue_of() {
   python3 "$SCRIPT_DIR/fixtures/profile-venue.py" "$WORKFLOW_DIR" "load/profiles/$1.yaml"
 }
 
-# `breakpoint` raises the fleet to sixteen thousand machines on a shared runner, so its venue
-# offers no technician sessions yet.
-SESSIONS_NOT_YET_OFFERED=(breakpoint)
-
-exempt_from_sessions() {
-  local candidate="$1" entry
-  for entry in "${SESSIONS_NOT_YET_OFFERED[@]}"; do
-    [ "$entry" = "$candidate" ] && return 0
-  done
-  return 1
-}
-
 checked_venues=0
 for profile in "${profiles[@]}"; do
   wants="$(declares_sessions "$profile")"
   [ "$wants" = "yes" ] || continue
-  if exempt_from_sessions "$profile"; then
-    pass "$profile is the one venue whose generator cost is still to be read"
-    continue
-  fi
   checked_venues=$((checked_venues + 1))
   venue="$(venue_of "$profile")"
   if [ -z "$venue" ]; then

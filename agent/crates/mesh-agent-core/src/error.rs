@@ -38,4 +38,8 @@ pub enum ConnectionError {
     /// Server rejected the registration.
     #[error("server rejected registration")]
     RegistrationRejected,
+
+    /// A ping arrived and was answered; the caller reads on.
+    #[error("ping answered")]
+    PingAnswered,
 }

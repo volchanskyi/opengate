@@ -26,6 +26,11 @@ var reverseGoldenBySendMethod = map[string][]string{
 	"SendRequestLocalHistory":   {"go_control_request_local_history.bin"},
 	"SendRequestDeviceLogs":     {"go_control_request_device_logs.bin"},
 	"SendSetMaintenanceMode":    {"go_control_set_maintenance_mode.bin"},
+	// The _min fixtures cover a refusal and an offer with no reason, which the encoder drops.
+	"SendRenewCertificate":   {"go_control_renew_certificate.bin", "go_control_renew_certificate_min.bin"},
+	"SendCertificateIssued":  {"go_control_certificate_issued.bin"},
+	"SendCertificateRefused": {"go_control_certificate_refused.bin", "go_control_certificate_refused_min.bin"},
+	"SendTrustBundle":        {"go_control_trust_bundle.bin"},
 }
 
 // reverseGoldenByInlineWrite names the goldens of variants written through sendControl

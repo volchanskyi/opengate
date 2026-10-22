@@ -61,7 +61,12 @@ while [ "\$#" -gt 0 ]; do
 done
 exec "\$@"
 EOF
-chmod +x "$WORK/bin/sudo" "$WORK/bin/systemd-run" "$WORK/bin/setpriv"
+cat >"$WORK/bin/systemctl" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'systemctl %s\n' "\$*" >>"$WORK/calls.txt"
+EOF
+chmod +x "$WORK/bin/sudo" "$WORK/bin/systemd-run" "$WORK/bin/setpriv" "$WORK/bin/systemctl"
 echo 0 >"$WORK/scopes-allowed"
 
 run_share() {
@@ -79,15 +84,15 @@ if grep -qF 'the harness ran' "$WORK/out.txt"; then
 else
   fail "the wrapped command's output reaches the caller"
 fi
-if grep -qF 'CPUQuota=100%' "$WORK/calls.txt"; then
-  pass "one processor is asked for as one processor's worth of quota"
+if grep -qF 'systemctl set-property --runtime opengate-generator.slice CPUQuota=100% MemoryMax=8G' "$WORK/calls.txt"; then
+  pass "one processor and the memory are asked for on the generators' shared slice"
 else
-  fail "one processor is asked for as one processor's worth of quota"
+  fail "one processor and the memory are asked for on the generators' shared slice ($(cat "$WORK/calls.txt"))"
 fi
-if grep -qF 'MemoryMax=8G' "$WORK/calls.txt"; then
-  pass "the memory allowance is asked for"
+if grep -qF 'systemd-run --scope --quiet --slice=opengate-generator.slice' "$WORK/calls.txt"; then
+  pass "the command runs inside that slice, beside every other generator given the allowance"
 else
-  fail "the memory allowance is asked for"
+  fail "the command runs inside that slice, beside every other generator given the allowance"
 fi
 if grep -qF "setpriv --reuid=$(id -u) --regid=$(id -g) --init-groups" "$WORK/calls.txt"; then
   pass "the harness runs as the invoking user, so its bundle is readable"
@@ -124,10 +129,14 @@ else
 fi
 
 WORKFLOW="$REPO_ROOT/.github/workflows/perf-stack.yml"
-if grep -qF 'loadtest-generator-share.sh' "$WORKFLOW"; then
-  pass "perf-stack.yml bounds its generator"
+# The allowance as each call in the workflow spells it, with its variables unexpanded.
+allowance="loadtest-generator-share.sh \"\$PERF_GENERATOR_CPUS\" \"\$PERF_GENERATOR_MEMORY\" --"
+harness_bound="$(grep -cF -- "$allowance \\" "$WORKFLOW" || true)"
+k6_bound="$(grep -cF -- "$allowance scripts/loadtest-k6-alongside.sh" "$WORKFLOW" || true)"
+if [ "$harness_bound" -gt 0 ] && [ "$harness_bound" = "$k6_bound" ]; then
+  pass "perf-stack.yml bounds each leg's harness and its technicians with one allowance ($harness_bound legs)"
 else
-  fail "perf-stack.yml bounds its generator"
+  fail "perf-stack.yml bounds each leg's harness and its technicians with one allowance (harness $harness_bound, k6 $k6_bound)"
 fi
 
 echo

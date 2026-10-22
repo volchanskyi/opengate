@@ -85,11 +85,13 @@ func benchRelayForward(b *testing.B, size int) {
 	b.ReportAllocs()
 	for b.Loop() {
 		agentSide.frame.Reset(frame)
-		data, err := agent.ReadMessage()
+		msg, err := agent.ReadMessage()
 		if err != nil {
 			b.Fatal(err)
 		}
-		if err := browser.WriteMessage(data); err != nil {
+		err = browser.WriteMessage(msg.Bytes())
+		msg.Release()
+		if err != nil {
 			b.Fatal(err)
 		}
 	}

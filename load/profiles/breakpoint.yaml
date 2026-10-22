@@ -66,7 +66,7 @@ gave_out:
   target_busy_percent_above: 95
 
 gates:
-  # This venue has no browser-side generator, so the limit names a machine-side measurement.
+  # The limit names a machine-side measurement, since the arrival path is what the ladder climbs.
   # The figure is a floor under a collapse of the arrival path, as failing under load is the finding.
   - series: quic/quic-agents/connect
     metric: latency_p95_ms

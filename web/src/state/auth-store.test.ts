@@ -1,154 +1,136 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { tenantIdFromToken, useAuthStore } from './auth-store';
+import { useAuthStore } from './auth-store';
+import { csrfToken, setCsrfToken, SIGNED_IN_KEY } from '../lib/console-session';
 
 const mockPost = vi.fn();
 const mockGet = vi.fn();
+const mockDelete = vi.fn();
 
 vi.mock('../lib/api', () => ({
   api: {
     POST: (...args: unknown[]) => mockPost(...args),
     GET: (...args: unknown[]) => mockGet(...args),
+    DELETE: (...args: unknown[]) => mockDelete(...args),
   },
 }));
 
-function jwtWithTenant(tenantId: string): string {
-  const encode = (value: object) =>
-    btoa(JSON.stringify(value)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
-  return `${encode({ alg: 'none' })}.${encode({ tenant: tenantId })}.sig`;
+const TENANT = '00000000-0000-0000-0000-000000000002';
+
+function consoleSession(email: string, displayName = 'A') {
+  return {
+    user: { id: '1', email, display_name: displayName, is_admin: false, created_at: '', updated_at: '' },
+    tenant_id: TENANT,
+    csrf_token: 'csrf-from-sign-in',
+    idle_timeout_seconds: 1800,
+    expires_at: '2026-10-16T17:00:00Z',
+  };
 }
 
 describe('auth store', () => {
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
+    setCsrfToken(null);
     vi.clearAllMocks();
     useAuthStore.setState({
-      token: null,
       tenantId: null,
       user: null,
+      idleTimeoutSeconds: null,
       isLoading: false,
       hydrated: false,
       error: null,
     });
   });
 
-  it('login stores token and fetches user', async () => {
-    const token = jwtWithTenant('00000000-0000-0000-0000-000000000002');
-    mockPost.mockResolvedValueOnce({
-      data: { token },
-      error: undefined,
-    });
-    mockGet.mockResolvedValueOnce({
-      data: { id: '1', email: 'a@b.com', display_name: 'A', is_admin: false },
-      error: undefined,
-      response: { status: 200 },
-    });
+  it('signs in with the session endpoint and keeps no pass in page storage', async () => {
+    mockPost.mockResolvedValueOnce({ data: consoleSession('a@b.com'), error: undefined });
 
     await useAuthStore.getState().login('a@b.com', 'pass');
 
-    expect(localStorage.getItem('token')).toBe(token);
-    expect(useAuthStore.getState().token).toBe(token);
-    expect(useAuthStore.getState().tenantId).toBe('00000000-0000-0000-0000-000000000002');
+    expect(mockPost).toHaveBeenCalledWith('/api/v1/auth/session', {
+      body: { email: 'a@b.com', password: 'pass' },
+    });
     expect(useAuthStore.getState().user?.email).toBe('a@b.com');
-    expect(useAuthStore.getState().error).toBeNull();
+    expect(useAuthStore.getState().tenantId).toBe(TENANT);
+    expect(useAuthStore.getState().idleTimeoutSeconds).toBe(1800);
+    expect(csrfToken()).toBe('csrf-from-sign-in');
+    expect(Object.keys(localStorage)).toEqual([SIGNED_IN_KEY]);
+    expect(localStorage.getItem(SIGNED_IN_KEY)).toBe(`1/${TENANT}`);
+    expect(sessionStorage).toHaveLength(0);
   });
 
-  it('login error sets error state', async () => {
-    mockPost.mockResolvedValueOnce({
-      data: undefined,
-      error: { error: 'invalid credentials' },
-    });
+  it('a refused sign-in says why and signs nobody in', async () => {
+    mockPost.mockResolvedValueOnce({ data: undefined, error: { error: 'invalid credentials' } });
 
     await useAuthStore.getState().login('a@b.com', 'wrong');
 
     expect(useAuthStore.getState().error).toBe('invalid credentials');
-    expect(useAuthStore.getState().token).toBeNull();
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(csrfToken()).toBeNull();
   });
 
-  it('register stores token and fetches user', async () => {
-    const token = jwtWithTenant('33333333-3333-3333-3333-333333333333');
-    mockPost.mockResolvedValueOnce({
-      data: { token },
-      error: undefined,
-    });
-    mockGet.mockResolvedValueOnce({
-      data: { id: '2', email: 'b@c.com', display_name: 'B', is_admin: false },
-      error: undefined,
-      response: { status: 200 },
-    });
+  it('registers with the session endpoint and is signed in', async () => {
+    mockPost.mockResolvedValueOnce({ data: consoleSession('b@c.com', 'B'), error: undefined });
 
     await useAuthStore.getState().register('b@c.com', 'pass', 'B');
 
-    expect(localStorage.getItem('token')).toBe(token);
-    expect(useAuthStore.getState().token).toBe(token);
-    expect(useAuthStore.getState().tenantId).toBe('33333333-3333-3333-3333-333333333333');
+    expect(mockPost).toHaveBeenCalledWith('/api/v1/auth/session/register', {
+      body: { email: 'b@c.com', password: 'pass', display_name: 'B' },
+    });
     expect(useAuthStore.getState().user?.display_name).toBe('B');
+    expect(csrfToken()).toBe('csrf-from-sign-in');
   });
 
-  it('logout clears state', () => {
-    localStorage.setItem('token', 'old-token');
-    useAuthStore.setState({
-      token: 'old-token',
-      tenantId: '00000000-0000-0000-0000-000000000002',
-      user: {
-        id: '1',
-        email: 'a@b.com',
-        display_name: 'A',
-        is_admin: false,
-        created_at: '',
-        updated_at: '',
-      },
-    });
+  it('signing out ends the session on the server and forgets it here', async () => {
+    mockPost.mockResolvedValueOnce({ data: consoleSession('a@b.com'), error: undefined });
+    await useAuthStore.getState().login('a@b.com', 'pass');
+    mockDelete.mockResolvedValueOnce({ data: undefined, error: undefined, response: { status: 204 } });
 
-    useAuthStore.getState().logout();
+    await useAuthStore.getState().logout();
 
-    expect(localStorage.getItem('token')).toBeNull();
-    expect(useAuthStore.getState().token).toBeNull();
-    expect(useAuthStore.getState().tenantId).toBeNull();
+    expect(mockDelete).toHaveBeenCalledWith('/api/v1/auth/session');
     expect(useAuthStore.getState().user).toBeNull();
+    expect(useAuthStore.getState().tenantId).toBeNull();
+    expect(csrfToken()).toBeNull();
+    expect(localStorage.getItem(SIGNED_IN_KEY)).toBeNull();
   });
 
-  it('hydrate reads token from localStorage and fetches user', async () => {
-    const token = jwtWithTenant('11111111-1111-1111-1111-111111111111');
-    localStorage.setItem('token', token);
-    mockGet.mockResolvedValueOnce({
-      data: { id: '1', email: 'a@b.com', display_name: 'A', is_admin: false },
-      error: undefined,
-      response: { status: 200 },
-    });
+  it('a page that reloads asks the server for its session', async () => {
+    mockGet.mockResolvedValueOnce({ data: consoleSession('a@b.com'), error: undefined, response: { status: 200 } });
 
     await useAuthStore.getState().hydrate();
 
-    expect(useAuthStore.getState().token).toBe(token);
-    expect(useAuthStore.getState().tenantId).toBe('11111111-1111-1111-1111-111111111111');
+    expect(mockGet).toHaveBeenCalledWith('/api/v1/auth/session');
     expect(useAuthStore.getState().user?.email).toBe('a@b.com');
+    expect(csrfToken()).toBe('csrf-from-sign-in');
     expect(useAuthStore.getState().hydrated).toBe(true);
   });
 
-  it('hydrate does nothing when no token', async () => {
+  it('a page that reloads with no live session is signed out', async () => {
+    localStorage.setItem(SIGNED_IN_KEY, `1/${TENANT}`);
+    mockGet.mockResolvedValueOnce({ data: undefined, error: { error: 'session expired' }, response: { status: 401 } });
+
     await useAuthStore.getState().hydrate();
 
-    expect(useAuthStore.getState().token).toBeNull();
-    expect(mockGet).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(localStorage.getItem(SIGNED_IN_KEY)).toBeNull();
     expect(useAuthStore.getState().hydrated).toBe(true);
   });
 
-  it('hydrate auto-logouts on 401', async () => {
-    localStorage.setItem('token', 'expired-token');
-    mockGet.mockResolvedValueOnce({
-      data: undefined,
-      error: { error: 'invalid token' },
-      response: { status: 401 },
-    });
+  it('a 401 from the server signs the console out', async () => {
+    mockPost.mockResolvedValueOnce({ data: consoleSession('a@b.com'), error: undefined });
+    await useAuthStore.getState().login('a@b.com', 'pass');
+    mockGet.mockResolvedValueOnce({ data: undefined, error: { error: 'session expired' }, response: { status: 401 } });
 
-    await useAuthStore.getState().hydrate();
+    await useAuthStore.getState().fetchMe();
 
-    expect(useAuthStore.getState().token).toBeNull();
-    expect(localStorage.getItem('token')).toBeNull();
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(csrfToken()).toBeNull();
   });
 
-  it('keeps the session when fetchMe fails for a reason other than 401', async () => {
-    useAuthStore.setState({ token: 'live-token' });
-    localStorage.setItem('token', 'live-token');
+  it('keeps the session when the server fails for a reason other than 401', async () => {
+    mockPost.mockResolvedValueOnce({ data: consoleSession('a@b.com'), error: undefined });
+    await useAuthStore.getState().login('a@b.com', 'pass');
     mockGet.mockResolvedValueOnce({
       data: undefined,
       error: { error: 'upstream unavailable' },
@@ -157,36 +139,7 @@ describe('auth store', () => {
 
     await useAuthStore.getState().fetchMe();
 
-    expect(useAuthStore.getState().token).toBe('live-token');
-    expect(localStorage.getItem('token')).toBe('live-token');
-  });
-
-  it('tenantIdFromToken fails closed on malformed tokens', () => {
-    expect(tenantIdFromToken('not-a-jwt')).toBeNull();
-    expect(tenantIdFromToken('a.b.c')).toBeNull();
-  });
-
-  it('tenantIdFromToken decodes a base64url payload needing both substitutions and padding', () => {
-    const tenant = '_%Y~NBDRz?rZS';
-    const token = jwtWithTenant(tenant);
-    const payload = token.split('.')[1] ?? '';
-    expect(payload).toContain('-');
-    expect(payload).toContain('_');
-    expect(payload.length % 4).not.toBe(0);
-
-    expect(tenantIdFromToken(token)).toBe(tenant);
-  });
-
-  it('tenantIdFromToken treats an absent, empty, or non-string tenant as no tenant', () => {
-    const encode = (value: object) =>
-      btoa(JSON.stringify(value)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
-    const tokenWithClaims = (claims: object) => `${encode({ alg: 'none' })}.${encode(claims)}.sig`;
-
-    expect(tenantIdFromToken(tokenWithClaims({}))).toBeNull();
-    expect(tenantIdFromToken(jwtWithTenant(''))).toBeNull();
-    expect(tenantIdFromToken(tokenWithClaims({ tenant: 42 }))).toBeNull();
-
-    // A token that names its tenant under `org` yields no tenant.
-    expect(tenantIdFromToken(tokenWithClaims({ org: crypto.randomUUID() }))).toBeNull();
+    expect(useAuthStore.getState().user?.email).toBe('a@b.com');
+    expect(csrfToken()).toBe('csrf-from-sign-in');
   });
 });

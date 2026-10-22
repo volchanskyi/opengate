@@ -743,7 +743,10 @@ jobs:
         with:
           fetch-depth: 0  # gitleaks scans git history
 
+      # The behavioural tests judge fixed samples with benchstat.
       - uses: ./.github/actions/setup-pinned-tools
+        with:
+          with-benchstat: 'true'
       - name: Run shell lint gates
         run: make shell-check
 
@@ -894,7 +897,7 @@ jobs:
           scan-ref: deploy/
           severity: HIGH,CRITICAL
           exit-code: 1
-          trivyignores: .trivyignore
+          trivyignores: .trivyignore.yaml
       - name: Trivy Dockerfile scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -903,7 +906,7 @@ jobs:
           scan-ref: Dockerfile
           severity: HIGH,CRITICAL
           exit-code: 1
-          trivyignores: .trivyignore
+          trivyignores: .trivyignore.yaml
 
   codeql-go:
     name: CodeQL Go
@@ -975,7 +978,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           # The exact patch equals server/go.mod's toolchain, so govulncheck scans the gauntlet's stdlib.
-          go-version: '1.27.2'
+          go-version: '1.27.3'
           cache-dependency-path: server/go.sum
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
       - uses: actions/setup-node@v7

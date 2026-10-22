@@ -32,7 +32,7 @@ for dir in "$INTEGRATION" "$ACCEPTANCE"; do
   fi
 done
 
-transport_entry_points='quic\.DialAddr|quic\.Config|newAgentTestEnv|dialAgentStream|connectAgent|setupRelayPair|websocket\.Dial|github\.com/coder/websocket'
+transport_entry_points='quic\.DialAddr|tls\.DialWithDialer|quic\.Config|newAgentTestEnv|dialAgentStream|connectAgent|startCertServer|setupRelayPair|websocket\.Dial|github\.com/coder/websocket'
 
 misplaced=""
 while IFS= read -r file; do

@@ -24,6 +24,7 @@ hex.workspace = true
 quinn.workspace = true
 rustls.workspace = true
 rustls-pemfile.workspace = true
+x509-parser.workspace = true
 gethostname.workspace = true
 sha2.workspace = true
 getrandom = "0.4"
@@ -40,6 +41,9 @@ sysinfo.workspace = true
 [dev-dependencies]
 rcgen.workspace = true
 tempfile.workspace = true
+mockito.workspace = true
+uuid.workspace = true
+rmp-serde.workspace = true
 
 [lints]
 workspace = true

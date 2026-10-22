@@ -73,8 +73,12 @@ const { data, error } = await api.GET('/api/v1/sites');
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
 | `/api/v1/health` | GET | No | Health check |
-| `/api/v1/auth/register` | POST | No | Register a new user |
-| `/api/v1/auth/login` | POST | No | Login and receive JWT |
+| `/api/v1/auth/register` | POST | No | Register a new user and receive a JWT, for scripts |
+| `/api/v1/auth/login` | POST | No | Login and receive a JWT, for scripts |
+| `/api/v1/auth/session` | POST | No | Sign the console in: sets the session cookie and returns the user, tenant and forged-request value |
+| `/api/v1/auth/session` | GET | JWT | The signed-in console's session, for a page that reloads |
+| `/api/v1/auth/session` | DELETE | JWT | Sign the console out and clear its cookie |
+| `/api/v1/auth/session/register` | POST | No | Register a new user and sign the console in |
 | `/api/v1/users/me` | GET | JWT | Get current user |
 | `/api/v1/users` | GET | JWT (admin) | List all users |
 | `/api/v1/users/{id}` | DELETE | JWT (admin) | Delete a user |
@@ -117,7 +121,7 @@ const { data, error } = await api.GET('/api/v1/sites');
 | `/api/v1/sessions/{token}` | DELETE | JWT (holder or admin) | End a session; the live relay closes with "Ended by <name>" |
 | `/api/v1/sessions/{token}/outcome` | POST | JWT (holder) | Report how the session's direct-link attempt ended, counted once per outcome |
 | `/api/v1/amt/devices/{uuid}/power` | POST | JWT | Send AMT power command (on/cycle/soft-off/hard-reset) to the AMT connection identified by `uuid`, which must belong to a device in the caller's tenant |
-| `/api/v1/enroll/{token}` | POST | No | Enroll agent (CSR signing, returns CA + cert) |
+| `/api/v1/enroll/{token}` | POST | No | Enroll agent: ignores the CSR's subject and returns the device number the server chose, its certificate, and the trust bundle |
 | `/api/v1/server/ca` | GET | No | Get server CA certificate PEM |
 | `/api/v1/enrollment-tokens` | POST | JWT (admin) | Create enrollment token |
 | `/api/v1/enrollment-tokens` | GET | JWT (admin) | List enrollment tokens |
@@ -404,8 +408,8 @@ All API endpoints are rate limited:
 
 | Scope | Counted under | Rate | Burst |
 |-------|---------------|------|-------|
-| Global | The account a valid bearer token names; the address otherwise | 100 req/s | 200 |
-| Auth (`/auth/login`, `/auth/register`) | The address | 10 req/s | 20 |
+| Global | The account a valid bearer token names, or the console session a genuine cookie names; the address otherwise | 100 req/s | 200 |
+| Auth (every `/auth/` path) | The address | 10 req/s | 20 |
 
 Requests exceeding the limit receive `429 Too Many Requests`. A 30-second request timeout applies to all API routes (WebSocket routes are excluded).
 
@@ -416,13 +420,30 @@ the proxies the deployment names — then it is the last entry of that request's
 
 ## Authentication
 
-Protected endpoints require a JWT bearer token in the `Authorization` header:
+Protected endpoints take either of two credentials, the OpenAPI `bearerAuth` and
+`cookieAuth` schemes; "JWT" in the tables above means either.
 
-```
-Authorization: Bearer <token>
-```
+- **The console** signs in through `/api/v1/auth/session`, which sets the
+  `og_session` cookie — `HttpOnly`, `Secure` when the request reached the server
+  over TLS, `SameSite=Strict` — and returns a forged-request value in the body,
+  never in a cookie. Every request that changes something sends that value in
+  `X-CSRF-Token`, or is refused with `403`. The server keeps the session row and
+  signs the console out after 30 minutes idle or 8 hours in all, and sign-out
+  deletes the row ([`session_cookie.go`](../../server/internal/api/session_cookie.go),
+  [`console_session.go`](../../server/internal/auth/console_session.go)).
+- **Scripts, load runs and the agent side of the relay** send a JWT in the
+  `Authorization` header, obtained via `/api/v1/auth/login` or
+  `/api/v1/auth/register`, and need no forged-request value:
 
-Tokens are obtained via `/api/v1/auth/login` or `/api/v1/auth/register`. JWT claims include `uid` (user ID), `email`, `admin` (boolean), and `tenant` (active tenant ID). The server uses `tenant` to scope repository transactions and RLS policies.
+  ```
+  Authorization: Bearer <token>
+  ```
+
+Both name the user and the active tenant. JWT claims include `uid` (user ID),
+`email`, `admin` (boolean), and `tenant` (active tenant ID); the server uses the
+tenant to scope repository transactions and RLS policies. The relay WebSocket
+takes the cookie or the bearer header, never a credential in its address
+([System Architecture](System-Architecture.md#the-relay)).
 
 ## Error format
 

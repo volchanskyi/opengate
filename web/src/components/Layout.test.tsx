@@ -31,7 +31,6 @@ describe('Layout', () => {
     localStorage.clear();
     vi.clearAllMocks();
     useAuthStore.setState({
-      token: 'valid',
       user: { id: '1', email: 'a@b.com', display_name: 'Test User', is_admin: false, created_at: '', updated_at: '' },
       isLoading: false,
       error: null,

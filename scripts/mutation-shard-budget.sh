@@ -13,6 +13,9 @@ COUNTER="${MUTATION_SHARD_COUNTER:-}"
 # The Go dry-run listing, overridable because the real listing costs a module-wide coverage run.
 GO_DRYRUN_FILE="${MUTATION_GO_DRYRUN_FILE:-}"
 
+# The web mutant counter, overridable so tests can state a count; the real one instruments only.
+WEB_COUNTER="${MUTATION_WEB_COUNTER:-$SCRIPT_DIR/mutation-web-count.sh}"
+
 over=0
 
 count_shard() {
@@ -109,10 +112,30 @@ for shard in $(mutation_go_shards); do
   printf '%-34s %8s %8smin %8s\n' "$shard" "$count" "$projected" "$verdict"
 done
 
+web_budget="$(mutation_web_shard_budget_minutes)"
+web_setup="$(mutation_web_setup_ceiling_seconds)"
+
+echo
+printf '%-34s %8s %10s %8s\n' shard mutants projected verdict
+for shard in $(mutation_web_shards); do
+  cost="$(mutation_web_shard_milliseconds_per_mutant "$shard")" || exit 2
+  count="$("$WEB_COUNTER" "$shard")" || exit 2
+  count="${count//[[:space:]]/}"
+  require_count "$shard" "$count"
+  projected=$(((count * cost / 1000 + web_setup + 59) / 60))
+  if [ "$projected" -gt "$web_budget" ]; then
+    verdict=OVER
+    over=$((over + 1))
+  else
+    verdict=ok
+  fi
+  printf '%-34s %8s %8smin %8s\n' "$shard" "$count" "$projected" "$verdict"
+done
+
 if [ "$over" -gt 0 ]; then
   echo
   echo "::error::$over mutation shard(s) project past their budget" \
-    "(Rust ${budget}min, Go ${go_budget}min)." \
+    "(Rust ${budget}min, Go ${go_budget}min, web ${web_budget}min)." \
     "Split the offending scopes in scripts/lib/mutation-shards.sh before the matrix runs." \
     "A Go shard whose projection is mostly leash is over because its mutants block," \
     "not because it grew: bound the harness rather than splitting it."
@@ -120,4 +143,4 @@ if [ "$over" -gt 0 ]; then
 fi
 
 echo
-echo "All mutation shards fit their budget (Rust ${budget}min, Go ${go_budget}min)."
+echo "All mutation shards fit their budget (Rust ${budget}min, Go ${go_budget}min, web ${web_budget}min)."

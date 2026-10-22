@@ -26,3 +26,9 @@ func TestControlMessageSizeClassRejectsAWiderUnion(t *testing.T) {
 	}
 	require.Greater(t, int(unsafe.Sizeof(widerThanTheClass{})), controlMessageSizeClass)
 }
+
+func TestControlMessageCarriesTheCertificateFields(t *testing.T) {
+	require.Equal(t, 1496, int(unsafe.Sizeof(ControlMessage{})),
+		"the certificate messages add one byte string and two byte slices to the union")
+	require.Equal(t, 105, controlFieldCount)
+}

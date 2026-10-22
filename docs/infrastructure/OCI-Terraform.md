@@ -26,6 +26,8 @@
     - [Checking it works](#checking-it-works)
     - [Failure modes](#failure-modes)
     - [Accepted risks](#accepted-risks)
+  - [Workflow identity](#workflow-identity)
+    - [Setting it up](#setting-it-up)
 - [Runtime stack](#runtime-stack)
   - [Releases](#releases)
   - [Network exposure](#network-exposure)
@@ -57,13 +59,16 @@ deploy/
 The Terraform configuration currently provisions the OKE substrate, networking,
 the human operator access plane, and the off-cluster backup substrate. The
 resource inventory is the Terraform root module plus `networking`, `oke`,
-`bastion`, and `backups` modules in [`deploy/terraform`](../../deploy/terraform):
+`bastion`, `backups` and `workflow-identity` modules in
+[`deploy/terraform`](../../deploy/terraform):
 
 - VCN, internet gateway, route table, and the OKE subnets, NSGs, and load-balancer security list.
 - OKE Basic cluster and node pool.
 - OCI Bastion targeting the OKE worker-node subnet.
 - Postgres backup bucket, its retention lifecycle rule, and the
   least-privilege lifecycle IAM policy ([`modules/backups`](../../deploy/terraform/modules/backups)).
+- The GitHub workflows' own IAM group, user and cluster policy
+  ([`modules/workflow-identity`](../../deploy/terraform/modules/workflow-identity)).
 - Remote state in OCI Object Storage through Terraform's S3-compatible backend.
 
 The former compute VM is intentionally not instantiated by the root module. The
@@ -242,6 +247,10 @@ The workflow authenticates as a separate read-only IAM user `tf-drift-reader` �
 3. Policies (least privilege):
    - `Allow group tf-drift-readers to inspect all-resources in compartment opengate`
    - `Allow group tf-drift-readers to read object-family in bucket opengate-tfstate`
+   - `Allow group tf-drift-readers to inspect users in tenancy` and
+     `Allow group tf-drift-readers to inspect groups in tenancy` — IAM users and
+     groups live in the tenancy, not the compartment, and refreshing the
+     [workflow identity](#workflow-identity) reads them
 4. Add repo-level GitHub Secrets:
    - `OCI_DRIFT_USER_OCID` — the user OCID
    - `OCI_DRIFT_FINGERPRINT` — the API key fingerprint
@@ -249,7 +258,7 @@ The workflow authenticates as a separate read-only IAM user `tf-drift-reader` �
    - `OCI_TFSTATE_NAMESPACE` — the OCI Object Storage namespace used to construct the S3 endpoint
    - `TFSTATE_S3_ACCESS_KEY` / `TFSTATE_S3_SECRET_KEY` — the S3-compat key pair for the `tf-state-writer` user from the State Backend section (the drift workflow only needs read, but reuses the existing pair)
 
-`OCI_TENANCY_OCID`, `OCI_REGION`, `OCI_USER_OCID`, `OCI_PRIVATE_KEY`, and `OCI_FINGERPRINT` are reused from the OKE-backed CD pipeline. The drift workflow uses `tf-drift-reader` for the OCI provider during `plan`; the trend push reaches the cluster through [`oci-kube-setup`](../../.github/actions/oci-kube-setup/action.yml) rather than opening an SSH path.
+`OCI_TENANCY_OCID` and `OCI_REGION` are shared with the OKE-backed CD pipeline. The drift workflow uses `tf-drift-reader` for the OCI provider during `plan`; the trend push and the cluster reads reach the cluster through [`oci-kube-setup`](../../.github/actions/oci-kube-setup/action.yml) as the [workflow identity](#workflow-identity), rather than opening an SSH path.
 
 Quarterly: audit that the `tf-drift-readers` policy document has not been broadened.
 
@@ -353,6 +362,34 @@ oci audit event list --compartment-id "$OCI_COMPARTMENT_OCID" \
 
 - **3 h session TTL** is an OCI service cap. Long interactive debug sessions must accept a one-time mid-session reconnect — the cache wrapper handles it transparently on the next `make ssh`.
 - **Bastion plugin reliability** — if the plugin stops, Managed SSH fails. Monitor via the existing infrastructure health check; the static `ssh_allowed_cidr` rule remains as a break-glass.
+
+### Workflow identity
+
+Every workflow that signs in to the cluster uses the `opengate-workflows` IAM
+user from [`modules/workflow-identity`](../../deploy/terraform/modules/workflow-identity),
+a member of its own group and of no administrators group. Its one policy lets it
+fetch a kubeconfig (`use clusters`); everything it may do inside the cluster is
+Kubernetes RBAC, applied by the approval-gated cluster job
+([Kubernetes](./Kubernetes.md#who-may-change-the-cluster)), and none of it reads
+the master key ([ADR-128](../adr/ADR-128-machine-identity-lifecycle.md)).
+
+The cluster job alone signs in as an administrator, from secrets held by the
+`production` environment, so no other job can read them.
+
+#### Setting it up
+
+1. `terraform apply` creates the group, the user, the membership and the policy.
+2. Generate an API signing key for the user (OCI Console → Identity → Users →
+   `opengate-workflows` → API keys), and store it as repository secrets:
+   - `OCI_WORKFLOW_USER_OCID` — `terraform -chdir=deploy/terraform output -raw workflow_user_id`
+   - `OCI_WORKFLOW_FINGERPRINT` — the key's fingerprint
+   - `OCI_WORKFLOW_PRIVATE_KEY` — the private-key PEM contents
+3. Store an administrator's API key as **environment** secrets of `production`:
+   `OCI_ADMIN_USER_OCID`, `OCI_ADMIN_FINGERPRINT` and `OCI_ADMIN_PRIVATE_KEY`.
+4. Confirm the first deploy's read-back step reports that the login may neither
+   read the master key's secret nor list secrets.
+
+Terraform holds no key material; rotating the key is steps 2 and 4 again.
 
 ## Runtime stack
 

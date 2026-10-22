@@ -33,6 +33,10 @@ destructive actions ask for confirmation before they are sent.
 Acting on a device is open to every member of the tenant that owns it — the same
 gate the other device commands follow.
 
+A power action the management engine never answers fails on its own, and a
+request you cancel by leaving the page frees what it held. Either way the
+machine's AMT connection stays up and its next action works.
+
 ## Enabling AMT on a machine
 
 AMT is enabled in the machine's firmware, not from OpenGate. The steps are the

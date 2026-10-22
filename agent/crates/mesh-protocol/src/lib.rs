@@ -1,9 +1,11 @@
 //! Wire types and codec for everything that crosses the agent–server boundary.
 
+pub mod close_code;
 pub mod codec;
 pub mod control;
 pub mod direct;
 pub mod error;
+pub mod request_error;
 pub mod types;
 
 pub use codec::*;

@@ -83,12 +83,17 @@ func RateLimiter(rps float64, burst int, trust *TrustedProxies) func(http.Handle
 	return limitBy(rps, burst, func(r *http.Request) string { return extractIP(r, trust) })
 }
 
-// AccountRateLimiter counts a request whose bearer token validates under its account, so a shared
-// office connection is no shared allowance; anything else, a forged token too, counts by address.
-func AccountRateLimiter(rps float64, burst int, trust *TrustedProxies, jwtCfg *auth.JWTConfig) func(http.Handler) http.Handler {
+// AccountRateLimiter counts a valid bearer request under its account and a genuine cookie under
+// its session, so an office shares no allowance; anything else counts by address.
+func AccountRateLimiter(rps float64, burst int, trust *TrustedProxies, jwtCfg *auth.JWTConfig,
+	session func(*http.Request) (string, bool),
+) func(http.Handler) http.Handler {
 	return limitBy(rps, burst, func(r *http.Request) string {
 		if claims, err := jwtCfg.ValidateToken(bearerToken(r.Header.Get("Authorization"))); err == nil {
 			return "account:" + claims.UserID.String()
+		}
+		if key, ok := session(r); ok {
+			return key
 		}
 		return "address:" + extractIP(r, trust)
 	})

@@ -12,7 +12,8 @@ WORKDIR /build/server
 COPY server/go.mod server/go.sum ./
 RUN go mod download
 COPY server/ ./
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="$GO_LDFLAGS" -o /meshserver ./cmd/meshserver
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="$GO_LDFLAGS" -o /meshserver ./cmd/meshserver \
+    && CGO_ENABLED=0 go build -trimpath -ldflags="$GO_LDFLAGS" -o /opengate-authority ./cmd/opengate-authority
 
 FROM alpine:3.20
 # Unpinned packages track the latest CA bundle and security fixes.
@@ -22,6 +23,8 @@ RUN apk upgrade --no-cache \
     && addgroup -S opengate && adduser -S opengate -G opengate \
     && mkdir -p /data && chown opengate:opengate /data
 COPY --from=server-build /meshserver /usr/local/bin/meshserver
+# The master-key tool runs from this image, as a job and as the server's start-up step.
+COPY --from=server-build /opengate-authority /usr/local/bin/opengate-authority
 COPY --from=web-build /build/web/dist /srv/web
 USER opengate
 EXPOSE 8080 8081 4433 9090/udp

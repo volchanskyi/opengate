@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"github.com/google/uuid"
 	"github.com/volchanskyi/opengate/server/internal/device"
+	"time"
 )
 
 func (m *memDevices) Delete(_ context.Context, _ device.DeviceID) error { return m.maybeFail() }
@@ -18,6 +19,10 @@ func (m *memDevices) SetStatus(_ context.Context, _ device.DeviceID, _ device.De
 }
 
 func (m *memDevices) ResetAllStatuses(_ context.Context) error { return m.maybeFail() }
+
+func (m *memDevices) RecordSharedIdentity(context.Context, device.DeviceID, []string, time.Time) error {
+	return nil
+}
 
 func (m *memDevices) SetMaintenance(_ context.Context, _ device.DeviceID, _ bool, _ uuid.UUID, _ string) error {
 	return m.maybeFail()

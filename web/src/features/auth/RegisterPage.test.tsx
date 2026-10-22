@@ -29,7 +29,6 @@ describe('RegisterPage', () => {
     localStorage.clear();
     vi.clearAllMocks();
     useAuthStore.setState({
-      token: null,
       user: null,
       isLoading: false,
       error: null,
@@ -62,7 +61,6 @@ describe('RegisterPage', () => {
 
   it('redirects to /devices if already authenticated', () => {
     useAuthStore.setState({
-      token: 'valid',
       user: { id: '1', email: 'a@b.com', display_name: 'A', is_admin: false, created_at: '', updated_at: '' },
     });
     renderRegister();

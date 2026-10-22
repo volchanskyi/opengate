@@ -32,7 +32,12 @@ Otherwise it downloads, checks the hash, checks the signature over that hash,
 then replaces itself.
 
 **A failed update rolls back.** A watchdog restores the previous binary if the
-new one does not come up. On SELinux hosts the replaced binary is relabelled, or
+new one is not accepted by the server in time. Accepted means the server's
+acknowledgement — the first `TrustBundle` or `CertificateIssued` of a connection,
+sent only after its deny-list check — never the agent's own send of its
+registration, so an update whose first connection is refused stays unverified
+([ADR-128](./ADR-128-machine-identity-lifecycle.md)). The download has connect
+and overall time limits and streams to a file. On SELinux hosts the replaced binary is relabelled, or
 it cannot execute.
 
 ## Consequences

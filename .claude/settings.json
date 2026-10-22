@@ -107,27 +107,27 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".claude/hooks/pretooluse-tdd-gate.sh"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pretooluse-tdd-gate.sh"
           },
           {
             "type": "command",
-            "command": ".claude/hooks/pretooluse-write-guard.sh"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pretooluse-write-guard.sh"
           },
           {
             "type": "command",
-            "command": ".claude/hooks/pretooluse-doc-link-check.sh"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pretooluse-doc-link-check.sh"
           },
           {
             "type": "command",
-            "command": ".claude/hooks/pretooluse-comment-check.sh"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pretooluse-comment-check.sh"
           },
           {
             "type": "command",
-            "command": ".claude/hooks/pretooluse-test-skip-guard.sh"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pretooluse-test-skip-guard.sh"
           },
           {
             "type": "command",
-            "command": ".claude/hooks/pretooluse-test-value-guard.sh"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pretooluse-test-value-guard.sh"
           }
         ]
       },
@@ -136,7 +136,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".claude/hooks/pretooluse-refactor-start-gate.sh"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pretooluse-refactor-start-gate.sh"
           }
         ]
       },
@@ -145,7 +145,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".claude/hooks/pretooluse-gauntlet-nudge.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pretooluse-gauntlet-nudge.sh",
             "if": "Bash(git commit:*)",
             "asyncRewake": true,
             "rewakeSummary": "Gauntlet 10-min check-in",
@@ -153,24 +153,24 @@
           },
           {
             "type": "command",
-            "command": ".claude/hooks/pretooluse-bash-source-write-guard.sh"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pretooluse-bash-source-write-guard.sh"
           },
           {
             "type": "command",
-            "command": ".claude/hooks/pretooluse-tool-install-guard.sh"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pretooluse-tool-install-guard.sh"
           },
           {
             "type": "command",
-            "command": ".claude/hooks/pretooluse-git-commit-secrets-rebalancer.sh"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pretooluse-git-commit-secrets-rebalancer.sh"
           },
           {
             "type": "command",
-            "command": ".claude/hooks/pretooluse-git-commit-guard.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pretooluse-git-commit-guard.sh",
             "timeout": 1800
           },
           {
             "type": "command",
-            "command": ".claude/hooks/pretooluse-git-push-guard.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pretooluse-git-push-guard.sh",
             "timeout": 600
           }
         ]
@@ -182,7 +182,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".claude/hooks/posttooluse-shell-quality.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/posttooluse-shell-quality.sh",
             "timeout": 5
           }
         ]
@@ -192,7 +192,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".claude/hooks/posttooluse-cache-clean.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/posttooluse-cache-clean.sh",
             "timeout": 900
           }
         ]
@@ -203,17 +203,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".claude/hooks/sessionstart-install-git-hooks.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/sessionstart-install-git-hooks.sh",
             "timeout": 8
           },
           {
             "type": "command",
-            "command": ".claude/hooks/session-start-fetch.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/session-start-fetch.sh",
             "timeout": 8
           },
           {
             "type": "command",
-            "command": ".claude/hooks/session-start-context-load.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/session-start-context-load.sh",
             "timeout": 8
           }
         ]

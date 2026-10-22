@@ -3,7 +3,9 @@
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use tokio::fs;
+use tokio::io::AsyncWriteExt;
 use tracing::{debug, info, warn};
 
 /// Mode for the replaced agent binary: owner and group, nothing for anyone else.
@@ -48,6 +50,29 @@ pub struct UpdateConfig {
     pub current_binary_path: PathBuf,
     /// Data directory for temporary files.
     pub data_dir: PathBuf,
+    /// How long the download may take.
+    pub download: DownloadLimits,
+}
+
+/// How long a download may take to connect, between two reads, and in all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DownloadLimits {
+    /// Time to open the connection.
+    pub connect: Duration,
+    /// Longest wait for the next bytes of the body.
+    pub idle: Duration,
+    /// Time for the whole download, sized for a slow office line.
+    pub total: Duration,
+}
+
+impl Default for DownloadLimits {
+    fn default() -> Self {
+        Self {
+            connect: Duration::from_secs(10),
+            idle: Duration::from_secs(30),
+            total: Duration::from_secs(15 * 60),
+        }
+    }
 }
 
 /// Downloads, verifies and atomically replaces the binary; `Ok(false)` means skipped.
@@ -75,7 +100,7 @@ pub async fn apply_update(
     }
 
     info!(version, url, "downloading update binary");
-    download_to_file(url, &new_path).await?;
+    download_to_file(url, &new_path, config.download).await?;
 
     let actual_hash = sha256_file(&new_path).await?;
 
@@ -212,26 +237,50 @@ async fn restore_selinux_context(path: &Path) {
     }
 }
 
-async fn download_to_file(url: &str, dest: &Path) -> Result<(), UpdateError> {
-    let response = reqwest::get(url)
+/// Streams the body into `dest` within `limits`; a download that fails leaves no file behind.
+async fn download_to_file(
+    url: &str,
+    dest: &Path,
+    limits: DownloadLimits,
+) -> Result<(), UpdateError> {
+    let client = reqwest::Client::builder()
+        .connect_timeout(limits.connect)
+        .read_timeout(limits.idle)
+        .timeout(limits.total)
+        .build()
+        .map_err(|e| UpdateError::Download(e.to_string()))?;
+    let mut response = client
+        .get(url)
+        .send()
         .await
         .map_err(|e| UpdateError::Download(e.to_string()))?;
-
     if !response.status().is_success() {
         return Err(UpdateError::Download(format!("HTTP {}", response.status())));
     }
 
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| UpdateError::Download(e.to_string()))?;
-
     if let Some(parent) = dest.parent() {
         fs::create_dir_all(parent).await?;
     }
-
-    fs::write(dest, &bytes).await?;
-    Ok(())
+    let mut file = fs::File::create(dest).await?;
+    let written = async {
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|e| UpdateError::Download(e.to_string()))?
+        {
+            file.write_all(&chunk).await?;
+        }
+        file.sync_all().await?;
+        Ok::<(), UpdateError>(())
+    }
+    .await;
+    if written.is_err() {
+        drop(file);
+        if let Err(e) = fs::remove_file(dest).await {
+            warn!(path = %dest.display(), error = %e, "failed to remove a partial download");
+        }
+    }
+    written
 }
 
 async fn sha256_file(path: &Path) -> Result<String, UpdateError> {
@@ -433,6 +482,7 @@ mod tests {
             signing_public_key: verifying_key.to_bytes(),
             current_binary_path: binary_path.clone(),
             data_dir: dir.path().to_path_buf(),
+            download: DownloadLimits::default(),
         };
 
         let url = format!("{}/agent-v2.0.0", server.url());
@@ -455,6 +505,104 @@ mod tests {
         );
     }
 
+    /// A server that sends headers and the first bytes of a body, then nothing more.
+    fn stalling_server() -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            use std::io::{Read, Write};
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut request = [0u8; 1024];
+                let read = stream.read(&mut request).expect("read the request");
+                assert!(read > 0, "a request arrived");
+                stream
+                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1000000\r\n\r\nfirst bytes")
+                    .expect("write the first bytes");
+                std::thread::sleep(std::time::Duration::from_secs(10));
+            }
+        });
+        format!("http://{addr}/agent")
+    }
+
+    #[tokio::test]
+    async fn a_download_that_stops_arriving_fails_at_its_idle_limit_and_leaves_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join(".update.new");
+        let limits = DownloadLimits {
+            idle: std::time::Duration::from_millis(300),
+            ..DownloadLimits::default()
+        };
+        let started = std::time::Instant::now();
+        let result = download_to_file(&stalling_server(), &dest, limits).await;
+        assert!(
+            matches!(result, Err(UpdateError::Download(_))),
+            "{result:?}"
+        );
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "{:?}",
+            started.elapsed()
+        );
+        assert!(!dest.exists(), "a partial download is removed");
+    }
+
+    #[tokio::test]
+    async fn a_download_past_its_total_limit_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let limits = DownloadLimits {
+            total: std::time::Duration::from_millis(300),
+            ..DownloadLimits::default()
+        };
+        let result = download_to_file(&stalling_server(), &dir.path().join("new"), limits).await;
+        assert!(
+            matches!(result, Err(UpdateError::Download(_))),
+            "{result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_large_download_streams_to_the_file_whole() {
+        let body: Vec<u8> = (0..4 * 1024 * 1024).map(|i| (i % 251) as u8).collect();
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("GET", "/agent")
+            .with_status(200)
+            .with_body(body.clone())
+            .create_async()
+            .await;
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("sub/.update.new");
+        download_to_file(
+            &format!("{}/agent", server.url()),
+            &dest,
+            DownloadLimits::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(fs::read(&dest).await.unwrap(), body);
+    }
+
+    #[tokio::test]
+    async fn a_refused_download_names_the_status() {
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("GET", "/agent")
+            .with_status(404)
+            .create_async()
+            .await;
+        let dir = tempfile::tempdir().unwrap();
+        let result = download_to_file(
+            &format!("{}/agent", server.url()),
+            &dir.path().join("new"),
+            DownloadLimits::default(),
+        )
+        .await;
+        assert!(
+            matches!(&result, Err(UpdateError::Download(why)) if why.contains("404")),
+            "{result:?}"
+        );
+    }
+
     #[tokio::test]
     async fn test_apply_update_hash_mismatch() {
         let dir = tempfile::tempdir().unwrap();
@@ -467,6 +615,7 @@ mod tests {
             signing_public_key: verifying_key.to_bytes(),
             current_binary_path: binary_path,
             data_dir: dir.path().to_path_buf(),
+            download: DownloadLimits::default(),
         };
 
         let result = apply_update(
@@ -532,6 +681,7 @@ mod tests {
             signing_public_key: verifying_key.to_bytes(),
             current_binary_path: binary_path.clone(),
             data_dir: dir.path().to_path_buf(),
+            download: DownloadLimits::default(),
         };
 
         let url = format!("{}/agent-vNEW", server.url());
@@ -560,6 +710,7 @@ mod tests {
             signing_public_key: verifying_key.to_bytes(),
             current_binary_path: binary_path,
             data_dir: dir.path().to_path_buf(),
+            download: DownloadLimits::default(),
         };
 
         let result = apply_update(
@@ -586,6 +737,7 @@ mod tests {
             signing_public_key: verifying_key.to_bytes(),
             current_binary_path: binary_path,
             data_dir: dir.path().to_path_buf(),
+            download: DownloadLimits::default(),
         };
 
         let result = apply_update(
@@ -626,6 +778,7 @@ mod tests {
             signing_public_key: verifying_key.to_bytes(),
             current_binary_path: binary_path.clone(),
             data_dir: dir.path().to_path_buf(),
+            download: DownloadLimits::default(),
         };
 
         let url = format!("{}/agent-vNEW", server.url());

@@ -7,97 +7,65 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 )
 
-func generateManager(dataDir string) (*Manager, error) {
+// authorityValidity is a master key's lifetime.
+const authorityValidity = 10 * 365 * 24 * time.Hour
+
+// NewAuthority generates a self-signed master key named commonName, valid from now.
+func NewAuthority(commonName string, now time.Time) (certPEM, keyPEM []byte, err error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return nil, fmt.Errorf("generate CA key: %w", err)
+		return nil, nil, fmt.Errorf("generate CA key: %w", err)
 	}
+	template, err := authorityTemplate(commonName, now)
+	if err != nil {
+		return nil, nil, err
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		return nil, nil, fmt.Errorf("create CA cert: %w", err)
+	}
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		return nil, nil, fmt.Errorf("marshal CA key: %w", err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER}),
+		pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}), nil
+}
 
+func authorityTemplate(commonName string, now time.Time) (*x509.Certificate, error) {
 	serial, err := randomSerial()
 	if err != nil {
 		return nil, err
 	}
-
-	now := time.Now()
-	template := &x509.Certificate{
+	return &x509.Certificate{
 		SerialNumber:          serial,
-		Subject:               pkix.Name{CommonName: "OpenGate CA"},
+		Subject:               pkix.Name{CommonName: commonName},
 		NotBefore:             now.Add(-clockSkewMargin),
-		NotAfter:              now.Add(10 * leafValidity),
+		NotAfter:              now.Add(authorityValidity),
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 		BasicConstraintsValid: true,
 		IsCA:                  true,
 		MaxPathLen:            1,
-	}
-
-	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
-	if err != nil {
-		return nil, fmt.Errorf("create CA cert: %w", err)
-	}
-
-	caCert, err := x509.ParseCertificate(certDER)
-	if err != nil {
-		return nil, fmt.Errorf("parse CA cert: %w", err)
-	}
-
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-	keyDER, err := x509.MarshalECPrivateKey(key)
-	if err != nil {
-		return nil, fmt.Errorf("marshal CA key: %w", err)
-	}
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
-
-	if err := os.WriteFile(filepath.Join(dataDir, "ca.crt"), certPEM, 0o600); err != nil {
-		return nil, fmt.Errorf("write CA cert: %w", err)
-	}
-	if err := os.WriteFile(filepath.Join(dataDir, "ca.key"), keyPEM, 0o600); err != nil {
-		return nil, fmt.Errorf("write CA key: %w", err)
-	}
-
-	return &Manager{caCert: caCert, caKey: key, caCertPEM: certPEM}, nil
+	}, nil
 }
 
-func loadManager(certPath, keyPath string) (*Manager, error) {
-	// #nosec G304 -- certPath/keyPath are operator-supplied filesystem paths under {dataDir}, not user input.
-	certPEM, err := os.ReadFile(filepath.Clean(certPath))
+// generateAuthorityFiles writes a new issuing master key into dir, readable by its owner only.
+func generateAuthorityFiles(dir, commonName string, now time.Time) error {
+	certPEM, keyPEM, err := NewAuthority(commonName, now)
 	if err != nil {
-		return nil, fmt.Errorf("read CA cert: %w", err)
+		return err
 	}
-	// #nosec G304 -- certPath/keyPath are operator-supplied filesystem paths under {dataDir}, not user input.
-	keyPEM, err := os.ReadFile(filepath.Clean(keyPath))
-	if err != nil {
-		return nil, fmt.Errorf("read CA key: %w", err)
+	if err := os.WriteFile(filepath.Join(dir, IssuerCertFile), certPEM, 0o600); err != nil {
+		return fmt.Errorf("write CA cert: %w", err)
 	}
-
-	certBlock, _ := pem.Decode(certPEM)
-	if certBlock == nil {
-		return nil, errors.New("invalid CA cert PEM")
+	if err := os.WriteFile(filepath.Join(dir, IssuerKeyFile), keyPEM, 0o600); err != nil {
+		return fmt.Errorf("write CA key: %w", err)
 	}
-	caCert, err := x509.ParseCertificate(certBlock.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("parse CA cert: %w", err)
-	}
-
-	keyBlock, _ := pem.Decode(keyPEM)
-	if keyBlock == nil {
-		return nil, errors.New("invalid CA key PEM")
-	}
-	caKey, err := x509.ParseECPrivateKey(keyBlock.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("parse CA key: %w", err)
-	}
-
-	return &Manager{caCert: caCert, caKey: caKey, caCertPEM: certPEM}, nil
-}
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
+	return nil
 }

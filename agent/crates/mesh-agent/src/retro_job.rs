@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::clock::unix_micros;
 use crate::edge_sentinel::{LoadSignal, SharedSink};
+use crate::stop::Stop;
 
 /// How often the job looks for a rule version it has not scanned yet, and
 /// re-reads how much room the host disk has left.
@@ -173,6 +174,8 @@ pub(crate) struct RetroWiring {
     /// The store's own footprint policy, which the scan reads its disk-pressure
     /// threshold from.
     pub store_config: TsdbConfig,
+    /// Ends the job between chunks and during its sleeps.
+    pub stop: Stop,
 }
 
 /// Spawns the retroactive-scan job, which returns at once when there is no local store to scan.
@@ -185,8 +188,7 @@ pub(crate) fn spawn_retro_scans(wiring: RetroWiring) -> tokio::task::JoinHandle<
         let mut ledger = RetroLedger::load(&wiring.data_dir);
         let mut disk = DiskWatch::new(wiring.data_dir.clone());
         info!("retroactive scan job starting");
-        loop {
-            std::thread::sleep(POLL_INTERVAL);
+        while !wiring.stop.sleep_blocking(POLL_INTERVAL) {
             let free = disk.refresh(&store);
 
             let installed = match wiring.rules.lock() {
@@ -299,7 +301,9 @@ fn scan_one(
             }
             AfterChunk::StandDown(stand_down) => {
                 ledger.record(&rule, scan.cursor(), false);
-                std::thread::sleep(stand_down);
+                if wiring.stop.sleep_blocking(stand_down) {
+                    return;
+                }
                 if scan.superseded_by(&current_rules(wiring)) {
                     info!(
                         rule = %rule.id,

@@ -13,12 +13,22 @@ const (
 	redialCap  = 30 * time.Second
 )
 
-// persistThrough redials a machine after its connection breaks until the run winds down.
-// The result keeps the first arrival time, counts redials, and reports an unrecovered severance.
+// persistThrough redials a persistent machine until the run winds down, keeping its first arrival,
+// and gives any other machine one more dial when its first never arrived.
 func persistThrough(ctx context.Context, opts loadOptions, live func(context.Context) agentResult) agentResult {
 	res := live(ctx)
 	if !opts.reconnect {
-		return res
+		if res.err == nil || !res.arrivedAt.IsZero() {
+			return res
+		}
+		select {
+		case <-ctx.Done():
+			return res
+		case <-time.After(redialDelay(0)):
+		}
+		again := live(ctx)
+		again.retried = 1
+		return again
 	}
 
 	for attempt := 0; res.err != nil && ctx.Err() == nil; attempt++ {

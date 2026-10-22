@@ -14,7 +14,7 @@ func aFiler(t *testing.T, estate, readyAt int) (*estateFiler, *fakeAPI) {
 	t.Helper()
 
 	fleet := buildFleet(t, FixtureLopsided, 3)
-	source, err := newAgentCredentials(t.TempDir(), "", "")
+	source, err := newAgentCredentials(enrollmentServer(t).URL, "enroll-token")
 	require.NoError(t, err)
 
 	return newEstateFiler(fleet.client, fleet.fixture, enrolOnce(source), estate, readyAt), fleet.api

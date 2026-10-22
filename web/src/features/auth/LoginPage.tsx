@@ -10,17 +10,16 @@ export function LoginPage() {
   const login = useAuthStore((s) => s.login);
   const error = useAuthStore((s) => s.error);
   const isLoading = useAuthStore((s) => s.isLoading);
-  const token = useAuthStore((s) => s.token);
   const user = useAuthStore((s) => s.user);
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (token && user) {
+    if (user) {
       fireAndForget(navigate('/devices', { replace: true }));
     }
-  }, [token, user, navigate]);
+  }, [user, navigate]);
 
-  if (token && user) {
+  if (user) {
     return <Navigate to="/devices" replace />;
   }
 

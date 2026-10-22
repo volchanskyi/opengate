@@ -23,18 +23,13 @@ impl TerminalControlHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::AtomicBool;
-    use std::sync::Arc;
     use tokio::sync::mpsc;
 
     fn new_test_terminal() -> (TerminalHandle, mpsc::Receiver<(u16, u16)>) {
         let (stdin_tx, _stdin_rx) = mpsc::channel(8);
         let (resize_tx, resize_rx) = mpsc::channel(8);
-        let shutdown = Arc::new(AtomicBool::new(false));
-        (
-            TerminalHandle::new(stdin_tx, resize_tx, shutdown),
-            resize_rx,
-        )
+        let (hangup, _) = tokio::sync::oneshot::channel();
+        (TerminalHandle::new(stdin_tx, resize_tx, hangup), resize_rx)
     }
 
     #[test]

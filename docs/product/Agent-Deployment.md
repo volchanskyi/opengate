@@ -5,6 +5,8 @@
 - [Step 2 — Install the agent](#step-2--install-the-agent)
 - [Step 3 — Confirm it connected](#step-3--confirm-it-connected)
 - [What the agent does on the host](#what-the-agent-does-on-the-host)
+- [Running the installer again](#running-the-installer-again)
+  - [Cloned machines and templates](#cloned-machines-and-templates)
 - [Removing a machine](#removing-a-machine)
 - [Related](#related)
 
@@ -56,7 +58,11 @@ The installer:
 4. verifies the download against its published SHA-256 hash;
 5. installs the binary, creates the config and data directories, and writes a
    systemd unit;
-6. enables and starts the service.
+6. leaves the token for the agent in a one-time install note, readable by root
+   alone, which the agent deletes once it knows who it is — the token is never
+   written into the service;
+7. enables the service and restarts it, so running the command again replaces a
+   running agent with the build it just installed.
 
 | Item | Default location |
 |---|---|
@@ -87,7 +93,12 @@ session, read its telemetry, and push updates to it.
 - **Dials out** to the server and keeps that connection open. It listens on no
   port, so there is nothing inbound to firewall.
 - Obtains its own signed identity at first enrollment and reuses it on every
-  later start — the enrollment token is spent once.
+  later start — the enrollment token is spent once. The server chooses the
+  device's number, so a token can only ever add a new device.
+- Renews its certificate on its own over its live connection: a certificate lasts
+  90 days and is renewed from day 60, with nothing to schedule. A machine left
+  switched off past its certificate's expiry is let in only to renew, and one off
+  for more than about four to six months is refused and needs reinstalling.
 - Samples the host's vitals and keeps its own high-resolution history locally, so
   an offline stretch loses nothing ([Device Health](./Device-Health.md)).
 - Evaluates detection rules locally and raises alerts that carry their own
@@ -96,10 +107,41 @@ session, read its telemetry, and push updates to it.
 - Updates itself when an administrator pushes a signed build
   ([Agent Updates](./Agent-Updates.md)).
 
+## Running the installer again
+
+Running the install command on a machine that already has the agent repairs it
+and keeps it the same device: same number, same history, and the token's use
+count unchanged. The agent starts over as a new device on its own only when:
+
+- its device was deleted in the console — it wipes its own data, joins with the
+  new token, and appears as a new device; the old number stays deleted;
+- the command points at a different OpenGate server;
+- the command carries `--fresh`.
+
+A token the server refuses leaves the machine as it was, and the agent's log
+gives the server's reason.
+
+### Cloned machines and templates
+
+A machine cloned from another, or restored from a snapshot, holds the original's
+identity. Until one of them renews, the newest to connect takes the device and
+its page warns that the identity is in use on two machines
+([Fleet and Devices](./Fleet-and-Devices.md#identity-in-use-on-two-machines));
+after a renewal every copy but the one that renewed is refused. Give each copy
+its own identity by installing with `--fresh`:
+
+```bash
+curl -sL https://<your-server>/api/v1/server/install.sh | sudo bash -s -- --fresh <ENROLLMENT_TOKEN>
+```
+
+Install with `--fresh` on every machine built from a template image, or leave
+the agent out of the template and install it on first boot.
+
 ## Removing a machine
 
-Deleting a device from its detail page deregisters the agent and erases the
-machine's centralized data. There is no undo — see
+Deleting a device from its detail page erases the machine's centralized data,
+and the agent removes itself from the machine — at once if it is online,
+otherwise the next time it connects. There is no undo — see
 [Data Erasure](./Data-Erasure.md).
 
 ## Related

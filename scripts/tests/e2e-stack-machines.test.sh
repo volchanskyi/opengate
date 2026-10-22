@@ -14,6 +14,8 @@ HELPER="$SPECS/helpers/enrolled-machine.ts"
 CD="$ROOT/.github/workflows/cd.yml"
 SERVER_DEPLOYMENT="$ROOT/deploy/helm/opengate/templates/server-deployment.yaml"
 MACHINE_POD="$ROOT/deploy/scripts/e2e-machine-pod.sh"
+INSTALL_NOTE="$ROOT/deploy/scripts/install-note.sh"
+AGENT_START="$ROOT/deploy/agent-start.sh"
 
 PASS=0
 FAIL=0
@@ -30,7 +32,8 @@ fail() {
 
 echo "e2e-stack-machines:"
 
-for f in "$COMPOSE" "$BRINGUP" "$PLAYWRIGHT_CONFIG" "$HELPER" "$CD" "$SERVER_DEPLOYMENT" "$MACHINE_POD"; do
+for f in "$COMPOSE" "$BRINGUP" "$PLAYWRIGHT_CONFIG" "$HELPER" "$CD" "$SERVER_DEPLOYMENT" \
+  "$MACHINE_POD" "$INSTALL_NOTE" "$AGENT_START"; do
   if [ ! -f "$f" ]; then
     fail "missing file: $f"
     printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"
@@ -142,6 +145,17 @@ else
   fail "these entry points run their own compose up, so no token is minted:$own_bringup"
 fi
 
+# The server keeps its master key in memory, and the note carries the key the first server
+# announced; a later build that changes the image recreates the server under another key.
+compose_calls="$(grep -E '^[[:space:]]*compose[[:space:]]' "$BRINGUP" || true)"
+first_call="$(head -n 1 <<<"$compose_calls")"
+if [[ "$first_call" =~ ^[[:space:]]*compose[[:space:]]+build([[:space:]]|$) ]] \
+  && ! grep -qE -- '--build' <<<"$compose_calls"; then
+  pass "the bring-up builds every image once, so the machines reach the server their note names"
+else
+  fail "the bring-up builds after its first start, so a changed tree recreates the server under a new master key"
+fi
+
 # The enrolment token is minted per bring-up and is in no checkout, while
 # `docker compose config` reads every env_file it is pointed at.
 if ! command -v docker >/dev/null 2>&1; then
@@ -215,6 +229,16 @@ else
       pass "$machine runs on one CPU, so its packets reach the far side in the order it sent them"
     else
       fail "$machine is not held to one CPU, so the host reorders its packets and the direct link reads each as a loss"
+    fi
+  done
+
+  # The installed service restarts the agent after a failure or its start-over exit 42, never
+  # after the exit 0 that ends a removal; the machines the lifecycle spec drives do the same.
+  for machine in agent-c agent-c-copy; do
+    if [ "$(stack ".services[\"$machine\"].restart // \"\"")" = "on-failure" ]; then
+      pass "$machine restarts after a failure and stays down after a removal, as the installed service does"
+    else
+      fail "$machine must restart on failure only, as server/internal/api/install.sh's unit does"
     fi
   done
 
@@ -303,11 +327,44 @@ else
   pass "the bring-up accepts Docker Engine 28"
 fi
 
-# The machines install through the public enrolment endpoint with a token minted at bring-up.
-if grep -q '/api/v1/enrollment-tokens' "$BRINGUP" && grep -q 'OPENGATE_ENROLL_TOKEN' "$BRINGUP"; then
-  pass "the machines install with a token minted through the public endpoint"
+# The machines install as the installer does: a token minted at bring-up, carried in a note.
+if grep -q '/api/v1/enrollment-tokens' "$BRINGUP" && grep -qF 'install-note.sh' "$BRINGUP" \
+  && ! grep -q 'OPENGATE_ENROLL_TOKEN' "$BRINGUP" "$COMPOSE"; then
+  pass "the machines install with a note holding a token minted through the public endpoint"
 else
-  fail "the bring-up does not mint an enrolment token"
+  fail "the bring-up hands the machines a token some other way than an install note"
+fi
+
+note="$(printf '%s' '{"ca_pem":"-----BEGIN CERTIFICATE-----\nQQ==\n-----END CERTIFICATE-----\n","server_addr":"s:9090"}' \
+  | "$INSTALL_NOTE" http://server:8080 join-token 2>/dev/null || true)"
+if [ "$(jq -r '.token' <<<"$note")" = "join-token" ] \
+  && [ "$(jq -r '.url' <<<"$note")" = "http://server:8080" ] \
+  && [ "$(jq -r '.ca_pem' <<<"$note")" = $'-----BEGIN CERTIFICATE-----\nQQ==\n-----END CERTIFICATE-----' ] \
+  && [ "$(jq -r '.fresh' <<<"$note")" = "false" ]; then
+  pass "install-note.sh writes the note an installer writes"
+else
+  fail "install-note.sh wrote '$note'"
+fi
+if printf '%s' '{"server_addr":"s:9090"}' | "$INSTALL_NOTE" http://server:8080 join-token >/dev/null 2>&1; then
+  fail "install-note.sh accepted a probe reply with no master key"
+else
+  pass "install-note.sh refuses a probe reply with no master key"
+fi
+
+for machine in agent-a agent-b agent-c; do
+  service="$(awk -v m="  $machine:" '$0 == m {inside=1; next} /^  [a-z]/ {inside=0} inside' "$COMPOSE")"
+  if grep -qF 'target: /run/opengate/install-note.json' <<<"$service"; then
+    pass "$machine finds the note where the image's start step looks"
+  else
+    fail "$machine has no install note mounted"
+  fi
+done
+
+if grep -qF 'install-note.json' "$AGENT_START" && grep -qF 'device_id.txt' "$AGENT_START" \
+  && grep -qE 'chmod 0?600' "$AGENT_START"; then
+  pass "the image copies a mounted note owner-only, once, before the agent has an identity"
+else
+  fail "the image's start step does not copy the note as the installer writes it"
 fi
 
 if grep -qE '^\s*OPENGATE_TEST_MODE' "$COMPOSE"; then
@@ -369,37 +426,6 @@ else
     fail "the name is not pointed at the server pod, so the QUIC packets reach nothing"
   fi
 
-  # The QUIC address is the certificate's name; the enrolment URL is aimed separately so the
-  # network drill can send enrolment to the qualified Service name.
-  enroll_url="$(grep -A1 'name: OPENGATE_ENROLL_URL' <<<"$POD_MANIFEST" | sed -n 's/^ *value: //p')"
-  if [ "$enroll_url" = "http://rel-server:8080" ]; then
-    pass "a machine enrols through the server's in-cluster name by default"
-  else
-    fail "the default enrolment URL is '$enroll_url', not the server's in-cluster name"
-  fi
-
-  OVERRIDDEN_MANIFEST="$(
-    MACHINE=agent-a \
-      RELEASE=rel \
-      NODE_ARCH=arm64 \
-      SERVER_POD_IP=203.0.113.1 \
-      ENROLMENT_SECRET=secret-name \
-      OPENGATE_ENROLL_URL=http://rel-server.ns.svc.cluster.local:8080 \
-      "$MACHINE_POD" 2>/dev/null || true
-  )"
-  overridden_enroll="$(grep -A1 'name: OPENGATE_ENROLL_URL' <<<"$OVERRIDDEN_MANIFEST" | sed -n 's/^ *value: //p')"
-  if [ "$overridden_enroll" = "http://rel-server.ns.svc.cluster.local:8080" ]; then
-    pass "the enrolment URL can be aimed somewhere other than the QUIC address"
-  else
-    fail "the enrolment URL ignored the address it was given ('$overridden_enroll')"
-  fi
-
-  if grep -qF 'value: rel-server:9090' <<<"$OVERRIDDEN_MANIFEST"; then
-    pass "aiming enrolment elsewhere leaves the certificate's name on the QUIC address"
-  else
-    fail "aiming enrolment elsewhere moved the QUIC address off the name the certificate carries"
-  fi
-
   if grep -qE '^  name: agent-a$' <<<"$POD_MANIFEST"; then
     pass "a staging machine's pod is named for the machine the specs ask for"
   else
@@ -422,12 +448,21 @@ else
     esac
   done
 
-  # The token is a credential, so it reaches the machine through a Secret, not the manifest.
-  token_env="$(grep -A3 'name: OPENGATE_ENROLL_TOKEN' <<<"$POD_MANIFEST")"
-  if grep -qF 'secretKeyRef' <<<"$token_env" && ! grep -qF 'value:' <<<"$token_env"; then
-    pass "the enrolment token reaches the machine through a Secret"
+  # The note holds a credential, so it reaches the machine through a Secret, not the manifest.
+  if grep -qF 'secretName: secret-name' <<<"$POD_MANIFEST" \
+    && grep -qF 'mountPath: /run/opengate' <<<"$POD_MANIFEST" \
+    && ! grep -qE 'OPENGATE_ENROLL_(TOKEN|URL)' <<<"$POD_MANIFEST"; then
+    pass "the install note reaches the machine through a Secret"
   else
-    fail "the enrolment token is written into the pod manifest in the clear"
+    fail "the machine is handed its enrolment some other way than a note from a Secret"
+  fi
+
+  if grep -qF 'cp /run/opengate/install-note.json /tmp/agent/install-note.json' <<<"$POD_MANIFEST" \
+    && grep -qF 'chmod 0600 /tmp/agent/install-note.json' <<<"$POD_MANIFEST" \
+    && grep -qF -- '-f /tmp/agent/device_id.txt' <<<"$POD_MANIFEST"; then
+    pass "the machine copies its note owner-only before its first start"
+  else
+    fail "the machine's start command does not copy the note as the installer writes it"
   fi
 fi
 

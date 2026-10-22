@@ -114,7 +114,10 @@ correlated by hand into one the alert states outright.
 The scrape reaches each kubelet directly and the kubelet authorises
 `/metrics/cadvisor` against the `nodes/metrics` subresource, so that grant plus
 `nodes` for discovery is the whole requirement in the scraper's ClusterRole
-([`victoriametrics.yaml`](../../deploy/helm/monitoring/templates/victoriametrics.yaml)).
+([`cluster-rbac.yaml`](../../deploy/helm/monitoring/templates/cluster-rbac.yaml)).
+The chart's cluster-wide roles are applied by the approval-gated cluster job
+rather than the routine release, whose login cannot write them
+(`clusterRBAC.create`; [Kubernetes](./Kubernetes.md#the-cluster-job)).
 `nodes/proxy` is what a scrape *through* the API-server proxy would need
 instead; it also lets its holder relay arbitrary requests through the kubelet,
 and the IaC policy scan refuses it on that basis. If that authorisation were

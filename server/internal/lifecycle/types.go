@@ -36,11 +36,8 @@ const (
 	// StateObjectDeletePending means cold-tier object prefixes are still being
 	// removed.
 	StateObjectDeletePending PurgeState = "object-delete-pending"
-	// StateEdgeErasePending means central erasure is verified but the agent has
-	// not yet acknowledged wiping its local store (pending reconnect).
-	StateEdgeErasePending PurgeState = "edge-erase-pending"
-	// StateComplete means every central store is verified empty; a pending offline-edge erasure
-	// is harmless because the tombstone rejects the subject at ingest.
+	// StateComplete means every central store is verified empty; the machine wipes its own copy
+	// when it next connects, told to by its removal order.
 	StateComplete PurgeState = "complete"
 )
 

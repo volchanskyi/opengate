@@ -155,6 +155,25 @@ func TestAgentControl_LogsRequestSyncPath(t *testing.T) {
 	})
 }
 
+func TestAgentControl_TheAgentsOwnRefusalsReachTheCaller(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		err  error
+		code int
+	}{
+		{"an agent already reading logs is a conflict", fmt.Errorf("agent: %w", agentapi.ErrLogsBusy), http.StatusConflict},
+		{"an agent past its own deadline is a timeout", fmt.Errorf("agent: %w", agentapi.ErrLogsTimedOut), http.StatusGatewayTimeout},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			env := setupControlTest(t, &fakeAgentControl{logsErr: tc.err})
+			w := doRequest(env.srv, http.MethodGet, "/api/v1/devices/"+env.deviceID.String()+"/logs", env.adminToken, nil)
+			assert.Equal(t, tc.code, w.Code)
+		})
+	}
+}
+
 func TestAgentControl_EligibleAgentsMetadataFilter(t *testing.T) {
 	t.Parallel()
 

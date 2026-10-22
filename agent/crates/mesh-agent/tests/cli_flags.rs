@@ -1,4 +1,5 @@
-//! The CLI rejects every `--edge-*` opt-in flag, so a stale unit that passes one fails at startup.
+//! The CLI rejects every `--edge-*` opt-in flag and the enrollment flags, so a stale unit that
+//! passes one fails at startup.
 
 use std::process::Command;
 
@@ -63,6 +64,21 @@ fn help_does_not_list_retired_flags() {
         assert!(
             !stdout.contains(token),
             "retired flag `{token}` still appears in --help output:\n{stdout}"
+        );
+    }
+}
+
+#[test]
+fn enrollment_flags_are_rejected_because_only_the_install_note_carries_a_token() {
+    for flag in [
+        "--enroll-token=join-token",
+        "--enroll-url=https://opengate.example.com",
+    ] {
+        let (ok, stderr) = run_with(&[flag]);
+        assert!(!ok, "expected `{flag}` to be rejected");
+        assert!(
+            stderr.contains("unexpected argument"),
+            "expected an unknown-argument error for `{flag}`, got stderr: {stderr}"
         );
     }
 }

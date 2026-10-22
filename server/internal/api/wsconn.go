@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	"github.com/volchanskyi/opengate/server/internal/relay"
 )
 
 // WSConn adapts a *websocket.Conn into a message-oriented relay.Conn that keeps message boundaries.
@@ -13,9 +15,6 @@ type WSConn struct {
 	label        string // "agent" or "browser" — used by handler-level logging
 	writeTimeout time.Duration
 }
-
-// maxRelayMessageSize is the largest WebSocket message the relay accepts (4 MiB).
-const maxRelayMessageSize = 4 << 20
 
 // relayWriteTimeout bounds one forwarded frame, so a peer that stops draining frees its goroutine.
 // TCP keep-alive does not catch a peer that is connected and not reading.
@@ -28,15 +27,18 @@ func NewWSConn(conn *websocket.Conn, label string) *WSConn {
 
 // newWSConn is NewWSConn with an explicit write timeout.
 func newWSConn(conn *websocket.Conn, label string, writeTimeout time.Duration) *WSConn {
-	conn.SetReadLimit(maxRelayMessageSize)
+	conn.SetReadLimit(relay.MaxMessageSize)
 	return &WSConn{conn: conn, label: label, writeTimeout: writeTimeout}
 }
 
-// ReadMessage reads one complete binary message, with no deadline: a quiet session is legitimate.
-// The handler's ping proves the peer is alive.
-func (w *WSConn) ReadMessage() ([]byte, error) {
-	_, data, err := w.conn.Read(context.Background())
-	return data, err
+// ReadMessage reads one complete binary message into a pooled buffer, with no deadline: a quiet
+// session is legitimate. The handler's ping proves the peer is alive.
+func (w *WSConn) ReadMessage() (relay.Message, error) {
+	_, r, err := w.conn.Reader(context.Background())
+	if err != nil {
+		return relay.Message{}, err
+	}
+	return relay.ReadMessageFrom(r)
 }
 
 // WriteMessage sends one complete binary message within the write timeout.

@@ -6,7 +6,7 @@ SHELL := /bin/bash
 	terraform-test terraform-drift \
 	secrets-scan iac-policy iac-policy-fix iac-policy-custom lint-dockerfile lint-k8s \
 	test-parse-tfplan shell-check shell-fmt shell-test shell-quality \
-	tunnel ssh
+	tunnel ssh authority-init authority-kit authority-adopt authority-layout authority-inspect
 
 build:
 	cd agent && cargo build --workspace
@@ -104,8 +104,8 @@ lint-deploy:
 	@$(MAKE) terraform-test
 	cd deploy && docker compose -f docker-compose.test.yml config --quiet
 	@bash scripts/require-tool.sh trivy
-	trivy config --severity HIGH,CRITICAL --exit-code 1 deploy/ \
-	  && trivy config --severity HIGH,CRITICAL --exit-code 1 Dockerfile
+	trivy config --severity HIGH,CRITICAL --exit-code 1 --ignorefile .trivyignore.yaml deploy/ \
+	  && trivy config --severity HIGH,CRITICAL --exit-code 1 --ignorefile .trivyignore.yaml Dockerfile
 
 # Runs each module's and the root's tftest suite against mock providers; needs terraform >= 1.7.
 terraform-test:
@@ -117,6 +117,8 @@ terraform-test:
 	terraform -chdir=deploy/terraform/modules/oke test
 	terraform -chdir=deploy/terraform/modules/backups init -backend=false -input=false >/dev/null
 	terraform -chdir=deploy/terraform/modules/backups test
+	terraform -chdir=deploy/terraform/modules/workflow-identity init -backend=false -input=false >/dev/null
+	terraform -chdir=deploy/terraform/modules/workflow-identity test
 	terraform -chdir=deploy/terraform init -backend=false -input=false >/dev/null
 	terraform -chdir=deploy/terraform test
 
@@ -131,6 +133,36 @@ tunnel:
 
 ssh:
 	@deploy/scripts/bastion-session.sh ssh
+
+# The master-key tool runs as a job inside the cluster, so no key reaches this machine.
+authority-init:
+	@bash scripts/require-tool.sh helm
+	@bash scripts/require-tool.sh jq
+	bash scripts/authority-job.sh init
+
+authority-kit:
+	@bash scripts/require-tool.sh helm
+	@bash scripts/require-tool.sh jq
+	bash scripts/authority-job.sh new-kit
+
+# Moves the master key out of the shared secret once, run by an administrator's login.
+authority-adopt:
+	@bash scripts/require-tool.sh helm
+	@bash scripts/require-tool.sh jq
+	bash scripts/authority-job.sh adopt
+
+# PHASE is steady, changeover, retire, emergency or settle; LAYOUT_FLAGS takes -mps new,
+# -keep-chain and -drop-old.
+authority-layout:
+	@[ -n "$(PHASE)" ] || { echo "set PHASE=steady|changeover|retire|emergency|settle" >&2; exit 2; }
+	@bash scripts/require-tool.sh helm
+	@bash scripts/require-tool.sh jq
+	bash scripts/authority-job.sh layout -phase "$(PHASE)" $(LAYOUT_FLAGS)
+
+authority-inspect:
+	@bash scripts/require-tool.sh helm
+	@bash scripts/require-tool.sh jq
+	bash scripts/authority-job.sh inspect
 
 # Runs parse-tfplan.sh over canned plan fixtures that cover each gate decision.
 test-parse-tfplan:
@@ -196,6 +228,7 @@ lint-k8s:
 	  kubeconform -strict -ignore-missing-schemas -summary /tmp/og-k8s-render.yaml; \
 	  conftest test -p policy/k8s /tmp/og-k8s-render.yaml; \
 	done
+	kubeconform -strict -summary deploy/cluster/*.yaml
 	helm lint deploy/helm/monitoring
 	@echo "==> opengate-monitoring"
 	helm template mon deploy/helm/monitoring > /tmp/mon-k8s-render.yaml

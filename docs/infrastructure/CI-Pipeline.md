@@ -408,7 +408,16 @@ regressions in two ways, by metric class:
   are calibrated from the live series' measured run-to-run variance, not hand-picked.
   The gate is fail-open: a VM or transport failure falls back to the absolute rule only
   and never reds on infra, and a cold-start window (too few nights) skips the relative
-  rule.
+  rule. A Go benchmark past its line is not failed on one reading: the `confirm` job
+  runs it again ten times and compares the runs with the window's nights through
+  `benchstat` ([`benchmark-confirm.sh`](../../scripts/benchmark-confirm.sh)), and fails
+  only on a change benchstat finds significant whose median is past the line, quoting
+  benchstat's verdict in the summary. A Rust timing is judged on the one reading,
+  since Criterion already samples within the run.
+- **A row with a `history_from` date** ignores the nights before it, and is reported
+  without a limit until three CI nights exist after it; then its time and its
+  allocations are held to those nights' median. That is how a benchmark is
+  re-baselined on purpose ([ADR-088](../adr/ADR-088-benchmarks-measure-the-code.md)).
 
 All benchmark trends are also rendered in Grafana's **Benchmark Trends** dashboard.
 
@@ -446,7 +455,14 @@ same shape: the run's first job records when it began, a publish job pushes each
 leg's readings through [`perf-vm-push.sh`](../../scripts/perf-vm-push.sh) and
 compares them with recent nights through
 [`perf-regression-check.sh`](../../scripts/perf-regression-check.sh), and a `gate`
-job reads the publish job's result. Each run writes a summary table of every limit
+job reads the publish job's result. A night past its line is pushed flagged and
+left out of later windows, so one slow night never moves the median the next is
+judged by; a held leg fails only when it is past its line on two of its last three
+nights. Each sample's workload label carries a digest of the profile it ran, so a
+change in what a leg offers starts a fresh window. Every leg's bundle also records
+what the runner did — processor steal and the server container's throttling
+counters ([`perf-runner-record.sh`](../../scripts/perf-runner-record.sh)) — so a slow
+night says whether the machine or the code was slow. Each run writes a summary table of every limit
 beside its reading ([ADR-101](../adr/ADR-101-load-profiles-and-limits.md)).
 
 ## Frontend performance

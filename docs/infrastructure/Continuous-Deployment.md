@@ -33,6 +33,7 @@ flowchart TB
   BUILD["build-image.yml<br/>multi-arch, GHCR push<br/>Cosign, SBOM, Trivy"]
   subgraph CD["cd.yml"]
     RESOLVE["resolve-tag<br/>+ cosign verify"]
+    CLUSTER["cluster<br/>cluster-wide pieces,<br/>when they changed"]
     STAGING["deploy-staging-k8s<br/>Helm upgrade,<br/>smoke + Playwright"]
     PROD["deploy-production-k8s<br/>Helm upgrade + smoke"]
   end
@@ -41,7 +42,9 @@ flowchart TB
   CI -->|"all gate jobs pass"| MERGE
   MERGE --> BUILD
   BUILD --> RESOLVE
-  RESOLVE --> STAGING
+  RESOLVE -->|"environment approval"| CLUSTER
+  CLUSTER --> STAGING
+  RESOLVE -->|"nothing cluster-wide changed"| STAGING
   STAGING -->|"environment approval"| PROD
 ```
 
@@ -54,17 +57,25 @@ Both environments run on OKE and are managed by the
 - Production uses
   [`values-production.yaml`](../../deploy/helm/opengate/values-production.yaml).
 - Cluster credentials and kubeconfig setup are owned by
-  [`oci-kube-setup`](../../.github/actions/oci-kube-setup/action.yml).
+  [`oci-kube-setup`](../../.github/actions/oci-kube-setup/action.yml). Both
+  deploys sign in as the workflows' own login, which reads no secret and cannot
+  read the master key; the `cluster` job alone signs in as an administrator
+  ([Kubernetes](./Kubernetes.md#who-may-change-the-cluster)).
+- Every Helm call keeps its release records in configmaps
+  (`HELM_DRIVER=configmap`).
 
-The workflow creates an environment Secret only when it is absent. Shared
-enrollment and signing keys are maintained independently so a deploy cannot
-accidentally rotate agent identity material.
+Each deploy creates the environment's shared Secret when it is absent and, when
+it exists, patches the one value it rotates, reading nothing back. The master key
+lives in a secret no deploy can read, written only by the in-cluster key tool
+([Kubernetes](./Kubernetes.md#the-master-key)), so a deploy cannot rotate machine
+identity material.
 
 ## Jobs
 
 | Job | Purpose |
 |-----|---------|
-| `resolve-tag` | Resolves the image tag, verifies the image and signature, and evaluates the unchanged-deploy fast path. |
+| `resolve-tag` | Resolves the image tag, verifies the image and signature, evaluates the unchanged-deploy fast path, and decides whether the cluster-wide pieces changed since the running commit. |
+| `cluster` | Applies the cluster-wide pieces as an administrator, under the `production` environment's approval, when they changed or the running commit cannot be read. |
 | `deploy-staging-k8s` | Applies the staging Helm release and runs smoke and browser tests. |
 | `deploy-production-k8s` | Applies the production Helm release after staging succeeds. |
 | `notify-failure` | Creates or updates the deployment failure issue. |
@@ -94,6 +105,13 @@ Production is deployed only after staging succeeds and the production
 environment gate is approved. The workflow waits for rollout completion and
 runs the same smoke-test script through a temporary Service port-forward.
 
+Both deploys ask the cluster, as their own login, whether it may read the master
+key's secret or list secrets, and fail on a yes
+([`workflow-access-readback.sh`](../../deploy/scripts/workflow-access-readback.sh)).
+Production also proves the master key's admission rule exists and refuses every
+shape of outside reader it names
+([`authority-readers-check.sh`](../../deploy/scripts/authority-readers-check.sh)).
+
 ## Image verification
 
 [`resolve-tag`](../../.github/workflows/cd.yml) verifies both image existence and
@@ -120,6 +138,7 @@ Kubernetes release history is the production rollback boundary. Operators use
 Helm history and rollback against the appropriate release and namespace:
 
 ```bash
+export HELM_DRIVER=configmap
 helm history "$RELEASE" -n "$NAMESPACE"
 helm rollback "$RELEASE" "$REVISION" -n "$NAMESPACE" --wait
 kubectl -n "$NAMESPACE" rollout status "deploy/${RELEASE}-server"
@@ -134,7 +153,9 @@ host access:
   the cluster network, so the numbers it records are the server's;
 - the static Go QUIC harness runs in a short-lived cluster pod and targets the
   ready staging server pod over the cluster network;
-- both test pods and local certificate material are removed after the run.
+- the harness's machines enrol through the staging server as real ones do, so
+  each holds a certificate the server issued;
+- both test pods are removed after the run.
 
 ## Configuration and secrets
 

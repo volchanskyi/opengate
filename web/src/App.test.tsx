@@ -15,7 +15,6 @@ describe('App', () => {
     localStorage.clear();
     vi.clearAllMocks();
     useAuthStore.setState({
-      token: null,
       user: null,
       isLoading: false,
       hydrated: false,

@@ -1,0 +1,218 @@
+---
+# The workflows' own cloud login: read the node and the master key's guard rule, and nothing else
+# across the cluster. The cluster job fills in the login's user id where each binding names it.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: opengate-workflow
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["validatingadmissionpolicies", "validatingadmissionpolicybindings"]
+    resourceNames: ["opengate-authority-readers"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: opengate-workflow
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: opengate-workflow
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: WORKFLOW_USER_OCID
+---
+# Production: Helm writes and waits on the release, the deploy checks the guard rule with dry runs,
+# opens the database's own shell, and adds one key to the shared secret it never reads.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: opengate-workflow
+  namespace: opengate
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps", "services", "serviceaccounts"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "replicasets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["cronjobs", "jobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "create"]
+  - apiGroups: [""]
+    resources: ["pods/portforward"]
+    verbs: ["get", "create"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    resourceNames: ["opengate-postgres-0"]
+    verbs: ["get", "create"]
+  # Kubernetes cannot hold create to one name, so create stands alone and reads nothing.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["opengate-secrets"]
+    verbs: ["patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: opengate-workflow
+  namespace: opengate
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: opengate-workflow
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: WORKFLOW_USER_OCID
+---
+# Staging: the release, the claim on the shared server, and the test machines, load runs and drills
+# the nightlies start, enter and remove.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: opengate-workflow
+  namespace: opengate-staging
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps", "services", "serviceaccounts"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "replicasets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["batch"]
+    resources: ["cronjobs", "jobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/exec", "pods/attach", "pods/portforward"]
+    verbs: ["get", "create"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["list"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["opengate-secrets"]
+    verbs: ["patch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames:
+      - opengate-staging-loadtest-account
+      - opengate-e2e-enrolment
+      - opengate-netdrill-enrolment
+    verbs: ["get", "update", "patch", "delete"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    resourceNames: ["opengate-staging-guard"]
+    verbs: ["get", "update", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: opengate-workflow
+  namespace: opengate-staging
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: opengate-workflow
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: WORKFLOW_USER_OCID
+---
+# Monitoring: the release without its cluster roles, the configuration it is read back against, the
+# trend pushes and reads, the alert quiet period, and the drill's look at the node's kernel.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: opengate-workflow
+  namespace: monitoring
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps", "services", "serviceaccounts"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets", "replicasets", "controllerrevisions"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/exec", "pods/attach"]
+    verbs: ["get", "create"]
+  - apiGroups: [""]
+    resources: ["pods/log", "services/proxy"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: opengate-workflow
+  namespace: monitoring
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: opengate-workflow
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: WORKFLOW_USER_OCID
+---
+# The ingress controller: the nightly drift check reads its service, settings and release record.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: opengate-workflow
+  namespace: ingress-nginx
+rules:
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: opengate-workflow
+  namespace: ingress-nginx
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: opengate-workflow
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: WORKFLOW_USER_OCID

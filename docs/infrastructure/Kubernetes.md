@@ -6,6 +6,13 @@
   - [Secrets](#secrets)
   - [QUIC and MPS traffic](#quic-and-mps-traffic)
   - [Shared keys](#shared-keys)
+- [The master key](#the-master-key)
+  - [Creating it on a new cluster](#creating-it-on-a-new-cluster)
+  - [Moving it into its own secret](#moving-it-into-its-own-secret)
+  - [Replacing it](#replacing-it)
+- [Who may change the cluster](#who-may-change-the-cluster)
+  - [The workflows' login](#the-workflows-login)
+  - [The cluster job](#the-cluster-job)
 - [Validation](#validation)
 
 OpenGate runs on **Oracle Kubernetes Engine (OKE)** via a Helm chart. The
@@ -54,7 +61,7 @@ templates render:
 | The server | Deployment + ClusterIP Service (HTTP) + hostPort L4 (QUIC/MPS); it serves the SPA itself (`-web-dir`) |
 | The database | StatefulSet + headless Service + `oci-bv` PVC |
 | Backups | CronJob (`pg_dump` → OCI Object Storage via a write-only PAR; [ADR-035](../adr/ADR-035-block-volume-budget.md)) |
-| The HTTP edge | `Ingress` (ingress-nginx) + cert-manager `ClusterIssuer` |
+| The HTTP edge | `Ingress` (ingress-nginx); the cert-manager `ClusterIssuer` is rendered from the chart but applied by [the cluster job](#the-cluster-job) |
 
 The address machines dial for a session is `server.agentRelayURL`, defaulting to
 the release's own in-cluster service, and the session helpers the server names
@@ -79,8 +86,9 @@ commands):
   [`values.yaml`](../../deploy/ingress-nginx/values.yaml) at the chart version in
   [`tool-versions.sh`](../../scripts/lib/tool-versions.sh), with snippet
   annotations off. [`ingress-controller-apply.sh`](../../deploy/scripts/ingress-controller-apply.sh)
-  installs it on every production deploy and reads it back; its `check` mode, run
-  by the nightly configuration job, reads it back and installs nothing. A new
+  installs it from [the cluster job](#the-cluster-job) and reads it back; its
+  `check` mode, run by the nightly configuration job, reads it back and installs
+  nothing. A new
   cluster takes the load balancer's subnet from Terraform's `oke_lb_subnet_id`
   output as `INGRESS_LB_SUBNET_ID`; a running one keeps the subnet its Service
   already names. The server sets every security header itself, so the controller
@@ -94,7 +102,8 @@ The OKE cluster + node pool are provisioned by the
 
 The chart never embeds secret material — it references an `existingSecret`
 (`server.existingSecret`) created out-of-band, so no secret value lands in git
-or in the Helm release history.
+or in the Helm release history. The master key lives apart, in a secret of its
+own ([The master key](#the-master-key)).
 [`secrets.example.yaml`](../../deploy/helm/opengate/secrets.example.yaml) lists
 every key the secret carries, and the chart's
 [`NOTES.txt`](../../deploy/helm/opengate/templates/NOTES.txt) prints the create
@@ -131,23 +140,23 @@ rationale.
 ### Shared keys
 
 - **`sharedKeys.enabled`** — multi-replica correctness prerequisite. Switches
-  `/data` from the per-replica RWO PVC to an `emptyDir` and mounts the enrollment
-  CA, VAPID, and agent-update signing keypairs read-only from `existingSecret`, so
-  every replica serves identical key material (the server loads keys if present —
-  no code change).
+  `/data` from the per-replica RWO PVC to an `emptyDir`, mounts the VAPID and
+  agent-update signing keypairs read-only from `existingSecret`, and fills
+  `/data/authority` from the master key's own secret, so every replica serves
+  identical key material. It also passes `-ca-must-exist`, so a server that finds
+  no master key refuses to start instead of generating a new one.
 
-The four key files are generated once: the server runs as a single replica on
-its volume and writes them to `/data`, they are copied out, and the secret is
-recreated with them under the keys `ca.crt`, `ca.key`, `vapid.json` and
+The VAPID and update-signing files are generated once: the server runs as a
+single replica on its volume and writes them to `/data`, they are copied out, and
+the secret is recreated with them under the keys `vapid.json` and
 `update-signing.json`, beside the values from [Secrets](#secrets):
 
 ```bash
-mkdir keys && for f in ca.crt ca.key vapid.json update-signing.json; do
+mkdir keys && for f in vapid.json update-signing.json; do
   kubectl exec --namespace opengate deploy/opengate-server -- cat "/data/$f" > "keys/$f"
 done
 kubectl create secret generic opengate-secrets --namespace opengate \
   --from-literal=JWT_SECRET=... \
-  --from-file=ca.crt=keys/ca.crt --from-file=ca.key=keys/ca.key \
   --from-file=vapid.json=keys/vapid.json \
   --from-file=update-signing.json=keys/update-signing.json
 ```
@@ -157,6 +166,118 @@ single-replica path: one server replica, in-process relay pairing, and shared ke
 material mounted from the secret. Serving more than one replica requires a
 session-aware autoscaler, a cross-replica session registry, and an L4 path that
 pins an agent's control connection — none of which the chart carries.
+
+## The master key
+
+The master key signs every machine's certificate, so whoever holds it can pose as
+the server to every machine
+([ADR-128](../adr/ADR-128-machine-identity-lifecycle.md)). Its role files live in
+the `opengate-authority` secret (`authority.secretName`) and nowhere else:
+
+- the server pod's `authority-stage` start-up step copies them into a memory
+  volume readable by the server's user alone
+  ([`server-deployment.yaml`](../../deploy/helm/opengate/templates/server-deployment.yaml)),
+  and the server refuses to start on a key file anyone else can read;
+- a cluster-wide admission rule,
+  [`authority-readers.yaml`](../../deploy/cluster/authority-readers.yaml), refuses
+  any other pod in `opengate` that mounts the secret or reads it into its
+  environment, and each production deploy reads it back
+  ([`authority-readers-check.sh`](../../deploy/scripts/authority-readers-check.sh));
+- every step that writes it runs the `opengate-authority` tool as a one-shot job
+  inside the cluster ([`authority-job.sh`](../../scripts/authority-job.sh), the
+  `authority-*` targets in the [`Makefile`](../../Makefile)), which prints roles
+  and fingerprints and never a key, and deletes its own objects when it ends.
+
+Each `make authority-*` target runs on the administrator's own login, on the
+image the running server uses unless `IMAGE_TAG` names another. `make
+authority-inspect` prints what the secret holds.
+
+### Creating it on a new cluster
+
+```bash
+make authority-init
+```
+
+It creates the issuing master key into the secret and refuses to overwrite one
+that exists.
+
+### Moving it into its own secret
+
+A cluster whose master key still sits in `opengate-secrets` moves it once, with
+the administrator's login, before the first deploy of a server that reads
+`opengate-authority`. The running server's image carries no tool yet, so the job
+names the new build's tag:
+
+```bash
+IMAGE_TAG=<the new image tag> make authority-adopt
+```
+
+The job copies `ca.crt` and `ca.key` into `opengate-authority` and removes them
+from `opengate-secrets`.
+
+### Replacing it
+
+The current master key is A and the next is B. The phases and what each admits
+are in [ADR-128](../adr/ADR-128-machine-identity-lifecycle.md); the server reads
+the role files at start, so each layout is followed by a restart.
+
+```bash
+make authority-kit                                   # stage B and B signed by A
+make authority-layout PHASE=changeover               # B issues, A still accepted
+kubectl -n opengate rollout restart deploy/opengate-server
+```
+
+1. **Changeover.** The server offers every machine on A a renewal to B. Wait
+   until the daily `authority census` log line shows no live machine on A for
+   seven days.
+2. **Retire.** `make authority-layout PHASE=retire`, then restart: A admits a
+   machine only to renew.
+3. **Intel AMT.** Reprovision every AMT device with B's root, then
+   `make authority-layout PHASE=retire LAYOUT_FLAGS='-mps new'` and restart;
+   A's key is destroyed.
+4. **Settle.** Once A's last certificate has passed its expiry plus the grace,
+   `make authority-layout PHASE=settle LAYOUT_FLAGS=-drop-old` and restart.
+
+A leaked master key takes the emergency path instead: `make authority-kit`, set
+`authority.compromisedSince` to a time safely before the leak, then
+`make authority-layout PHASE=emergency` and restart. A machine whose certificate
+was issued before that time renews to B within one reconnect; any other is
+refused and needs reinstalling. Rotate the Intel AMT credentials as well.
+
+## Who may change the cluster
+
+### The workflows' login
+
+GitHub workflows sign in to the cluster as the `opengate-workflows` cloud user,
+from the [`workflow-identity`](../../deploy/terraform/modules/workflow-identity/)
+module, whose only cloud right is fetching a kubeconfig. What it may do inside
+the cluster is named in
+[`workflow-access.yaml`](../../deploy/cluster/workflow-access.yaml): no `list` or
+`watch` on any secret, nothing naming `opengate-authority`, and in production no
+`get` on `opengate-secrets`. Every Helm call runs with `HELM_DRIVER=configmap`,
+because Helm's default keeps release records in secrets and needs `list` on
+them. Each deploy asks the cluster, as that login, whether it may read the
+master key's secret or list secrets, and fails on a yes
+([`workflow-access-readback.sh`](../../deploy/scripts/workflow-access-readback.sh)).
+
+Its key is three repository secrets — `OCI_WORKFLOW_USER_OCID`,
+`OCI_WORKFLOW_FINGERPRINT` and `OCI_WORKFLOW_PRIVATE_KEY` — generated by an
+administrator for that user; Terraform holds no key material.
+
+### The cluster job
+
+What the workflows' login cannot write is applied by the `cluster` job in
+[`cd.yml`](../../.github/workflows/cd.yml), through
+[`cluster-apply.sh`](../../deploy/scripts/cluster-apply.sh): the namespaces, the
+copy of each release's Helm records into configmaps
+([`helm-release-migrate.sh`](../../deploy/scripts/helm-release-migrate.sh)), the
+admission rule, the workflows' access, the production certificate issuer,
+monitoring's cluster roles and the ingress controller. It runs when a commit
+changes one of those pieces, or when the running commit cannot be read, before
+the staging deploy. It names the `production` environment, so it waits for a
+person to approve it, and signs in with the administrator login held only there,
+as the environment secrets `OCI_ADMIN_USER_OCID`, `OCI_ADMIN_FINGERPRINT` and
+`OCI_ADMIN_PRIVATE_KEY`.
 
 ## Validation
 

@@ -122,6 +122,7 @@ jobs:
     outputs:
       alert_text: ${{ steps.summarize.outputs.alert_text }}
       regression: ${{ steps.summarize.outputs.regression }}
+      flagged: ${{ steps.summarize.outputs.flagged }}
     env:
       VM_RUN_STARTED_AT: ${{ needs.run.outputs.started_at }}
     steps:
@@ -146,9 +147,9 @@ jobs:
         uses: ./.github/actions/oci-kube-setup
         with:
           oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
-          oci-user: ${{ secrets.OCI_USER_OCID }}
-          oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
-          oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
+          oci-user: ${{ secrets.OCI_WORKFLOW_USER_OCID }}
+          oci-fingerprint: ${{ secrets.OCI_WORKFLOW_FINGERPRINT }}
+          oci-private-key: ${{ secrets.OCI_WORKFLOW_PRIVATE_KEY }}
           oci-region: ${{ secrets.OCI_REGION }}
           cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
 
@@ -159,39 +160,45 @@ jobs:
           UPDATE_BASELINE: ${{ github.event_name == 'workflow_dispatch' && inputs.update-baseline == true }}
         run: |
           set -euo pipefail
-          GO_BENCH_FILE="artifacts/go/bench-go.txt"
-          CRITERION_ROOT="artifacts/rust"
+          export GO_BENCH_FILE="artifacts/go/bench-go.txt"
+          export CRITERION_ROOT="artifacts/rust"
 
+          # The candidate is written beside the baseline, which it reads each row's history_from from.
           if [ "$UPDATE_BASELINE" = "true" ]; then
-            GO_BENCH_FILE="$GO_BENCH_FILE" CRITERION_ROOT="$CRITERION_ROOT" \
-              ./scripts/benchmark-summarize.sh --update-baseline > benchmarks/baseline.json
-            GO_BENCH_FILE="$GO_BENCH_FILE" CRITERION_ROOT="$CRITERION_ROOT" BASELINE_FILE="benchmarks/baseline.json" \
-              ./scripts/benchmark-summarize.sh > benchmark-summary.out
+            ./scripts/benchmark-summarize.sh --update-baseline > baseline-candidate.json
+            mv baseline-candidate.json benchmarks/baseline.json
             echo "updated_baseline=1" >> "$GITHUB_OUTPUT"
           else
-            set +e
-            GO_BENCH_FILE="$GO_BENCH_FILE" CRITERION_ROOT="$CRITERION_ROOT" \
-              ./scripts/benchmark-summarize.sh > benchmark-summary.out 2>&1
-            SUMMARY_STATUS=$?
-            set -e
-
-            case "$SUMMARY_STATUS" in
-              0) REGRESSION=0 ;;
-              1) REGRESSION=1 ;;
-              2)
-                echo "regression=0" >> "$GITHUB_OUTPUT"
-                echo "::error::Benchmark summary input missing or invalid; at least one language artifact is absent or malformed."
-                cat benchmark-summary.out
-                exit 2
-                ;;
-              *)
-                echo "regression=0" >> "$GITHUB_OUTPUT"
-                echo "::error::benchmark-summarize.sh failed with unexpected exit ${SUMMARY_STATUS}"
-                cat benchmark-summary.out
-                exit "$SUMMARY_STATUS"
-                ;;
-            esac
             echo "updated_baseline=0" >> "$GITHUB_OUTPUT"
+          fi
+
+          set +e
+          ./scripts/benchmark-summarize.sh > benchmark-summary.out 2>&1
+          SUMMARY_STATUS=$?
+          set -e
+
+          case "$SUMMARY_STATUS" in
+            0) REGRESSION=0 ;;
+            1) REGRESSION=1 ;;
+            2)
+              echo "regression=0" >> "$GITHUB_OUTPUT"
+              echo "::error::Benchmark summary input missing or invalid; at least one language artifact is absent or malformed."
+              cat benchmark-summary.out
+              exit 2
+              ;;
+            *)
+              echo "regression=0" >> "$GITHUB_OUTPUT"
+              echo "::error::benchmark-summarize.sh failed with unexpected exit ${SUMMARY_STATUS}"
+              cat benchmark-summary.out
+              exit "$SUMMARY_STATUS"
+              ;;
+          esac
+
+          # A Go timing past its line is measured again in the confirm job before it can fail.
+          if [ -s benchmark-flagged.tsv ]; then
+            echo "flagged=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "flagged=0" >> "$GITHUB_OUTPUT"
           fi
 
           cat benchmark-summary.out
@@ -214,6 +221,17 @@ jobs:
             echo "$ALERT_TEXT"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Upload the flagged benchmarks and their nights
+        if: steps.summarize.outputs.flagged == '1'
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-flagged
+          path: |
+            benchmark-flagged.tsv
+            benchmark-window.txt
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Upload canonical rows as artifact
         uses: actions/upload-artifact@v7
@@ -260,9 +278,95 @@ jobs:
         if: always()
         uses: ./.github/actions/oci-kube-teardown
 
+  # Measures each flagged Go benchmark ten times and fails only on a slowdown benchstat finds
+  # significant whose median is past its line.
+  confirm:
+    name: Measure flagged benchmarks again
+    needs: [publish]
+    if: needs.publish.outputs.flagged == '1'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      regression: ${{ steps.judge.outputs.regression }}
+      alert_text: ${{ steps.judge.outputs.alert_text }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/docker-hub-mirror
+        with:
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Start Postgres with max_connections=400
+        run: |
+          set -euo pipefail
+          docker run -d --rm --name pg-ci \
+            -e POSTGRES_USER=opengate -e POSTGRES_PASSWORD=opengate -e POSTGRES_DB=opengate_test \
+            --shm-size=1g -p 5432:5432 postgres:17-alpine -c max_connections=400 -c max_locks_per_transaction=256
+          for i in {1..30}; do
+            if docker exec pg-ci pg_isready -U opengate -d opengate_test >/dev/null 2>&1; then
+              echo "postgres ready after ${i} attempt(s)"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::postgres never became ready"
+          docker logs pg-ci
+          exit 1
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27'
+          cache-dependency-path: server/go.sum
+
+      - uses: ./.github/actions/setup-pinned-tools
+        with:
+          with-benchstat: 'true'
+
+      - name: Download the flagged benchmarks
+        uses: actions/download-artifact@v8
+        with:
+          name: benchmark-flagged
+          path: flagged
+
+      - name: Measure the flagged benchmarks again
+        env:
+          POSTGRES_TEST_URL: postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable
+        run: scripts/benchmark-confirm.sh rerun flagged/benchmark-flagged.tsv benchmark-rerun.txt
+
+      - name: Judge the re-run with benchstat
+        id: judge
+        run: |
+          set -euo pipefail
+          set +e
+          scripts/benchmark-confirm.sh judge flagged/benchmark-flagged.tsv flagged/benchmark-window.txt \
+            benchmark-rerun.txt > benchmark-confirm.out 2>&1
+          status=$?
+          set -e
+          cat benchmark-confirm.out
+          if [ -s benchmark-confirm.md ]; then
+            cat benchmark-confirm.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+          case "$status" in
+            0) echo "regression=0" >> "$GITHUB_OUTPUT" ;;
+            1) echo "regression=1" >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "::error::benchmark-confirm.sh judge exited ${status}; the flagged benchmarks were not judged."
+              exit "$status"
+              ;;
+          esac
+          ALERT_TEXT="$(grep '^REGRESSION_ALERT:' benchmark-confirm.out | sed 's/^REGRESSION_ALERT://' || true)"
+          {
+            echo "alert_text<<EOF"
+            echo "$ALERT_TEXT"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
   gate:
     name: Benchmark regression gate
-    needs: [publish]
+    needs: [publish, confirm]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -276,15 +380,25 @@ jobs:
             exit 1
           fi
           if [ "${{ needs.publish.outputs.regression }}" = "1" ]; then
-            echo "::error::Benchmark regression detected (allocs/bytes vs committed baseline, or ns/op vs VM window baseline / absolute ceiling) — see workflow summary and Telegram alert (if delivered)."
+            echo "::error::Benchmark regression detected (allocations against their limit, or a Rust timing past its line) — see workflow summary and Telegram alert (if delivered)."
             exit 1
+          fi
+          if [ "${{ needs.publish.outputs.flagged }}" = "1" ]; then
+            if [ "${{ needs.confirm.result }}" != "success" ]; then
+              echo "::error::The flagged benchmarks were not measured again; see the confirm job."
+              exit 1
+            fi
+            if [ "${{ needs.confirm.outputs.regression }}" = "1" ]; then
+              echo "::error::A slowdown benchstat finds significant is past its line — see the confirm job's summary."
+              exit 1
+            fi
           fi
           echo "No benchmark regression."
 
   # Sends the run's alert from a job of its own, which holds the Telegram secrets and nothing else.
   alert:
     name: Alert if the run did not finish
-    needs: [publish]
+    needs: [publish, confirm]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -296,24 +410,33 @@ jobs:
       - uses: ./.github/actions/setup-pinned-tools
 
       - name: Send Telegram alert
-        # Says which of the three the publish job met. A refused send fails this job alone, so the
+        # Says which of the three the night met. A refused send fails this job alone, so the
         # verdict the gate reads stays the run's.
         if: always() && needs.publish.result != 'skipped'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
           FINDING: ${{ needs.publish.outputs.regression }}
+          CONFIRMED: ${{ needs.confirm.outputs.regression }}
           ALERT_TEXT: ${{ needs.publish.outputs.alert_text }}
+          CONFIRMED_TEXT: ${{ needs.confirm.outputs.alert_text }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           JOB_STATUS: ${{ needs.publish.result }}
+          FLAGGED: ${{ needs.publish.outputs.flagged }}
+          CONFIRM_STATUS: ${{ needs.confirm.result }}
         run: |
           set -euo pipefail
-          if [ "$JOB_STATUS" = "success" ] && [ "${FINDING:-0}" != "1" ]; then
+          # A flagged night is finished only once its re-run is.
+          if [ "$JOB_STATUS" = "success" ] && [ "${FLAGGED:-0}" = "1" ] && [ "$CONFIRM_STATUS" != "success" ]; then
+            JOB_STATUS="re-run $CONFIRM_STATUS"
+          fi
+          if [ "$JOB_STATUS" = "success" ] && [ "${FINDING:-0}" != "1" ] && [ "${CONFIRMED:-0}" != "1" ]; then
             echo "No alert sent: the run finished and found nothing."
             exit 0
           fi
-          if [ "${FINDING:-0}" = "1" ]; then
-            MSG="$(printf '%s\n\nRun: %s\nTrend: Grafana dashboard "Benchmark Trends" (opengate-benchmark-trend)' "$ALERT_TEXT" "$RUN_URL")"
+          if [ "${FINDING:-0}" = "1" ] || [ "${CONFIRMED:-0}" = "1" ]; then
+            MSG="$(printf '%s\n%s\n\nRun: %s\nTrend: Grafana dashboard "Benchmark Trends" (opengate-benchmark-trend)' \
+              "$ALERT_TEXT" "$CONFIRMED_TEXT" "$RUN_URL")"
           else
             MSG="$(printf 'Benchmark trend: the night did not finish (%s), so nothing was measured.\n\nRun: %s' \
               "$JOB_STATUS" "$RUN_URL")"

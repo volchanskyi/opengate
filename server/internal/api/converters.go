@@ -49,6 +49,11 @@ func deviceToAPI(d *device.Device) Device {
 		}
 	}
 	dev.Amt = deviceAMTToAPI(d.AMT)
+	if d.IdentitySharedAt != nil {
+		dev.IdentitySharedAt = d.IdentitySharedAt
+		addresses := d.IdentitySharedAddresses
+		dev.IdentitySharedAddresses = &addresses
+	}
 	if d.Session != nil {
 		dev.Session = &SessionHolder{
 			HolderId:   d.Session.HolderID,

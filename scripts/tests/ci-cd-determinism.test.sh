@@ -192,10 +192,14 @@ provided_env_of() {
     | grep -oE '[A-Z][A-Z0-9_]*' | sort -u
 }
 
-# Basenames survive being spelled through $SCRIPT_DIR or $ROOT.
+# Basenames survive being spelled through $SCRIPT_DIR or $ROOT. A line that only prints a path,
+# continuations joined, lists it as data and calls nothing.
 scripts_run_by() {
   local body
-  body="$(grep -vE '^[[:space:]]*#' "$1" || true)"
+  body="$(grep -vE '^[[:space:]]*#' "$1" | awk '
+    { buf = buf $0; if ($0 ~ /\\$/) { sub(/\\$/, "", buf); next } print buf; buf = "" }
+    END { if (buf != "") print buf }
+  ' | grep -vE '^[[:space:]]*(printf|echo)([[:space:]]|$)' || true)"
   grep -oE '[a-z0-9][a-z0-9-]*\.sh' <<<"$body" | sort -u || true
 }
 
@@ -249,6 +253,14 @@ cat >"$env_demo/wrapper.sh" <<'DEMO'
 set -euo pipefail
 "$ROOT/scripts/inner.sh" one two
 DEMO
+cat >"$env_demo/lister.sh" <<'DEMO'
+#!/usr/bin/env bash
+listed() {
+  printf '%s\n' \
+    scripts/inner.sh \
+    deploy/other.sh
+}
+DEMO
 cat >"$env_demo/flow.yml" <<'DEMO'
 name: demo
 env:
@@ -283,6 +295,18 @@ if [ -z "$(required_env_of "$env_demo/wrapper.sh")" ]; then
   pass "a wrapper requires nothing of its own, so the named file answers nothing"
 else
   fail "the wrapper direction no longer reproduces"
+fi
+
+if grep -qF 'inner.sh' <"$env_demo/lister.sh"; then
+  pass "a printed list of paths names the scripts it lists"
+else
+  fail "the printed-list direction no longer reproduces"
+fi
+if [ -z "$(scripts_run_by "$env_demo/lister.sh")" ] \
+  && grep -qxF 'inner.sh' <<<"$(scripts_run_by "$env_demo/wrapper.sh")"; then
+  pass "and this sweep reads them as data, while a script that runs one still calls it"
+else
+  fail "this sweep reads a printed path as a call, or misses a script that runs one"
 fi
 
 demo_scope_pooled="$(workflow_env_of "$env_demo/flow.yml")

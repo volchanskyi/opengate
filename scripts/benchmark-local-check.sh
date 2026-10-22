@@ -34,7 +34,7 @@ usage() {
 
 # Holds one Go benchmark output to the baseline; a benchmark CI has not measured is named, not held.
 check_go() {
-  local output="$1" tsv rows baseline compared absent regressions
+  local output="$1" tsv rows baseline compared absent regressions line
   [ -f "$output" ] || {
     echo "no such benchmark output: $output" >&2
     return 2
@@ -61,10 +61,13 @@ check_go() {
   printf 'compared %s Go benchmarks with the CI baseline at %s processors\n' "$compared" "$BENCH_CPUS"
   [ -z "$absent" ] || printf 'not in the CI baseline yet: %s\n' "$absent"
 
-  regressions="$(hard_regressions "$rows" "$baseline")"
+  # The workstation reads no nights, so a row with no committed numbers is named and not held.
+  local limits
+  limits="$(benchmark_limits "$rows" "$baseline" '[]' '[]' '[]')" || return 2
+  regressions="$(hard_regressions "$limits")" || return 2
   [ -n "$regressions" ] || return 0
-  while IFS=$'\t' read -r _ name metric old new tolerance; do
-    printf '  FAIL %s %s: %s → %s (>%s%% tolerance)\n' "$name" "$metric" "$old" "$new" "$tolerance"
+  while IFS= read -r line; do
+    printf '  FAIL %s\n' "${line#  • go/}"
   done <<<"$regressions"
   return 1
 }

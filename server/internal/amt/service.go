@@ -40,13 +40,13 @@ func (s *Service) PowerAction(ctx context.Context, amtUUID uuid.UUID, state int)
 	if conn == nil {
 		return ErrDeviceNotConnected
 	}
-	client := wsman.NewClient(conn, s.username, s.password, s.logger)
+	client := wsman.NewClient(wsman.OverMPS(conn), s.username, s.password, s.logger)
 	return client.RequestPowerStateChange(ctx, wsman.PowerState(state))
 }
 
 // ProbeDetail returns the machine model and AMT firmware version read from conn over WSMAN.
 func (s *Service) ProbeDetail(ctx context.Context, conn *transport.Conn) (string, string, error) {
-	client := wsman.NewClient(conn, s.username, s.password, s.logger)
+	client := wsman.NewClient(wsman.OverMPS(conn), s.username, s.password, s.logger)
 	info, err := client.GetGeneralInfo(ctx)
 	if err != nil {
 		return "", "", err
@@ -60,7 +60,7 @@ func (s *Service) QueryDeviceInfo(ctx context.Context, amtUUID uuid.UUID) (*wsma
 	if conn == nil {
 		return nil, ErrDeviceNotConnected
 	}
-	client := wsman.NewClient(conn, s.username, s.password, s.logger)
+	client := wsman.NewClient(wsman.OverMPS(conn), s.username, s.password, s.logger)
 	return client.GetDeviceInfo(ctx)
 }
 

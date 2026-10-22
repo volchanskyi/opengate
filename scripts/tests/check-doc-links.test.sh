@@ -171,7 +171,7 @@ commands = [
     for hook in group.get("hooks", [])
 ]
 raise SystemExit(
-    0 if ".claude/hooks/pretooluse-doc-link-check.sh" in commands else 1
+    0 if '"$CLAUDE_PROJECT_DIR"/.claude/hooks/pretooluse-doc-link-check.sh' in commands else 1
 )
 PY
   pass "settings register doc-link hook"

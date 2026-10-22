@@ -68,7 +68,6 @@ describe('Permissions', () => {
     });
     useAuthStore.setState({
       user: fakeAdmin,
-      token: 'test-token',
     });
   });
 

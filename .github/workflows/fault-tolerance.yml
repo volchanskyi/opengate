@@ -13,11 +13,11 @@ on:
     secrets:
       OCI_TENANCY_OCID:
         required: true
-      OCI_USER_OCID:
+      OCI_WORKFLOW_USER_OCID:
         required: true
-      OCI_FINGERPRINT:
+      OCI_WORKFLOW_FINGERPRINT:
         required: true
-      OCI_PRIVATE_KEY:
+      OCI_WORKFLOW_PRIVATE_KEY:
         required: true
       OCI_REGION:
         required: true
@@ -31,6 +31,10 @@ concurrency:
 
 permissions:
   contents: read
+
+env:
+  # Helm keeps release records in configmaps, which the workflows' login may read.
+  HELM_DRIVER: configmap
 
 jobs:
   drill:
@@ -67,9 +71,9 @@ jobs:
         uses: ./.github/actions/oci-kube-setup
         with:
           oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
-          oci-user: ${{ secrets.OCI_USER_OCID }}
-          oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
-          oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
+          oci-user: ${{ secrets.OCI_WORKFLOW_USER_OCID }}
+          oci-fingerprint: ${{ secrets.OCI_WORKFLOW_FINGERPRINT }}
+          oci-private-key: ${{ secrets.OCI_WORKFLOW_PRIVATE_KEY }}
           oci-region: ${{ secrets.OCI_REGION }}
           cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
 

@@ -44,7 +44,7 @@ Multi-stage build in the repository root (`/Dockerfile`):
 | Stage | Base image | Purpose |
 |---|---|---|
 | `web-build` | `node:24-alpine` | Install npm dependencies, build React SPA (`npm run build`) |
-| `server-build` | `golang:1.26-alpine` | Download Go modules, compile `meshserver` binary (`CGO_ENABLED=0`) |
+| `server-build` | `golang:1.26-alpine` | Download Go modules, compile the `meshserver` and `opengate-authority` binaries (`CGO_ENABLED=0`) |
 | Final | `alpine:3.20` | Minimal runtime with the binary and web assets |
 
 The Go binary uses `jackc/pgx/v5` (pure Go), so `CGO_ENABLED=0` produces a fully static binary.
@@ -52,8 +52,9 @@ The Go binary uses `jackc/pgx/v5` (pure Go), so `CGO_ENABLED=0` produces a fully
 ### What the image holds
 
 ```
-/usr/local/bin/meshserver    # Go server binary
-/srv/web/                    # Built web assets (React SPA)
+/usr/local/bin/meshserver          # Go server binary
+/usr/local/bin/opengate-authority  # Master-key tool, run as an in-cluster job and as the server's start-up step
+/srv/web/                          # Built web assets (React SPA)
 ```
 
 ### Runtime configuration
@@ -82,7 +83,7 @@ meshserver -listen :8080 -internal-listen :8081 -quic-listen :9090 -mps-listen :
 ```
 
 **Volumes:**
-- `/data` — persistent storage for the self-signed CA (`ca.crt`, `ca.key`) and VAPID Web Push keys (`vapid.json`). Auto-created on first startup. The database itself lives in the separate `postgres-data` volume owned by the `postgres` service (see [Database](../architecture/Database.md)).
+- `/data` — the master keys' role files under `authority/` and the VAPID Web Push keys (`vapid.json`), created on first startup unless `-ca-must-exist` is set; the cluster fills `authority/` from its own secret instead ([Kubernetes](./Kubernetes.md#the-master-key)). The database itself lives in the separate `postgres-data` volume owned by the `postgres` service (see [Database](../architecture/Database.md)).
 
 ### Running locally
 

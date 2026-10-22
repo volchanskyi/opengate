@@ -111,6 +111,7 @@ exit 64
 EOF
   cat >"$bin_dir/kubectl" <<'EOF'
 #!/usr/bin/env bash
+printf '%s\n' "$*" >"$KUBECTL_TRACE"
 exit "${KUBECTL_STATUS:-0}"
 EOF
   cat >"$bin_dir/curl" <<'EOF'
@@ -123,16 +124,18 @@ EOF
     HOME="$home_dir" \
       PATH="$bin_dir:$PATH" \
       OCI_TRACE="$trace" \
+      KUBECTL_TRACE="$trace.kubectl" \
       CLUSTER_ID="ocid1.cluster.oc1.test" \
       OCI_REGION="us-sanjose-1" \
       "$SETUP" fetch-kubeconfig
   )" \
     && grep -qF "kubeconfig ready" <<<"$output" \
+    && grep -qxF "auth whoami" "$trace.kubectl" \
     && grep -qF -- "--cluster-id ocid1.cluster.oc1.test" "$trace" \
     && [ "$(stat -c %a "$home_dir/.kube/config")" = "600" ]; then
-    pass "fetch-kubeconfig forwards OCI inputs and protects output"
+    pass "fetch-kubeconfig forwards OCI inputs, protects output, and proves the sign-in any login may"
   else
-    fail "fetch-kubeconfig forwards OCI inputs and protects output"
+    fail "fetch-kubeconfig forwards OCI inputs, protects output, and proves the sign-in any login may"
   fi
 
   # shellcheck source=../lib/tool-versions.sh

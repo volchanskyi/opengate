@@ -12,6 +12,10 @@ import { FileManagerView } from '../file-manager';
 import { MessengerView } from '../messenger';
 import { fireAndForget } from '../../lib/fire-and-forget';
 import { announceSessionTab, sessionTabName, watchSignIn } from './session-tab';
+import { identityOf, noteRequest } from '../../lib/console-session';
+
+/** How often an open live session counts as activity, matching the server's renewal. */
+const LIVE_SESSION_ACTIVITY_MS = 60_000;
 import { holderLine } from './holder';
 
 const ALL_TABS = ['Desktop', 'Terminal', 'Files', 'Chat'] as const;
@@ -86,15 +90,14 @@ export function SessionView() {
     };
   }, [id]);
 
-  // The sign-in is read when the session opens, so a renewed token keeps the session it opened.
+  // The console's session cookie opens the relay, so only a signed-in console connects.
   useEffect(() => {
     let current = true;
     fireAndForget(
       startSession(id).then((result) => {
-        const signedIn = useAuthStore.getState().token;
-        if (!current || !signedIn) return;
+        if (!current || !useAuthStore.getState().user) return;
         if (result.kind === 'opened') {
-          connect(result.token, result.relayUrl, signedIn, result.helpers);
+          connect(result.token, result.relayUrl, result.helpers);
           setPhase({ kind: 'open' });
         } else {
           setPhase(result);
@@ -113,15 +116,22 @@ export function SessionView() {
 
   useEffect(() => (open ? announceSessionTab(id) : undefined), [open, id]);
 
-  // The watch holds the sign-in the session opened under; another account or none ends it.
+  // The watch holds the account the session opened under; another account or none ends it.
   useEffect(() => {
-    const signedIn = useAuthStore.getState().token;
-    if (!open || !signedIn) return undefined;
-    return watchSignIn(signedIn, () => {
+    const { user, tenantId } = useAuthStore.getState();
+    if (!open || !user || !tenantId) return undefined;
+    return watchSignIn(identityOf(user.id, tenantId), () => {
       disconnect();
       setPhase({ kind: 'ended', reason: 'Signed out' });
     });
   }, [open, disconnect]);
+
+  // An open session keeps the server's idle clock running, so the console's own clock follows it.
+  useEffect(() => {
+    if (!open) return undefined;
+    const timer = setInterval(() => noteRequest(), LIVE_SESSION_ACTIVITY_MS);
+    return () => clearInterval(timer);
+  }, [open]);
 
   const handleDisconnect = () => {
     disconnect();

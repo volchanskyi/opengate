@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,7 +29,6 @@ func TestEnrollmentProducesACertificateWithoutHoldingTheAuthorityKey(t *testing.
 	issued, err := EnrollAgent(ctx, EnrollOptions{
 		BaseURL:         server.URL,
 		EnrollmentToken: "enroll-token",
-		DeviceID:        "11111111-1111-1111-1111-111111111111",
 	})
 	require.NoError(t, err)
 
@@ -38,8 +38,8 @@ func TestEnrollmentProducesACertificateWithoutHoldingTheAuthorityKey(t *testing.
 
 	leaf, err := x509.ParseCertificate(issued.Certificate.Certificate[0])
 	require.NoError(t, err)
-	assert.Equal(t, "11111111-1111-1111-1111-111111111111", leaf.Subject.CommonName,
-		"the issued certificate names the device that asked for it")
+	assert.Equal(t, issued.DeviceID, leaf.Subject.CommonName,
+		"the issued certificate carries the number the server chose")
 }
 
 func TestOnlyTheSigningRequestLeavesTheHarness(t *testing.T) {
@@ -49,7 +49,6 @@ func TestOnlyTheSigningRequestLeavesTheHarness(t *testing.T) {
 	_, err := EnrollAgent(context.Background(), EnrollOptions{
 		BaseURL:         server.URL,
 		EnrollmentToken: "enroll-token",
-		DeviceID:        "22222222-2222-2222-2222-222222222222",
 	})
 	require.NoError(t, err)
 
@@ -61,7 +60,6 @@ func TestEnrollmentRefusesADisallowedTarget(t *testing.T) {
 	_, err := EnrollAgent(context.Background(), EnrollOptions{
 		BaseURL:         "http://opengate-server.opengate.svc.cluster.local:8080",
 		EnrollmentToken: "enroll-token",
-		DeviceID:        "33333333-3333-3333-3333-333333333333",
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not an allowed load-test target")
@@ -77,7 +75,6 @@ func TestEnrollmentNamesAServerThatRefused(t *testing.T) {
 	_, err := EnrollAgent(context.Background(), EnrollOptions{
 		BaseURL:         server.URL,
 		EnrollmentToken: "spent",
-		DeviceID:        "44444444-4444-4444-4444-444444444444",
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "410")
@@ -92,7 +89,6 @@ func TestEnrollmentRefusesAResponseWithNoCertificate(t *testing.T) {
 	_, err := EnrollAgent(context.Background(), EnrollOptions{
 		BaseURL:         server.URL,
 		EnrollmentToken: "enroll-token",
-		DeviceID:        "55555555-5555-5555-5555-555555555555",
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "certificate")
@@ -100,8 +96,7 @@ func TestEnrollmentRefusesAResponseWithNoCertificate(t *testing.T) {
 
 func TestEnrollmentRefusesAnEmptyToken(t *testing.T) {
 	_, err := EnrollAgent(context.Background(), EnrollOptions{
-		BaseURL:  "http://localhost:8080",
-		DeviceID: "66666666-6666-6666-6666-666666666666",
+		BaseURL: "http://localhost:8080",
 	})
 	require.Error(t, err)
 }
@@ -147,9 +142,11 @@ func enrollmentServerWithInspect(t *testing.T, inspect func(string)) *httptest.S
 		require.NoError(t, err)
 		require.NoError(t, csr.CheckSignature())
 
+		// The server chooses the number, as the product does, whatever the request names.
+		deviceID := uuid.NewString()
 		leaf := &x509.Certificate{
 			SerialNumber: big.NewInt(2),
-			Subject:      csr.Subject,
+			Subject:      pkix.Name{CommonName: deviceID},
 			NotBefore:    time.Now().Add(-time.Minute),
 			NotAfter:     time.Now().Add(time.Hour),
 			KeyUsage:     x509.KeyUsageDigitalSignature,
@@ -163,6 +160,7 @@ func enrollmentServerWithInspect(t *testing.T, inspect func(string)) *httptest.S
 			"ca_pem":        string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})),
 			"server_addr":   "opengate-staging-server:9090",
 			"server_domain": "opengate-staging-server",
+			"device_id":     deviceID,
 		})
 	}))
 	t.Cleanup(server.Close)

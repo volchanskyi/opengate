@@ -11,8 +11,6 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
-	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"sync"
@@ -25,6 +23,7 @@ import (
 
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
+	"github.com/volchanskyi/opengate/server/internal/testutil/machinecert"
 )
 
 // Machine is one enrolled endpoint holding a control stream, with an identity obtained from
@@ -33,14 +32,21 @@ type Machine struct {
 	t       *testing.T
 	product *Product
 
-	// DeviceID is the identity the certificate carries.
+	// DeviceID is the number the server chose, which the certificate carries.
 	DeviceID uuid.UUID
 	// Hostname is the name shown in the device list.
 	Hostname string
+	// identity is the certificate and key the machine keeps across reconnects.
+	identity *tls.Certificate
+	// capabilities is what the machine registers with.
+	capabilities []protocol.AgentCapability
 
 	conn   *quic.Conn
 	stream *quic.Stream
 	codec  *protocol.Codec
+
+	// writeMu keeps a pong and a sent message from interleaving on the stream.
+	writeMu sync.Mutex
 
 	// inbox holds the messages the product pushed; a single reader owns the stream.
 	mu      sync.Mutex
@@ -50,29 +56,20 @@ type Machine struct {
 
 // enrolReply is what the public enrolment endpoint answers with.
 type enrolReply struct {
-	CaPem      string `json:"ca_pem"`
-	CertPem    string `json:"cert_pem"`
-	ServerAddr string `json:"server_addr"`
+	CaPem      string    `json:"ca_pem"`
+	CertPem    string    `json:"cert_pem"`
+	DeviceID   uuid.UUID `json:"device_id"`
+	ServerAddr string    `json:"server_addr"`
 }
 
-// Machine enrols a new machine with the given enrolment token and connects it.
+// Machine enrols a new machine with the given enrolment token and connects it; the server
+// chooses its number.
 func (p *Product) Machine(enrolmentToken, hostname string, capabilities ...protocol.AgentCapability) *Machine {
-	p.t.Helper()
-	return p.MachineWithIdentity(enrolmentToken, uuid.New(), hostname, capabilities...)
-}
-
-// MachineWithIdentity enrols a machine under an existing device identity with a fresh certificate.
-func (p *Product) MachineWithIdentity(
-	enrolmentToken string, deviceID uuid.UUID, hostname string, capabilities ...protocol.AgentCapability,
-) *Machine {
 	p.t.Helper()
 
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(p.t, err)
-
-	csrDER, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{
-		Subject: pkix.Name{CommonName: deviceID.String()},
-	}, key)
+	csrDER, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{}, key)
 	require.NoError(p.t, err)
 	csrPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER})
 
@@ -81,17 +78,42 @@ func (p *Product) MachineWithIdentity(
 
 	certBlock, _ := pem.Decode([]byte(reply.CertPem))
 	require.NotNil(p.t, certBlock)
+	leaf, err := x509.ParseCertificate(certBlock.Bytes)
+	require.NoError(p.t, err)
+	require.Equal(p.t, reply.DeviceID.String(), leaf.Subject.CommonName,
+		"the reply names the number its certificate carries")
 
 	machine := &Machine{
-		t:        p.t,
-		product:  p,
-		DeviceID: deviceID,
-		Hostname: hostname,
-		codec:    &protocol.Codec{},
+		t:            p.t,
+		product:      p,
+		DeviceID:     reply.DeviceID,
+		Hostname:     hostname,
+		identity:     &tls.Certificate{Certificate: [][]byte{certBlock.Bytes}, PrivateKey: key},
+		capabilities: capabilities,
+		codec:        &protocol.Codec{},
 	}
-	machine.connect(&tls.Certificate{Certificate: [][]byte{certBlock.Bytes}, PrivateKey: key})
+	machine.connect(machine.identity)
 	machine.register(capabilities)
 	return machine
+}
+
+// Reconnect drops this connection and connects again with the certificate the machine kept, as
+// an agent does after a restart, and registers.
+func (m *Machine) Reconnect() *Machine {
+	m.t.Helper()
+	_ = m.conn.CloseWithError(0, "restarting")
+	again := &Machine{
+		t:            m.t,
+		product:      m.product,
+		DeviceID:     m.DeviceID,
+		Hostname:     m.Hostname,
+		identity:     m.identity,
+		capabilities: m.capabilities,
+		codec:        &protocol.Codec{},
+	}
+	again.connect(again.identity)
+	again.register(again.capabilities)
+	return again
 }
 
 // enrol posts a certificate request to the public enrolment endpoint and requires success.
@@ -150,7 +172,7 @@ func (m *Machine) connect(identity *tls.Certificate) {
 	m.t.Helper()
 
 	conn, err := quic.DialAddr(m.t.Context(), m.product.QUICAddr,
-		m.product.assembly.Cert.AgentTLSConfig(identity),
+		m.product.machineTLS(identity),
 		&quic.Config{MaxIdleTimeout: 30 * time.Second})
 	require.NoError(m.t, err)
 	m.t.Cleanup(func() { _ = conn.CloseWithError(0, "test done") })
@@ -204,6 +226,13 @@ func (m *Machine) readLoop() {
 			m.mu.Unlock()
 			return
 		}
+		if frameType == protocol.FramePing {
+			// A live agent answers the server's ping, which tells a reconnect from a second machine.
+			m.writeMu.Lock()
+			_ = m.codec.WriteFrame(m.stream, protocol.FramePong, nil)
+			m.writeMu.Unlock()
+			continue
+		}
 		if frameType != protocol.FrameControl {
 			continue
 		}
@@ -225,6 +254,8 @@ func (m *Machine) Send(msg *protocol.ControlMessage) {
 	m.t.Helper()
 	payload, err := m.codec.EncodeControl(msg)
 	require.NoError(m.t, err)
+	m.writeMu.Lock()
+	defer m.writeMu.Unlock()
 	require.NoError(m.t, m.codec.WriteFrame(m.stream, protocol.FrameControl, payload))
 }
 
@@ -274,75 +305,110 @@ func (m *Machine) AwaitOnline() {
 	}, eventually, poll, "the machine must appear online once it has registered")
 }
 
-// tryReconnect repeats enrolment, dial, greeting and registration for an existing machine and
-// returns the first refusal.
-func (p *Product) tryReconnect(machine *Machine, enrolmentToken string) error {
-	p.t.Helper()
-
+// Renew answers the product's renewal offer as an agent does: a request from a new key, then the
+// install notice once the certificate arrives. The machine keeps the new certificate.
+func (m *Machine) Renew() {
+	m.t.Helper()
+	m.Await(protocol.MsgRenewCertificate)
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return err
-	}
-	csrDER, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{
-		Subject: pkix.Name{CommonName: machine.DeviceID.String()},
+	require.NoError(m.t, err)
+	csr, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{
+		Subject: pkix.Name{CommonName: m.DeviceID.String()},
 	}, key)
-	if err != nil {
-		return err
-	}
-	attempt := p.enrolWith(enrolmentToken, string(pem.EncodeToMemory(
-		&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER})))
-	if attempt.Status != http.StatusOK {
-		return fmt.Errorf("enrolment refused with %d", attempt.Status)
-	}
-	var reply enrolReply
-	if err := json.Unmarshal(attempt.Body, &reply); err != nil {
-		return err
-	}
-	certBlock, _ := pem.Decode([]byte(reply.CertPem))
-	if certBlock == nil {
-		return errors.New("enrolment signed nothing")
-	}
+	require.NoError(m.t, err)
+	m.Send(&protocol.ControlMessage{Type: protocol.MsgCertificateSigningRequest, CSR: csr})
+	issued := m.Await(protocol.MsgCertificateIssued)
+	m.Send(&protocol.ControlMessage{Type: protocol.MsgCertificateInstalled})
+	m.identity = &tls.Certificate{Certificate: [][]byte{issued.Cert}, PrivateKey: key}
+}
 
-	ctx, cancel := context.WithTimeout(p.t.Context(), 5*time.Second)
-	defer cancel()
-	conn, err := quic.DialAddr(ctx, p.QUICAddr,
-		p.assembly.Cert.AgentTLSConfig(&tls.Certificate{
-			Certificate: [][]byte{certBlock.Bytes}, PrivateKey: key,
-		}),
-		&quic.Config{MaxIdleTimeout: 5 * time.Second})
-	if err != nil {
-		return err
-	}
-	defer func() { _ = conn.CloseWithError(0, "reconnect attempt done") }()
+// machineTLS is the configuration a machine holding identity dials with, verifying the server
+// on the product's own clock.
+func (p *Product) machineTLS(identity *tls.Certificate) *tls.Config {
+	cfg := machinecert.ClientTLS(p.assembly.Cert, identity)
+	cfg.Time = p.clock.Now
+	return cfg
+}
 
-	stream, err := conn.OpenStreamSync(ctx)
-	if err != nil {
-		return err
-	}
-	certHash := sha512.Sum384(certBlock.Bytes)
-	var nonce [32]byte
-	if _, err := rand.Read(nonce[:]); err != nil {
-		return err
-	}
-	if _, err := stream.Write(protocol.EncodeAgentHello(nonce, certHash)); err != nil {
-		return err
-	}
-	if err := stream.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
-		return err
-	}
-	hello := make([]byte, 81)
-	if _, err := io.ReadFull(stream, hello); err != nil {
-		return err
-	}
+// returning is a machine coming back with the certificate it kept: dialled, greeted and
+// registered, its pushed messages collected, and how the server closed it, if it did.
+type returning struct {
+	conn  *quic.Conn
+	inbox chan *protocol.ControlMessage
+}
 
+// returnWith connects as a machine holding identity, on the full or the quick path, and registers.
+func (p *Product) returnWith(identity *tls.Certificate, hostname string, quick bool) *returning {
+	p.t.Helper()
+	conn, err := quic.DialAddr(p.t.Context(), p.QUICAddr, p.machineTLS(identity),
+		&quic.Config{MaxIdleTimeout: 10 * time.Second})
+	require.NoError(p.t, err)
+	p.t.Cleanup(func() { _ = conn.CloseWithError(0, "test done") })
+	stream, err := conn.OpenStreamSync(p.t.Context())
+	require.NoError(p.t, err)
+	if quick {
+		_, err = stream.Write(protocol.EncodeSkipAuth(p.assembly.Cert.IssuerHash()))
+		require.NoError(p.t, err)
+	} else {
+		var nonce [32]byte
+		_, err = rand.Read(nonce[:])
+		require.NoError(p.t, err)
+		_, err = stream.Write(protocol.EncodeAgentHello(nonce, sha512.Sum384(identity.Certificate[0])))
+		require.NoError(p.t, err)
+		_, _ = io.ReadFull(stream, make([]byte, 81))
+	}
 	codec := &protocol.Codec{}
 	payload, err := codec.EncodeControl(&protocol.ControlMessage{
-		Type:         protocol.MsgAgentRegister,
-		Capabilities: []protocol.AgentCapability{protocol.CapTerminal},
-		Hostname:     machine.Hostname, OS: "linux", Arch: "amd64", Version: "1.0.0",
+		Type: protocol.MsgAgentRegister, Capabilities: []protocol.AgentCapability{protocol.CapTerminal},
+		Hostname: hostname, OS: "linux", Arch: "amd64", Version: "1.0.0",
 	})
-	if err != nil {
-		return err
+	require.NoError(p.t, err)
+	_ = codec.WriteFrame(stream, protocol.FrameControl, payload)
+
+	r := &returning{conn: conn, inbox: make(chan *protocol.ControlMessage, 32)}
+	go func() {
+		defer close(r.inbox)
+		for {
+			frameType, payload, err := codec.ReadFrame(stream)
+			if err != nil {
+				return
+			}
+			if frameType == protocol.FrameControl {
+				if msg, err := codec.DecodeControl(payload); err == nil {
+					r.inbox <- msg
+				}
+			}
+		}
+	}()
+	return r
+}
+
+// awaitMessage waits for a pushed message of the given type, failing if the connection ends first.
+func (r *returning) awaitMessage(t *testing.T, want protocol.ControlMessageType) *protocol.ControlMessage {
+	t.Helper()
+	deadline := time.After(eventually)
+	for {
+		select {
+		case msg, ok := <-r.inbox:
+			require.True(t, ok, "the connection ended before a %s arrived", want)
+			if msg.Type == want {
+				return msg
+			}
+		case <-deadline:
+			t.Fatalf("the product never sent a %s", want)
+		}
 	}
-	return codec.WriteFrame(stream, protocol.FrameControl, payload)
+}
+
+// closeCode waits for the server to end the connection and returns the code it closed with.
+func (r *returning) closeCode(t *testing.T) uint64 {
+	t.Helper()
+	select {
+	case <-r.conn.Context().Done():
+	case <-time.After(eventually + 5*time.Second):
+		t.Fatal("the product held the connection open")
+	}
+	var appErr *quic.ApplicationError
+	require.ErrorAs(t, context.Cause(r.conn.Context()), &appErr)
+	return uint64(appErr.ErrorCode)
 }

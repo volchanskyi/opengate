@@ -44,7 +44,7 @@ func TestRelay_Unregister_LeavesPipedSessionAlone(t *testing.T) {
 	require.NoError(t, agentLocal.WriteMessage([]byte("still piping")))
 	data, err := browserLocal.ReadMessage()
 	require.NoError(t, err)
-	assert.Equal(t, []byte("still piping"), data)
+	assert.Equal(t, []byte("still piping"), data.Bytes())
 
 	agentLocal.Close()
 	require.Eventually(t, func() bool {

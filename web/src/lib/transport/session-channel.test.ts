@@ -195,9 +195,9 @@ describe('SessionChannel', () => {
     it('carries the session on the relay and says this browser cannot go direct', () => {
       const ev = events();
       const channel = new SessionChannel(ev, []);
-      channel.connect('wss://edge.test/ws/relay/tok', 'jwt token');
+      channel.connect('wss://edge.test/ws/relay/tok');
       const relay = FakeSocket.last;
-      expect(relay.url).toBe('wss://edge.test/ws/relay/tok?side=browser&auth=jwt%20token');
+      expect(relay.url).toBe('wss://edge.test/ws/relay/tok?side=browser');
       relay.open();
 
       expect(ev.onOutcome).toHaveBeenCalledWith('unsupported');
@@ -212,7 +212,7 @@ describe('SessionChannel', () => {
 
     it('answers a ping with a pong', () => {
       const channel = new SessionChannel(events(), []);
-      channel.connect('wss://edge.test/ws/relay/tok', 'jwt');
+      channel.connect('wss://edge.test/ws/relay/tok');
       FakeSocket.last.open();
       FakeSocket.last.receive(buffer(encodeFrame({ type: FRAME_PING })));
       expect(texts(FakeSocket.last.sent)).toEqual([`type ${FRAME_PONG}`]);
@@ -220,7 +220,7 @@ describe('SessionChannel', () => {
 
     it('refuses an interactive frame past one piece and sends nothing', () => {
       const channel = new SessionChannel(events(), []);
-      channel.connect('wss://edge.test/ws/relay/tok', 'jwt');
+      channel.connect('wss://edge.test/ws/relay/tok');
       FakeSocket.last.open();
       expect(() =>
         channel.sendControl({ type: 'ChatMessage', text: 'x'.repeat(INTERACTIVE_FRAME_CAP), sender: 'tech' }),
@@ -230,7 +230,7 @@ describe('SessionChannel', () => {
 
     it('fits the largest encoding of every message the browser sends into one piece', () => {
       const channel = new SessionChannel(events(), []);
-      channel.connect('wss://edge.test/ws/relay/tok', 'jwt');
+      channel.connect('wss://edge.test/ws/relay/tok');
       FakeSocket.last.open();
       // Paths stop at Linux's PATH_MAX; key and mouse fields are bounded by their types.
       const path = 'p'.repeat(4096);
@@ -250,7 +250,7 @@ describe('SessionChannel', () => {
 
     it('splits a long paste into frames that each fit one piece, in order', () => {
       const channel = new SessionChannel(events(), []);
-      channel.connect('wss://edge.test/ws/relay/tok', 'jwt');
+      channel.connect('wss://edge.test/ws/relay/tok');
       FakeSocket.last.open();
       const paste = new Uint8Array(40_000).map((_, i) => 32 + (i % 90));
       channel.sendTerminalData(paste);
@@ -262,7 +262,7 @@ describe('SessionChannel', () => {
 
     it('holds frames while the relay socket has 64 KiB unsent', async () => {
       const channel = new SessionChannel(events(), []);
-      channel.connect('wss://edge.test/ws/relay/tok', 'jwt');
+      channel.connect('wss://edge.test/ws/relay/tok');
       const relay = FakeSocket.last;
       relay.open();
       relay.bufferedAmount = 64 * 1024;
@@ -276,7 +276,7 @@ describe('SessionChannel', () => {
     it('reports the relay closing with its reason', () => {
       const ev = events();
       const channel = new SessionChannel(ev, []);
-      channel.connect('wss://edge.test/ws/relay/tok', 'jwt');
+      channel.connect('wss://edge.test/ws/relay/tok');
       FakeSocket.last.open();
       FakeSocket.last.onclose?.({ code: 4000, reason: 'Ended by Carol' });
       expect(ev.onClosed).toHaveBeenCalledWith('Ended by Carol');
@@ -289,7 +289,7 @@ describe('SessionChannel', () => {
     ])('reports %s as a lost connection', (_name, opened) => {
       const ev = events();
       const channel = new SessionChannel(ev, []);
-      channel.connect('wss://edge.test/ws/relay/tok', 'jwt');
+      channel.connect('wss://edge.test/ws/relay/tok');
       if (opened) FakeSocket.last.open();
       FakeSocket.last.onclose?.({ code: 1006, reason: '' });
       expect(ev.onClosed).toHaveBeenCalledWith('Connection lost — reconnect');
@@ -303,7 +303,7 @@ describe('SessionChannel', () => {
 
     it('offers a link with the helpers the server named and trades candidates on the relay', async () => {
       const channel = new SessionChannel(events(), ['stun:quic.example.test:9090']);
-      channel.connect('wss://edge.test/ws/relay/tok', 'jwt');
+      channel.connect('wss://edge.test/ws/relay/tok');
       FakeSocket.last.open();
       await vi.advanceTimersByTimeAsync(1);
 
@@ -329,7 +329,7 @@ describe('SessionChannel', () => {
     it('moves the session onto the link once both sides have switched', async () => {
       const ev = events();
       const channel = new SessionChannel(ev, []);
-      channel.connect('wss://edge.test/ws/relay/tok', 'jwt');
+      channel.connect('wss://edge.test/ws/relay/tok');
       FakeSocket.last.open();
       const { link } = await goDirect(channel);
 
@@ -349,7 +349,7 @@ describe('SessionChannel', () => {
 
     it('feeds the link only while it holds under 64 KiB unsent', async () => {
       const channel = new SessionChannel(events(), []);
-      channel.connect('wss://edge.test/ws/relay/tok', 'jwt');
+      channel.connect('wss://edge.test/ws/relay/tok');
       FakeSocket.last.open();
       const { link } = await goDirect(channel);
       expect(link.bufferedAmountLowThreshold).toBe(64 * 1024);
@@ -365,7 +365,7 @@ describe('SessionChannel', () => {
     it('treats a short disconnection as passing and falls back after three seconds of it', async () => {
       const ev = events();
       const channel = new SessionChannel(ev, []);
-      channel.connect('wss://edge.test/ws/relay/tok', 'jwt');
+      channel.connect('wss://edge.test/ws/relay/tok');
       FakeSocket.last.open();
       const { peer } = await goDirect(channel);
 
@@ -386,7 +386,7 @@ describe('SessionChannel', () => {
     it('falls back at once when the link fails, and re-sends on the relay what the host did not take', async () => {
       const ev = events();
       const channel = new SessionChannel(ev, []);
-      channel.connect('wss://edge.test/ws/relay/tok', 'jwt');
+      channel.connect('wss://edge.test/ws/relay/tok');
       FakeSocket.last.open();
       const { peer } = await goDirect(channel);
       channel.sendTerminalData(terminal('rm -rf /tmp/b'));
@@ -404,7 +404,7 @@ describe('SessionChannel', () => {
     it('falls back when a send on the link fails', async () => {
       const ev = events();
       const channel = new SessionChannel(ev, []);
-      channel.connect('wss://edge.test/ws/relay/tok', 'jwt');
+      channel.connect('wss://edge.test/ws/relay/tok');
       FakeSocket.last.open();
       const { link } = await goDirect(channel);
       link.failSends = true;
@@ -415,7 +415,7 @@ describe('SessionChannel', () => {
     it('stays on the relay when no route forms within the attempt budget', async () => {
       const ev = events();
       const channel = new SessionChannel(ev, []);
-      channel.connect('wss://edge.test/ws/relay/tok', 'jwt');
+      channel.connect('wss://edge.test/ws/relay/tok');
       FakeSocket.last.open();
       await vi.advanceTimersByTimeAsync(8_000);
       expect(ev.onOutcome).toHaveBeenCalledWith('no_route');
@@ -426,7 +426,7 @@ describe('SessionChannel', () => {
     it('ends the session when the host never says what it received', async () => {
       const ev = events();
       const channel = new SessionChannel(ev, []);
-      channel.connect('wss://edge.test/ws/relay/tok', 'jwt');
+      channel.connect('wss://edge.test/ws/relay/tok');
       FakeSocket.last.open();
       const { peer } = await goDirect(channel);
       channel.sendTerminalData(terminal('pending'));
@@ -437,7 +437,7 @@ describe('SessionChannel', () => {
 
     it('closes its link when the session ends', async () => {
       const channel = new SessionChannel(events(), []);
-      channel.connect('wss://edge.test/ws/relay/tok', 'jwt');
+      channel.connect('wss://edge.test/ws/relay/tok');
       FakeSocket.last.open();
       const { peer, link } = await goDirect(channel);
       channel.disconnect();

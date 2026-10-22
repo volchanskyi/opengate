@@ -644,6 +644,37 @@ else
   fail "a refused close does not fail the release"
 fi
 
+# The load test takes the claim with the quiet period deferred, and opens it once its harness has
+# found room, so a server busy for a reason of its own still raises its alerts.
+rm -f "$STATE" "$FAKE_SILENCES"
+: >"$FAKE_QUIET_CALLS"
+STAGING_LEASE_QUIET=later TTL_OVERRIDE=8 RENEW_OVERRIDE=1 run_lease_renewing acquire cd-q4 >/dev/null 2>&1 || true
+assert_eq "a claim taken with the quiet period deferred opens none" "0" "$(quiet_calls POST cd-q4)"
+sleep 3
+assert_eq "and its renewals extend none while it is deferred" "0" "$(quiet_calls POST cd-q4)"
+assert_eq "while the claim itself is held" "cd-q4" "$(holder_now)"
+
+run_lease_renewing quiet-open cd-q4 >/dev/null 2>&1 || true
+assert_eq "quiet-open opens the deferred quiet period" "1" "$(quiet_calls POST cd-q4)"
+extended_after_open() { [ "$(quiet_calls POST cd-q4)" -ge 2 ]; }
+if wait_until extended_after_open; then
+  pass "once open, each renewal extends it"
+else
+  fail "once open, each renewal extends it (posts=$(quiet_calls POST cd-q4))"
+fi
+run_lease_renewing release cd-q4 >/dev/null 2>&1 || true
+assert_eq "releasing the claim ends the quiet period it opened late" "1" "$(quiet_calls DELETE cd-q4)"
+
+rm -f "$STATE" "$FAKE_SILENCES"
+: >"$FAKE_QUIET_CALLS"
+run_lease_renewing acquire cd-q5 >/dev/null 2>&1 || true
+if out="$(run_lease_renewing quiet-open someone-else 2>&1)"; then
+  fail "quiet-open refuses a holder that does not hold the claim (got=[$out])"
+else
+  assert_eq "quiet-open refuses a holder that does not hold the claim" "0" "$(quiet_calls POST someone-else)"
+fi
+run_lease_renewing release cd-q5 >/dev/null 2>&1 || true
+
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then
   printf 'Failures:\n' >&2

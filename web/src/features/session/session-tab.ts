@@ -1,3 +1,5 @@
+import { SIGNED_IN_KEY } from '../../lib/console-session';
+
 /** Where this browser keeps a host's presence mark, per host. */
 const PRESENCE_PREFIX = 'opengate-session-tab:';
 
@@ -5,8 +7,6 @@ const PRESENCE_PREFIX = 'opengate-session-tab:';
 const HEARTBEAT_MS = 2_000;
 const STALE_MS = 5_000;
 
-/** The storage key the sign-in lives under. */
-const SIGN_IN_KEY = 'token';
 
 /** The window name a host's session tab carries, so any page of this browser can reach it. */
 export function sessionTabName(deviceId: string): string {
@@ -73,38 +73,23 @@ export function holdsSessionTab(deviceId: string): boolean {
   }
 }
 
-/** The account and tenant a sign-in names, or null for one that does not read. */
-function identityOf(token: string | null): string | null {
-  const payload = token?.split('.')[1];
-  if (!payload) return null;
-  try {
-    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
-    const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), '=');
-    const claims = JSON.parse(atob(padded)) as { uid?: unknown; tenant?: unknown };
-    return typeof claims.uid === 'string' && typeof claims.tenant === 'string' ? `${claims.uid}/${claims.tenant}` : null;
-  } catch {
-    return null;
-  }
-}
-
-/** This browser's stored sign-in, or the given one when storage cannot be read. */
+/** The account this browser is signed in as, or the given one when storage cannot be read. */
 function storedSignIn(fallback: string): string | null {
   try {
-    return localStorage.getItem(SIGN_IN_KEY);
+    return localStorage.getItem(SIGNED_IN_KEY);
   } catch {
     return fallback;
   }
 }
 
 /**
- * Calls onSignedOut when this browser's sign-in, as stored now or later in any tab, is gone or names
- * another account or tenant; a renewed sign-in of the same account changes nothing.
+ * Calls onSignedOut when the account this browser is signed in as, now or later in any tab, is gone
+ * or another account or tenant; `current` is the identity the session opened under.
  */
 export function watchSignIn(current: string, onSignedOut: () => void): () => void {
-  const who = identityOf(current);
-  const changed = (next: string | null) => who === null || identityOf(next) !== who;
+  const changed = (next: string | null) => next !== current;
   const listener = (event: StorageEvent) => {
-    if (event.key !== SIGN_IN_KEY && event.key !== null) return;
+    if (event.key !== SIGNED_IN_KEY && event.key !== null) return;
     if (changed(event.key === null ? storedSignIn(current) : event.newValue)) onSignedOut();
   };
   window.addEventListener('storage', listener);

@@ -842,6 +842,47 @@ pub enum ControlMessage {
         evidence: Vec<u8>,
     },
 
+    /// Server → Agent: asks for a certificate request under a new key; `reason` names why, e.g.
+    /// `"due"` or `"authority-change"`.
+    RenewCertificate {
+        #[serde(default)]
+        reason: String,
+    },
+
+    /// Agent → Server: a DER PKCS#10 request naming the agent's own device number.
+    CertificateSigningRequest {
+        #[serde(default, with = "serde_bytes")]
+        csr: Vec<u8>,
+    },
+
+    /// Server → Agent: the issued DER certificate and the PEM trust bundle that verifies the
+    /// server.
+    CertificateIssued {
+        #[serde(default, with = "serde_bytes")]
+        cert: Vec<u8>,
+        #[serde(default)]
+        ca_bundle: String,
+    },
+
+    /// Server → Agent: a refused request; `retry_after` is the wait in seconds before the next
+    /// one, zero meaning the next offer.
+    CertificateRefused {
+        #[serde(default)]
+        reason: String,
+        #[serde(default)]
+        retry_after: u32,
+    },
+
+    /// Agent → Server: the issued certificate is saved and in use.
+    CertificateInstalled,
+
+    /// Server → Agent: the master keys to trust, sent once the server has accepted the agent's
+    /// identity, which makes it the agent's acknowledgement.
+    TrustBundle {
+        #[serde(default)]
+        ca_bundle: String,
+    },
+
     /// Unknown future control message. Agents ignore this and keep the
     /// control stream alive; malformed frames still fail before this point.
     #[serde(other)]

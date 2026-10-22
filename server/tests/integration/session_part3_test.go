@@ -23,6 +23,7 @@ func (e *sessionTestEnv) connectAgent(t *testing.T, siteID uuid.UUID) (io.ReadWr
 		store:   e.store,
 		devices: e.devices,
 		certMgr: e.certMgr,
+		issuer:  e.issuer,
 		srv:     e.agentSrv,
 		addr:    e.agentAddr,
 	}

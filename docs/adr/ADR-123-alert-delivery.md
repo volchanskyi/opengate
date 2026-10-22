@@ -110,8 +110,11 @@ applier defaults nothing: a step inherits its job's environment, the production
 deploy job's `NAMESPACE` names the application's namespace, and an applier
 reading it writes the ConfigMaps where no Grafana and no store run. The chart
 those ConfigMaps belong beside follows the same way: the production deploy
-upgrades the monitoring release from it every time, so a permission or argument
-the chart gains is not left waiting on a hand install.
+upgrades the monitoring release from it every time, so an argument the chart
+gains is not left waiting on a hand install. Its cluster-wide roles are the one
+part the routine release leaves out (`clusterRBAC.create`): the approval-gated
+`cluster` job applies them whenever a commit changes them
+([ADR-128](./ADR-128-machine-identity-lifecycle.md)).
 
 **What a process loaded is asked of the process.** A ConfigMap is what a process
 was given: a scrape relabel sat in its ConfigMap for two days while the running

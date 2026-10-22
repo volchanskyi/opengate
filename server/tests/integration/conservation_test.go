@@ -108,7 +108,13 @@ func (e *sessionTestEnv) settle(t *testing.T) (goroutines int, heapBytes uint64)
 	t.Helper()
 	require.Eventually(t, func() bool { return e.relay.ActiveSessionCount() == 0 },
 		20*time.Second, 20*time.Millisecond, "the relay must book out every finished session")
+	return settleProcess(t)
+}
 
+// settleProcess waits for the goroutine count to stop falling, then reads goroutines and the
+// heap that survives two collections.
+func settleProcess(t *testing.T) (goroutines int, heapBytes uint64) {
+	t.Helper()
 	last := runtime.NumGoroutine()
 	stable := 0
 	for i := 0; i < 200; i++ {

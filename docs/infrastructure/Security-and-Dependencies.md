@@ -9,6 +9,7 @@
 - [Supply chain](#supply-chain)
 - [API hardening](#api-hardening)
   - [Access control](#access-control)
+  - [Console sign-in](#console-sign-in)
   - [Tenant isolation](#tenant-isolation)
   - [Rate limiting](#rate-limiting)
   - [Request timeout](#request-timeout)
@@ -18,6 +19,7 @@
 - [Tokens in logs](#tokens-in-logs)
 - [Certificates](#certificates)
   - [Agent certificates](#agent-certificates)
+  - [Who can read the master key](#who-can-read-the-master-key)
 - [Main dependencies](#main-dependencies)
   - [Server (Go)](#server-go)
   - [Agent (Rust)](#agent-rust)
@@ -162,10 +164,22 @@ Admins keep cross-tenant reads. The dashboard summary is the one
 deliberate exception: it always describes the caller's own tenant, so its
 tiles and health bands cover a single device set.
 
+### Console sign-in
+
+The console's sign-in is a server-side session in an `HttpOnly`,
+`SameSite=Strict` cookie, which no page script can read; every request that
+changes something carries the session's synchronizer value in `X-CSRF-Token`,
+held in page memory and never in a cookie, and a bearer request needs none. The
+session ends after 30 minutes idle or 8 hours in all, and sign-out deletes it
+([`session_cookie.go`](../../server/internal/api/session_cookie.go)). The relay
+upgrade takes the cookie or a bearer header, never a credential in its address,
+and refuses an `Origin` other than the console's own. Open live sessions are
+re-checked on an interval and closed once their sign-in has ended.
+
 ### Tenant isolation
 
-PostgreSQL Row-Level Security is enabled and forced on tenant-owned tables. JWT
-tokens carry the active `tenant` claim; authenticated middleware stores it in
+PostgreSQL Row-Level Security is enabled and forced on tenant-owned tables. A
+JWT or a console session carries the active tenant; authenticated middleware stores it in
 context, and repository methods execute inside transactions that set
 `app.current_tenant` and `app.is_admin` with `SET LOCAL`. Policies permit only rows
 for the current tenant, with an admin policy bypass controlled by `app.is_admin`.
@@ -234,8 +248,8 @@ these headers, so they reach the browser the same way in every environment.
 The ingress controller adds no header and runs with snippet annotations off, so
 no Ingress in either environment can carry nginx configuration into a controller
 whose account lists Secrets cluster-wide. Its settings live in
-[`deploy/ingress-nginx/values.yaml`](../../deploy/ingress-nginx/values.yaml); a
-production deploy applies them and the nightly configuration job reads them back
+[`deploy/ingress-nginx/values.yaml`](../../deploy/ingress-nginx/values.yaml); the
+approval-gated cluster job applies them and the nightly configuration job reads them back
 ([ADR-030](../adr/ADR-030-kubernetes-on-oke.md)).
 
 ## Tokens in logs
@@ -251,26 +265,48 @@ Kubernetes deploys create or reuse Secrets via [`cd.yml`](../../.github/workflow
 ## Certificates
 
 ```
-OpenGate CA (ECDSA P-256, self-signed, 10yr)
-├── Server cert (ECDSA P-256, 1yr) — QUIC mTLS for agent connections
-├── Agent certs (ECDSA P-256, 1yr) — mTLS client certificates (CSR-signed by CA)
-└── MPS cert (RSA 2048, 1yr) — Intel AMT CIRA connections (TLS 1.2+)
+OpenGate master key (ECDSA P-256, self-signed, 10yr)
+├── Server cert (ECDSA P-256, 90d, re-signed before expiry) — QUIC mTLS for agent connections
+├── Agent certs (ECDSA P-256, 90d, renewed from day 60) — mTLS client certificates
+└── MPS cert (RSA 2048, 90d, re-signed before expiry) — Intel AMT CIRA connections (TLS 1.2+)
 ```
+
+No leaf outlives the master key that signed it. Lifetimes are the constants in
+[`cert_issue.go`](../../server/internal/cert/cert_issue.go) and
+[`cert_ca.go`](../../server/internal/cert/cert_ca.go); renewal, expired admission
+and replacing the master key are [ADR-128](../adr/ADR-128-machine-identity-lifecycle.md).
 
 ### Agent certificates
 
-On first boot, the agent obtains a CA-signed certificate via CSR-based enrollment:
+The agent enrolls with the join code from the install note the installer leaves,
+readable by root alone; the code is never written into the service and the agent
+takes no flag for it.
 
-1. **Key generation** — Agent generates an ECDSA P-256 key pair and saves `device_id.txt` + `agent.key` to its data directory
-2. **CSR creation** — Agent creates a PKCS#10 CSR with the device UUID as Common Name (CN)
+1. **Key generation** — Agent generates an ECDSA P-256 key pair in memory
+2. **CSR creation** — Agent creates a PKCS#10 CSR; the server ignores its subject
 3. **Enrollment POST** — Agent sends the PEM-encoded CSR to `POST /api/v1/enroll/{token}` with `{"csr_pem": "..."}`
-4. **Server signing** — Server validates the enrollment token (expiry, usage limits), parses the CSR, verifies its signature, and signs it with the CA key (`cert.Manager.SignAgentCSR()`)
-5. **Certificate storage** — Agent receives the signed cert PEM + CA PEM in the response, saves the CA cert and the DER-decoded agent cert to disk
-6. **mTLS connection** — Agent uses the CA-signed cert for QUIC mTLS; server verifies it against its CA trust pool
+4. **Server signing** — Server validates the enrollment token (expiry, usage limits), verifies the CSR's signature and P-256 key, chooses a device number no device, deleted device or certificate has held, issues a certificate for it from a fresh template, and records it in the certificate ledger before sending it ([`issue_device.go`](../../server/internal/cert/issue_device.go), [`issuer.go`](../../server/internal/devicecert/issuer.go))
+5. **Certificate storage** — Agent checks that the certificate carries the returned number and chains to the note's master keys, then saves the identity through its crash-safe store and deletes the note in the same commit
+6. **mTLS connection** — Agent presents the certificate over QUIC; the server classifies it in `VerifyConnection` and admits only certificates its ledger lists
 
-On subsequent restarts, the agent loads its saved identity (`device_id.txt`, `agent.crt`, `agent.key`) and skips enrollment. The `--enroll-url` and `--enroll-token` CLI flags (or `OPENGATE_ENROLL_URL`/`OPENGATE_ENROLL_TOKEN` env vars) provide enrollment parameters.
+On subsequent restarts, the agent loads its saved identity and skips enrollment.
+A join code therefore cannot obtain a certificate for an existing machine, and a
+certificate signed by the master key that the server never issued is refused, so
+a leaked master key alone mints nothing a server will admit.
 
-The MPS certificate uses RSA 2048 because Intel AMT firmware does not support ECDSA. Despite using a different key algorithm, it is signed by the same ECDSA CA. The MPS TLS listener allows TLS 1.2+ (vs TLS 1.3 for QUIC) to support AMT 11.0+ firmware (2015+).
+The MPS certificate uses RSA 2048 because Intel AMT firmware does not support ECDSA. Despite using a different key algorithm, it is signed by an ECDSA master key — the MPS role file, which defaults to the issuing master key. The MPS TLS listener allows TLS 1.2+ (vs TLS 1.3 for QUIC) to support AMT 11.0+ firmware (2015+).
+
+### Who can read the master key
+
+Only the server. The master key's role files live in the `opengate-authority`
+secret, copied at start into a memory volume readable by the server's user
+alone; a cluster-wide admission rule refuses any other pod that mounts or reads
+that secret; every step that writes it runs as a job inside the cluster that
+prints no key; and the workflows sign in as a login that reads no secret at all
+([Kubernetes](./Kubernetes.md#the-master-key)). What can still reach it — a change
+to the server's own deployment, a pod mounting the node's filesystem, and the
+ingress controller's cluster-wide read of secrets — is stated in
+[ADR-128](../adr/ADR-128-machine-identity-lifecycle.md).
 
 ## Main dependencies
 

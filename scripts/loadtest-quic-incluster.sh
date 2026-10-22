@@ -9,12 +9,14 @@
 #   LOADTEST_QUIC_POD_STATUS                harness exit code inside the pod
 #   LOADTEST_QUIC_START_ATTEMPTS            launches to make before giving up
 #   LOADTEST_QUIC_START_TIMEOUT_SECONDS     wait for the harness to offer its fleet
+#   LOADTEST_QUIC_WALK_TIMEOUT_SECONDS      wait for the harness to find room and start walking
 #   LOADTEST_QUIC_FILED_TIMEOUT_SECONDS     wait for the harness to file its estate
 #   LOADTEST_QUIC_COLLECT_TIMEOUT_SECONDS   wait for the harness to reach a verdict
 #   LOADTEST_QUIC_POLL_SECONDS              gap between questions
 #
 # Usage:
 #   loadtest-quic-incluster.sh start -- <harness command...>
+#   loadtest-quic-incluster.sh await-walk
 #   loadtest-quic-incluster.sh await-filed
 #   loadtest-quic-incluster.sh walk-started-at
 #   loadtest-quic-incluster.sh collect
@@ -39,6 +41,8 @@ POD_LOG="${LOADTEST_QUIC_POD_LOG:-/tmp/loadtest-fleet.log}"
 POD_STATUS="${LOADTEST_QUIC_POD_STATUS:-/tmp/loadtest-fleet.status}"
 START_ATTEMPTS="${LOADTEST_QUIC_START_ATTEMPTS:-3}"
 START_TIMEOUT="${LOADTEST_QUIC_START_TIMEOUT_SECONDS:-600}"
+# The harness waits for room on the shared server before it walks, so this bound covers that wait.
+WALK_TIMEOUT="${LOADTEST_QUIC_WALK_TIMEOUT_SECONDS:-1920}"
 # Filing follows the arrivals, so this bound covers a ramp as well as a fixture build.
 FILED_TIMEOUT="${LOADTEST_QUIC_FILED_TIMEOUT_SECONDS:-900}"
 COLLECT_TIMEOUT="${LOADTEST_QUIC_COLLECT_TIMEOUT_SECONDS:-1500}"
@@ -46,6 +50,7 @@ POLL="${LOADTEST_QUIC_POLL_SECONDS:-5}"
 
 usage() {
   echo "usage: $0 start -- <harness command...>" >&2
+  echo "       $0 await-walk" >&2
   echo "       $0 await-filed" >&2
   echo "       $0 walk-started-at" >&2
   echo "       $0 collect" >&2
@@ -137,6 +142,29 @@ await_fleet() {
     sleep "$POLL"
   done
   echo "::error::the QUIC harness did not offer a fleet within ${START_TIMEOUT}s." >&2
+  pod_log >&2
+  return "$NO_FLEET"
+}
+
+# await_walk waits for the walk announcement, which follows the harness finding room on the
+# shared server, and stops early once the harness has a verdict; a refusal is in its log.
+await_walk() {
+  local deadline=$((SECONDS + WALK_TIMEOUT))
+  local status
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if grep -qF "$WALK_ANNOUNCEMENT" <<<"$(pod_log)"; then
+      echo "the QUIC harness found room and is walking in $POD"
+      return 0
+    fi
+    status="$(pod_status)"
+    if [ -n "$status" ]; then
+      echo "::error::the QUIC harness exited ($status) before it started walking." >&2
+      pod_log >&2
+      return "$NO_FLEET"
+    fi
+    sleep "$POLL"
+  done
+  echo "::error::the QUIC harness did not start walking within ${WALK_TIMEOUT}s." >&2
   pod_log >&2
   return "$NO_FLEET"
 }
@@ -255,6 +283,7 @@ main() {
 
   case "$verb" in
     start) start "$@" ;;
+    await-walk) await_walk ;;
     await-filed) await_filed ;;
     walk-started-at) walk_started_at ;;
     collect) collect "$@" ;;

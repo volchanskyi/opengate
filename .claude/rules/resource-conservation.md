@@ -2,6 +2,8 @@
 
 **Enforced by:**
 [`server/tests/integration/conservation_test.go`](../../server/tests/integration/conservation_test.go)
+and
+[`mps_conservation_test.go`](../../server/tests/integration/mps_conservation_test.go)
 (gauntlet go-integration step),
 [`policy/semgrep/resources/hijacked-request-context.yaml`](../../policy/semgrep/resources/hijacked-request-context.yaml)
 (pen-test gate, fixtures pinned by
@@ -27,6 +29,9 @@ work was undone is not evidence that it was.
   drives N complete operations against one assembled server at several values of
   N, fits a line through retained goroutines and retained heap against completed
   operations, and requires both slopes to be flat.
+- [`mps_conservation_test.go`](../../server/tests/integration/mps_conservation_test.go)
+  does the same for Intel AMT requests, a third of them answered, a third
+  stalled after the channel opens, and a third never confirmed.
 
 ### The assertion is a slope, never a fixed baseline
 
@@ -43,7 +48,7 @@ work was undone is not evidence that it was.
 
 ## Scope
 
-- The conservation test covers the relay. The agent QUIC path and the MPS path
-  are not yet covered by it.
+- The conservation tests cover the relay and the Intel AMT path. The agent QUIC
+  path is not yet covered by them.
 - A new long-lived connection path inherits the rule when it is written, and the
   static guard fires before the test has to.

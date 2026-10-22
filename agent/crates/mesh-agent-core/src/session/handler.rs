@@ -23,15 +23,15 @@ pub(crate) struct Features {
 }
 
 /// Runs each delivered frame against the features, in order, until the core is gone; then stops
-/// the session's file tasks and its terminal.
+/// the session's file tasks and hangs up its terminal.
 pub(crate) async fn dispatch(mut features: Features, mut frames: OutletReader) {
     while let Some(frame) = frames.next().await {
         features.handle(&frame).await;
         frames.written();
     }
     features.files.stop().await;
-    if let Some(terminal) = &features.terminal {
-        terminal.shutdown();
+    if let Some(terminal) = features.terminal.take() {
+        terminal.hang_up().await;
     }
 }
 
@@ -208,9 +208,8 @@ mod tests {
     fn terminal() -> TestTerminal {
         let (stdin_tx, stdin_rx) = mpsc::channel(8);
         let (resize_tx, resize_rx) = mpsc::channel(8);
-        let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
         (
-            TerminalHandle::new(stdin_tx, resize_tx, shutdown),
+            TerminalHandle::new(stdin_tx, resize_tx, tokio::sync::oneshot::channel().0),
             stdin_rx,
             resize_rx,
         )

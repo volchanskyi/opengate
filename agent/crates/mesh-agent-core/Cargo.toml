@@ -17,6 +17,7 @@ quinn.workspace = true
 rustls.workspace = true
 rcgen.workspace = true
 rustls-pemfile.workspace = true
+x509-parser.workspace = true
 rmp-serde.workspace = true
 rand.workspace = true
 async-trait.workspace = true

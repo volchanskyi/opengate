@@ -78,7 +78,6 @@ func TestEnrolmentPresentsTheMachinesOwnAddress(t *testing.T) {
 	_, err := EnrollAgent(context.Background(), EnrollOptions{
 		BaseURL:          recorder.server.URL,
 		EnrollmentToken:  "token",
-		DeviceID:         "machine-9",
 		PresentedAddress: presentedAddress(9),
 	})
 	require.Error(t, err)
@@ -118,7 +117,6 @@ func TestARequestWithNothingToPresentSendsNoHeader(t *testing.T) {
 	_, err := EnrollAgent(context.Background(), EnrollOptions{
 		BaseURL:         recorder.server.URL,
 		EnrollmentToken: "token",
-		DeviceID:        "machine-0",
 	})
 	require.Error(t, err)
 	require.Len(t, recorder.addresses(), 1)

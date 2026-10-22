@@ -1,12 +1,11 @@
 //! Terminal handle and key code conversion for relay sessions.
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-
 use mesh_protocol::KeyCode;
-use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
+use tokio::sync::{mpsc, oneshot};
 use tracing::{trace, warn};
+
+use crate::terminal::HangupRequest;
 
 fn log_try_send<T>(err: TrySendError<T>, target: &'static str) {
     match err {
@@ -15,24 +14,24 @@ fn log_try_send<T>(err: TrySendError<T>, target: &'static str) {
     }
 }
 
-/// Terminal handle for sending data and managing lifecycle.
+/// Terminal handle for sending data and managing lifecycle; dropping it hangs the terminal up.
 pub struct TerminalHandle {
     stdin_tx: mpsc::Sender<Vec<u8>>,
     resize_tx: mpsc::Sender<(u16, u16)>,
-    shutdown: Arc<AtomicBool>,
+    hangup: HangupRequest,
 }
 
 impl TerminalHandle {
-    /// Builds a handle over the stdin and resize channels and the shared shutdown flag.
+    /// Builds a handle over the stdin and resize channels and the terminal's hang-up request.
     pub fn new(
         stdin_tx: mpsc::Sender<Vec<u8>>,
         resize_tx: mpsc::Sender<(u16, u16)>,
-        shutdown: Arc<AtomicBool>,
+        hangup: HangupRequest,
     ) -> Self {
         Self {
             stdin_tx,
             resize_tx,
-            shutdown,
+            hangup,
         }
     }
 
@@ -62,9 +61,19 @@ impl TerminalHandle {
         }
     }
 
-    /// Flags the terminal to shut down.
-    pub fn shutdown(&self) {
-        self.shutdown.store(true, Ordering::Relaxed);
+    /// Hangs the terminal up and resolves once its shell and helper threads have finished.
+    pub async fn hang_up(self) {
+        let Self {
+            stdin_tx,
+            resize_tx,
+            hangup,
+        } = self;
+        // The input writer thread ends when its channel closes, which the hang-up waits for.
+        drop((stdin_tx, resize_tx));
+        let (done, finished) = oneshot::channel();
+        if hangup.send(done).is_ok() {
+            finished.await.ok();
+        }
     }
 }
 
@@ -269,9 +278,9 @@ mod tests {
     fn send_key_forwards_bytes_to_stdin_channel() {
         let (stdin_tx, mut stdin_rx) = mpsc::channel(8);
         let (resize_tx, _resize_rx) = mpsc::channel(8);
-        let shutdown = Arc::new(AtomicBool::new(false));
+        let (hangup, _) = oneshot::channel();
 
-        let handle = TerminalHandle::new(stdin_tx, resize_tx, shutdown);
+        let handle = TerminalHandle::new(stdin_tx, resize_tx, hangup);
         handle.send_key(KeyCode::KeyA);
         assert_eq!(stdin_rx.try_recv().unwrap(), b"a");
     }
@@ -280,9 +289,9 @@ mod tests {
     fn send_key_for_modifier_does_not_send() {
         let (stdin_tx, mut stdin_rx) = mpsc::channel(8);
         let (resize_tx, _resize_rx) = mpsc::channel(8);
-        let shutdown = Arc::new(AtomicBool::new(false));
+        let (hangup, _) = oneshot::channel();
 
-        let handle = TerminalHandle::new(stdin_tx, resize_tx, shutdown);
+        let handle = TerminalHandle::new(stdin_tx, resize_tx, hangup);
         handle.send_key(KeyCode::ShiftLeft);
         assert!(matches!(
             stdin_rx.try_recv(),
@@ -294,9 +303,9 @@ mod tests {
     fn send_raw_forwards_arbitrary_bytes() {
         let (stdin_tx, mut stdin_rx) = mpsc::channel(8);
         let (resize_tx, _resize_rx) = mpsc::channel(8);
-        let shutdown = Arc::new(AtomicBool::new(false));
+        let (hangup, _) = oneshot::channel();
 
-        let handle = TerminalHandle::new(stdin_tx, resize_tx, shutdown);
+        let handle = TerminalHandle::new(stdin_tx, resize_tx, hangup);
         handle.send_raw(vec![1, 2, 3]);
         assert_eq!(stdin_rx.try_recv().unwrap(), vec![1, 2, 3]);
     }
@@ -305,9 +314,9 @@ mod tests {
     fn send_raw_drops_empty_payload() {
         let (stdin_tx, mut stdin_rx) = mpsc::channel(8);
         let (resize_tx, _resize_rx) = mpsc::channel(8);
-        let shutdown = Arc::new(AtomicBool::new(false));
+        let (hangup, _) = oneshot::channel();
 
-        let handle = TerminalHandle::new(stdin_tx, resize_tx, shutdown);
+        let handle = TerminalHandle::new(stdin_tx, resize_tx, hangup);
         handle.send_raw(vec![]);
         assert!(matches!(
             stdin_rx.try_recv(),
@@ -319,9 +328,9 @@ mod tests {
     fn send_key_on_full_channel_does_not_panic() {
         let (stdin_tx, _stdin_rx) = mpsc::channel(1);
         let (resize_tx, _resize_rx) = mpsc::channel(1);
-        let shutdown = Arc::new(AtomicBool::new(false));
+        let (hangup, _) = oneshot::channel();
 
-        let handle = TerminalHandle::new(stdin_tx.clone(), resize_tx, shutdown);
+        let handle = TerminalHandle::new(stdin_tx.clone(), resize_tx, hangup);
         stdin_tx.try_send(vec![0xff]).unwrap();
         handle.send_key(KeyCode::KeyA);
         handle.send_raw(vec![0x42]);
@@ -331,12 +340,12 @@ mod tests {
     fn send_key_on_closed_channel_does_not_panic() {
         let (stdin_tx, stdin_rx) = mpsc::channel(8);
         let (resize_tx, resize_rx) = mpsc::channel(8);
-        let shutdown = Arc::new(AtomicBool::new(false));
+        let (hangup, _) = oneshot::channel();
 
         drop(stdin_rx);
         drop(resize_rx);
 
-        let handle = TerminalHandle::new(stdin_tx, resize_tx, shutdown);
+        let handle = TerminalHandle::new(stdin_tx, resize_tx, hangup);
         handle.send_key(KeyCode::KeyA);
         handle.send_raw(vec![0x42]);
         handle.resize(80, 24);
@@ -346,22 +355,45 @@ mod tests {
     fn resize_forwards_dimensions() {
         let (stdin_tx, _stdin_rx) = mpsc::channel(8);
         let (resize_tx, mut resize_rx) = mpsc::channel(8);
-        let shutdown = Arc::new(AtomicBool::new(false));
+        let (hangup, _) = oneshot::channel();
 
-        let handle = TerminalHandle::new(stdin_tx, resize_tx, shutdown);
+        let handle = TerminalHandle::new(stdin_tx, resize_tx, hangup);
         handle.resize(120, 40);
         assert_eq!(resize_rx.try_recv().unwrap(), (120, 40));
     }
 
-    #[test]
-    fn shutdown_sets_atomic_flag() {
+    #[tokio::test]
+    async fn a_hang_up_closes_the_input_and_waits_for_the_supervisor() {
+        let (stdin_tx, mut stdin_rx) = mpsc::channel::<Vec<u8>>(8);
+        let (resize_tx, _resize_rx) = mpsc::channel(8);
+        let (hangup, request) = oneshot::channel::<oneshot::Sender<()>>();
+        let supervisor = tokio::spawn(async move {
+            let answer = request.await.expect("a hang-up request");
+            let input_closed = stdin_rx.recv().await.is_none();
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            answer.send(()).unwrap();
+            input_closed
+        });
+
+        let started = std::time::Instant::now();
+        TerminalHandle::new(stdin_tx, resize_tx, hangup)
+            .hang_up()
+            .await;
+        assert!(started.elapsed() >= std::time::Duration::from_millis(50));
+        assert!(supervisor.await.unwrap(), "the input was still open");
+    }
+
+    #[tokio::test]
+    async fn a_hang_up_with_no_supervisor_returns_at_once() {
         let (stdin_tx, _stdin_rx) = mpsc::channel(8);
         let (resize_tx, _resize_rx) = mpsc::channel(8);
-        let shutdown = Arc::new(AtomicBool::new(false));
-
-        let handle = TerminalHandle::new(stdin_tx, resize_tx, shutdown.clone());
-        assert!(!shutdown.load(Ordering::Relaxed));
-        handle.shutdown();
-        assert!(shutdown.load(Ordering::Relaxed));
+        let (hangup, request) = oneshot::channel::<oneshot::Sender<()>>();
+        drop(request);
+        tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            TerminalHandle::new(stdin_tx, resize_tx, hangup).hang_up(),
+        )
+        .await
+        .expect("returned at once");
     }
 }

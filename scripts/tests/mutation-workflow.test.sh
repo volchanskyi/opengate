@@ -10,6 +10,8 @@ WORKFLOW="$REPO_ROOT/.github/workflows/mutation.yml"
 SHARDS_LIB="$REPO_ROOT/scripts/lib/mutation-shards.sh"
 MERGE="$REPO_ROOT/scripts/mutation-merge-go.sh"
 MERGE_RUST="$REPO_ROOT/scripts/mutation-merge-rust.sh"
+MERGE_WEB="$REPO_ROOT/scripts/mutation-merge-web.sh"
+STRYKER_CONFIG="$REPO_ROOT/web/stryker.config.json"
 STATUS_BUILD="$REPO_ROOT/scripts/mutation-status-build.sh"
 STATUS_PUSH="$REPO_ROOT/scripts/mutation-status-vm-push.sh"
 SUMMARIZE="$REPO_ROOT/scripts/mutation-summarize.sh"
@@ -100,7 +102,7 @@ if [ -f "$SHARDS_LIB" ]; then
   fi
 
   have_rust="$(mutation_rust_shards | tr ' ' '\n' | sort | tr '\n' ' ')"
-  meaningful_rust="rust-agent-loops rust-core-alerts-conditions rust-core-alerts-evaluator rust-core-alerts-event rust-core-alerts-retro-plan rust-core-alerts-retro-scan rust-core-alerts-sink rust-core-correlate-divergence rust-core-correlate-ranking rust-core-discovery rust-core-ml-analysis rust-core-ml-backfill-drain rust-core-ml-backfill-tiers rust-core-ml-host-sources rust-core-ml-redaction rust-core-ml-sampling rust-core-ml-store-sink rust-core-runtime rust-core-runtime-lifecycle rust-core-session-dispatch rust-core-session-link rust-core-session-terminal rust-protocol-wire rust-tsdb-blocks rust-tsdb-encoding rust-tsdb-surface "
+  meaningful_rust="rust-agent-loops rust-core-alerts-conditions rust-core-alerts-evaluator rust-core-alerts-event rust-core-alerts-retro-plan rust-core-alerts-retro-scan rust-core-alerts-sink rust-core-correlate-divergence rust-core-correlate-ranking rust-core-discovery rust-core-identity rust-core-ml-analysis rust-core-ml-backfill-drain rust-core-ml-backfill-tiers rust-core-ml-host-sources rust-core-ml-redaction rust-core-ml-sampling rust-core-ml-store-sink rust-core-runtime rust-core-runtime-lifecycle rust-core-session-dispatch rust-core-session-link rust-core-session-terminal rust-protocol-wire rust-tsdb-blocks rust-tsdb-encoding rust-tsdb-surface "
   if [ "$have_rust" = "$meaningful_rust" ]; then
     pass "Rust shard ids describe their owned behavior"
   else
@@ -249,13 +251,110 @@ if [ -f "$SHARDS_LIB" ]; then
     fail "Rust shard args are wrong:$rust_args_bad"
   fi
 
-  if [ "$(mutation_all_shards)" = "$(mutation_rust_shards) $(mutation_go_shards) web" ]; then
+  if [ "$(mutation_all_shards)" = "$(mutation_rust_shards) $(mutation_go_shards) $(mutation_web_shards)" ]; then
     pass "shard library exposes the exact Rust/Go/Web expected set"
   else
     fail "expected shard set drifted (all='$(mutation_all_shards)')"
   fi
 
-  meaningful_go="go-api-runtime go-api-limits go-api-intake go-api-status go-api-converters go-api-identity go-api-tenancy-admin go-api-device-control go-api-device-sessions go-api-device-reads go-api-incidents go-api-rules go-api-enrollment go-api-updates-purge go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-rules go-domain-alerts-room go-domain-alerts-record go-domain-persistence go-amt go-updates-certificates go-protocol-wire go-relay-signaling go-observability-harness go-composition-root"
+  if [ "$(mutation_web_shards)" = "web-devices web-session web-console" ]; then
+    pass "web shard ids name the features they mutate"
+  else
+    fail "web shard ids drifted (got='$(mutation_web_shards)')"
+  fi
+
+  web_unit_bad=""
+  web_rest=0
+  declare -A web_unit_owner=()
+  for shard in $(mutation_web_shards); do
+    if ! web_units="$(mutation_web_shard_units "$shard" 2>/dev/null)"; then
+      web_unit_bad="$web_unit_bad [$shard:unknown]"
+      continue
+    fi
+    if [ "$web_units" = "rest" ]; then
+      web_rest=$((web_rest + 1))
+      continue
+    fi
+    for unit in $web_units; do
+      [ -z "${web_unit_owner[$unit]:-}" ] || web_unit_bad="$web_unit_bad [$shard:$unit:also-${web_unit_owner[$unit]}]"
+      web_unit_owner[$unit]="$shard"
+      case "$unit" in
+        dir:*) [ -d "$REPO_ROOT/web/${unit#dir:}" ] || web_unit_bad="$web_unit_bad [$shard:$unit:no-such-dir]" ;;
+        file:*) [ -f "$REPO_ROOT/web/${unit#file:}" ] || web_unit_bad="$web_unit_bad [$shard:$unit:no-such-file]" ;;
+        *) web_unit_bad="$web_unit_bad [$shard:$unit:bad-kind]" ;;
+      esac
+    done
+  done
+  if [ -z "$web_unit_bad" ] && [ "$web_rest" -eq 1 ]; then
+    pass "each web unit names a real path owned by one shard, and one shard takes the rest"
+  else
+    fail "web mutation units are wrong:$web_unit_bad (catch-all shards: $web_rest)"
+  fi
+
+  # A shard mutates its own globs, or the config's sources less every other shard's; either way
+  # the config's exclusions follow, since a command-line --mutate replaces the config's list.
+  web_glob_bad=""
+  config_sources="$(jq -r '.mutate[] | select(startswith("!") | not)' "$STRYKER_CONFIG")"
+  config_excludes="$(jq -r '.mutate[] | select(startswith("!"))' "$STRYKER_CONFIG")"
+  for shard in $(mutation_web_shards); do
+    globs="$(mutation_web_shard_mutate "$shard" 2>/dev/null || true)"
+    [ -n "$globs" ] || web_glob_bad="$web_glob_bad [$shard:no-globs]"
+    grep -q ',' <<<"$globs" && web_glob_bad="$web_glob_bad [$shard:comma-in-glob]"
+    while IFS= read -r exclude; do
+      grep -qxF -- "$exclude" <<<"$globs" || web_glob_bad="$web_glob_bad [$shard:drops:$exclude]"
+    done <<<"$config_excludes"
+    if [ "$(mutation_web_shard_units "$shard")" = "rest" ]; then
+      while IFS= read -r source; do
+        grep -qxF -- "$source" <<<"$globs" || web_glob_bad="$web_glob_bad [$shard:drops:$source]"
+      done <<<"$config_sources"
+      for other in $(mutation_web_shards); do
+        [ "$other" = "$shard" ] && continue
+        for unit in $(mutation_web_shard_units "$other"); do
+          case "$unit" in
+            dir:*) want="!${unit#dir:}/**" ;;
+            file:*) want="!${unit#file:}" ;;
+          esac
+          grep -qxF -- "$want" <<<"$globs" || web_glob_bad="$web_glob_bad [$shard:keeps:$unit]"
+        done
+      done
+    else
+      for unit in $(mutation_web_shard_units "$shard"); do
+        case "$unit" in
+          dir:*) wants=("${unit#dir:}/**/*.ts" "${unit#dir:}/**/*.tsx") ;;
+          file:*) wants=("${unit#file:}") ;;
+        esac
+        for want in "${wants[@]}"; do
+          grep -qxF -- "$want" <<<"$globs" || web_glob_bad="$web_glob_bad [$shard:misses:$want]"
+        done
+      done
+    fi
+  done
+  if [ -z "$web_glob_bad" ]; then
+    pass "each web shard's Stryker globs select its own sources and keep the config's exclusions"
+  else
+    fail "web shard globs are wrong:$web_glob_bad"
+  fi
+
+  web_matrix_bad=""
+  for shard in $(mutation_web_shards); do
+    grep -qE "^[[:space:]]*- \{ language: web, shard: $shard \}" "$WORKFLOW" \
+      || web_matrix_bad="$web_matrix_bad [$shard]"
+  done
+  if [ -z "$web_matrix_bad" ] && ! grep -qE '^[[:space:]]*- \{ language: web \}' "$WORKFLOW"; then
+    pass "the matrix runs every web shard and no whole-leg web job"
+  else
+    fail "the matrix's web entries disagree with the shard library:$web_matrix_bad"
+  fi
+
+  stryker_step="$(sed -n '/Run stryker/,/^      - /p' "$WORKFLOW")"
+  if grep -q 'mutation_web_shard_mutate' <<<"$stryker_step" \
+    && grep -q -- '--mutate' <<<"$stryker_step"; then
+    pass "the stryker step mutates the globs the shard library names"
+  else
+    fail "the stryker step must pass --mutate from mutation_web_shard_mutate"
+  fi
+
+  meaningful_go="go-api-runtime go-api-limits go-api-intake go-api-status go-api-converters go-api-identity go-api-console-session go-api-tenancy-admin go-api-device-control go-api-device-sessions go-api-device-reads go-api-incidents go-api-rules go-api-enrollment go-api-updates-purge go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-rules go-domain-alerts-room go-domain-alerts-record go-domain-persistence go-amt go-updates-certificates go-protocol-wire go-relay-signaling go-observability-harness go-composition-root"
   if [ "$(mutation_go_shards)" = "$meaningful_go" ]; then
     pass "Go shard ids describe their owned behavior"
   else
@@ -675,6 +774,52 @@ else
   fail "scripts/mutation-merge-rust.sh must exist and be executable"
 fi
 
+if [ -x "$MERGE_WEB" ]; then
+  tmp="$(mktemp -d)"
+  printf '%s' '{"schemaVersion":"2","thresholds":{"high":80,"low":65},"files":{"a.ts":{"mutants":[{"status":"Killed"}]}}}' >"$tmp/r1.json"
+  printf '%s' '{"schemaVersion":"2","thresholds":{"high":80,"low":65},"files":{"b.ts":{"mutants":[{"status":"Survived"},{"status":"Killed"}]}}}' >"$tmp/r2.json"
+  if "$MERGE_WEB" "$tmp/out.json" "$tmp/r1.json" "$tmp/r2.json" >/dev/null 2>&1 \
+    && jq -e '(.files | keys) == ["a.ts","b.ts"] and ([.files[].mutants[]] | length) == 3
+      and .schemaVersion == "2" and .thresholds.high == 80' "$tmp/out.json" >/dev/null; then
+    pass "mutation-merge-web.sh unions the shards' files into one Stryker report"
+  else
+    fail "mutation-merge-web.sh must union the shards' files"
+  fi
+  printf '%s' 'stale' >"$tmp/out.json"
+  if "$MERGE_WEB" "$tmp/out.json" "$tmp/r1.json" "$tmp/r1.json" >/dev/null 2>&1; then
+    fail "mutation-merge-web.sh must refuse two shards reporting one file"
+  elif [ -e "$tmp/out.json" ]; then
+    fail "mutation-merge-web.sh must remove output after overlapping input"
+  else
+    pass "mutation-merge-web.sh refuses overlapping shards atomically"
+  fi
+  for fixture in missing malformed files-array; do
+    case "$fixture" in
+      missing) bad="$tmp/MISSING.json" ;;
+      malformed) bad="$tmp/bad.json" && printf '%s' '{bad json' >"$bad" ;;
+      files-array) bad="$tmp/bad.json" && printf '%s' '{"files":[]}' >"$bad" ;;
+    esac
+    printf '%s' 'stale' >"$tmp/out.json"
+    if "$MERGE_WEB" "$tmp/out.json" "$tmp/r1.json" "$bad" >/dev/null 2>&1; then
+      fail "mutation-merge-web.sh must reject $fixture input"
+    elif [ -e "$tmp/out.json" ]; then
+      fail "mutation-merge-web.sh must remove output after $fixture input"
+    else
+      pass "mutation-merge-web.sh rejects $fixture input atomically"
+    fi
+  done
+  rm -rf "$tmp"
+else
+  fail "scripts/mutation-merge-web.sh must exist and be executable"
+fi
+
+if grep -q 'mutation-merge-web\.sh' "$WORKFLOW" \
+  && ! grep -q 'artifacts/mutation-web/' "$WORKFLOW"; then
+  pass "publish merges the web shards via mutation-merge-web.sh"
+else
+  fail "publish must merge the web shards via mutation-merge-web.sh"
+fi
+
 if grep -q 'mutation-merge-rust\.sh' "$WORKFLOW"; then
   pass "publish merges the rust shards via mutation-merge-rust.sh"
 else
@@ -694,10 +839,13 @@ make_complete_artifacts() {
     mkdir -p "$path"
     printf '%s' '{"mutants_killed":10,"mutants_lived":1,"mutants_not_covered":0,"mutants_not_viable":0}' >"$path/mutation-report-$shard.json"
   done
-  path="$root/mutation-web/web/reports/mutation"
-  mkdir -p "$path"
-  printf '%s' '{"files":{"a.ts":{"mutants":[{"status":"Killed"}]}}}' >"$path/mutation.json"
+  for shard in $(mutation_web_shards); do
+    path="$root/mutation-$shard/web/reports/mutation"
+    mkdir -p "$path"
+    printf '{"files":{"%s.ts":{"mutants":[{"status":"Killed"}]}}}' "$shard" >"$path/mutation.json"
+  done
 }
+probe_web_shard="$(mutation_web_shards | awk '{print $1}')"
 
 if [ -x "$STATUS_BUILD" ]; then
   tmp="$(mktemp -d)"
@@ -734,12 +882,31 @@ if [ -x "$STATUS_BUILD" ]; then
   fi
 
   make_complete_artifacts "$artifacts"
-  printf '%s' '{"files":[]}' >"$artifacts/mutation-web/web/reports/mutation/mutation.json"
+  printf '%s' '{"files":[]}' >"$artifacts/mutation-$probe_web_shard/web/reports/mutation/mutation.json"
   if "$STATUS_BUILD" "$artifacts" "$status" >/dev/null 2>&1 \
-    && jq -e '.complete == false and .shards.web == {complete:false,reason:"invalid"}' "$status" >/dev/null; then
+    && jq -e --arg s "$probe_web_shard" '.complete == false and .shards[$s] == {complete:false,reason:"invalid"}' "$status" >/dev/null; then
     pass "status builder validates the Web reporter shape"
   else
     fail "status builder must reject an invalid Web reporter shape"
+  fi
+
+  make_complete_artifacts "$artifacts"
+  rm -rf "$artifacts/mutation-$probe_web_shard"
+  if "$STATUS_BUILD" "$artifacts" "$status" >/dev/null 2>&1 \
+    && jq -e --arg s "$probe_web_shard" '.complete_by_language.web == false and .shards[$s] == {complete:false,reason:"missing"}' "$status" >/dev/null; then
+    pass "a missing web shard leaves the web leg incomplete"
+  else
+    fail "status builder must report a missing web shard"
+  fi
+
+  make_complete_artifacts "$artifacts"
+  cp "$artifacts/mutation-$probe_web_shard/web/reports/mutation/mutation.json" \
+    "$artifacts/mutation-$(mutation_web_shards | awk '{print $2}')/web/reports/mutation/mutation.json"
+  if "$STATUS_BUILD" "$artifacts" "$status" >/dev/null 2>&1 \
+    && jq -e '.complete_by_language.web == false' "$status" >/dev/null; then
+    pass "two web shards reporting one file leave the web leg incomplete"
+  else
+    fail "status builder must refuse web shards that overlap"
   fi
 
   make_complete_artifacts "$artifacts"
@@ -760,7 +927,7 @@ if [ -x "$STATUS_BUILD" ]; then
   fi
 
   make_complete_artifacts "$artifacts"
-  printf '%s' '{"files":[]}' >"$artifacts/mutation-web/web/reports/mutation/mutation.json"
+  printf '%s' '{"files":[]}' >"$artifacts/mutation-$probe_web_shard/web/reports/mutation/mutation.json"
   if "$STATUS_BUILD" "$artifacts" "$status" >/dev/null 2>&1 \
     && jq -e '.complete_by_language == {rust:true,go:true,web:false}' "$status" >/dev/null; then
     pass "an invalid web report leaves the Rust and Go legs complete"

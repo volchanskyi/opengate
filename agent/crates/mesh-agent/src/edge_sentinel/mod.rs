@@ -8,6 +8,7 @@ use tracing::{debug, info, warn};
 
 use crate::clock::unix_now;
 use crate::event_watch::EventCoverage;
+use crate::stop::Stop;
 use mesh_agent_core::alerts::AlertSink;
 use mesh_agent_core::maintenance::MaintenanceGate;
 use mesh_agent_core::ml::host_metric_stream::HostMetricWindower;
@@ -55,13 +56,14 @@ const DISCOVERY_INTERVAL: Duration = Duration::from_secs(1800);
 pub(crate) fn spawn_discovery(
     sink: SyncSender<ControlMessage>,
     maintenance: MaintenanceGate,
+    stop: Stop,
 ) -> tokio::task::JoinHandle<()> {
     tokio::task::spawn_blocking(move || {
         let mut last_fingerprint: Option<u64> = None;
-        loop {
+        while !stop.requested() {
             // Maintenance skips the sweep because services and ports churn as the admin works.
             if maintenance.in_maintenance() {
-                std::thread::sleep(DISCOVERY_INTERVAL);
+                stop.sleep_blocking(DISCOVERY_INTERVAL);
                 continue;
             }
             let profile = mesh_agent_core::discovery::collect_profile();
@@ -81,7 +83,7 @@ pub(crate) fn spawn_discovery(
                     debug!("discovery report dropped: telemetry channel full");
                 }
             }
-            std::thread::sleep(DISCOVERY_INTERVAL);
+            stop.sleep_blocking(DISCOVERY_INTERVAL);
         }
     })
 }
@@ -244,6 +246,7 @@ use tick::SamplerState;
 pub(crate) fn spawn_sampler(
     out: SamplerOutputs,
     maintenance: MaintenanceGate,
+    stop: Stop,
 ) -> tokio::task::JoinHandle<()> {
     tokio::task::spawn_blocking(move || {
         use mesh_agent_core::ml::sampler::{MetricSampler, SysinfoSampler};
@@ -257,8 +260,7 @@ pub(crate) fn spawn_sampler(
         };
         let mut state = SamplerState::new();
 
-        loop {
-            std::thread::sleep(Duration::from_secs(1));
+        while !stop.sleep_blocking(Duration::from_secs(1)) {
             if !state.begin_tick(maintenance.in_maintenance()) {
                 continue;
             }

@@ -6,7 +6,7 @@ use mesh_protocol::{
 };
 use rand::{Rng, RngExt};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 use crate::error::ConnectionError;
 use crate::platform::{InputInjector, ScreenCapture};
@@ -89,9 +89,7 @@ impl<S: ControlStream> AgentConnection<S> {
 
         if frame_type == codec::FRAME_PING {
             self.stream.write_all(&[codec::FRAME_PONG]).await?;
-            return Err(ConnectionError::Io(std::io::Error::other(
-                "ping received, pong sent",
-            )));
+            return Err(ConnectionError::PingAnswered);
         }
 
         if frame_type != FRAME_CONTROL {
@@ -224,47 +222,11 @@ impl Default for ReconnectGovernor {
     }
 }
 
-/// Retries `connect_fn` up to `max_attempts` times with full-jitter backoff between attempts.
-pub async fn reconnect_with_backoff<F, Fut, T, E>(
-    mut connect_fn: F,
-    max_attempts: u32,
-) -> Result<T, ConnectionError>
-where
-    F: FnMut() -> Fut,
-    Fut: std::future::Future<Output = Result<T, E>>,
-    E: std::fmt::Display,
-{
-    let mut rng = rand::rng();
-
-    for attempt in 1..=max_attempts {
-        match connect_fn().await {
-            Ok(val) => {
-                info!(attempt, "reconnected successfully");
-                return Ok(val);
-            }
-            Err(e) => {
-                warn!(attempt, max_attempts, error = %e, "connection attempt failed");
-                if attempt < max_attempts {
-                    let delay = full_jitter(BACKOFF_BASE, BACKOFF_CAP, attempt - 1, &mut rng);
-                    debug!(delay_ms = delay.as_millis(), "waiting before retry");
-                    tokio::time::sleep(delay).await;
-                }
-            }
-        }
-    }
-
-    Err(ConnectionError::Quic(format!(
-        "failed after {max_attempts} attempts"
-    )))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use mesh_protocol::{codec::FRAME_CONTROL, ControlMessage, Frame, SessionToken};
     use rand::{rngs::StdRng, SeedableRng};
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use std::sync::Arc;
 
     #[test]
     fn full_jitter_stays_within_bounds() {
@@ -458,32 +420,6 @@ mod tests {
         }
     }
 
-    #[tokio::test(start_paused = true)]
-    async fn test_reconnect_backoff_succeeds_after_failures() {
-        let attempt_count = Arc::new(AtomicU32::new(0));
-        let count = attempt_count.clone();
-
-        let result = reconnect_with_backoff(
-            move || {
-                let count = count.clone();
-                async move {
-                    let n = count.fetch_add(1, Ordering::SeqCst);
-                    if n < 2 {
-                        Err::<u32, String>(format!("fail {n}"))
-                    } else {
-                        Ok(42u32)
-                    }
-                }
-            },
-            5,
-        )
-        .await;
-
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), 42);
-        assert_eq!(attempt_count.load(Ordering::SeqCst), 3);
-    }
-
     #[tokio::test]
     async fn test_send_control_encodes_heartbeat() {
         let (client, mut server) = tokio::io::duplex(4096);
@@ -524,20 +460,6 @@ mod tests {
         }
 
         send_handle.await.unwrap();
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn reconnect_backoff_does_not_sleep_after_last_attempt() {
-        let start = tokio::time::Instant::now();
-        let result: Result<u32, _> =
-            reconnect_with_backoff(|| async { Err::<u32, String>("fail".to_string()) }, 1).await;
-        let elapsed = start.elapsed();
-        assert!(result.is_err());
-        assert_eq!(
-            elapsed,
-            Duration::ZERO,
-            "a single-attempt failure waited {elapsed:?} before returning"
-        );
     }
 
     #[tokio::test]
@@ -636,19 +558,6 @@ mod tests {
         assert_eq!(msg, ControlMessage::Unknown);
     }
 
-    #[tokio::test(start_paused = true)]
-    async fn test_reconnect_backoff_all_failures() {
-        let result: Result<u32, _> = reconnect_with_backoff(
-            || async { Err::<u32, String>("always fail".to_string()) },
-            3,
-        )
-        .await;
-
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.to_string().contains("failed after 3 attempts"));
-    }
-
     #[test]
     fn a_first_flap_is_drawn_against_the_base_delay() {
         let mut rng = StdRng::seed_from_u64(4242);
@@ -695,20 +604,5 @@ mod tests {
             Err(ConnectionError::Io(_)) => {}
             other => panic!("expected the truncated payload to fail the read, got {other:?}"),
         }
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn reconnect_backoff_waits_between_attempts() {
-        let start = tokio::time::Instant::now();
-        let result: Result<u32, _> = reconnect_with_backoff(
-            || async { Err::<u32, String>("unreachable".to_string()) },
-            8,
-        )
-        .await;
-        assert!(result.is_err());
-        assert!(
-            start.elapsed() > Duration::ZERO,
-            "the reconnect loop retried without waiting"
-        );
     }
 }
