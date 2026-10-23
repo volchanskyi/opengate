@@ -1727,7 +1727,7 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "uuid",
- "x509-parser 0.16.0",
+ "x509-parser 0.18.1",
 ]
 
 [[package]]
@@ -1767,7 +1767,7 @@ dependencies = [
  "url",
  "uuid",
  "webrtc",
- "x509-parser 0.16.0",
+ "x509-parser 0.18.1",
 ]
 
 [[package]]
