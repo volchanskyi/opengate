@@ -952,6 +952,34 @@ assert_lacks "the kernel step has no path that exits green without a reading" "e
 assert_contains "the kernel's configuration is read from the node's boot directory" \
   '/host/root/boot/config-' "$kernel_step"
 
+# The alert step runs as written, with the Telegram sender swapped for one that keeps the message.
+alert_step="$(
+  python3 - "$WORKFLOW" <<'PY'
+import sys, yaml
+
+with open(sys.argv[1], encoding="utf-8") as fh:
+    doc = yaml.safe_load(fh)
+for step in doc["jobs"]["alert"]["steps"]:
+    if step.get("name") == "Send Telegram alert":
+        print(step["run"])
+        print("ENV\t" + step.get("env", {}).get("NOT_STARTED", ""))
+PY
+)"
+refused='staging runs sha-c09372b, but commit 1a2b3c4 builds a different server (12 files differ); deploy 1a2b3c4 to staging first'
+alert_box="$WORK/alert-box"
+mkdir -p "$alert_box/scripts"
+# shellcheck disable=SC2016 # $1 belongs to the stand-in script this line writes
+printf '#!/usr/bin/env bash\nprintf "%%s" "$1" >"%s/sent"\n' "$alert_box" >"$alert_box/scripts/telegram-alert.sh"
+chmod +x "$alert_box/scripts/telegram-alert.sh"
+(cd "$alert_box" && JOB_STATUS=failure FINDING=0 ALERT_TEXT="" NOT_STARTED="$refused" \
+  RUN_URL=https://example.test/run bash -e -o pipefail -c "$(grep -v $'^ENV\t' <<<"$alert_step")") \
+  >/dev/null 2>&1 || true
+assert_contains "the alert for a night staging refused quotes why" "$refused" \
+  "$(cat "$alert_box/sent" 2>/dev/null || true)"
+# shellcheck disable=SC2016 # the workflow's expression text, compared unexpanded
+assert_contains "the alert reads the reason from the drill job" \
+  $'ENV\t${{ needs.network-drill.outputs.not_started }}' "$alert_step"
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

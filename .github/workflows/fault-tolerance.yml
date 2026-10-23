@@ -10,6 +10,10 @@ on:
         description: "Staging fault scenario to run (one of the enumerated allow-list)"
         required: true
         type: string
+      under_test:
+        description: "The image tag the deploy installed on staging, which the drill checks staging runs"
+        required: true
+        type: string
     secrets:
       OCI_TENANCY_OCID:
         required: true
@@ -43,6 +47,8 @@ jobs:
     environment: staging
     # Exceeds the longest scenario: bad-rollout runs a 90s failing upgrade, a rollback and a verify.
     timeout-minutes: 20
+    outputs:
+      not_started: ${{ steps.version.outputs.not_started }}
     env:
       NAMESPACE: opengate-staging
       RELEASE: opengate-staging
@@ -52,7 +58,10 @@ jobs:
       STAGING_LEASE_HOLDER: fault-drill-${{ github.run_id }}-${{ github.run_attempt }}
       EVIDENCE_DIR: ${{ github.workspace }}/fault-evidence
     steps:
+      # The full history holds the commit staging runs, which the version check compares with.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       # workflow_call passes scenario as a free string, so it is checked against the allow-list.
       - name: Guard enumerated scenario
@@ -81,6 +90,13 @@ jobs:
       # reading the same server would report as its own failure.
       - name: Take the staging namespace
         run: scripts/staging-lease.sh acquire "$STAGING_LEASE_HOLDER"
+
+      # The slot keeps every deploy off staging, so the build read here is the build the run meets.
+      - name: Check staging runs the build under test
+        id: version
+        env:
+          UNDER_TEST: ${{ inputs.under_test }}
+        run: scripts/staging-version-check.sh >>"$GITHUB_OUTPUT"
 
       - name: Run fault scenario
         id: drill

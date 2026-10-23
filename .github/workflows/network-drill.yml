@@ -47,13 +47,17 @@ jobs:
     outputs:
       started_at: ${{ steps.started.outputs.at }}
       measured: ${{ steps.summarize.outputs.measured }}
+      not_started: ${{ steps.version.outputs.not_started }}
     steps:
       # Every sample of the night carries this time, so a re-run of failed jobs writes the same point.
       - name: Record when the run started
         id: started
         run: echo "at=$(date -u +%s)" >>"$GITHUB_OUTPUT"
 
+      # The full history holds the commit staging runs, which the version check compares with.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - uses: ./.github/actions/setup-pinned-tools
       - uses: actions/setup-go@v7
@@ -77,6 +81,13 @@ jobs:
         env:
           STAGING_LEASE_WAIT_SECONDS: "1800"
         run: scripts/staging-lease.sh acquire "$STAGING_LEASE_HOLDER"
+
+      # The slot keeps every deploy off staging, so the build read here is the build the run meets.
+      - name: Check staging runs the build under test
+        id: version
+        env:
+          UNDER_TEST: ${{ github.sha }}
+        run: scripts/staging-version-check.sh >>"$GITHUB_OUTPUT"
 
       - name: Resolve the staging target
         run: |
@@ -657,7 +668,7 @@ jobs:
   # Sends the run's alert from a job of its own, which holds the Telegram secrets and nothing else.
   alert:
     name: Alert if the run did not finish
-    needs: [publish]
+    needs: [network-drill, publish]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -677,6 +688,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
           FINDING: ${{ needs.publish.outputs.regression }}
           ALERT_TEXT: ${{ needs.publish.outputs.alert_text }}
+          NOT_STARTED: ${{ needs.network-drill.outputs.not_started }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           JOB_STATUS: ${{ needs.publish.result }}
         run: |
@@ -687,6 +699,9 @@ jobs:
           fi
           if [ "${FINDING:-0}" = "1" ]; then
             MSG="$(printf '%s\n\nRun: %s\nTrend: Grafana dashboard "Network Drill Trends" (opengate-network-drill-trend)' "$ALERT_TEXT" "$RUN_URL")"
+          elif [ -n "${NOT_STARTED:-}" ]; then
+            MSG="$(printf 'Network drill: the night did not start: %s. Nothing was measured.\n\nRun: %s' \
+              "$NOT_STARTED" "$RUN_URL")"
           else
             MSG="$(printf 'Network drill: the night did not finish (%s), so nothing was measured.\n\nRun: %s' \
               "$JOB_STATUS" "$RUN_URL")"

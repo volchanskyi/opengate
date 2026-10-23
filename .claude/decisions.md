@@ -68,7 +68,7 @@
 | 097 | A mutant's leash is a declared term of the night's budget, and cost is measured over the mutants that finish | [ADR-097](../docs/adr/ADR-097-mutation-budget.md) |
 | 098 | A test asserts on the code that ships; assertion shape is not evidence of value, and the data says so | [ADR-098](../docs/adr/ADR-098-test-value.md) |
 | 101 | The profile is the only home for the numbers — one measurement, one limit, and the window it is taken over | [ADR-101](../docs/adr/ADR-101-load-profiles-and-limits.md) |
-| 107 | Every profile has a venue; limits derive from the run's length, and the node is asked whether it has room | [ADR-107](../docs/adr/ADR-107-where-a-run-happens.md) |
+| 107 | Every profile has a venue; limits derive from the run's length, the node is asked whether it has room, and staging must run the build under test | [ADR-107](../docs/adr/ADR-107-where-a-run-happens.md) |
 | 116 | A forwarded address is believed only from a named proxy; a request counts per account or console session; a machine dials a set relay address; the console signs in by cookie | [ADR-116](../docs/adr/ADR-116-forwarded-addresses.md) |
 | 119 | A long run keeps the target's profiles and names the line that grew; a core says what still holds it | [ADR-119](../docs/adr/ADR-119-finding-a-leak.md) |
 | 121 | Signed over-the-air agent updates, pushed by the server, verified and rolled back by the agent | [ADR-121](../docs/adr/ADR-121-agent-auto-update.md) |

@@ -9,6 +9,9 @@
 
 set -euo pipefail
 
+# shellcheck source=scripts/lib/image-inputs.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/image-inputs.sh"
+
 IMAGE="${IMAGE:-}"
 HEAD_SHA="${HEAD_SHA:-}"
 CRANE="${CRANE:-crane}"
@@ -41,9 +44,8 @@ if ! git rev-parse --verify --quiet "${PREV_SHA}^{commit}" >/dev/null 2>&1; then
   exit 0
 fi
 
-# The pathspec lists the Dockerfile's COPY inputs: server/**, web/** and the Dockerfile itself.
-if [ -n "$(git diff --name-only "$PREV_SHA" "$HEAD_SHA" -- \
-  'server/**' 'web/**' 'Dockerfile')" ]; then
+mapfile -t inputs < <(image_inputs)
+if [ -n "$(git diff --name-only "$PREV_SHA" "$HEAD_SHA" -- "${inputs[@]}")" ]; then
   echo "image_changed=true"
   echo "image inputs changed between ${PREV_SHA} and ${HEAD_SHA} — building." >&2
 else

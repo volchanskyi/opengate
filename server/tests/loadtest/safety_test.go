@@ -265,10 +265,50 @@ func TestTheGuestReadingFirstSpansTenSecondsThenTheGapSinceItsLast(t *testing.T)
 	assert.InDelta(t, 60, busy, 0.01)
 	assert.Equal(t, 10*time.Second, clock.now.Sub(began), "the first reading covers ten seconds")
 
+	clock.Sleep(3 * time.Second)
 	busy, ok = read()
 	require.True(t, ok)
 	assert.InDelta(t, 14.29, busy, 0.01, "the second covers the time since the first")
-	assert.Equal(t, 10*time.Second, clock.now.Sub(began), "and waits for nothing")
+	assert.Equal(t, 13*time.Second, clock.now.Sub(began), "and a gap past a second waits for nothing")
+}
+
+// statFollowingTheClock serves /proc/stat as the kernel keeps it: a hundred ticks a second shared
+// between work and idle, so the counters stand still while no time passes.
+func statFollowingTheClock(clock *testClock, busyShare float64) func() (string, error) {
+	start := clock.now
+	return func() (string, error) {
+		ticks := uint64(clock.now.Sub(start) / (10 * time.Millisecond))
+		busy := uint64(float64(ticks) * busyShare)
+		return statLine(busy, 0, ticks-busy, 0, 0), nil
+	}
+}
+
+func TestTwoGuestReadingsTakenBackToBackAreBothMeasured(t *testing.T) {
+	clock := &testClock{now: time.Unix(1_800_000_000, 0)}
+	read := busyShareReading(clock, statFollowingTheClock(clock, 0.25))
+
+	busy, ok := read()
+	require.True(t, ok)
+	assert.InDelta(t, 25, busy, 0.01)
+
+	before := clock.now
+	busy, ok = read()
+	require.True(t, ok, "a reading asked for at once still covers time the counters moved over")
+	assert.InDelta(t, 25, busy, 0.01)
+	assert.Equal(t, time.Second, clock.now.Sub(before), "it waits out one second since the last")
+}
+
+func TestAWalkOnAGuestNodePassesEveryPhaseBoundary(t *testing.T) {
+	profile := threePhaseProfile()
+	// Only the processor ceiling holds, so the host's own memory and disk cannot decide the test.
+	profile.Safety = Safety{MaxNodeCPUPercent: 85}
+	clock := &testClock{now: time.Unix(1_800_000_000, 0)}
+	measure := busyShareReading(clock, statFollowingTheClock(clock, 0.2))
+
+	results, err := RunPhasesWatched(profile, &recordingFleet{}, clock,
+		func() NodeReading { return readNode(measure) }, unreadTarget)
+	require.NoError(t, err)
+	assert.Len(t, results, 3)
 }
 
 func TestTheVenuePicksWhichMeasureIsHonest(t *testing.T) {

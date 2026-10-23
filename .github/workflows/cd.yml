@@ -576,6 +576,7 @@ jobs:
     uses: ./.github/workflows/fault-tolerance.yml
     with:
       scenario: ${{ vars.STAGING_FAULT_PROFILE || 'pod-delete' }}
+      under_test: ${{ needs.resolve-tag.outputs.image_tag }}
     secrets: inherit
 
   deploy-production-k8s:

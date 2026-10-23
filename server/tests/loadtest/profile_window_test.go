@@ -15,7 +15,7 @@ func windowProfileYAML(rampMeasured, steadyMeasured bool) []byte {
 		}
 		return ""
 	}
-	return []byte(fmt.Sprintf(`
+	return fmt.Appendf(nil, `
 schema_version: 1
 name: normal
 family: normal
@@ -36,7 +36,7 @@ safety:
   max_node_cpu_percent: 85
   max_node_memory_percent: 90
   max_error_rate: 0.01
-`, mark(rampMeasured), mark(steadyMeasured)))
+`, mark(rampMeasured), mark(steadyMeasured))
 }
 
 func TestProfileNamesTheWindowItsNumbersAreTakenOver(t *testing.T) {

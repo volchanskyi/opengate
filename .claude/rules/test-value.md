@@ -46,6 +46,23 @@ Two classes are deleted on sight:
 - **A test of behaviour that does not exist** — pinning a documented no-op, or
   asserting a third-party library's own behaviour.
 
+### A fake of an outside tool behaves as the tool does on the point under test
+
+A fake that is kinder than the tool passes code the tool fails. Each fake below
+holds the tool's behaviour on the point its test is about:
+
+- **sudo** resets the environment unless asked to keep it, and sets its own
+  `PATH` either way
+  ([`loadtest-generator-share.test.sh`](../../scripts/tests/loadtest-generator-share.test.sh)).
+- **go test** prints `goos`, `pkg` and `cpu` lines around its results, which
+  benchstat reads as labels
+  ([`benchmark-confirm.test.sh`](../../scripts/tests/benchmark-confirm.test.sh)).
+- **The kernel's processor counters** move only as time passes
+  ([`safety_test.go`](../../server/tests/loadtest/safety_test.go)).
+
+The fake is written from the tool's documented or observed behaviour, and the
+test fails against today's code before the fix.
+
 ## What is deliberately not banned
 
 Assertion shape is not evidence of value. Measured against the nightly breakage

@@ -75,7 +75,9 @@ A run that owns its box is read at the instant it looks, because the minute
 before that look is the job's own image build. A run that is a guest on a cluster
 node reads the processor's busy share across the whole node, from two readings
 of the kernel's processor counters — ten seconds apart before the walk, and since
-the last reading after that. A load average counts tasks waiting on more than the
+the last reading after that, at least a second apart: the kernel counts
+processor time in ticks, and two readings taken back to back can find no time
+passed. A load average counts tasks waiting on more than the
 processor, and on one night it read a node 20–24% busy as 89% committed. Which of
 the two a run is comes from whether the kernel gives it a processor allowance of
 its own, the same question that decides whose room the generator's reading
@@ -629,7 +631,13 @@ slips. What the hour buys is a place in the order. The two runs that need the
 staging namespace are kept apart by the claim they take on it rather than by the
 gap between their crons — see
 [`scripts/staging-lease.sh`](../../scripts/staging-lease.sh), which renews that
-claim for as long as its holder is working and fails the run that lost it.
+claim for as long as its holder is working and fails the run that lost it. With
+the claim held, a run checks that staging's server is the one its own commit
+builds ([`staging-version-check.sh`](../../scripts/staging-version-check.sh)),
+reading the same paths the image build is decided by
+([`image-inputs.sh`](../../scripts/lib/image-inputs.sh)). A night staging runs
+another build is **not started**, and its alert names the build staging runs
+and the commit the run was made from.
 - **Browser performance evidence** comes from Lighthouse CI artifacts/summaries
   and the bundle-size gate; PageSpeed Insights is not part of the current CD
   workflow.
