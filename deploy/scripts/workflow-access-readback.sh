@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Asks the cluster, as the deploy's own login, whether it may read the master key's secret or list
-# the secrets of its namespace, and fails unless both answers are a plain no.
+# the secrets of its namespace, and fails unless both answers are no.
 #
 # Usage: deploy/scripts/workflow-access-readback.sh
 #
@@ -15,13 +15,14 @@ set -euo pipefail
 NAMESPACE="${NAMESPACE:-opengate}"
 failed=0
 
-# ask WHAT ARGS... puts a can-i question and holds the answer to a plain no.
+# ask WHAT ARGS... puts a can-i question and holds the answer to a no, with or without the
+# authorizer's reason after it; OKE's authorizer gives one with every no.
 ask() {
   local what="$1" answer
   shift
   answer="$(kubectl auth can-i "$@" 2>/dev/null || true)"
   case "$answer" in
-    no) echo "workflow-access-readback: no, $what" ;;
+    no | "no - "*) echo "workflow-access-readback: no, $what" ;;
     yes)
       echo "workflow-access-readback: this login may $what" >&2
       failed=1

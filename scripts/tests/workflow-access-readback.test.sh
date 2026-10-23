@@ -52,7 +52,12 @@ case "$args" in
 esac
 case "$answer" in
   yes) echo yes ;;
+  # OKE's authorizer gives a reason with every no, and kubectl prints it after the no.
   no)
+    echo "no - Authorization failed. Opc-Request-Id: <nil>"
+    exit 1
+    ;;
+  bare-no)
     echo no
     exit 1
     ;;
@@ -74,9 +79,14 @@ echo "workflow-access-readback:"
 
 status=0
 out="$(run 2>&1)" || status=$?
-assert_eq "two plain no answers pass" "0" "$status"
+assert_eq "two no answers carrying the authorizer's reason pass" "0" "$status"
+assert_contains "the refused read is named" "no, read the master key's secret" "$out"
 assert_contains "the deploy's own namespace is asked about listing secrets" \
   "auth can-i list secrets -n opengate-staging" "$(cat "$WORK/trace")"
+
+status=0
+out="$(run FAKE_KEY=bare-no FAKE_LIST=bare-no 2>&1)" || status=$?
+assert_eq "two no answers with no reason pass" "0" "$status"
 
 status=0
 out="$(run FAKE_KEY=yes 2>&1)" || status=$?
