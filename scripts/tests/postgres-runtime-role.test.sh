@@ -11,6 +11,7 @@ SERVER_DEPLOYMENT="$REPO_ROOT/deploy/helm/opengate/templates/server-deployment.y
 CD_WORKFLOW="$REPO_ROOT/.github/workflows/cd.yml"
 # CD pipes the emitter's output into psql in the Postgres pod.
 ROLE_SQL="$REPO_ROOT/deploy/scripts/pg-app-role-sql.sh"
+SECRET_SYNC="$REPO_ROOT/deploy/scripts/shared-secret-sync.sh"
 
 PASS=0
 FAIL=0
@@ -90,12 +91,19 @@ assert_file_contains \
   "ALTER TABLE %s OWNER TO opengate_app"
 assert_file_contains \
   "CD sync writes app-role password into the Kubernetes Secret" \
-  "$CD_WORKFLOW" \
+  "$SECRET_SYNC" \
   "--from-literal=POSTGRES_APP_PASSWORD="
+sync_count="$(grep -c "run: deploy/scripts/shared-secret-sync.sh" "$CD_WORKFLOW" || true)"
+if [ "$sync_count" = "2" ]; then
+  pass "CD syncs the shared secret through one script in both deploys"
+else
+  fail "CD must sync the shared secret through shared-secret-sync.sh in both deploys (found $sync_count)"
+fi
 
 if grep -R -qF "ALTER ROLE opengate NOSUPERUSER" \
   "$REPO_ROOT/deploy/helm/opengate/files" \
   "$ROLE_SQL" \
+  "$SECRET_SYNC" \
   "$CD_WORKFLOW"; then
   fail "deployment keeps opengate as the maintenance/backup role"
 else

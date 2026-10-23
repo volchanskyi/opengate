@@ -162,21 +162,27 @@ print(port)
 PYEOF
 }
 
+# SMOKE_SUMMARY names the file the run treats as its job summary; unset, the run has none.
 run_smoke() {
   local out="$1"
   shift
-  bash "$SMOKE" "$@" >"$out" 2>&1
+  GITHUB_STEP_SUMMARY="${SMOKE_SUMMARY:-}" bash "$SMOKE" "$@" >"$out" 2>&1
 }
 
 check_line() {
   grep -qF "$2: $3" "$1"
 }
 
+# summary_has FILE TEXT names TEXT as a line of the summary FILE.
+summary_has() {
+  [ -f "$1" ] && grep -qxF -- "$2" "$1"
+}
+
 echo "smoke test through the edge:"
 
 PORT="$(start_stub sound)"
 OUT="$WORK/sound.log"
-if run_smoke "$OUT" --domain edge.test --mode staging \
+if SMOKE_SUMMARY="$WORK/sound.md" run_smoke "$OUT" --domain edge.test --mode staging \
   --scheme http --edge-address "127.0.0.1:${PORT}"; then
   pass "a run through a sound edge passes"
 else
@@ -199,13 +205,30 @@ else
   fail "--edge-address must reach the edge behind a name DNS cannot resolve"
 fi
 
+if summary_has "$WORK/sound.md" "### Smoke tests: staging, through the public edge" \
+  && summary_has "$WORK/sound.md" "**Result:** pass: every check passed." \
+  && summary_has "$WORK/sound.md" "| GET /api/v1/health returns 200 | pass |" \
+  && summary_has "$WORK/sound.md" "| GET /metrics through the ingress is not the exposition | pass |"; then
+  pass "the job summary lists every check of a passing run"
+else
+  fail "the job summary must name the run and list every check as pass (see $WORK/sound.md)"
+fi
+
 PORT="$(start_stub breached)"
 OUT="$WORK/breached.log"
-if run_smoke "$OUT" --domain edge.test --mode staging \
+if SMOKE_SUMMARY="$WORK/breached.md" run_smoke "$OUT" --domain edge.test --mode staging \
   --scheme http --edge-address "127.0.0.1:${PORT}"; then
   fail "a run through an edge that serves the exposition must not pass"
 else
   pass "a run through an edge that serves the exposition fails"
+fi
+
+if summary_has "$WORK/breached.md" "**Result:** FAIL: 2 of 9 checks failed." \
+  && summary_has "$WORK/breached.md" "| GET /metrics through the ingress is not the exposition | FAIL |" \
+  && summary_has "$WORK/breached.md" "| GET /api/v1/health returns 200 | pass |"; then
+  pass "the job summary names the checks a failing run failed"
+else
+  fail "the job summary must count and mark the failed checks (see $WORK/breached.md)"
 fi
 
 if check_line "$OUT" FAIL "GET /metrics through the ingress is not the exposition"; then

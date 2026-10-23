@@ -245,12 +245,12 @@ The workflow authenticates as a separate read-only IAM user `tf-drift-reader` �
 1. Create group `tf-drift-readers`.
 2. Create user `tf-drift-reader`; add to the group; generate an API signing key pair (save the fingerprint and `.pem`).
 3. Policies (least privilege):
-   - `Allow group tf-drift-readers to inspect all-resources in compartment opengate`
-   - `Allow group tf-drift-readers to read object-family in bucket opengate-tfstate`
+   - `Allow group tf-drift-readers to inspect all-resources in tenancy`
+   - `Allow group tf-drift-readers to read object-family in tenancy where target.bucket.name='opengate-tfstate'`
    - `Allow group tf-drift-readers to inspect users in tenancy` and
-     `Allow group tf-drift-readers to inspect groups in tenancy` — IAM users and
-     groups live in the tenancy, not the compartment, and refreshing the
-     [workflow identity](#workflow-identity) reads them
+     `Allow group tf-drift-readers to inspect groups in tenancy` — refreshing the
+     [workflow identity](#workflow-identity) reads its user and group, which live in
+     the tenancy
 4. Add repo-level GitHub Secrets:
    - `OCI_DRIFT_USER_OCID` — the user OCID
    - `OCI_DRIFT_FINGERPRINT` — the API key fingerprint
@@ -378,9 +378,13 @@ The cluster job alone signs in as an administrator, from secrets held by the
 
 #### Setting it up
 
-1. `terraform apply` creates the group, the user, the membership and the policy.
-2. Generate an API signing key for the user (OCI Console → Identity → Users →
-   `opengate-workflows` → API keys), and store it as repository secrets:
+1. Set `workflow_user_email` in `terraform.tfvars`: the account's identity domain
+   refuses a user without a primary email. `terraform apply` then creates the
+   group, the user, the membership and the policy. The user signs in with its API
+   key alone, so the activation email the domain sends goes unanswered.
+2. Generate an API signing key for the user (OCI Console → Identity & Security →
+   Domains → Default → Users → `opengate-workflows` → API keys), and store it as
+   repository secrets:
    - `OCI_WORKFLOW_USER_OCID` — `terraform -chdir=deploy/terraform output -raw workflow_user_id`
    - `OCI_WORKFLOW_FINGERPRINT` — the key's fingerprint
    - `OCI_WORKFLOW_PRIVATE_KEY` — the private-key PEM contents

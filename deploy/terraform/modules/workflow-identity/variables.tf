@@ -13,3 +13,9 @@ variable "name" {
   type        = string
   default     = "opengate-workflows"
 }
+
+variable "email" {
+  description = "Primary email of the workflow user, which an identity-domain account requires to create it"
+  type        = string
+  default     = null
+}

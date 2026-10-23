@@ -3,7 +3,8 @@
 The GitHub workflows' own cloud login:
 
 - an IAM **group** and **user**, both named `opengate-workflows`, the user a member of that group
-  alone and of no administrators group;
+  alone and of no administrators group, carrying the primary email the identity domain requires
+  (`email`, from the root's `workflow_user_email`);
 - one **policy**, letting the group fetch a kubeconfig for the OKE cluster (`use clusters`).
 
 Everything the login may do inside the cluster comes from Kubernetes RBAC in

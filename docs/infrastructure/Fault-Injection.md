@@ -321,7 +321,10 @@ Two disjoint CI surfaces gate promotion:
   [`scripts/fault/`](../../scripts/fault) runner against `opengate-staging`,
   uploads its evidence directory as a run artifact, reverts every fault under
   `always()`, and verifies the staging Ingress is left free of any
-  `fault.opengate.dev/…` annotation.
+  `fault.opengate.dev/…` annotation. The run's summary page carries the drill's
+  result, the recovery time the runner recorded beside its budget, and whether a
+  fault was left on the edge
+  ([`drill-summary.sh`](../../scripts/fault/drill-summary.sh)).
 
 Activation is **config-only**, by repository variable:
 

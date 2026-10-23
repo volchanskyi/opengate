@@ -117,12 +117,15 @@ assert_contains "pod-delete targets the server pod by exact selector" "app.kuber
 assert_contains "pod-delete deletes a pod" "delete pod" "$(cat "$WORK/kubectl.args")"
 assert_contains "pod-delete waits for rollout recovery" "rollout status" "$(cat "$WORK/kubectl.args")"
 assert_file "pod-delete captures evidence" "$EVID/pod-delete-events.txt"
+assert_eq "pod-delete records its recovery time beside its 120 s limit" "yes 120" \
+  "$(read -r secs limit <"$EVID/pod-delete-recovery.txt" && [[ "$secs" =~ ^[0-9]+$ ]] && echo "yes $limit")"
 
 reset_args
 rc=0
 MOCK_ROLLOUT_RC=1 run_k8s opengate-staging "$PODDEL" >/dev/null 2>&1 || rc=$?
 assert_ne "pod-delete SLO breach exits non-zero" "0" "$rc"
 assert_file "pod-delete still captures evidence on SLO breach" "$EVID/pod-delete-events.txt"
+assert_file "pod-delete records its recovery time on SLO breach" "$EVID/pod-delete-recovery.txt"
 
 reset_args
 rc=0
@@ -138,6 +141,8 @@ assert_eq "bad-rollout + rollback exits 0" "0" "$rc"
 assert_contains "bad-rollout deploys a failing revision" "upgrade opengate-staging" "$(cat "$WORK/helm.args")"
 assert_contains "bad-rollout rolls back to the captured good revision" "rollback opengate-staging 5" "$(cat "$WORK/helm.args")"
 assert_file "bad-rollout captures evidence" "$EVID/bad-rollout-events.txt"
+assert_eq "bad-rollout records its rollback time beside its 180 s limit" "yes 180" \
+  "$(read -r secs limit <"$EVID/bad-rollout-recovery.txt" && [[ "$secs" =~ ^[0-9]+$ ]] && echo "yes $limit")"
 
 reset_args
 rc=0

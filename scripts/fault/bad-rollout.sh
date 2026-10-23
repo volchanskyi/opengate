@@ -64,7 +64,12 @@ else
 fi
 
 echo "bad-rollout: rolling back to revision $good_rev"
-helm rollback "$RELEASE" "$good_rev" -n "$NAMESPACE" --wait --timeout="${SLO_SECONDS}s" >>"$EVIDENCE_DIR/bad-rollout-rollback.txt" 2>&1
+started=$SECONDS
+restored=0
+helm rollback "$RELEASE" "$good_rev" -n "$NAMESPACE" --wait --timeout="${SLO_SECONDS}s" >>"$EVIDENCE_DIR/bad-rollout-rollback.txt" 2>&1 || restored=$?
+# Seconds the rollback took to a Ready release, then the limit, for the drill's summary.
+printf '%s %s\n' "$((SECONDS - started))" "$SLO_SECONDS" >"$EVIDENCE_DIR/bad-rollout-recovery.txt"
+[ "$restored" -eq 0 ] || die "the rollback to revision $good_rev did not finish within ${SLO_SECONDS}s"
 rolled_back=1
 
 echo "bad-rollout: verifying the prior image is healthy"
