@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Writes a nightly browser run's summary, as Markdown, from Playwright's JSON report.
+# Writes a browser run's summary, nightly or a deploy's, as Markdown from Playwright's JSON report.
 #
-# Usage: e2e-summarize.sh performance|cross-browser <report.json>
+# Usage: e2e-summarize.sh performance|cross-browser|staging <report.json>
 #   performance    each reading the speed specs recorded, beside the limit it is held to
 #   cross-browser  each browser's passed, failed, retried and skipped tests, and which failed
+#   staging        the same counts for the deploy's run against the staging release
 #
 # Exit codes:
 #   0  summary written, including for a run that produced nothing to read
@@ -15,7 +16,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/lib/summary-table.sh"
 
 usage() {
-  echo "usage: $0 performance|cross-browser <report.json>" >&2
+  echo "usage: $0 performance|cross-browser|staging <report.json>" >&2
   exit 2
 }
 
@@ -30,6 +31,10 @@ case "$RUN" in
   cross-browser)
     TITLE='E2E Cross-Browser'
     PURPOSE='Runs the browser suite in Chromium, Firefox and WebKit, each also from behind a home router, and retries a failed test once.'
+    ;;
+  staging)
+    TITLE='Staging browser tests'
+    PURPOSE='Runs the browser suite against the staging release before production is promoted, and retries a failed test once.'
     ;;
   *) usage ;;
 esac
@@ -98,5 +103,5 @@ cross_browser() {
 
 case "$RUN" in
   performance) performance ;;
-  cross-browser) cross_browser ;;
+  cross-browser | staging) cross_browser ;;
 esac

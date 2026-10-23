@@ -15,6 +15,7 @@ resource "oci_identity_user" "workflow" {
   compartment_id = var.tenancy_id
   name           = var.name
   description    = "GitHub workflows' cluster login; its API key is stored as repository secrets"
+  email          = var.email
 }
 
 resource "oci_identity_user_group_membership" "workflow" {

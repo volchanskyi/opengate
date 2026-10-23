@@ -75,7 +75,7 @@ identity material.
 | Job | Purpose |
 |-----|---------|
 | `resolve-tag` | Resolves the image tag, verifies the image and signature, evaluates the unchanged-deploy fast path, and decides whether the cluster-wide pieces changed since the running commit. |
-| `cluster` | Applies the cluster-wide pieces as an administrator, under the `production` environment's approval, when they changed or the running commit cannot be read. |
+| `cluster` | Shown as **Admin cluster changes**. Applies the cluster-wide pieces as an administrator, under the `production` environment's approval, when they changed or the running commit cannot be read, and summarises why it ran and what each piece became. |
 | `deploy-staging-k8s` | Applies the staging Helm release and runs smoke and browser tests. |
 | `deploy-production-k8s` | Applies the production Helm release after staging succeeds. |
 | `notify-failure` | Creates or updates the deployment failure issue. |
@@ -99,11 +99,18 @@ The staging job:
 
 The port-forward is temporary and does not expose staging publicly.
 
+The run's summary page carries every smoke check's result, for the port-forward
+and the public edge, and the browser tests' counts per browser with each failing
+test named ([`e2e-summarize.sh`](../../scripts/e2e-summarize.sh) `staging`). The
+staging fault drills add their own
+([Fault Injection](./Fault-Injection.md#gating-the-deploy)).
+
 ## Production checks
 
 Production is deployed only after staging succeeds and the production
 environment gate is approved. The workflow waits for rollout completion and
-runs the same smoke-test script through a temporary Service port-forward.
+runs the same smoke-test script through a temporary Service port-forward and
+through the public edge, each run's checks listed on the summary page.
 
 Both deploys ask the cluster, as their own login, whether it may read the master
 key's secret or list secrets, and fail on a yes

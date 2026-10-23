@@ -31,10 +31,15 @@ trap capture EXIT
 
 echo "pod-delete: deleting server pod(s) [$SELECTOR] in $NAMESPACE"
 capture
+started=$SECONDS
 kubectl delete pod -n "$NAMESPACE" -l "$SELECTOR" --wait=false
 
 echo "pod-delete: waiting up to ${SLO_SECONDS}s for a Ready replacement (SLO)"
-if ! kubectl rollout status "deploy/$DEPLOYMENT" -n "$NAMESPACE" --timeout="${SLO_SECONDS}s" >>"$EVIDENCE_DIR/pod-delete-rollout.txt" 2>&1; then
+recovered=0
+kubectl rollout status "deploy/$DEPLOYMENT" -n "$NAMESPACE" --timeout="${SLO_SECONDS}s" >>"$EVIDENCE_DIR/pod-delete-rollout.txt" 2>&1 || recovered=$?
+# Seconds from the delete to a Ready replacement, then the limit, for the drill's summary.
+printf '%s %s\n' "$((SECONDS - started))" "$SLO_SECONDS" >"$EVIDENCE_DIR/pod-delete-recovery.txt"
+if [ "$recovered" -ne 0 ]; then
   die "recovery exceeded the ${SLO_SECONDS}s SLO — see $EVIDENCE_DIR/pod-delete-rollout.txt"
 fi
 

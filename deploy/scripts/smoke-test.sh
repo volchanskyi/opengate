@@ -88,6 +88,8 @@ else
 fi
 TESTS_PASSED=0
 TESTS_FAILED=0
+# One summary-table row per check, in the order they ran.
+SUMMARY_ROWS=()
 
 check() {
   local name="$1"
@@ -95,10 +97,28 @@ check() {
   if "$@"; then
     log "PASS: $name"
     TESTS_PASSED=$((TESTS_PASSED + 1))
+    SUMMARY_ROWS+=("| $name | pass |")
   else
     log "FAIL: $name"
     TESTS_FAILED=$((TESTS_FAILED + 1))
+    SUMMARY_ROWS+=("| $name | FAIL |")
   fi
+}
+
+# write_summary appends every check's result to the job summary, when the run has one.
+write_summary() {
+  [[ -n "${GITHUB_STEP_SUMMARY:-}" ]] || return 0
+  local route="at the server's own ports" result="pass: every check passed."
+  [[ -n "$DOMAIN" ]] && route="through the public edge"
+  if [[ "$TESTS_FAILED" -gt 0 ]]; then
+    result="FAIL: ${TESTS_FAILED} of $((TESTS_PASSED + TESTS_FAILED)) checks failed."
+  fi
+  {
+    printf '### Smoke tests: %s, %s\n\n**Result:** %s\n\n' "$MODE" "$route" "$result"
+    printf '| Check | Result |\n|---|---|\n'
+    printf '%s\n' "${SUMMARY_ROWS[@]}"
+    printf '\n'
+  } >>"$GITHUB_STEP_SUMMARY"
 }
 
 http_status() {
@@ -269,6 +289,7 @@ if [[ "$MODE" == "local" || "$MODE" == "staging" ]]; then
 fi
 
 log "Smoke tests complete: ${TESTS_PASSED} passed, ${TESTS_FAILED} failed"
+write_summary
 
 if [[ "$TESTS_FAILED" -gt 0 ]]; then
   fail "Smoke tests failed"

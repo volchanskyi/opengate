@@ -83,6 +83,7 @@ jobs:
         run: scripts/staging-lease.sh acquire "$STAGING_LEASE_HOLDER"
 
       - name: Run fault scenario
+        id: drill
         run: |
           mkdir -p "$EVIDENCE_DIR"
           case "$SCENARIO" in
@@ -94,6 +95,7 @@ jobs:
 
       # Reverts the ingress scenarios (idempotent) and asserts the Ingress carries no fault annotation.
       - name: Restore fault + verify no residue
+        id: edge
         if: always()
         run: |
           case "$SCENARIO" in
@@ -107,6 +109,15 @@ jobs:
             exit 1
           fi
           echo "No fault residue on the staging Ingress."
+
+      - name: Summarise the drill
+        if: always()
+        env:
+          DRILL_OUTCOME: ${{ steps.drill.outcome }}
+          EDGE_OUTCOME: ${{ steps.edge.outcome }}
+        run: >-
+          scripts/fault/drill-summary.sh "$SCENARIO" "$EVIDENCE_DIR" "$DRILL_OUTCOME" "$EDGE_OUTCOME"
+          >>"$GITHUB_STEP_SUMMARY"
 
       - name: Upload drill evidence
         if: always()

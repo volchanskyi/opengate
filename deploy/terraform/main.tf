@@ -98,6 +98,7 @@ module "workflow_identity" {
 
   tenancy_id     = var.tenancy_ocid
   compartment_id = local.compartment_id
+  email          = var.workflow_user_email
 }
 
 # These blocks map existing state addresses onto the module-prefixed ones, avoiding recreation.

@@ -81,3 +81,9 @@ variable "backup_lifecycle_days" {
   type        = number
   default     = 7
 }
+
+variable "workflow_user_email" {
+  description = "Primary email of the opengate-workflows user, set in terraform.tfvars; an identity-domain account refuses to create a user without one. Plans that leave it unset read the address the user has."
+  type        = string
+  default     = null
+}

@@ -8,6 +8,8 @@
 #   WORKFLOW_USER_OCID  the workflows' cloud user that workflow-access.yaml binds (required)
 #   ACME_EMAIL          the production issuer's ACME contact (required)
 #   INGRESS_APPLY       the ingress controller step, default ingress-controller-apply.sh beside this
+#   CLUSTER_RUN_REASON  why the deploy started this run, written at the top of the job summary
+#   GITHUB_STEP_SUMMARY the job summary, which gets one row per piece and what the cluster did
 #
 # Exit codes:
 #   0  every piece is applied
@@ -32,13 +34,41 @@ done
 # shellcheck source=scripts/lib/kubectl-retry.sh
 . "$ROOT/scripts/lib/kubectl-retry.sh"
 
-# apply STEP reads a manifest from stdin and applies it, naming STEP when the cluster refuses it.
-apply() {
-  kubectl_retry --stdin apply -f - >/dev/null || {
-    echo "cluster-apply: the cluster refused $1" >&2
-    exit 1
-  }
+# summarize LINE appends LINE to the job summary, when the run has one.
+summarize() {
+  [ -z "${GITHUB_STEP_SUMMARY:-}" ] || printf '%s\n' "$1" >>"$GITHUB_STEP_SUMMARY"
 }
+
+# record PIECE OUTPUT writes PIECE's summary row, each line of OUTPUT an entry in its cell.
+record() {
+  local cell="${2//|/\\|}"
+  summarize "| ${1^} | ${cell//$'\n'/<br>} |"
+}
+
+# refuse PIECE REASON records PIECE as refused, names it in the log and stops the run.
+refuse() {
+  record "$1" "refused: $2"
+  echo "cluster-apply: the cluster refused $1" >&2
+  exit 1
+}
+
+# apply PIECE reads a manifest from stdin, applies it, and records what each object became.
+apply() {
+  local out
+  if ! out="$(kubectl_retry --stdin apply -f - 2>&1)"; then
+    printf '%s\n' "$out" >&2
+    refuse "$1" "${out%%$'\n'*}"
+  fi
+  printf '%s\n' "$out"
+  record "$1" "$out"
+}
+
+summarize "## Admin cluster changes"
+summarize ""
+summarize "**Why it ran:** ${CLUSTER_RUN_REASON:-not stated by the caller}"
+summarize ""
+summarize "| Piece | What the cluster did |"
+summarize "|---|---|"
 
 apply "the namespaces" <<'NAMESPACES'
 apiVersion: v1
@@ -57,7 +87,13 @@ metadata:
   name: monitoring
 NAMESPACES
 
-"$ROOT/deploy/scripts/helm-release-migrate.sh" opengate opengate-staging monitoring ingress-nginx
+if ! migrated="$("$ROOT/deploy/scripts/helm-release-migrate.sh" opengate opengate-staging monitoring \
+  ingress-nginx 2>&1)"; then
+  printf '%s\n' "$migrated" >&2
+  refuse "Helm's release records" "${migrated##*$'\n'}"
+fi
+printf '%s\n' "$migrated"
+record "Helm's release records" "${migrated//helm-release-migrate: /}"
 
 apply "the master key's guard rule" <"$ROOT/deploy/cluster/authority-readers.yaml"
 apply "the workflows' access" \
@@ -69,5 +105,9 @@ apply "monitoring's cluster roles" <<<"$(helm template monitoring "$ROOT/deploy/
   -n monitoring -f "$ROOT/deploy/helm/monitoring/values-production.yaml" \
   --show-only templates/cluster-rbac.yaml)"
 
-"$INGRESS_APPLY" apply
+# The controller's upgrade streams to the log; its last line is what the cluster holds.
+ingress_log="$(mktemp)"
+trap 'rm -f "$ingress_log"' EXIT
+"$INGRESS_APPLY" apply 2>&1 | tee "$ingress_log" || refuse "the ingress controller" "$(tail -n 1 "$ingress_log")"
+record "the ingress controller" "$(tail -n 1 "$ingress_log")"
 echo "cluster-apply: every cluster-wide piece is applied"

@@ -54,3 +54,16 @@ run "a_compartment_policy_names_its_compartment" {
     error_message = "Users and groups live in the tenancy root."
   }
 }
+
+run "the_user_carries_the_address_it_is_given" {
+  command = apply
+
+  variables {
+    email = "workflows@example.com"
+  }
+
+  assert {
+    condition     = oci_identity_user.workflow.email == "workflows@example.com"
+    error_message = "An identity-domain account refuses a user without a primary email address."
+  }
+}

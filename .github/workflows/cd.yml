@@ -40,6 +40,7 @@ jobs:
       target_digest: ${{ steps.preflight.outputs.target_digest }}
       should_skip_staging: ${{ steps.preflight.outputs.should_skip_staging }}
       cluster_changed: ${{ steps.cluster.outputs.changed }}
+      cluster_reason: ${{ steps.cluster.outputs.reason }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -173,11 +174,19 @@ jobs:
           set -euo pipefail
           . scripts/lib/cluster-paths.sh
           mapfile -t paths < <(cluster_paths)
-          if [[ "$EVENT_NAME" == "workflow_dispatch" || -z "$PRIOR_SHA" ]] \
-             || ! git cat-file -e "${PRIOR_SHA}^{commit}" 2>/dev/null \
-             || ! git diff --quiet "$PRIOR_SHA" "$GIT_SHA" -- "${paths[@]}"; then
+          reason=""
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            reason="the deploy was started by hand"
+          elif [[ -z "$PRIOR_SHA" ]] || ! git cat-file -e "${PRIOR_SHA}^{commit}" 2>/dev/null; then
+            reason="the commit staging runs could not be read"
+          elif ! git diff --quiet "$PRIOR_SHA" "$GIT_SHA" -- "${paths[@]}"; then
+            changed="$(git diff --name-only "$PRIOR_SHA" "$GIT_SHA" -- "${paths[@]}" | paste -sd, -)"
+            reason="changed since ${PRIOR_SHA:0:7}: ${changed//,/, }"
+          fi
+          if [[ -n "$reason" ]]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "Cluster-wide pieces changed, or the running commit is unknown → cluster job runs"
+            echo "reason=${reason}" >> "$GITHUB_OUTPUT"
+            echo "Cluster job runs: ${reason}"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "Cluster-wide pieces unchanged since ${PRIOR_SHA}"
@@ -190,7 +199,7 @@ jobs:
   # Applies what a routine deploy's login cannot write, as the administrator login held only by the
   # production environment, so every run waits for approval.
   cluster:
-    name: Apply cluster-wide pieces
+    name: Admin cluster changes
     needs: resolve-tag
     if: needs.resolve-tag.outputs.cluster_changed == 'true'
     runs-on: ubuntu-24.04
@@ -212,6 +221,7 @@ jobs:
         env:
           WORKFLOW_USER_OCID: ${{ secrets.OCI_WORKFLOW_USER_OCID }}
           ACME_EMAIL: ${{ secrets.DEPLOY_ACME_EMAIL }}
+          CLUSTER_RUN_REASON: ${{ needs.resolve-tag.outputs.cluster_reason }}
         run: deploy/scripts/cluster-apply.sh
 
       - name: Remove OCI credentials
@@ -351,22 +361,7 @@ jobs:
           VAPID_CONTACT: ${{ secrets.DEPLOY_STAGING_VAPID_CONTACT }}
           POSTGRES_PASSWORD: ${{ secrets.DEPLOY_STAGING_POSTGRES_PASSWORD }}
           POSTGRES_APP_PASSWORD: ${{ secrets.DEPLOY_STAGING_POSTGRES_APP_PASSWORD || secrets.DEPLOY_STAGING_POSTGRES_PASSWORD }}
-        # The login may create a secret and patch this one, and reads none.
-        run: |
-          set -euo pipefail
-          status=0
-          out="$(kubectl -n "$NAMESPACE" create secret generic opengate-secrets \
-            --from-literal=JWT_SECRET="$JWT_SECRET" \
-            --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
-            --from-literal=POSTGRES_APP_PASSWORD="$POSTGRES_APP_PASSWORD" \
-            --from-literal=AMT_PASS="$AMT_PASS" \
-            --from-literal=VAPID_CONTACT="$VAPID_CONTACT" 2>&1)" || status=$?
-          if [ "$status" -ne 0 ]; then
-            grep -qF 'AlreadyExists' <<<"$out" || { echo "$out" >&2; exit 1; }
-            APP_PASSWORD_B64="$(printf '%s' "$POSTGRES_APP_PASSWORD" | base64 | tr -d '\n')"
-            kubectl -n "$NAMESPACE" patch secret opengate-secrets --type merge \
-              -p "{\"data\":{\"POSTGRES_APP_PASSWORD\":\"${APP_PASSWORD_B64}\"}}"
-          fi
+        run: deploy/scripts/shared-secret-sync.sh
 
       - name: Ensure database role honors RLS
         env:
@@ -541,8 +536,13 @@ jobs:
           exit 1
 
       - name: Run Playwright E2E against staging
+        id: staging-e2e
         working-directory: web
         run: npx playwright test --config=playwright.staging.config.ts
+
+      - name: Summarise the staging browser tests
+        if: always() && steps.staging-e2e.outcome != 'skipped'
+        run: scripts/e2e-summarize.sh staging web/test-results/e2e-report.json >>"$GITHUB_STEP_SUMMARY"
 
       # The enrolment token expires within the hour and the next reset truncates its table.
       - name: Remove the staging machines
@@ -615,22 +615,7 @@ jobs:
           VAPID_CONTACT: ${{ secrets.DEPLOY_VAPID_CONTACT }}
           POSTGRES_PASSWORD: ${{ secrets.DEPLOY_POSTGRES_PASSWORD }}
           POSTGRES_APP_PASSWORD: ${{ secrets.DEPLOY_POSTGRES_APP_PASSWORD || secrets.DEPLOY_POSTGRES_PASSWORD }}
-        # The login may create a secret and patch this one, and reads none.
-        run: |
-          set -euo pipefail
-          status=0
-          out="$(kubectl -n "$NAMESPACE" create secret generic opengate-secrets \
-            --from-literal=JWT_SECRET="$JWT_SECRET" \
-            --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
-            --from-literal=POSTGRES_APP_PASSWORD="$POSTGRES_APP_PASSWORD" \
-            --from-literal=AMT_PASS="$AMT_PASS" \
-            --from-literal=VAPID_CONTACT="$VAPID_CONTACT" 2>&1)" || status=$?
-          if [ "$status" -ne 0 ]; then
-            grep -qF 'AlreadyExists' <<<"$out" || { echo "$out" >&2; exit 1; }
-            APP_PASSWORD_B64="$(printf '%s' "$POSTGRES_APP_PASSWORD" | base64 | tr -d '\n')"
-            kubectl -n "$NAMESPACE" patch secret opengate-secrets --type merge \
-              -p "{\"data\":{\"POSTGRES_APP_PASSWORD\":\"${APP_PASSWORD_B64}\"}}"
-          fi
+        run: deploy/scripts/shared-secret-sync.sh
 
       - name: Ensure database role honors RLS
         env:
