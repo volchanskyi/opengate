@@ -577,9 +577,12 @@ depends on is gone for every later run against that database.
   overrides only the target, the retry policy and the specs that drive the local
   stack, so the two cannot drift in how the suite executes;
   `scripts/tests/playwright-config-parity.test.sh` enforces it. Staging has no
-  router, no machine shell and no browser server, so the direct-link, download,
-  performance and two-router specs and the projects behind the home router stay
-  local: staging proves the relay, and the terminal echo there is real. What it
+  router, no machine container and no browser server, so every spec that runs a
+  local program — the direct-link, download, machine-lifecycle, performance and
+  two-router specs — and the projects behind the home router stay local, and
+  every other spec runs there. The same test reads that split from Playwright's
+  own listing of the staging run: staging proves the relay, and the terminal
+  echo there is real. What it
   does not inherit is the stack: the deploy job stands staging's machines up,
   which is why they are checked against the same pinned names
 

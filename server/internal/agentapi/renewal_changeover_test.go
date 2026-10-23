@@ -22,7 +22,7 @@ import (
 func TestSweepPacesOffers(t *testing.T) {
 	env := newCertEnv(t, "")
 	var machines []*tls.Certificate
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		_, machine := env.machine(t)
 		machines = append(machines, machine)
 	}
@@ -38,11 +38,9 @@ func TestSweepPacesOffers(t *testing.T) {
 	assert.GreaterOrEqual(t, time.Since(started), time.Duration(len(machines)-1)*time.Second/offersPerSecond)
 	var wg sync.WaitGroup
 	for _, m := range conns {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			m.await(t, protocol.MsgRenewCertificate, time.Second)
-		}()
+		})
 	}
 	wg.Wait()
 }
@@ -57,7 +55,6 @@ func TestFastPathAcceptsAnyTrustedHash(t *testing.T) {
 	m.await(t, protocol.MsgTrustBundle, 5*time.Second)
 
 	stale := env.dialFast(t, machine, [48]byte{7})
-	stale.register(t)
 	assert.Equal(t, quic.ApplicationErrorCode(protocol.CloseHandshakeRefused), stale.closedWith(t, 5*time.Second))
 }
 
