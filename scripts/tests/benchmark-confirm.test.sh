@@ -32,11 +32,18 @@ window() {
   shift
   for v in "$@"; do printf '%s 1 %s ns/op\n' "$name" "$v"; done >>"$WORK/window.txt"
 }
-# rerun NAME VALUE… writes ten re-run readings as `go test -cpu 4` prints them.
+# rerun NAME VALUE… writes ten re-run readings as `go test -cpu 4` prints them, between the header
+# lines it opens each package with and the lines it closes each package with.
 rerun() {
   local name="$1" v
   shift
-  for v in "$@"; do printf '%s-4 \t 1000000\t %s ns/op\t 64 B/op\t 2 allocs/op\n' "$name" "$v"; done >>"$WORK/rerun.txt"
+  {
+    printf 'goos: linux\ngoarch: amd64\n'
+    printf 'pkg: github.com/volchanskyi/opengate/server/internal/protocol\n'
+    printf 'cpu: AMD EPYC 7763 64-Core Processor\n'
+    for v in "$@"; do printf '%s-4 \t 1000000\t %s ns/op\t 64 B/op\t 2 allocs/op\n' "$name" "$v"; done
+    printf 'PASS\nok  \tgithub.com/volchanskyi/opengate/server/internal/protocol\t12.345s\n'
+  } >>"$WORK/rerun.txt"
 }
 judge() {
   : >"$BENCHMARK_CONFIRM_SUMMARY"

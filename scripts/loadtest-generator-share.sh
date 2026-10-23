@@ -38,17 +38,19 @@ main() {
   echo "generator allowance: ${processors} processors, ${memory} memory, shared in $GENERATOR_SLICE" >&2
   sudo -n systemctl set-property --runtime "$GENERATOR_SLICE" \
     "CPUQuota=$(quota_percent "$processors")" "MemoryMax=${memory}"
-  exec sudo -n systemd-run --scope --quiet --slice="$GENERATOR_SLICE" \
-    -- setpriv --reuid="$(id -u)" --regid="$(id -g)" --init-groups "$@"
+  # Sudo keeps the caller's environment on request but always sets its own PATH, so env hands the
+  # caller's PATH back to the command.
+  exec sudo -n --preserve-env systemd-run --scope --quiet --slice="$GENERATOR_SLICE" \
+    -- setpriv --reuid="$(id -u)" --regid="$(id -g)" --init-groups env PATH="$PATH" "$@"
 }
 
-# share_is_available makes and discards one transient scope, since every piece of an allowance can
-# be present and the making still fail after the harness has been handed over.
+# share_is_available makes and discards one transient scope the way main asks for it, since every
+# piece of an allowance can be present and the making still fail after the harness is handed over.
 share_is_available() {
   command -v systemd-run >/dev/null 2>&1 || return 1
   command -v setpriv >/dev/null 2>&1 || return 1
   command -v sudo >/dev/null 2>&1 || return 1
-  sudo -n systemd-run --scope --quiet -- true >/dev/null 2>&1
+  sudo -n --preserve-env systemd-run --scope --quiet -- true >/dev/null 2>&1
 }
 
 # quota_percent turns a processor count into a CPUQuota percentage; one processor is 100%.

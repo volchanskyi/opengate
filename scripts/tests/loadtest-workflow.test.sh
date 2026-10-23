@@ -334,10 +334,10 @@ alert_env="$(python3 -c 'import sys, yaml
 for st in yaml.safe_load(open(sys.argv[1]))["jobs"]["alert"]["steps"]:
     if st.get("name") == "Send Telegram alert": print(st.get("env", {}).get("NOT_STARTED", ""))' "$WORKFLOW")"
 # shellcheck disable=SC2016 # the workflow's expression text, compared unexpanded
-if [ "$alert_env" = '${{ needs.publish.outputs.not_started }}' ]; then
-  pass "the alert reads the reason the publish job handed on"
+if [ "$alert_env" = '${{ needs.load-test.outputs.not_started || needs.publish.outputs.not_started }}' ]; then
+  pass "the alert reads why staging was refused, then the reason the publish job handed on"
 else
-  fail "the alert step must set NOT_STARTED from needs.publish.outputs.not_started (got=[$alert_env])"
+  fail "the alert step must set NOT_STARTED from the load-test job's reason, then the publish job's (got=[$alert_env])"
 fi
 rm -rf "$sandbox"
 

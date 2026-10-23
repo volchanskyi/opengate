@@ -69,8 +69,10 @@ judge() {
 
   local work
   work="$(mktemp -d)"
-  # The re-run names carry the processor count, which the nights' lines leave out.
-  sed -E 's/^(Benchmark[^[:space:]]*)-[0-9]+([[:space:]])/\1\2/' "$rerun_file" >"$work/re-run"
+  # Only result lines reach benchstat: go test's goos, pkg and cpu lines label a table of their
+  # own. The re-run names carry the processor count, which the nights' lines leave out.
+  sed -nE '/^Benchmark/ { s/^(Benchmark[^[:space:]]*)-[0-9]+([[:space:]])/\1\2/; p; }' \
+    "$rerun_file" >"$work/re-run"
   cp "$window" "$work/nights"
   local csv text
   if ! csv="$(cd "$work" && benchstat -format csv nights re-run 2>/dev/null)"; then

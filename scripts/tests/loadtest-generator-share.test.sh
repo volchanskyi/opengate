@@ -29,16 +29,39 @@ assert_eq() {
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-mkdir -p "$WORK/bin"
+mkdir -p "$WORK/bin" "$WORK/sbin" "$WORK/caller-bin"
 
+# The system tools sit on sudo's secure path; the caller's own tools sit only on the caller's PATH.
+SECURE_PATH="$WORK/sbin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+# Sudo as the runners configure it: the environment is reset unless the caller asks to keep it and
+# sudoers lets it, and PATH is the secure path either way.
 cat >"$WORK/bin/sudo" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-if [ "\$1" = "-n" ]; then shift; fi
+keep=0
+while [ "\$#" -gt 0 ]; do
+  case "\$1" in
+    -n) shift ;;
+    -E | --preserve-env) keep=1; shift ;;
+    *) break ;;
+  esac
+done
+if [ "\$keep" = 1 ] && [ "\$(cat "$WORK/setenv-allowed")" != "1" ]; then
+  echo "sudo: sorry, you are not allowed to preserve the environment" >&2
+  exit 1
+fi
 printf 'sudo %s\n' "\$*" >>"$WORK/calls.txt"
-exec "\$@"
+if [ "\$keep" = 1 ]; then
+  exec env PATH="$SECURE_PATH" "\$@"
+fi
+exec env -i PATH="$SECURE_PATH" HOME="\$HOME" "\$@"
 EOF
-cat >"$WORK/bin/systemd-run" <<EOF
+cat >"$WORK/caller-bin/caller-only-tool" <<'EOF'
+#!/usr/bin/env bash
+printf 'profile=%s\n' "${LOADTEST_PROFILE:-}"
+EOF
+cat >"$WORK/sbin/systemd-run" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 [ "\$(cat "$WORK/scopes-allowed")" = "0" ] || exit 1
@@ -49,7 +72,7 @@ for arg in "\$@"; do
 done
 exec "\$@"
 EOF
-cat >"$WORK/bin/setpriv" <<EOF
+cat >"$WORK/sbin/setpriv" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'setpriv %s\n' "\$*" >>"$WORK/calls.txt"
@@ -61,18 +84,21 @@ while [ "\$#" -gt 0 ]; do
 done
 exec "\$@"
 EOF
-cat >"$WORK/bin/systemctl" <<EOF
+cat >"$WORK/sbin/systemctl" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'systemctl %s\n' "\$*" >>"$WORK/calls.txt"
 EOF
-chmod +x "$WORK/bin/sudo" "$WORK/bin/systemd-run" "$WORK/bin/setpriv" "$WORK/bin/systemctl"
+chmod +x "$WORK/bin/sudo" "$WORK/caller-bin/caller-only-tool" \
+  "$WORK/sbin/systemd-run" "$WORK/sbin/setpriv" "$WORK/sbin/systemctl"
 echo 0 >"$WORK/scopes-allowed"
+echo 1 >"$WORK/setenv-allowed"
 
 run_share() {
   rm -f "$WORK/calls.txt"
   STATUS=0
-  PATH="$WORK/bin:$PATH" "$SHARE" "$@" >"$WORK/out.txt" 2>&1 || STATUS=$?
+  PATH="$WORK/caller-bin:$WORK/bin:$WORK/sbin:$PATH" "$SHARE" "$@" >"$WORK/out.txt" 2>&1 \
+    || STATUS=$?
 }
 
 echo "loadtest-generator-share:"
@@ -119,6 +145,24 @@ if grep -qF 'cannot give the generator an allowance' "$WORK/out.txt" \
   pass "an allowance that cannot be applied is announced rather than assumed"
 else
   fail "an allowance that cannot be applied is announced rather than assumed"
+fi
+
+LOADTEST_PROFILE=nightly run_share 1 8G -- caller-only-tool
+assert_eq "a tool on the caller's PATH runs inside the allowance" "0" "$STATUS"
+if grep -qxF 'profile=nightly' "$WORK/out.txt"; then
+  pass "the caller's environment reaches the command through sudo"
+else
+  fail "the caller's environment reaches the command through sudo ($(cat "$WORK/out.txt"))"
+fi
+
+echo 0 >"$WORK/setenv-allowed"
+LOADTEST_PROFILE=nightly run_share 1 8G -- caller-only-tool
+echo 1 >"$WORK/setenv-allowed"
+if grep -qF 'cannot give the generator an allowance' "$WORK/out.txt" \
+  && grep -qxF 'profile=nightly' "$WORK/out.txt"; then
+  pass "a sudo that will not keep the environment leaves the generator unshared, and says so"
+else
+  fail "a sudo that will not keep the environment leaves the generator unshared, and says so ($(cat "$WORK/out.txt"))"
 fi
 
 run_share 1 8G

@@ -65,13 +65,17 @@ jobs:
     # The job uses repository-level OCI credentials and creates short-lived test pods.
     outputs:
       started_at: ${{ steps.started.outputs.at }}
+      not_started: ${{ steps.version.outputs.not_started }}
     steps:
       # Every sample of the night carries this time, so a re-run of failed jobs writes the same point.
       - name: Record when the run started
         id: started
         run: echo "at=$(date -u +%s)" >>"$GITHUB_OUTPUT"
 
+      # The full history holds the commit staging runs, which the version check compares with.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-go@v7
         with:
@@ -95,6 +99,13 @@ jobs:
           STAGING_LEASE_WAIT_SECONDS: "1500"
           STAGING_LEASE_QUIET: later
         run: scripts/staging-lease.sh acquire "$STAGING_LEASE_HOLDER"
+
+      # The slot keeps every deploy off staging, so the build read here is the build the run meets.
+      - name: Check staging runs the build under test
+        id: version
+        env:
+          UNDER_TEST: ${{ github.sha }}
+        run: scripts/staging-version-check.sh >>"$GITHUB_OUTPUT"
 
       # Both phases run their generator in the cluster, so both need the server pod and its arch.
       - name: Resolve staging target
@@ -610,7 +621,7 @@ jobs:
   # Sends the run's alert from a job of its own, which holds the Telegram secrets and nothing else.
   alert:
     name: Alert if the run did not finish
-    needs: [publish]
+    needs: [load-test, publish]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -630,7 +641,8 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
           FINDING: ${{ needs.publish.outputs.regression }}
           ALERT_TEXT: ${{ needs.publish.outputs.alert_text }}
-          NOT_STARTED: ${{ needs.publish.outputs.not_started }}
+          # A staging that runs another build stops the run before the harness can say why.
+          NOT_STARTED: ${{ needs.load-test.outputs.not_started || needs.publish.outputs.not_started }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           JOB_STATUS: ${{ needs.publish.result }}
         run: |

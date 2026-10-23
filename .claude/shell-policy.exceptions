@@ -48,3 +48,4 @@ standalone	scripts/tests/ci-cd-determinism.test.sh	e	The errexit demonstration c
 library	scripts/lib/reference-walk.sh	-	The core walk is sourced by the endurance run's reference walk and the core-walk check, which each set their own policy.
 library	scripts/lib/summary-table.sh	-	The summary table shape is sourced by the run, drill and benchmark renderers, which each set their own policy.
 library	scripts/lib/cluster-paths.sh	-	The cluster job's trigger paths are sourced by cd.yml's decision step and inherit its policy.
+library	scripts/lib/image-inputs.sh	-	The server image's inputs are sourced by the image build gate and the staging version check, which each set their own policy.

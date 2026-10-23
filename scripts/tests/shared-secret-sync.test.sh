@@ -65,8 +65,13 @@ case "$args" in
     echo "secret/opengate-secrets created"
     ;;
   *" patch secret opengate-secrets "*)
-    printf '%s' "$*" >"$FAKE_DIR/patch"
-    echo "secret/opengate-secrets patched"
+    echo 'Error from server (Forbidden): secrets "opengate-secrets" is forbidden: User "workflows" cannot get resource "secrets"' >&2
+    exit 1
+    ;;
+  *" apply --server-side "*" -f - "*)
+    printf '%s' "$*" >"$FAKE_DIR/apply-args"
+    cat >"$FAKE_DIR/apply"
+    echo "secret/opengate-secrets"
     ;;
   *)
     echo "unexpected kubectl call: $*" >&2
@@ -98,7 +103,7 @@ assert_eq "the created secret is opengate-secrets" "opengate-secrets" \
 created_args="$(jq -r '.args' "$fresh/secret" 2>/dev/null | base64 -d 2>/dev/null || true)"
 assert_eq "the created secret carries every key" "1" \
   "$(grep -c 'JWT_SECRET=jwt-secret.*POSTGRES_PASSWORD=pg-pass.*POSTGRES_APP_PASSWORD=app-pass-7f3e.*AMT_PASS=amt-pass.*VAPID_CONTACT=mailto:ops@example.com' <<<"$created_args")"
-assert_eq "a created secret is not patched" "absent" "$([ -f "$fresh/patch" ] && echo present || echo absent)"
+assert_eq "a created secret is not written again" "absent" "$([ -f "$fresh/apply" ] && echo present || echo absent)"
 assert_eq "the create lands in the release's namespace" "1" \
   "$(grep -c -- '-n opengate-staging create -f -' "$fresh/calls")"
 
@@ -109,9 +114,12 @@ status=0
 out="$(run FAKE_DIR="$existing" 2>&1)" || status=$?
 assert_eq "a namespace that has the secret succeeds" "0" "$status"
 assert_eq "the existing secret keeps its other keys" "kept" "$(cat "$existing/secret")"
-want_patch="{\"data\":{\"POSTGRES_APP_PASSWORD\":\"$(printf '%s' "$APP_PASSWORD" | base64 | tr -d '\n')\"}}"
-assert_eq "only the application password is patched" "1" \
-  "$(grep -cF -- "$want_patch" "$existing/patch" 2>/dev/null || echo 0)"
+assert_eq "only the application password is written" \
+  "opengate-secrets [\"POSTGRES_APP_PASSWORD\"] $(printf '%s' "$APP_PASSWORD" | base64 | tr -d '\n')" \
+  "$(jq -r '"\(.metadata.name) \(.data | keys | tojson) \(.data.POSTGRES_APP_PASSWORD)"' "$existing/apply" 2>/dev/null)"
+apply_args="$(cat "$existing/apply-args" 2>/dev/null || true)"
+assert_eq "the write needs no read and names its owner" "1 1 1" \
+  "$(grep -c -- '--server-side' <<<"$apply_args") $(grep -c -- '--field-manager=opengate-deploy' <<<"$apply_args") $(grep -c -- '-o name' <<<"$apply_args")"
 assert_eq "no secret value reaches the log" "0" "$(grep -cE 'app-pass-7f3e|jwt-secret|pg-pass' <<<"$out" || true)"
 
 refused="$WORK/refused"
@@ -120,7 +128,7 @@ status=0
 out="$(run FAKE_DIR="$refused" FAKE_REFUSE='secrets is forbidden' 2>&1)" || status=$?
 assert_eq "any other refusal fails the sync" "1" "$status"
 assert_eq "the refusal is shown" "1" "$(grep -c 'secrets is forbidden' <<<"$out")"
-assert_eq "a refused create is not patched" "absent" "$([ -f "$refused/patch" ] && echo present || echo absent)"
+assert_eq "a refused create writes nothing more" "absent" "$([ -f "$refused/apply" ] && echo present || echo absent)"
 
 missing="$WORK/missing"
 mkdir -p "$missing"

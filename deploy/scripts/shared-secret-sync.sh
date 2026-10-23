@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Creates a release's shared secret once; on a later deploy updates only the application password.
-# The login may create a secret and patch this one, and reads none.
+# The login may create a secret and patch this one, and asks to read none.
 #
 # Usage: deploy/scripts/shared-secret-sync.sh
 #
@@ -49,7 +49,12 @@ if ! grep -qF 'AlreadyExists' <<<"$out"; then
   exit 1
 fi
 
+# A server-side apply sends the one key without reading the secret first, which kubectl patch does
+# and the login may not; only the name is printed, so the answer's other keys stay out of the log.
 app_password_b64="$(printf '%s' "$POSTGRES_APP_PASSWORD" | base64 | tr -d '\n')"
-kubectl_retry -n "$NAMESPACE" patch secret opengate-secrets --type merge \
-  -p "{\"data\":{\"POSTGRES_APP_PASSWORD\":\"${app_password_b64}\"}}" >/dev/null
+kubectl_retry --stdin -n "$NAMESPACE" apply --server-side --force-conflicts \
+  --field-manager=opengate-deploy -o name -f - >/dev/null <<APP_PASSWORD
+{"apiVersion": "v1", "kind": "Secret", "metadata": {"name": "opengate-secrets"},
+ "data": {"POSTGRES_APP_PASSWORD": "${app_password_b64}"}}
+APP_PASSWORD
 echo "shared-secret-sync: opengate-secrets in $NAMESPACE carries the current application password"

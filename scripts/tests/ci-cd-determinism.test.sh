@@ -546,6 +546,95 @@ else
   fail "a workflow names an environment no person approves, which GitHub can hold indefinitely:$env_bad"
 fi
 
+# A job holding the staging slot checks, in its next step, that staging runs the build under test.
+# Prints file<TAB>job<TAB>problem per breach and file<TAB>job<TAB>ok per job that holds the slot.
+staging_slot_jobs() {
+  python3 - "$@" <<'PY'
+import re
+import sys
+
+import yaml
+
+TAKE = re.compile(r"scripts/staging-lease\.sh\s+acquire\b")
+CHECK = re.compile(r"scripts/staging-version-check\.sh\b")
+
+for path in sys.argv[1:]:
+    name = path.rsplit("/", 1)[-1]
+    if name == "cd.yml":
+        continue
+    with open(path, encoding="utf-8") as handle:
+        workflow = yaml.safe_load(handle) or {}
+    for job, body in (workflow.get("jobs") or {}).items():
+        if not isinstance(body, dict):
+            continue
+        steps = [s for s in body.get("steps") or [] if isinstance(s, dict)]
+        takes = [i for i, s in enumerate(steps) if TAKE.search(str(s.get("run", "")))]
+        if not takes:
+            continue
+        problems = []
+        after = steps[takes[0] + 1] if takes[0] + 1 < len(steps) else {}
+        if not CHECK.search(str(after.get("run", ""))):
+            problems.append("the step after taking the slot does not check staging's build")
+        elif not str((after.get("env") or {}).get("UNDER_TEST", "")).strip():
+            problems.append("the check names no commit under test")
+        elif not after.get("id"):
+            problems.append("the check has no id, so its reason cannot reach the alert")
+        elif f"steps.{after['id']}.outputs.not_started" not in str(body.get("outputs") or {}):
+            problems.append("the job does not hand the check's reason to its outputs")
+        checkouts = [s for s in steps if str(s.get("uses", "")).startswith("actions/checkout@")]
+        if not any(str((c.get("with") or {}).get("fetch-depth", "")) == "0" for c in checkouts):
+            problems.append("its checkout is shallow, so staging's commit cannot be read")
+        for problem in problems or ["ok"]:
+            print(f"{name}\t{job}\t{problem}")
+PY
+}
+
+slot_fixture="$(mktemp -d)"
+cat >"$slot_fixture/unguarded.yml" <<'YAML'
+jobs:
+  drill:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: scripts/staging-lease.sh acquire "$HOLDER"
+      - run: scripts/fault/pod-delete.sh
+YAML
+cat >"$slot_fixture/guarded.yml" <<'YAML'
+jobs:
+  drill:
+    runs-on: ubuntu-24.04
+    outputs:
+      not_started: ${{ steps.version.outputs.not_started }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - run: scripts/staging-lease.sh acquire "$HOLDER"
+      - id: version
+        env:
+          UNDER_TEST: ${{ github.sha }}
+        run: scripts/staging-version-check.sh >>"$GITHUB_OUTPUT"
+YAML
+slot_demo="$(staging_slot_jobs "$slot_fixture/unguarded.yml" "$slot_fixture/guarded.yml")"
+if grep -qF $'unguarded.yml\tdrill\tthe step after taking the slot does not check' <<<"$slot_demo" \
+  && grep -qF $'unguarded.yml\tdrill\tits checkout is shallow' <<<"$slot_demo" \
+  && grep -qxF $'guarded.yml\tdrill\tok' <<<"$slot_demo"; then
+  pass "a drill that takes the slot with no check of staging's build is caught, and a checked one is not"
+else
+  fail "the staging-slot sweep does not tell an unchecked drill from a checked one: $slot_demo"
+fi
+rm -rf "$slot_fixture"
+
+slot_jobs="$(staging_slot_jobs "$WORKFLOWS"/*.yml)"
+slot_bad="$(grep -vP '\tok$' <<<"$slot_jobs" | sed 's/\t/: /g; s/^/ [/; s/$/]/' | paste -sd '' - || true)"
+if [ -z "$slot_jobs" ]; then
+  fail "the staging-slot sweep reached no job taking the slot, so it is asserting an absence it never tested"
+elif [ -z "$slot_bad" ]; then
+  pass "each of $(cut -f1,2 <<<"$slot_jobs" | sort -u | wc -l) jobs taking the staging slot checks staging runs the build it tests"
+else
+  fail "a job takes the staging slot without proving staging runs the build it tests:$slot_bad"
+fi
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

@@ -9,7 +9,11 @@ title: Where a load run happens
 
 Five profiles were written and never scheduled anywhere. Three time limits were
 shorter than the work they bounded. A run was placed on a node with no room left
-and waited until something timed out.
+and waited until something timed out. Two deploys failed while the nightlies went
+on testing the newest commit against the server staging still ran: the older
+server refused every one of the load test's 500 handshakes, and the network
+drill's machine enrolled twice and never connected, so each night read as a
+fault in the product.
 
 ## Decision
 
@@ -60,6 +64,22 @@ measurement to arithmetic.
 **A namespace claim is renewed while its holder is working**, and a claim lost
 mid-run fails the release rather than letting two runs share a namespace.
 
+**A run against staging proves first that staging runs the build it tests.**
+In the step after taking the claim, which keeps every deploy off staging until
+it is released, the run reads the image each server pod started from and
+requires it to name a commit that builds the same server as the commit under
+test — the same paths that decide whether a commit builds a new image
+([`image-inputs.sh`](../../scripts/lib/image-inputs.sh)). Pods from two builds,
+a tag naming no commit, and a cluster that will not answer refuse the run as
+well ([`staging-version-check.sh`](../../scripts/staging-version-check.sh)). A
+refused run is **not started**, and its alert names the build staging runs and
+the commit it was asked to test. The deployed fault drills are handed the image
+the deploy installed rather than the newest commit, so a rollback is drilled as
+the build it rolled back to. Every job that takes the claim runs the check in
+its next step
+([`ci-cd-determinism.test.sh`](../../scripts/tests/ci-cd-determinism.test.sh));
+the deploy itself is the one exception, since it installs the build.
+
 **A pod reserves what it uses, and the total a run reserves is checked against
 what the node has left.** A wait that fails prints the cluster's own reason
 rather than a timeout.
@@ -69,8 +89,11 @@ box the run owns, the run queue at the instant of the check, uncapped — a node
 committed to four times what it has and one exactly full are different findings.
 On a box the run is a guest on, the processor's busy share across the whole
 node, from two readings of the kernel's processor counters — ten seconds apart
-for the first reading, and since the last one after that — because the instant
-says more about the neighbour than about the run. A load average was weighed and
+for the first reading, and since the last one after that but never less than a
+second — because the instant says more about the neighbour than about the run.
+The kernel counts processor time in ticks, so two readings taken back to back,
+as a walk's phase boundary asks for, can find no time passed and leave the node
+unmeasured. A load average was weighed and
 rejected: it counts tasks waiting on more than the processor, carries a burst
 that began before the run, and read a node 20–24% busy as 89% committed. A
 measure that could not read reports so; an unread figure is not a machine at

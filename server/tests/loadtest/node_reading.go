@@ -20,6 +20,10 @@ const (
 // firstBusyWindow is how long a guest's first processor reading spans.
 const firstBusyWindow = 10 * time.Second
 
+// minBusyWindow is the shortest span of a guest's later readings; the kernel counts processor
+// time in ticks, so two samples closer together can see no time pass.
+const minBusyWindow = time.Second
+
 // processorReading measures how committed this machine's processors are; false marks a reading
 // it could not take.
 type processorReading func() (float64, bool)
@@ -173,9 +177,10 @@ func busyPercent(before, after cpuTimes) (float64, bool) {
 }
 
 // busyShareReading reads the share of processor time spent working since its previous reading;
-// its first spans firstBusyWindow on the clock, so every reading covers an interval.
+// its first spans firstBusyWindow on the clock and each later one at least minBusyWindow.
 func busyShareReading(clock Clock, readStat func() (string, error)) processorReading {
 	var last *cpuTimes
+	var lastAt time.Time
 	sample := func() (cpuTimes, bool) {
 		raw, err := readStat()
 		if err != nil {
@@ -191,11 +196,14 @@ func busyShareReading(clock Clock, readStat func() (string, error)) processorRea
 			}
 			last = &first
 			clock.Sleep(firstBusyWindow)
+		} else if since := clock.Now().Sub(lastAt); since < minBusyWindow {
+			clock.Sleep(minBusyWindow - since)
 		}
 		now, ok := sample()
 		if !ok {
 			return 0, false
 		}
+		lastAt = clock.Now()
 		percent, ok := busyPercent(*last, now)
 		last = &now
 		return percent, ok

@@ -36,6 +36,20 @@ A step whose work was refused must not report success.
   Ingress controller published, with the scheme that edge serves.
 - Whatever asserts an absence proves first that it was talking to something.
 
+### A run proves its target is the build it tests
+
+- Every job that takes the staging claim runs
+  [`staging-version-check.sh`](../../scripts/staging-version-check.sh) in its
+  next step, with a full checkout, and hands the check's `not_started` reason to
+  its outputs for the alert.
+- The check reads the image each server pod started from, and refuses unless
+  its commit builds the same server as the commit under test
+  ([`image-inputs.sh`](../../scripts/lib/image-inputs.sh)).
+- A deployed drill is checked against the image its deploy installed, never
+  against the newest commit.
+- [`cd.yml`](../../.github/workflows/cd.yml) is the exception: it installs the
+  build.
+
 ### Do not declare a write you cannot make
 
 - A workflow whose cache token cannot write declares no cache at all — not an

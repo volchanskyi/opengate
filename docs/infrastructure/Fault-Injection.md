@@ -237,6 +237,11 @@ value every night.
   capability, no root.
 - **Staging only.** The runner refuses any namespace but `opengate-staging`, and
   it takes the namespace lease before touching anything.
+- **Against the build it was made from.** With the lease held, the drill checks
+  that staging's server is the one its own commit builds
+  ([`staging-version-check.sh`](../../scripts/staging-version-check.sh)). A
+  night staging runs another build is not started, and the alert names the
+  build staging runs and the commit the drill was made from.
 - **It never gates a deploy.** The drill reports and trends. A regression turns
   the nightly red and raises a Telegram alert; nothing it finds blocks a release.
 - **The link is handed back clear**, on every path out of a scenario including
@@ -335,7 +340,10 @@ Activation is **config-only**, by repository variable:
   `bad-rollout`, `ingress-504`, `ingress-502`); defaults to `pod-delete`.
 
 The deploy pipeline is the workflow's only entry point, so every drill runs
-against the staging deploy it gates. The scenario is always one of that
+against the staging deploy it gates. The pipeline hands the drill the image tag
+it installed, and with the namespace held the drill checks staging still runs
+it ([`staging-version-check.sh`](../../scripts/staging-version-check.sh)), so a
+rollback to an older build is drilled as that build. The scenario is always one of that
 enumerated allow-list: a runtime guard re-validates the `workflow_call` string so
 a repository variable can never inject a free-form or out-of-band scenario.
 On-demand network drills (packet loss/corrupt/partition on the QUIC path) are run

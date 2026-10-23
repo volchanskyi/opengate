@@ -164,14 +164,14 @@ func TestASessionRequestIsIgnoredUnlessRelayCoverageWasAskedFor(t *testing.T) {
 
 func TestAnUnhandledFrameIsDroppedRatherThanFailingTheRun(t *testing.T) {
 	codec := &protocol.Codec{}
-	stream := &deadlineBuffer{in: &bytes.Buffer{}, out: &bytes.Buffer{}}
+	out := &bytes.Buffer{}
 
-	err := answerHeldFrame(codec, stream.out, &protocol.ControlMessage{
+	err := answerHeldFrame(codec, out, &protocol.ControlMessage{
 		Type: protocol.MsgRequestHardwareReport,
 	}, loadOptions{})
 
 	require.NoError(t, err)
-	assert.Zero(t, stream.out.Len())
+	assert.Zero(t, out.Len())
 }
 
 func TestAHeldMachineRefusesASessionOnADisallowedTarget(t *testing.T) {
