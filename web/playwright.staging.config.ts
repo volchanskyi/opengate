@@ -7,6 +7,7 @@ const shared = { ...local };
 const STACK_ONLY = [
   /direct-link\.spec\.ts$/,
   /downloads\.spec\.ts$/,
+  /machine-lifecycle\.spec\.ts$/,
   /performance(-chromium)?\.spec\.ts$/,
   /two-routers\.spec\.ts$/,
 ];
@@ -15,8 +16,8 @@ delete shared.webServer;
 
 export default defineConfig({
   ...shared,
-  // Staging has no router, no machine shell and no browser server, which these specs drive. A
-  // project's own list overrides the config's, so each project carries the exclusions.
+  // Staging has no router, no machine container and no browser server, which these specs drive.
+  // A project's own list overrides the config's, so each project carries the exclusions.
   projects: shared.projects
     ?.filter((project) => !project.name?.endsWith("-behind-home-router"))
     .map((project) => ({ ...project, testIgnore: [project.testIgnore ?? [], STACK_ONLY].flat() })),

@@ -98,6 +98,9 @@ A step whose work was refused must not report success.
 
 - The status may instead be taken on the failing command's own line:
   `cmd || rc=$?`.
+- The read sits on the line straight after the command it judges. A `cat`,
+  `echo` or `printf` between them hands the read the print's own status, and a
+  failing suite reports green.
 - A fact the shell has already acted on is not a fact the script can still read.
 
 ### An alert conditioned on a healthy run cannot report an unhealthy one

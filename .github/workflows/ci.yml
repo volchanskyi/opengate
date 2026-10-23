@@ -212,17 +212,18 @@ jobs:
         run: |
           set +e
           go test -json -race -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/... > unit-results.json 2>unit-stderr.log
-          cat unit-stderr.log >&2
           EXIT_CODE=$?
+          cat unit-stderr.log >&2
           PASSED=$(jq -r 'select(.Action=="pass" and .Test != null) | .Test' unit-results.json | wc -l | tr -d ' ')
           FAILED=$(jq -r 'select(.Action=="fail" and .Test != null) | .Test' unit-results.json | wc -l | tr -d ' ')
+          # The verdict is go test's own, so the summary and the job agree.
           {
             echo "## Go Unit Tests"
             echo ""
-            if [ "$FAILED" -eq 0 ]; then
+            if [ "$EXIT_CODE" -eq 0 ]; then
               echo "✅ **${PASSED} passed**"
             else
-              echo "❌ **${FAILED} failed**, ${PASSED} passed"
+              echo "❌ **${FAILED} failed**, ${PASSED} passed, go test exited ${EXIT_CODE}"
               echo ""
               echo "| Package | Test |"
               echo "|---------|------|"
@@ -305,17 +306,18 @@ jobs:
         run: |
           set +e
           go test -json -race -timeout 10m ./tests/... > integration-results.json 2>integration-stderr.log
-          cat integration-stderr.log >&2
           EXIT_CODE=$?
+          cat integration-stderr.log >&2
           PASSED=$(jq -r 'select(.Action=="pass" and .Test != null) | .Test' integration-results.json | wc -l | tr -d ' ')
           FAILED=$(jq -r 'select(.Action=="fail" and .Test != null) | .Test' integration-results.json | wc -l | tr -d ' ')
+          # The verdict is go test's own, so the summary and the job agree.
           {
             echo "## Go Integration Tests"
             echo ""
-            if [ "$FAILED" -eq 0 ]; then
+            if [ "$EXIT_CODE" -eq 0 ]; then
               echo "✅ **${PASSED} passed**"
             else
-              echo "❌ **${FAILED} failed**, ${PASSED} passed"
+              echo "❌ **${FAILED} failed**, ${PASSED} passed, go test exited ${EXIT_CODE}"
               echo ""
               jq -r 'select(.Action=="fail" and .Test != null) | "- ❌ \(.Test)"' integration-results.json
             fi
@@ -405,15 +407,16 @@ jobs:
           set +e
           npx vitest run --coverage --reporter=verbose --reporter=json --outputFile=test-results.json src/
           EXIT_CODE=$?
-          node -e "
+          # The verdict is vitest's own, so the summary and the job agree.
+          EXIT_CODE="$EXIT_CODE" node -e "
             const fs = require('fs');
             const r = JSON.parse(fs.readFileSync('test-results.json', 'utf8'));
             const p = r.numPassedTests, f = r.numFailedTests;
             let md = '## Web Unit Tests\n\n';
-            if (f === 0) {
+            if (process.env.EXIT_CODE === '0') {
               md += '✅ **' + p + ' passed**\n';
             } else {
-              md += '❌ **' + f + ' failed**, ' + p + ' passed\n\n';
+              md += '❌ **' + f + ' failed**, ' + p + ' passed, vitest exited ' + process.env.EXIT_CODE + '\n\n';
               r.testResults.forEach(s => s.assertionResults
                 .filter(t => t.status === 'failed')
                 .forEach(t => { md += '- ❌ ' + t.fullName + '\n'; }));
@@ -462,16 +465,17 @@ jobs:
           set +e
           npx vitest run --reporter=verbose --reporter=json --outputFile=test-results.json tests/integration/
           EXIT_CODE=$?
+          # The verdict is vitest's own, so the summary and the job agree.
           if [ -f test-results.json ]; then
-            node -e "
+            EXIT_CODE="$EXIT_CODE" node -e "
               const fs = require('fs');
               const r = JSON.parse(fs.readFileSync('test-results.json', 'utf8'));
               const p = r.numPassedTests, f = r.numFailedTests;
               let md = '## Web Integration Tests\n\n';
-              if (f === 0) {
+              if (process.env.EXIT_CODE === '0') {
                 md += '✅ **' + p + ' passed**\n';
               } else {
-                md += '❌ **' + f + ' failed**, ' + p + ' passed\n\n';
+                md += '❌ **' + f + ' failed**, ' + p + ' passed, vitest exited ' + process.env.EXIT_CODE + '\n\n';
                 r.testResults.forEach(s => s.assertionResults
                   .filter(t => t.status === 'failed')
                   .forEach(t => { md += '- ❌ ' + t.fullName + '\n'; }));

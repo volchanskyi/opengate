@@ -381,6 +381,14 @@ if [ -z "$demo_captured" ] && [ "$demo_guarded" = "rc=1 reached=yes" ]; then
 else
   fail "the errexit demonstration no longer reproduces (unguarded='$demo_captured' guarded='$demo_guarded')"
 fi
+# A print between the command and the read hands the read the print's own status.
+demo_after_print=$(bash -c 'set +e; false; cat /dev/null >&2; rc=$?; echo "$rc"')
+demo_before_print=$(bash -c 'set +e; false; rc=$?; cat /dev/null >&2; echo "$rc"')
+if [ "$demo_after_print" = 0 ] && [ "$demo_before_print" = 1 ]; then
+  pass "a status read after a print holds the print's status, and one read first holds the command's"
+else
+  fail "the print demonstration no longer reproduces (after='$demo_after_print' before='$demo_before_print')"
+fi
 
 # A block that reads `$?` turns errexit off first or takes the status with `|| var=$?`.
 status_blocks=0
@@ -397,7 +405,7 @@ done < <(
       /^[[:space:]]*(-[[:space:]]+)?run:/ {
         match($0, /^[[:space:]]*/)
         indent = RLENGTH
-        inblock = 1; guarded = 0; captures = 0; start = NR
+        inblock = 1; guarded = 0; captures = 0; start = NR; prev = ""
         next
       }
       inblock {
@@ -406,15 +414,22 @@ done < <(
         if (RLENGTH <= indent) { inblock = 0 }
       }
       inblock {
+        if ($0 ~ /^[[:space:]]*#/) next
         if ($0 ~ /set[[:space:]]+\+e/) guarded = 1
+        line = $0
+        sub(/^[[:space:]]+/, "", line)
         # A status taken on the failing command line survives errexit.
-        if ($0 ~ /\|\|[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=\$\?/) next
+        if ($0 ~ /\|\|[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=\$\?/) { prev = line; next }
         if ($0 ~ /^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=\$\?[[:space:]]*$/) {
           captures++
           if (!guarded) {
             printf "%s line %d reads $? under errexit, so the branch below it is unreachable\n", file, NR
           }
+          if (prev ~ /^(cat|echo|printf|tee|true|:)([[:space:]]|$)/) {
+            printf "%s line %d reads the status of a print, so the command it judges never reaches it\n", file, NR
+          }
         }
+        prev = line
       }
       !inblock && captures > 0 { blocks += 1; captures = 0 }
       { if (!inblock) captures = 0 }
@@ -425,9 +440,9 @@ done < <(
 if [ "$status_blocks" -eq 0 ]; then
   fail "the errexit status sweep reached no status read at all, so it is asserting an absence it never tested"
 elif [ -z "$status_bad" ]; then
-  pass "each of $status_blocks workflow steps reading an exit status turns errexit off first"
+  pass "each of $status_blocks workflow steps reading an exit status turns errexit off first and reads its command's"
 else
-  fail "a workflow step reads an exit status errexit has already acted on:$status_bad"
+  fail "a workflow step reads an exit status other than its command's:$status_bad"
 fi
 
 # Each cluster call goes through the retry helper or carries its own reason for not retrying.
