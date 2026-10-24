@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Tests the image reader of scripts/dependency-fixes: a finding a newer patch tag drops refuses,
-# one only a newer line drops is listed, a digest is read once, and an unresolved tag is refused.
+# Tests the image reader of scripts/dependency-fixes: a finding a newer patch tag built for the same
+# platforms drops refuses, one only a newer line drops is listed, and an unresolved tag is refused.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -46,9 +46,40 @@ digest() {
 }
 digest example/app 1.2.3 1
 digest example/app 1.2.5 2
+digest example/app 1.2.6 6
 digest example/app 1.3.0 3
 digest library/alpine 3.20 4
 digest library/alpine 3.22 5
+
+# built NAME N PLATFORM... writes the index digest N answers with, an entry a platform, beside the
+# attestation entry a registry lists under a platform of unknown/unknown.
+built() {
+  local name="$1" n="$2" entries="" platform
+  shift 2
+  for platform in "$@"; do
+    entries+="{\"digest\": \"sha256:$(printf '%064d' 9)\", \"platform\": "
+    entries+="{\"os\": \"${platform%/*}\", \"architecture\": \"${platform#*/}\"}}, "
+  done
+  printf '{"schemaVersion": 2, "mediaType": "application/vnd.oci.image.index.v1+json", "manifests": [%s
+    {"digest": "sha256:%064d", "platform": {"os": "unknown", "architecture": "unknown"}}]}\n' \
+    "$entries" 8 >"$REGISTRY/$name/manifests/sha256:$(printf '%064d' "$n")"
+}
+# built_once NAME N PLATFORM writes the one build digest N answers with, and the configuration blob
+# naming its platform, as a registry answers for a tag pushed for a single platform.
+built_once() {
+  local config
+  config="sha256:$(printf '%064d' "$(($2 + 50))")"
+  printf '{"schemaVersion": 2, "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+    "config": {"digest": "%s"}, "layers": []}\n' "$config" >"$REGISTRY/$1/manifests/sha256:$(printf '%064d' "$2")"
+  mkdir -p "$REGISTRY/$1/blobs"
+  printf '{"os": "%s", "architecture": "%s"}\n' "${3%/*}" "${3#*/}" >"$REGISTRY/$1/blobs/$config"
+}
+built example/app 1 linux/amd64 linux/arm64
+built example/app 2 linux/amd64 linux/arm64
+built example/app 3 linux/amd64 linux/arm64
+built_once example/app 6 linux/amd64
+built library/alpine 4 linux/amd64 linux/arm64
+built library/alpine 5 linux/amd64 linux/arm64
 for repository in example/app library/alpine; do
   token="$HTTP/auth.docker.io/token%3Fservice=registry.docker.io&scope=repository:$repository:pull"
   mkdir -p "$(dirname "$token")"
@@ -58,7 +89,7 @@ done
 printf '{"name": "example/app", "tags": ["1.2.3", "1.2.5-debug"]}\n' >"$REGISTRY/example/app/tags/list%3Fn=10000"
 printf 'HTTP/2 200\r\nlink: </v2/example/app/tags/list?n=10000&last=1.2.5-debug>; rel="next"\r\n\r\n' \
   >"$REGISTRY/example/app/tags/list%3Fn=10000.headers"
-printf '{"name": "example/app", "tags": ["1.2.5", "1.3.0"]}\n' \
+printf '{"name": "example/app", "tags": ["1.2.5", "1.2.6", "1.3.0"]}\n' \
   >"$REGISTRY/example/app/tags/list%3Fn=10000&last=1.2.5-debug"
 printf '{"name": "library/alpine", "tags": ["3.20", "3.22", "3.22-edge"]}\n' \
   >"$REGISTRY/library/alpine/tags/list%3Fn=10000"
@@ -89,6 +120,11 @@ if [ "$status" -eq 1 ] && grep -qF 'image (deploy/values.yaml) example/app 1.2.3
 else
   fail "the patch tag must be named the fix (status=$status out=[$(cat "$WORK/out")])"
 fi
+if ! out_has '1.2.6'; then
+  pass "a newer patch tag with no build for a platform the tag in use has is passed over for the newest that has one"
+else
+  fail "a tag built for fewer platforms must never be the fix (out=[$(cat "$WORK/out")])"
+fi
 if grep -qF 'GET https://registry-1.docker.io/v2/example/app/tags/list?n=10000&last=1.2.5-debug' "$WORK/http.log"; then
   pass "a registry's tag listing is read on every page its Link header names"
 else
@@ -116,11 +152,17 @@ else
   fail "the run must count each image's packages (out=[$(cat "$WORK/out")])"
 fi
 
+: >"$WORK/http.log"
 run || true
 if ! grep -q '^image ' "$WORK/trivy.log" && grep -q '^sbom ' "$WORK/trivy.log"; then
   pass "a digest's packages are read once, and every run judges them against the day's database"
 else
   fail "a second run must judge cached package lists (trivy=[$(cat "$WORK/trivy.log")])"
+fi
+if ! grep -qE '^GET .*/(manifests/sha256:|blobs/)' "$WORK/http.log"; then
+  pass "a digest's platforms are read once"
+else
+  fail "a second run must read platforms from the cache (http=[$(cat "$WORK/http.log")])"
 fi
 
 # shellcheck disable=SC2016 # the tag names a variable the reader must resolve, not the shell

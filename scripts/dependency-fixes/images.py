@@ -1,5 +1,5 @@
 """Container images: every reference a tracked file makes, the packages inside each, and whether
-a newer tag of the same shape no longer carries a finding.
+a newer tag of the same shape, built for the same platforms, no longer carries a finding.
 
 A tag of three or more numbers names a release, and a newer patch tag of it can be taken; a tag
 of fewer (`17-alpine`, `3.20`) names a line, which is read at the build it points at now.
@@ -91,28 +91,36 @@ def _shape(tag):
 
 
 def newer(image, same_line):
-    """The newest tag of IMAGE's shape after its own: within its line when SAME_LINE."""
+    """The newest tag of IMAGE's shape after its own, within its line when SAME_LINE, built for
+    every platform IMAGE, which carries its digest, is built for; the tag carries its digest."""
     current = _numbers(image.tag)
     if same_line and len(current) < 3:
         return None
-    candidates = [tag for tag in registry.tags(image.at(""))
-                  if _shape(tag) == _shape(image.tag) and _numbers(tag) > current
-                  and (not same_line or _numbers(tag)[:2] == current[:2])]
-    return image.at(max(candidates, key=_numbers)) if candidates else None
+    candidates = sorted((tag for tag in registry.tags(image.at(""))
+                         if _shape(tag) == _shape(image.tag) and _numbers(tag) > current
+                         and (not same_line or _numbers(tag)[:2] == current[:2])), key=_numbers, reverse=True)
+    if not candidates:
+        return None
+    needed = registry.platforms(image)
+    for tag in candidates:
+        later = registry.pinned(image.at(tag))
+        if needed <= registry.platforms(later):
+            return later
+    return None
 
 
 def judge(image, where, move):
     """IMAGE's findings: those a newer patch tag drops, those only a newer line drops, the rest."""
-    pinned = registry.Image(image.registry, image.repository, image.tag, registry.digest(image))
+    pinned = registry.pinned(image)
     count, now = sbom.fixable(pinned)
     findings, left = [], dict(now)
     for same_line, answer in ((True, PATCH), (False, NEWER_LINE)):
         if not left:
             break
-        later = newer(image, same_line)
+        later = newer(pinned, same_line)
         if not later:
             continue
-        _, then = sbom.fixable(registry.Image(later.registry, later.repository, later.tag, registry.digest(later)))
+        _, then = sbom.fixable(later)
         dropped = sorted(key for key in left if key not in then)
         if dropped:
             findings.append(Finding("image", where, image.name, image.tag, named(dropped), later.tag,

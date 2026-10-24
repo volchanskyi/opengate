@@ -1,5 +1,6 @@
 """Charts installed into the cluster: the program each chart installs, read as a Go release, and
-the images each chart release renders, judged against the chart's later releases."""
+the images each chart release renders, judged against the images its later releases render for
+the same platforms."""
 
 import functools
 import os
@@ -102,17 +103,17 @@ def _images(root, key, version, url, name):
     later = [(versions.newest_patch(index, version), PATCH), (index[-1], NEWER_LINE)]
     count, findings = 0, []
     for reference in rendered(root, url, name, version):
-        image = registry.parse(reference)
-        read, left = sbom.fixable(registry.Image(image.registry, image.repository, image.tag, registry.digest(image)))
+        image = registry.pinned(registry.parse(reference))
+        read, left = sbom.fixable(image)
         count += read
         for chart, answer in later:
             if not left or versions.Version(chart) <= versions.Version(version):
                 continue
-            twin = next((registry.parse(r) for r in rendered(root, url, name, chart)
+            twin = next((registry.pinned(registry.parse(r)) for r in rendered(root, url, name, chart)
                          if registry.parse(r).repository == image.repository), None)
-            if twin is None:
+            if twin is None or not registry.platforms(image) <= registry.platforms(twin):
                 continue
-            _, then = sbom.fixable(registry.Image(twin.registry, twin.repository, twin.tag, registry.digest(twin)))
+            _, then = sbom.fixable(twin)
             dropped = sorted(k for k in left if k not in then)
             if dropped:
                 findings.append(Finding("chart image", f"{name} {version}", image.name, image.tag,

@@ -5,11 +5,14 @@ Usage:
   python3 scripts/dependency-fixes [READER...]       (every reader, and the sweep, when none is named)
   python3 scripts/dependency-fixes images-declared   (each image the repository declares, one a line)
   python3 scripts/dependency-fixes images-undeclared (each image on stdin the repository does not)
+  python3 scripts/dependency-fixes images-unbuilt PLATFORM... (each image the cluster deploy
+                                                     installs with no build for one of PLATFORMS)
   python3 scripts/dependency-fixes declarations      (each declaration no reader reads)
 
 Exit codes:
   0  no advisory a patch release fixes, and every declaration is read
-  1  an advisory a patch release fixes, a declaration no reader reads, or an undeclared image
+  1  an advisory a patch release fixes, a declaration no reader reads, an undeclared image, or an
+     image the cluster deploy installs with no build for a node's platform
   2  a lookup gave no answer the check can read
 """
 
@@ -40,6 +43,8 @@ READERS = {
     "images": images.read,
 }
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# The charts the deploy installs and the scripts that start pods in the cluster.
+DEPLOYED = ("deploy/helm/", "deploy/scripts/")
 
 
 def declared_images(root):
@@ -61,6 +66,31 @@ def undeclared_images(root, lines):
     return [reference for reference in running
             if str(registry.parse(reference).at(registry.parse(reference).tag)) not in declared
             and not any(reference.startswith(prefix) for prefix in owned)]
+
+
+def deployed_images(root):
+    """Every image the cluster deploy installs: those its charts and pod scripts name, and those the
+    cluster's own chart releases render."""
+    named = {reference for reference, paths in images.references(root).items()
+             if any(path.startswith(DEPLOYED) for path in paths)}
+    for _, version, url, name in charts.charts(root):
+        named |= set(charts.rendered(root, url, name, version))
+    if not named:
+        raise fetch.Unreadable("no image the cluster deploy installs was found")
+    return sorted(named)
+
+
+def unbuilt_images(root, wanted):
+    """(image, platforms of WANTED it lacks, platforms it has) for each image the cluster deploy
+    installs with no build for one of WANTED, and how many images were read."""
+    deployed = deployed_images(root)
+    found = []
+    for reference in deployed:
+        image = registry.pinned(registry.parse(reference))
+        built = registry.platforms(image)
+        if not wanted <= built:
+            found.append((image.at(image.tag), sorted(wanted - built), sorted(built)))
+    return found, len(deployed)
 
 
 def unread_lines(root):
@@ -95,6 +125,16 @@ def main(argv):
             lines, status = unread_lines(ROOT)
             print("\n".join(lines or ["dependency-fixes: every declaration is one a reader reads"]))
             return status
+        if argv[:1] == ["images-unbuilt"] and len(argv) > 1:
+            wanted = set(argv[1:])
+            found, read = unbuilt_images(ROOT, wanted)
+            for image, missing, built in found:
+                print(f"::error::dependency-fixes: {image} has no build for {', '.join(missing)}; "
+                      f"it is built for {', '.join(built)}")
+            if not found:
+                print(f"dependency-fixes: every one of the {read} images the deploy installs has a build for "
+                      f"{', '.join(sorted(wanted))}")
+            return 1 if found else 0
         if argv == ["images-undeclared"]:
             found = undeclared_images(ROOT, sys.stdin.read().splitlines())
             for reference in found:

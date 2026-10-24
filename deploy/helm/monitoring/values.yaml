@@ -44,7 +44,7 @@ loki:
       memory: 512Mi
 
 grafana:
-  image: docker.io/grafana/grafana-oss:11.6.5
+  image: docker.io/grafana/grafana:11.6.16
   # /var/lib/grafana is an emptyDir; a restart loses only annotations and alert-state history.
   rootUrl: ""    # set to https://<domain>/grafana when fronted by an ingress
   # The ConfigMap is rendered from the canonical dashboard files and read back by
