@@ -2061,6 +2061,7 @@ paths:
           description: Signed in; the session cookie is set
           headers:
             Set-Cookie:
+              required: true
               schema:
                 type: string
           content:
@@ -2113,6 +2114,7 @@ paths:
           description: Signed out
           headers:
             Set-Cookie:
+              required: true
               schema:
                 type: string
         "401":
@@ -2137,6 +2139,7 @@ paths:
           description: Registered and signed in; the session cookie is set
           headers:
             Set-Cookie:
+              required: true
               schema:
                 type: string
           content:
