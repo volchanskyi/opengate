@@ -1,11 +1,12 @@
 """Container registries read anonymously: an image reference's parts, the digest a tag points
-at, and the tags a repository publishes."""
+at, the platforms a digest has builds for, and the tags a repository publishes."""
 
 import dataclasses
 import functools
 import re
 import urllib.parse
 
+import cache
 import fetch
 
 MANIFESTS = ("application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json,"
@@ -76,6 +77,45 @@ def digest(image):
     if not found.startswith("sha256:"):
         raise fetch.Unreadable(f"{image}: the registry named no digest for the tag")
     return found
+
+
+def _platform(entry):
+    os_name, architecture = entry.get("os"), entry.get("architecture")
+    if not os_name or not architecture or "unknown" in (os_name, architecture):
+        return ""
+    return f"{os_name}/{architecture}"
+
+
+def _built_for(image):
+    endpoint = _endpoint(image.registry)
+    manifest = fetch.http_json(f"https://{endpoint}/v2/{image.repository}/manifests/{image.digest}",
+                               [f"Accept: {MANIFESTS}"] + _auth(image))
+    if "manifests" in manifest:
+        found = {_platform(entry.get("platform") or {}) for entry in manifest["manifests"]}
+    else:
+        config = (manifest.get("config") or {}).get("digest", "")
+        if not config.startswith("sha256:"):
+            raise fetch.Unreadable(f"{image}: the registry named neither an index nor a configuration")
+        found = {_platform(fetch.http_json(f"https://{endpoint}/v2/{image.repository}/blobs/{config}",
+                                           _auth(image)))}
+    found.discard("")
+    if not found:
+        raise fetch.Unreadable(f"{image}: the registry names no platform the image is built for")
+    return sorted(found)
+
+
+def platforms(image):
+    """Every os/architecture IMAGE, which carries its digest, has a build for: each entry of its
+    index, or the configuration of its one build; an attestation entry counts for none."""
+    if not image.digest:
+        raise fetch.Unreadable(f"{image}: platforms are read only for a digest")
+    return frozenset(cache.remember("platforms", f"{image.registry}/{image.repository}@{image.digest}",
+                                    lambda: _built_for(image)))
+
+
+def pinned(image):
+    """IMAGE carrying the digest its tag points at now."""
+    return Image(image.registry, image.repository, image.tag, digest(image))
 
 
 @functools.lru_cache(maxsize=None)

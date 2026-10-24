@@ -71,6 +71,10 @@
     {
       "path": "scripts/tests/running-images-check.test.sh",
       "reason": "the read-back's fixtures name an image the cluster runs that nothing declares"
+    },
+    {
+      "path": "scripts/tests/deploy-images-platform-check.test.sh",
+      "reason": "the deploy check's fixtures name images and tags no registry holds"
     }
   ],
   "images": [

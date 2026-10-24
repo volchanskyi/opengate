@@ -91,8 +91,9 @@ governs everything else, and which version changes any dependency takes.
   dependency and the version in use, the release that fixes it, and what moving to
   that release risks. Its options include taking that release and keeping the
   version in use. Nothing moves until Ivan chooses.
-- An image takes a newer patch tag of its own line. A tag that names a line
-  (`17-alpine`, `24-alpine`) is read at its newest build.
+- An image takes a newer patch tag of its own line, built for every platform the
+  tag in use is built for. A tag that names a line (`17-alpine`, `24-alpine`) is
+  read at its newest build.
 
 ### A major upgrade or an end-of-life replacement waits for Ivan's explicit approval
 

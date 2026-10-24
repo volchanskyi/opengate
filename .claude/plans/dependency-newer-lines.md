@@ -16,7 +16,7 @@ list comes from `python3 scripts/dependency-fixes`, under "fixed only in a newer
 | Dependency | In use | Release that drops the holes | Move | Holes | Examples | Declared in |
 |---|---|---|---|---|---|---|
 | alpine (the server image's base) | 3.20, read at its newest build | 3.24 | minor | 1 | CVE-2026-107891 | `Dockerfile` |
-| grafana/grafana-oss | 11.6.5 | 13.0.2 | major | 129 | CVE-2018-1000816 | `deploy/helm/monitoring/values.yaml` |
+| grafana/grafana | 11.6.16 | 13.2.4 | major | 125 | CVE-2025-64751 | `deploy/helm/monitoring/values.yaml` |
 | victoriametrics/victoria-metrics | v1.114.0 | v1.154.1 | minor | 126 | CVE-2024-58251 | monitoring values, compose files, CI, Makefile, `testvm.go`, `test-go.sh` |
 | grafana/loki | 3.5.12 | 3.7.9 | minor | 81 | CVE-2026-111943 | monitoring values |
 | prom/node-exporter | v1.9.1 | v1.12.1 | minor | 74 | CVE-2025-0913 | monitoring values |

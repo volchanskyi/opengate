@@ -81,9 +81,12 @@ printf 'kind: Deployment\nspec:\n  template:\n    spec:\n      containers:\n'
 printf '        - name: controller\n          image: quay.io/jetstack/cert-manager-controller:%s\n' "$version"
 HELM
 chmod +x "$WORK/bin/helm"
+# Each tag's digest answers with an index of its builds, one an amd64 and one an arm64 machine.
 n=1
 for tag in v1.20.2 v1.20.4 v1.21.0; do
   printf 'HTTP/2 200\r\ndocker-content-digest: sha256:%064d\r\n\r\n' "$n" >"$QUAY/$tag.headers"
+  printf '{"manifests": [{"platform": {"os": "linux", "architecture": "amd64"}},
+    {"platform": {"os": "linux", "architecture": "arm64"}}]}\n' >"$QUAY/sha256:$(printf '%064d' "$n")"
   n=$((n + 1))
 done
 printf '{"sha256:%064d": ["CVE-2026-0001", "CVE-2026-0002"], "sha256:%064d": ["CVE-2026-0002"]}\n' 1 2 \
@@ -130,6 +133,23 @@ if out_has 'read 4 chart packages'; then
   pass "the program's module and its requirements are counted beside the packages of every rendered image"
 else
   fail "the count must cover the program and its images (out=[$(cat "$WORK/out")])"
+fi
+
+# The patch release's image moves to a tag pushed for amd64 alone, which an arm64 node cannot run.
+printf 'HTTP/2 200\r\ndocker-content-digest: sha256:%064d\r\n\r\n' 4 >"$QUAY/v1.20.4.headers"
+printf '{"config": {"digest": "sha256:%064d"}}\n' 54 >"$QUAY/sha256:$(printf '%064d' 4)"
+mkdir -p "$HTTP/quay.io/v2/jetstack/cert-manager-controller/blobs"
+printf '{"os": "linux", "architecture": "amd64"}\n' \
+  >"$HTTP/quay.io/v2/jetstack/cert-manager-controller/blobs/sha256:$(printf '%064d' 54)"
+status=0
+run || status=$?
+patch_list="$(sed -n '/patch release of the line/,/newer minor or major/p' "$WORK/out")"
+newer_list="$(sed -n '/newer minor or major/,$p' "$WORK/out")"
+if ! grep -qF 'chart image' <<<"$patch_list" \
+  && grep -qF 'cert-manager-controller v1.20.2: CVE-2026-0001 and 1 more fixed in cert-manager v1.21.0' <<<"$newer_list"; then
+  pass "a chart release whose image has no build for a platform the image in use has is never the fix for it"
+else
+  fail "the amd64-only image must be passed over (status=$status out=[$(cat "$WORK/out")])"
 fi
 
 sed -i 's/TOOL_VERSION_CERT_MANAGER_CHART="v1.20.2"/TOOL_VERSION_CERT_MANAGER_CHART="v1.19.9"/' \

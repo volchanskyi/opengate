@@ -40,9 +40,11 @@ commit, and nothing in the repository could change its answer.
 - A release is judged by what it is built from as well as by itself: a tool, a
   chart's program or a Terraform provider carrying an affected module counts as
   patch-fixed when its own newest patch release builds past it. An image counts
-  as patch-fixed when the newest patch tag of the same shape no longer carries
-  the finding; a tag that names a line, such as `17-alpine`, is read at the
-  build it points at.
+  as patch-fixed when the newest patch tag of the same shape, built for every
+  platform the tag in use is built for, no longer carries the finding; a tag
+  that names a line, such as `17-alpine`, is read at the build it points at. A
+  tag that drops a platform is never the fix: the cluster's node is arm64, and
+  a move to a tag pushed for amd64 alone stops the pod at its first start.
 - A declaration no reader reads fails the check, and so does a lookup that gives
   no answer it can read. The production deploy reads back every image the
   cluster runs and fails on one the repository does not declare

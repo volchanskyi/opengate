@@ -220,6 +220,81 @@ else
   fail "the monitoring upgrade must apply deploy/helm/monitoring/values-production.yaml"
 fi
 
+# Each job that installs into the cluster asks every image the deploy installs for a build of each
+# node's platform before its first change to the cluster.
+platform_order="$(
+  python3 - "$WORKFLOW" <<'PY_PLATFORM'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+for job, first in (("cluster", "deploy/scripts/cluster-apply.sh"),
+                   ("deploy-staging-k8s", "scripts/staging-lease.sh acquire")):
+    runs = [str(s.get("run", "")) for s in doc["jobs"][job]["steps"]]
+    check = next((i for i, r in enumerate(runs) if "deploy/scripts/deploy-images-platform-check.sh" in r), None)
+    change = next((i for i, r in enumerate(runs) if first in r), None)
+    print(job, "before" if check is not None and change is not None and check < change else "missing")
+PY_PLATFORM
+)"
+for job in cluster deploy-staging-k8s; do
+  if grep -qxF "$job before" <<<"$platform_order"; then
+    pass "the $job job asks every image the deploy installs for each node's platform before changing the cluster"
+  else
+    fail "the $job job must run deploy/scripts/deploy-images-platform-check.sh before its first change to the cluster"
+  fi
+done
+
+# The monitoring step runs under bash -e, as the runner runs it, against a release that comes up
+# and one whose wait runs out.
+monitoring_run="$(
+  python3 - "$WORKFLOW" <<'PY_MONITORING'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+runs = [str(s.get("run", "")) for s in doc["jobs"]["deploy-production-k8s"]["steps"]]
+print(next((r for r in runs if "helm upgrade --install monitoring" in r), ""))
+PY_MONITORING
+)"
+STEP_WORK="$(mktemp -d)"
+trap 'rm -rf "$STEP_WORK"' EXIT
+mkdir -p "$STEP_WORK/bin"
+cat >"$STEP_WORK/bin/helm" <<'HELM'
+#!/usr/bin/env bash
+[ -z "${FAKE_HELM_TIMES_OUT:-}" ] || {
+  echo "Error: UPGRADE FAILED: context deadline exceeded" >&2
+  exit 1
+}
+HELM
+cat >"$STEP_WORK/bin/kubectl" <<'KUBECTL'
+#!/usr/bin/env bash
+case " $* " in
+  *" get pods -o json "*)
+    printf '{"items": [{"metadata": {"name": "grafana-1"}, "status": {"phase": "Running", "containerStatuses":
+      [{"name": "grafana", "ready": false, "restartCount": 2, "state": {"waiting": {"reason": "CrashLoopBackOff"}}}]}}]}'
+    ;;
+  *" logs grafana-1 "*) echo 'exec /run.sh: exec format error' ;;
+  *) exit 64 ;;
+esac
+KUBECTL
+chmod +x "$STEP_WORK/bin/helm" "$STEP_WORK/bin/kubectl"
+run_monitoring() { # VAR=value overrides for the stand-ins
+  (cd "$SCRIPT_DIR/../.." && env PATH="$STEP_WORK/bin:$PATH" DOMAIN=example.test KUBECTL_RETRY_DELAY=0 "$@" \
+    bash -e -c "$monitoring_run") >"$STEP_WORK/out" 2>&1
+}
+status=0
+run_monitoring FAKE_HELM_TIMES_OUT=1 || status=$?
+if [ "$status" -ne 0 ] \
+  && grep -qF '::error::pods-not-ready: monitoring/grafana-1 grafana: CrashLoopBackOff' "$STEP_WORK/out" \
+  && grep -qF 'exec /run.sh: exec format error' "$STEP_WORK/out"; then
+  pass "a monitoring release that never comes up names each pod short of ready, and the step fails"
+else
+  fail "a timed-out monitoring upgrade must name its pods and fail (status=$status out=[$(cat "$STEP_WORK/out")])"
+fi
+status=0
+run_monitoring || status=$?
+if [ "$status" -eq 0 ] && ! grep -qF 'pods-not-ready' "$STEP_WORK/out"; then
+  pass "a monitoring release that comes up passes the step"
+else
+  fail "a monitoring upgrade that succeeds must pass quietly (status=$status out=[$(cat "$STEP_WORK/out")])"
+fi
+
 # Production runs one server and stops it before starting the next, so a release whose server never
 # becomes ready is rolled back to the one before, and the step still fails.
 server_upgrade="$(

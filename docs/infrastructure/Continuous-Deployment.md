@@ -118,6 +118,12 @@ it, and the job still fails. The rollback restores service when the new server
 fails before it migrates the database; the server migrates at start, and one
 that has migrated leaves a schema the release before it does not start on.
 
+A monitoring release whose pods are not ready within the wait fails the job,
+naming each pod short of ready with the reason the cluster gives and the last
+lines the container wrote
+([`pods-not-ready.sh`](../../deploy/scripts/pods-not-ready.sh)). The release
+keeps the revision that failed until a later deploy installs one that comes up.
+
 Both deploys ask the cluster, as their own login, whether it may read the master
 key's secret or list secrets, and fail on a yes
 ([`workflow-access-readback.sh`](../../deploy/scripts/workflow-access-readback.sh)).
@@ -131,6 +137,15 @@ shape of outside reader it names
 the keyless Cosign signature before either environment can deploy. Image build,
 SBOM, signing, and attestation details live in
 [`Container-Images.md`](./Container-Images.md).
+
+Before the `cluster` job or staging changes anything, each reads the platform
+of every node and asks every image the deploy installs for a build of each:
+both charts' images, production's monitoring among them, the pods the deploy
+scripts start, and the images the cluster's own charts render. An image with no
+such build stops the job by name
+([`deploy-images-platform-check.sh`](../../deploy/scripts/deploy-images-platform-check.sh)).
+The monitoring release runs in production alone, so this check is where its
+images are proved to run on the node before production is reached.
 
 ## Skipping an unchanged deploy
 

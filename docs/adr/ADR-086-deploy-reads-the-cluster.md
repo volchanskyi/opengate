@@ -27,6 +27,14 @@ between it and the target; the approval-gated `cluster` job runs on a change,
 and on a running commit it cannot read
 ([ADR-128](./ADR-128-machine-identity-lifecycle.md)).
 
+**The platform every image must run on is read off the cluster too.** Before
+the `cluster` job or staging changes anything, each reads every node's platform
+and asks every image the deploy installs for a build of it
+([`deploy-images-platform-check.sh`](../../deploy/scripts/deploy-images-platform-check.sh)).
+The monitoring release runs in production alone, so an image with no build for
+the node otherwise first fails there, with production's dashboards down: a
+Grafana tag pushed for amd64 alone stopped at its first start on the arm64 node.
+
 **The deploy declares no cache at all** — not an explicit cache step, not a
 toolchain cache, not the cache half of a setup action, whose save is refused
 just as quietly. Losing the restore is the price. A permanently refused save

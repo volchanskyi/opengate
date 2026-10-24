@@ -95,8 +95,10 @@ gauntlet's first check after the prerequisites, and a step of CI's
   release fixes passes.
 - A tool, chart or provider is judged by what it is built from as well: its own
   newest patch release building past an affected module is the fix.
-- An image is judged against the newest patch tag of the same shape; a tag that
-  names a line, such as `17-alpine`, is read at the build it points at.
+- An image is judged against the newest patch tag of the same shape built for
+  every platform the tag in use is built for; a tag that names a line, such as
+  `17-alpine`, is read at the build it points at. A chart image is judged the
+  same way against the image a later chart release renders.
 - A declaration no reader reads fails the check, and so does a lookup that gives
   no answer it can read. Files that only look like a declaration are listed in
   [`scope.json`](../../scripts/dependency-fixes/scope.json).

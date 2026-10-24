@@ -228,6 +228,10 @@ jobs:
           oci-region: ${{ secrets.OCI_REGION }}
           cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
 
+      # Every image the deploy installs is asked for a build of each node's platform first.
+      - name: Check every image the deploy installs runs on the cluster's nodes
+        run: deploy/scripts/deploy-images-platform-check.sh
+
       - name: Give the cluster the pieces this commit declares
         env:
           WORKFLOW_USER_OCID: ${{ secrets.OCI_WORKFLOW_USER_OCID }}
@@ -284,6 +288,11 @@ jobs:
           oci-private-key: ${{ secrets.OCI_WORKFLOW_PRIVATE_KEY }}
           oci-region: ${{ secrets.OCI_REGION }}
           cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
+
+      # Every image the deploy installs, production's monitoring among them, is asked for a build of
+      # each node's platform before staging changes anything.
+      - name: Check every image the deploy installs runs on the cluster's nodes
+        run: deploy/scripts/deploy-images-platform-check.sh
 
       # The nightly load run drives this same release in another concurrency group, so each
       # run takes the namespace before touching it and gives it back after.
@@ -666,16 +675,20 @@ jobs:
       - name: Prove the master key's guard rule
         run: deploy/scripts/authority-readers-check.sh
 
-      # The monitoring release follows its chart on every production deploy.
+      # The monitoring release follows its chart on every production deploy; a wait that runs out
+      # names each pod short of ready, with its reason and last lines, and the step fails.
       - name: Helm upgrade monitoring
         env:
           DOMAIN: ${{ secrets.DEPLOY_DOMAIN }}
         run: |
-          helm upgrade --install monitoring deploy/helm/monitoring -n monitoring \
+          if ! helm upgrade --install monitoring deploy/helm/monitoring -n monitoring \
             -f deploy/helm/monitoring/values-production.yaml \
             --set domain="$DOMAIN" \
             --set clusterRBAC.create=false \
-            --wait --timeout 5m
+            --wait --timeout 5m; then
+            deploy/scripts/pods-not-ready.sh monitoring
+            exit 1
+          fi
 
       # The running store is asked what it loaded, and every panel and rule is checked for
       # readings, waiting up to two minutes for a freshly started target.
