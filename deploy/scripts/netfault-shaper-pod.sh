@@ -50,7 +50,7 @@ spec:
       type: RuntimeDefault
   containers:
     - name: shaper
-      image: docker.io/library/alpine:3.21.3
+      image: docker.io/library/alpine:3.21.9
       command:
         - /bin/sh
         - -c

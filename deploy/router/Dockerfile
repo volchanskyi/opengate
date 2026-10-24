@@ -1,6 +1,6 @@
 # A simulated router for the browser test stack. It translates the addresses of the network behind
 # it to its own and passes back only replies; file capabilities let it run unprivileged.
-FROM alpine:3.21.3
+FROM alpine:3.21.9
 
 # iproute2's ip drops every capability its caller cannot pass on, so setpriv hands it NET_ADMIN as
 # an inheritable and ambient capability.

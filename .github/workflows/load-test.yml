@@ -174,10 +174,10 @@ jobs:
           # The generator reserves little and may burst high, because reservation governs admission.
           # The memory cap covers three k6 runtimes and their virtual users sharing this pod.
           kubectl -n "$NAMESPACE" run "$LOADTEST_K6_POD" \
-            --image=docker.io/library/alpine:3.21.3 \
+            --image=docker.io/library/alpine:3.21.9 \
             --restart=Never \
             --labels="$LOADTEST_GENERATOR_LABEL=true" \
-            --overrides='{"spec":{"containers":[{"name":"'"$LOADTEST_K6_POD"'","image":"docker.io/library/alpine:3.21.3","command":["sleep","'"$LOADTEST_POD_LIFETIME_SECONDS"'"],"resources":{"requests":{"cpu":"75m","memory":"128Mi"},"limits":{"cpu":"600m","memory":"768Mi"}}}]}}' \
+            --overrides='{"spec":{"containers":[{"name":"'"$LOADTEST_K6_POD"'","image":"docker.io/library/alpine:3.21.9","command":["sleep","'"$LOADTEST_POD_LIFETIME_SECONDS"'"],"resources":{"requests":{"cpu":"75m","memory":"128Mi"},"limits":{"cpu":"600m","memory":"768Mi"}}}]}}' \
             --command -- sleep "$LOADTEST_POD_LIFETIME_SECONDS"
           deploy/scripts/wait-for-pod-ready.sh "$LOADTEST_K6_POD" 120
           # These calls are short and idempotent, so repeating them is safe.
@@ -220,10 +220,10 @@ jobs:
           # The Service carries the HTTP port only, so the certificate's name is pointed at the pod IP.
           # An agent takes its TLS name from the host half of its address, so dial and verify names match.
           kubectl -n "$NAMESPACE" run "$LOADTEST_POD" \
-            --image=docker.io/library/alpine:3.21.3 \
+            --image=docker.io/library/alpine:3.21.9 \
             --restart=Never \
             --labels="$LOADTEST_GENERATOR_LABEL=true" \
-            --overrides='{"spec":{"hostAliases":[{"ip":"'"$SERVER_POD_IP"'","hostnames":["'"${RELEASE}"'-server"]}],"containers":[{"name":"'"$LOADTEST_POD"'","image":"docker.io/library/alpine:3.21.3","command":["sleep","'"$LOADTEST_POD_LIFETIME_SECONDS"'"],"resources":{"requests":{"cpu":"75m","memory":"128Mi"},"limits":{"cpu":"400m","memory":"384Mi"}}}]}}' \
+            --overrides='{"spec":{"hostAliases":[{"ip":"'"$SERVER_POD_IP"'","hostnames":["'"${RELEASE}"'-server"]}],"containers":[{"name":"'"$LOADTEST_POD"'","image":"docker.io/library/alpine:3.21.9","command":["sleep","'"$LOADTEST_POD_LIFETIME_SECONDS"'"],"resources":{"requests":{"cpu":"75m","memory":"128Mi"},"limits":{"cpu":"400m","memory":"384Mi"}}}]}}' \
             --command -- sleep "$LOADTEST_POD_LIFETIME_SECONDS"
           deploy/scripts/wait-for-pod-ready.sh "$LOADTEST_POD" 120
           # Staging into a pod that is already up is short and idempotent.
@@ -237,9 +237,11 @@ jobs:
           echo "LOADTEST_POD_PROFILE=/tmp/$(basename "$LOADTEST_PROFILE")" >>"$GITHUB_ENV"
 
       - name: Start the QUIC fleet and hold it connected
+        env:
+          AGENTS: ${{ inputs.agents || '500' }}
+          FIXTURE_SIZE: ${{ inputs.fixture || 'small' }}
         run: |
           set -euo pipefail
-          AGENTS="${{ inputs.agents || '500' }}"
           # The harness runs detached in the pod and the step returns once it offers its fleet.
           scripts/loadtest-quic-incluster.sh start -- \
             /tmp/loadtest \
@@ -249,7 +251,7 @@ jobs:
               -metrics-url="$LOADTEST_METRICS_URL" \
               -fixture-account="$LOADTEST_SERVICE_ACCOUNT" \
               -fixture-password="$LOADTEST_SERVICE_PASSWORD" \
-              -fixture-size="${{ inputs.fixture || 'small' }}" \
+              -fixture-size="$FIXTURE_SIZE" \
               -fixture-seed="$GITHUB_RUN_ID" \
               -relay-sessions \
               -hold="$LOADTEST_HOLD" \

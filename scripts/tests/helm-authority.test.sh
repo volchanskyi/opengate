@@ -104,6 +104,12 @@ assert_eq "adopt reads the shared secret's master key as optional files" \
   "opengate-secrets true ca.crt,ca.key" \
   "$(q "$ADOPT" "$adopt_job | .spec.template.spec.volumes[] | select(.name == \"legacy\") | .secret | \"\(.secretName) \(.optional) \([.items[].key] | join(\",\"))\"")"
 
+# A secret volume's files belong to root, so the tool's non-root user reads them through the
+# pod's file group, which the kubelet gives group read.
+assert_eq "adopt's user reads the shared secret's files through its own group, owner and group read" \
+  "65532 65532 288" \
+  "$(q "$ADOPT" "$adopt_job | .spec.template.spec | \"\(.securityContext.runAsGroup) \(.securityContext.fsGroup) \(.volumes[] | select(.name == \"legacy\") | .secret.defaultMode)\"")"
+
 assert_eq "adopt may only remove keys from the shared secret" \
   "patch" \
   "$(q "$ADOPT" "[.[] | select(.kind == \"Role\") | .rules[] | select((.resourceNames // []) | index(\"opengate-secrets\")) | .verbs[]] | join(\",\")")"

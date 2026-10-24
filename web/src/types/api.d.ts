@@ -2405,7 +2405,7 @@ export interface operations {
             /** @description Signed in; the session cookie is set */
             200: {
                 headers: {
-                    "Set-Cookie"?: string;
+                    "Set-Cookie": string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -2453,7 +2453,7 @@ export interface operations {
             /** @description Signed out */
             204: {
                 headers: {
-                    "Set-Cookie"?: string;
+                    "Set-Cookie": string;
                     [name: string]: unknown;
                 };
                 content?: never;
@@ -2485,7 +2485,7 @@ export interface operations {
             /** @description Registered and signed in; the session cookie is set */
             201: {
                 headers: {
-                    "Set-Cookie"?: string;
+                    "Set-Cookie": string;
                     [name: string]: unknown;
                 };
                 content: {

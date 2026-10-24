@@ -1,0 +1,30 @@
+{
+ "id": "GHSA-mrhx-c7xc-m3w5",
+ "summary": "Zod can exhaust memory while validating oversized constrained collections",
+ "aliases": [
+  "CVE-2023-54404"
+ ],
+ "modified": "2026-10-23T18:30:09.376405885Z",
+ "affected": [
+  {
+   "package": {
+    "name": "zod",
+    "ecosystem": "npm",
+    "purl": "pkg:npm/zod"
+   },
+   "ranges": [
+    {
+     "type": "SEMVER",
+     "events": [
+      {
+       "introduced": "0"
+      },
+      {
+       "fixed": "4.6.6"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

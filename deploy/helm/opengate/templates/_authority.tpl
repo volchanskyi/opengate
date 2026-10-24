@@ -75,6 +75,7 @@ spec:
         runAsNonRoot: true
         runAsUser: 65532
         runAsGroup: 65532
+        fsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -100,12 +101,13 @@ spec:
           {{- end }}
       {{- if .legacy }}
       volumes:
-        # The shared secret's master key, present until the adoption removes it from there.
+        # The shared secret's master key, present until the adoption removes it from there. Its
+        # files belong to root, so the tool's user reads them through the pod's file group.
         - name: legacy
           secret:
             secretName: {{ $root.Values.server.existingSecret }}
             optional: true
-            defaultMode: 0400
+            defaultMode: 0440
             items:
               - key: ca.crt
                 path: ca.crt

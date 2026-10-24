@@ -1,0 +1,82 @@
+{
+  "files": [
+    {
+      "path": "*.md",
+      "reason": "prose names images as examples; the files it describes are read"
+    },
+    {
+      "path": "docs/*",
+      "reason": "documentation names images as examples; the files it describes are read"
+    },
+    {
+      "path": "agent/crates/mesh-agent-core/src/discovery/*",
+      "reason": "container inventory: examples of what a customer's host runs"
+    },
+    {
+      "path": "agent/crates/mesh-protocol/tests/*",
+      "reason": "protocol fixtures carry a host's container inventory"
+    },
+    {
+      "path": "server/internal/agentapi/*_test.go",
+      "reason": "fixtures carry a host's container inventory"
+    },
+    {
+      "path": "server/internal/inventory/*_test.go",
+      "reason": "fixtures carry a host's container inventory"
+    },
+    {
+      "path": "server/internal/protocol/golden*_test.go",
+      "reason": "protocol fixtures carry a host's container inventory"
+    },
+    {
+      "path": "web/src/*.test.ts*",
+      "reason": "fixtures carry a host's container inventory"
+    },
+    {
+      "path": "web/e2e/*.spec.ts",
+      "reason": "fixtures carry a host's container inventory"
+    },
+    {
+      "path": "policy/*_test.rego",
+      "reason": "policy fixtures name images the policies refuse or admit"
+    },
+    {
+      "path": "scripts/check-comments/*_test.go",
+      "reason": "comment-checker fixtures quote Dockerfile text"
+    },
+    {
+      "path": "scripts/tests/check-comments.test.sh",
+      "reason": "comment-checker fixtures quote Dockerfile text"
+    },
+    {
+      "path": "scripts/tests/perf-stack.test.sh",
+      "reason": "a fixture names a tag no registry holds"
+    },
+    {
+      "path": "testdata/*",
+      "reason": "protocol fixtures carry a host's container inventory"
+    },
+    {
+      "path": "scripts/tests/ci-cd-determinism.test.sh",
+      "reason": "the sweep's own fixtures and messages quote install lines"
+    },
+    {
+      "path": "scripts/tests/dependency-fixes-*.test.sh",
+      "reason": "the check's own fixtures name images, installs and releases no registry holds"
+    },
+    {
+      "path": "scripts/tests/fixtures/dependency-fixes/*",
+      "reason": "the check's own fakes answer for releases no registry holds"
+    },
+    {
+      "path": "scripts/tests/running-images-check.test.sh",
+      "reason": "the read-back's fixtures name an image the cluster runs that nothing declares"
+    }
+  ],
+  "images": [
+    {
+      "image": "ghcr.io/volchanskyi/",
+      "reason": "the images this repository builds; their bases are read from the Dockerfiles"
+    }
+  ]
+}

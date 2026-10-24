@@ -94,6 +94,9 @@ need += [("monitoring", v, "", sub, "any-pod") for sub in ("pods/exec", "pods/at
 need += [("monitoring", "get", "", "pods/log", None), ("monitoring", "get", "", "services/proxy", None)]
 need += [("ingress-nginx", "get", "", "services", None), ("ingress-nginx", "get", "", "configmaps", None),
          ("ingress-nginx", "list", "", "configmaps", None)]
+# The production deploy reads back the image of every pod in each namespace the project runs in.
+need += [(ns, "list", "", "pods", None)
+         for ns in ("opengate", "opengate-staging", "monitoring", "ingress-nginx", "cert-manager")]
 need += [(None, v, "", "nodes", None) for v in ("get", "list")]
 need += [(None, "get", "admissionregistration.k8s.io", r, "opengate-authority-readers")
          for r in ("validatingadmissionpolicies", "validatingadmissionpolicybindings")]
@@ -103,7 +106,7 @@ check(f"the login may make each of the {len(need)} calls the workflows make", []
 for n in missing:
     print(f"       refused: {n}", file=sys.stderr)
 
-for ns in ("opengate", "opengate-staging", "monitoring", "ingress-nginx", "kube-system", None):
+for ns in ("opengate", "opengate-staging", "monitoring", "ingress-nginx", "cert-manager", "kube-system", None):
     for verb in ("list", "watch"):
         check(f"{verb} on secrets is refused in {ns or 'the cluster'}", False, allowed(ns, verb, "", "secrets"))
 # Kubernetes cannot hold create to one name, and a create cannot touch a secret that already exists.

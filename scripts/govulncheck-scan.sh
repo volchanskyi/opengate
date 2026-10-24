@@ -2,6 +2,8 @@
 # Scans the Go module once against a vulnerability database fetched first, with retries on
 # the fetch alone; a failed scan is a finding or a crash and is never retried.
 #
+# Usage: scripts/govulncheck-scan.sh [FLAG...]   (each FLAG is handed to govulncheck)
+#
 # Environment:
 #   GOVULN_DB_URL   the database archive (default https://vuln.go.dev/vulndb.zip)
 set -euo pipefail
@@ -23,4 +25,4 @@ unzip -q "$WORK/vulndb.zip" -d "$WORK/db"
 }
 
 cd "$ROOT/server"
-govulncheck -db "file://$WORK/db" ./...
+govulncheck -db "file://$WORK/db" "$@" ./...

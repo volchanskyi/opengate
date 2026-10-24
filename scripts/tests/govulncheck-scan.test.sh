@@ -50,10 +50,12 @@ exit "${FAKE_SCAN_RC:-0}"
 SCANNER
 chmod +x "$WORK/bin/curl" "$WORK/bin/govulncheck"
 
-run_scan() { # db archive (or empty), scanner rc
+run_scan() { # db archive (or empty), scanner rc, then the flags handed to the script
+  local db="$1" rc="$2"
+  shift 2
   : >"$WORK/calls"
-  PATH="$WORK/bin:$PATH" FAKE_DB="$1" FAKE_SCAN_RC="$2" FAKE_CALLS="$WORK/calls" \
-    bash "$SCAN" >"$WORK/out" 2>&1
+  PATH="$WORK/bin:$PATH" FAKE_DB="$db" FAKE_SCAN_RC="$rc" FAKE_CALLS="$WORK/calls" \
+    bash "$SCAN" "$@" >"$WORK/out" 2>&1
 }
 
 echo "govulncheck-scan:"
@@ -67,6 +69,13 @@ if grep -qE '^-db file://[^ ]+ \./\.\.\.$' "$WORK/calls"; then
   pass "and scans against the local copy of the database"
 else
   fail "and scans against the local copy of the database (calls=[$(cat "$WORK/calls")])"
+fi
+
+if run_scan "$WORK/good.zip" 0 -scan package -format json \
+  && grep -qE '^-db file://[^ ]+ -scan package -format json \./\.\.\.$' "$WORK/calls"; then
+  pass "flags handed to the script reach govulncheck ahead of the package pattern"
+else
+  fail "flags handed to the script reach govulncheck ahead of the package pattern (calls=[$(cat "$WORK/calls")])"
 fi
 
 if run_scan "$WORK/good.zip" 3; then

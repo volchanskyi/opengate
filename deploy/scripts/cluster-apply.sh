@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Gives the cluster what a routine deploy's login cannot write: namespaces, Helm records as
-# configmaps, the master key's guard rule, workflow access, the issuer, cluster roles, ingress.
+# Gives the cluster what a routine deploy's login cannot write: namespaces, Helm records, the
+# master key's guard rule, cert-manager, workflow access, the issuer, cluster roles, ingress.
 #
 # Usage: deploy/scripts/cluster-apply.sh
 #
@@ -33,6 +33,8 @@ done
 
 # shellcheck source=scripts/lib/kubectl-retry.sh
 . "$ROOT/scripts/lib/kubectl-retry.sh"
+# shellcheck source=scripts/lib/tool-versions.sh
+. "$ROOT/scripts/lib/tool-versions.sh"
 
 # summarize LINE appends LINE to the job summary, when the run has one.
 summarize() {
@@ -85,10 +87,15 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: monitoring
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cert-manager
 NAMESPACES
 
 if ! migrated="$("$ROOT/deploy/scripts/helm-release-migrate.sh" opengate opengate-staging monitoring \
-  ingress-nginx 2>&1)"; then
+  ingress-nginx cert-manager 2>&1)"; then
   printf '%s\n' "$migrated" >&2
   refuse "Helm's release records" "${migrated##*$'\n'}"
 fi
@@ -96,6 +103,18 @@ printf '%s\n' "$migrated"
 record "Helm's release records" "${migrated//helm-release-migrate: /}"
 
 apply "the master key's guard rule" <"$ROOT/deploy/cluster/authority-readers.yaml"
+
+# cert-manager comes before the issuer, which is one of the resource types its chart installs.
+cert_manager_repo="${TOOL_SOURCE_CERT_MANAGER_CHART#chart:}"
+if ! installed="$(helm upgrade --install cert-manager cert-manager --repo "${cert_manager_repo%%#*}" \
+  --version "$TOOL_VERSION_CERT_MANAGER_CHART" --namespace cert-manager --create-namespace \
+  --reset-values --set crds.enabled=true --wait --timeout 5m 2>&1)"; then
+  printf '%s\n' "$installed" >&2
+  refuse "cert-manager" "${installed##*$'\n'}"
+fi
+printf '%s\n' "$installed"
+record "cert-manager" "${installed%%$'\n'*}"
+
 apply "the workflows' access" \
   <<<"$(sed "s/WORKFLOW_USER_OCID/$WORKFLOW_USER_OCID/g" "$ROOT/deploy/cluster/workflow-access.yaml")"
 apply "the production issuer" <<<"$(helm template opengate "$ROOT/deploy/helm/opengate" -n opengate \

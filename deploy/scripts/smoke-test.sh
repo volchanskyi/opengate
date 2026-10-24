@@ -243,6 +243,15 @@ test_web_static_asset() {
 
 check "GET /vite.svg returns 200 (static file)" test_web_static_asset
 
+# The console's session route answers a request with no cookie, without signing anyone in.
+test_console_session_refused() {
+  local status
+  status=$(http_status "${BASE_URL}/api/v1/auth/session")
+  [[ "$status" == "401" ]]
+}
+
+check "GET /api/v1/auth/session without a cookie returns 401" test_console_session_refused
+
 # These create a throwaway account, so they run only where it is disposable, never in production.
 
 if [[ "$MODE" == "local" || "$MODE" == "staging" ]]; then
@@ -258,22 +267,68 @@ if [[ "$MODE" == "local" || "$MODE" == "staging" ]]; then
 
     [[ "$RESPONSE_STATUS" == "201" ]] || return 1
 
-    JWT=$(grep -oP '"token"\s*:\s*"\K[^"]+' <<<"$RESPONSE_BODY" || echo "")
-    [[ -n "$JWT" ]] || return 1
-    export JWT
+    BEARER=$(grep -oP '"token"\s*:\s*"\K[^"]+' <<<"$RESPONSE_BODY" || echo "")
+    [[ -n "$BEARER" ]] || return 1
   }
 
-  check "POST /api/v1/auth/register returns 201 + JWT" test_register
+  # Scripts, load runs and the agent side of the relay sign in with a bearer token.
+  check "POST /api/v1/auth/register returns 201 and a script's bearer token" test_register
 
-  # A tenant-scoped fleet read: a 200 proves the JWT, tenant context and database together.
+  # A tenant-scoped fleet read: a 200 proves the token, tenant context and database together.
   test_sites() {
-    [[ -z "${JWT:-}" ]] && return 1
+    [[ -z "${BEARER:-}" ]] && return 1
     local status
-    status=$(http_status -H "Authorization: Bearer ${JWT}" "${BASE_URL}/api/v1/sites")
+    status=$(http_status -H "Authorization: Bearer ${BEARER}" "${BASE_URL}/api/v1/sites")
     [[ "$status" == "200" ]]
   }
 
-  check "GET /api/v1/sites with JWT returns 200" test_sites
+  check "GET /api/v1/sites with the script's bearer token returns 200" test_sites
+
+  # The console signs in with a cookie no page script can read, and every change it makes
+  # carries the session's value in X-CSRF-Token.
+  COOKIE_JAR="$(mktemp)"
+  CONSOLE_HEADERS="$(mktemp)"
+  trap 'rm -f "$COOKIE_JAR" "$CONSOLE_HEADERS"' EXIT
+  CSRF=""
+
+  test_console_sign_in() {
+    http_get "${BASE_URL}/api/v1/auth/session" -X POST -H 'Content-Type: application/json' \
+      -c "$COOKIE_JAR" -D "$CONSOLE_HEADERS" \
+      -d "{\"email\":\"${TEST_EMAIL}\",\"password\":\"${TEST_PASS}\"}"
+    answered_200 "POST /api/v1/auth/session" || return 1
+    local cookie
+    cookie="$(grep -i '^set-cookie: og_session=' "$CONSOLE_HEADERS" || true)"
+    grep -qi '; *HttpOnly' <<<"$cookie" || return 1
+    if [[ "$SCHEME" == "https" ]]; then
+      grep -qi '; *Secure' <<<"$cookie" || return 1
+    fi
+    CSRF=$(grep -oP '"csrf_token"\s*:\s*"\K[^"]+' <<<"$RESPONSE_BODY" || echo "")
+    [[ -n "$CSRF" ]]
+  }
+
+  check "POST /api/v1/auth/session signs the console in with an HttpOnly cookie" test_console_sign_in
+
+  test_console_session() {
+    [[ "$(http_status -b "$COOKIE_JAR" "${BASE_URL}/api/v1/auth/session")" == "200" ]]
+  }
+
+  check "GET /api/v1/auth/session answers the cookie alone with 200" test_console_session
+
+  test_console_change_refused() {
+    [[ "$(http_status -X DELETE -b "$COOKIE_JAR" "${BASE_URL}/api/v1/auth/session")" == "403" ]]
+  }
+
+  check "DELETE /api/v1/auth/session without X-CSRF-Token is refused with 403" test_console_change_refused
+
+  # Signing out ends the session, so the run leaves no live sign-in behind.
+  test_console_sign_out() {
+    [[ -n "$CSRF" ]] || return 1
+    [[ "$(http_status -X DELETE -b "$COOKIE_JAR" -H "X-CSRF-Token: ${CSRF}" \
+      "${BASE_URL}/api/v1/auth/session")" == "204" ]] || return 1
+    [[ "$(http_status -b "$COOKIE_JAR" "${BASE_URL}/api/v1/auth/session")" == "401" ]]
+  }
+
+  check "DELETE /api/v1/auth/session with X-CSRF-Token signs the console out" test_console_sign_out
 
   test_relay_route() {
     local status

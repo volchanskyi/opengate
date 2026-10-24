@@ -112,6 +112,12 @@ environment gate is approved. The workflow waits for rollout completion and
 runs the same smoke-test script through a temporary Service port-forward and
 through the public edge, each run's checks listed on the summary page.
 
+Production runs one server and stops it before starting the next, so a release
+whose server is not ready within the wait is rolled back to the release before
+it, and the job still fails. The rollback restores service when the new server
+fails before it migrates the database; the server migrates at start, and one
+that has migrated leaves a schema the release before it does not start on.
+
 Both deploys ask the cluster, as their own login, whether it may read the master
 key's secret or list secrets, and fail on a yes
 ([`workflow-access-readback.sh`](../../deploy/scripts/workflow-access-readback.sh)).

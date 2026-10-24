@@ -189,7 +189,8 @@ subjects:
     kind: User
     name: WORKFLOW_USER_OCID
 ---
-# The ingress controller: the nightly drift check reads its service, settings and release record.
+# The ingress controller: the nightly drift check reads its service, settings and release record,
+# and the production deploy reads which images its pods run.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -202,12 +203,40 @@ rules:
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: opengate-workflow
   namespace: ingress-nginx
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: opengate-workflow
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: WORKFLOW_USER_OCID
+---
+# cert-manager: the production deploy reads which images its pods run.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: opengate-workflow
+  namespace: cert-manager
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: opengate-workflow
+  namespace: cert-manager
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role

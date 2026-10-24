@@ -84,6 +84,18 @@ A step whose work was refused must not report success.
 - A contract stated in one file and satisfied in another is checked in neither
   unless something is made to read both.
 
+### An input reaches a script as a value, never as its text
+
+- GitHub writes a `${{ }}` expression into a `run:` script before the shell
+  reads it, so a dispatched input such as `x"; curl … | sh; "` becomes code on
+  the runner.
+- A dispatch input, an event field and the pull request's head branch
+  (`inputs.*`, `github.event.*`, `github.head_ref`) reach a `run:` block through
+  the step's `env:` and are read as variables.
+- A value the script hands on is checked for its shape first:
+  [`cd.yml`](../../.github/workflows/cd.yml) refuses a tag that is not an image
+  tag before it reaches `$GITHUB_OUTPUT`.
+
 ### A status a step branches on is read with errexit turned off
 
 - A block that reads `$?` turns errexit off around the command and back on

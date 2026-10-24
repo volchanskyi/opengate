@@ -71,12 +71,13 @@ for seg in re.split(r"\|\||&&|[;|&\n]", cmd):
             if skip:
                 skip = False
                 continue
+            # A git install names its release by the commit --rev gives.
             if a in CARGO_VALUE_FLAGS:
-                if a in ("--version", "--vers") and i + 1 < len(args):
+                if a in ("--version", "--vers", "--rev") and i + 1 < len(args):
                     version = args[i + 1]
                 skip = True
                 continue
-            if a.startswith("--version=") or a.startswith("--vers="):
+            if a.startswith("--version=") or a.startswith("--vers=") or a.startswith("--rev="):
                 version = a.split("=", 1)[1]
                 continue
             if a.startswith("-"):

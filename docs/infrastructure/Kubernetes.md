@@ -93,7 +93,8 @@ commands):
   output as `INGRESS_LB_SUBNET_ID`; a running one keeps the subnet its Service
   already names. The server sets every security header itself, so the controller
   adds none ([ADR-030](../adr/ADR-030-kubernetes-on-oke.md)).
-- **cert-manager** (CRDs + controller), installed by hand.
+- **cert-manager** (CRDs + controller), installed by [the cluster job](#the-cluster-job) at the
+  chart release [`tool-versions.sh`](../../scripts/lib/tool-versions.sh) pins.
 
 The OKE cluster + node pool are provisioned by the
 [`oke` Terraform module](../../deploy/terraform/modules/oke).
@@ -271,10 +272,10 @@ What the workflows' login cannot write is applied by the `cluster` job in
 [`cluster-apply.sh`](../../deploy/scripts/cluster-apply.sh): the namespaces, the
 copy of each release's Helm records into configmaps
 ([`helm-release-migrate.sh`](../../deploy/scripts/helm-release-migrate.sh)), the
-admission rule, the workflows' access, the production certificate issuer,
-monitoring's cluster roles and the ingress controller. It runs when a commit
-changes one of those pieces, or when the running commit cannot be read, before
-the staging deploy. It names the `production` environment, so it waits for a
+admission rule, cert-manager, the workflows' access, the production certificate
+issuer, monitoring's cluster roles and the ingress controller. It runs when a
+commit changes one of those pieces or a chart release the manifest pins, or when
+the running commit cannot be read, before the staging deploy. It names the `production` environment, so it waits for a
 person to approve it, and signs in with the administrator login held only there,
 as the environment secrets `OCI_ADMIN_USER_OCID`, `OCI_ADMIN_FINGERPRINT` and
 `OCI_ADMIN_PRIVATE_KEY`.

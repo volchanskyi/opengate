@@ -220,6 +220,24 @@ else
   fail "the monitoring upgrade must apply deploy/helm/monitoring/values-production.yaml"
 fi
 
+# Production runs one server and stops it before starting the next, so a release whose server never
+# becomes ready is rolled back to the one before, and the step still fails.
+server_upgrade="$(
+  python3 - "$WORKFLOW" <<'PY_UPGRADE'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+runs = [str(s.get("run", "")) for s in doc["jobs"]["deploy-production-k8s"]["steps"]]
+print("\n".join(r.replace("\\\n", " ") for r in runs if 'helm upgrade --install "$RELEASE"' in r))
+PY_UPGRADE
+)"
+if [ -z "$server_upgrade" ]; then
+  fail "the production deploy has no helm upgrade of the server release to read"
+elif grep -qE -- '(^|[[:space:]])--atomic([[:space:]]|$)' <<<"$server_upgrade"; then
+  pass "a production release whose server never becomes ready rolls back to the one before"
+else
+  fail "the production server upgrade must pass --atomic, or a server that cannot start stays down"
+fi
+
 # Dashboards, rules and scrape targets land with the deploy, then the store is asked what it loaded.
 apply_facts="$(
   python3 - "$WORKFLOW" <<'PY_APPLY'

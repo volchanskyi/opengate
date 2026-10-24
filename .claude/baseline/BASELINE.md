@@ -80,4 +80,4 @@ PMAT version: pinned to **`pmat@3.17.0`** per [ADR-019](../../docs/adr/ADR-019-p
 - Use a credentialed-helper form (no creds in URL): `git remote set-url origin https://github.com/<owner>/<repo>.git`, OR
 - Use SSH: `git remote set-url origin git@github.com:<owner>/<repo>.git`
 
-The repo's `gitleaks` step (`scripts/precommit-gauntlet.sh` step 9) would catch this on a commit attempt, but the right move is not to generate the leaked artifact in the first place.
+The gauntlet's `gitleaks` lint (`scripts/precommit-gauntlet.sh`) would catch this on a commit attempt, but the right move is not to generate the leaked artifact in the first place.

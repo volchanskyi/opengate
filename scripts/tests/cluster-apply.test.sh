@@ -57,6 +57,16 @@ esac
 FAKE_KUBECTL
 chmod +x "$WORK/bin/kubectl"
 
+REAL_HELM="$(command -v helm)"
+cat >"$WORK/bin/helm" <<'FAKE_HELM'
+#!/usr/bin/env bash
+# Stand-in for helm: renders with the real one, and records an install instead of making it.
+if [ "$1" = template ]; then exec "$REAL_HELM" "$@"; fi
+printf 'helm %s HELM_DRIVER=%s\n' "$*" "${HELM_DRIVER:-}" >>"$FAKE_TRACE"
+echo "Release \"cert-manager\" has been upgraded. Happy Helming!"
+FAKE_HELM
+chmod +x "$WORK/bin/helm"
+
 cat >"$WORK/ingress-apply" <<'FAKE_INGRESS'
 #!/usr/bin/env bash
 printf 'ingress %s HELM_DRIVER=%s\n' "$*" "${HELM_DRIVER:-}" >>"$FAKE_TRACE"
@@ -68,7 +78,7 @@ chmod +x "$WORK/ingress-apply"
 run() {
   : >"$WORK/trace"
   rm -f "$WORK"/applied/* "$WORK/summary"
-  env PATH="$WORK/bin:$PATH" FAKE_TRACE="$WORK/trace" FAKE_APPLIED="$WORK/applied" \
+  env PATH="$WORK/bin:$PATH" FAKE_TRACE="$WORK/trace" FAKE_APPLIED="$WORK/applied" REAL_HELM="$REAL_HELM" \
     KUBECTL_RETRY_DELAY=0 INGRESS_APPLY="$WORK/ingress-apply" HELM_DRIVER=configmap \
     GITHUB_STEP_SUMMARY="$WORK/summary" CLUSTER_RUN_REASON="changed since abc1234: deploy/cluster" \
     WORKFLOW_USER_OCID="ocid1.user.oc1..workflow" ACME_EMAIL="ops@example.test" "$@" bash "$APPLY"
@@ -90,21 +100,30 @@ status=0
 run >"$WORK/out" 2>&1 || status=$?
 assert_eq "a full run succeeds" "0" "$status"
 assert_eq "the namespaces come first" \
-  "Namespace/monitoring Namespace/opengate Namespace/opengate-staging " "$(kinds_in "$WORK/applied/00.yaml")"
+  "Namespace/cert-manager Namespace/monitoring Namespace/opengate Namespace/opengate-staging " \
+  "$(kinds_in "$WORK/applied/00.yaml")"
 assert_eq "Helm's records move into configmaps in every release namespace before anything reads them" \
-  "opengate opengate-staging monitoring ingress-nginx" \
+  "opengate opengate-staging monitoring ingress-nginx cert-manager" \
   "$(sed -nE 's/^-n ([a-z-]+) get secrets -l owner=helm.*/\1/p' "$WORK/trace" | tr '\n' ' ' | sed 's/ $//')"
 assert_eq "the master key's guard rule is applied" \
   "ValidatingAdmissionPolicy/opengate-authority-readers ValidatingAdmissionPolicyBinding/opengate-authority-readers " \
   "$(kinds_in "$WORK/applied/01.yaml")"
 assert_eq "the workflows' access names their user, and nothing is left unfilled" \
-  "5 0" "$(grep -c 'ocid1.user.oc1..workflow' "$WORK/applied/02.yaml") $(grep -c 'WORKFLOW_USER_OCID' "$WORK/applied/02.yaml" || true)"
+  "6 0" "$(grep -c 'ocid1.user.oc1..workflow' "$WORK/applied/02.yaml") $(grep -c 'WORKFLOW_USER_OCID' "$WORK/applied/02.yaml" || true)"
 assert_eq "the production issuer is applied with its contact" \
   "ClusterIssuer/letsencrypt-prod  1" \
   "$(kinds_in "$WORK/applied/03.yaml") $(grep -c 'email: ops@example.test' "$WORK/applied/03.yaml")"
 assert_eq "monitoring's cluster roles are applied" \
   "ClusterRole/monitoring-promtail ClusterRole/monitoring-victoriametrics ClusterRoleBinding/monitoring-promtail ClusterRoleBinding/monitoring-victoriametrics " \
   "$(kinds_in "$WORK/applied/04.yaml")"
+# shellcheck source=../lib/tool-versions.sh
+. "$REPO_ROOT/scripts/lib/tool-versions.sh"
+assert_eq "cert-manager is installed at its pinned chart with its resource types, keeping its record in a configmap" \
+  "helm upgrade --install cert-manager cert-manager --repo https://charts.jetstack.io --version $TOOL_VERSION_CERT_MANAGER_CHART --namespace cert-manager --create-namespace --reset-values --set crds.enabled=true --wait --timeout 5m HELM_DRIVER=configmap" \
+  "$(grep '^helm upgrade' "$WORK/trace")"
+assert_eq "cert-manager is installed after the guard rule and before the workflows' access and the issuer" \
+  "guard helm access issuer" \
+  "$(awk '/^--stdin apply -f -|^apply -f -/ { n++; if (n == 2) print "guard"; if (n == 3) print "access"; if (n == 4) print "issuer" } /^helm upgrade/ { print "helm" }' "$WORK/trace" | tr '\n' ' ' | sed 's/ $//')"
 assert_eq "the ingress controller is applied last, keeping its record in a configmap" \
   "ingress apply HELM_DRIVER=configmap" "$(tail -n 1 "$WORK/trace")"
 
@@ -118,7 +137,8 @@ run >"$WORK/out" 2>&1 || status=$?
 for line in "## Admin cluster changes" \
   "**Why it ran:** changed since abc1234: deploy/cluster" \
   "| The namespaces | set0/first unchanged<br>set0/second configured |" \
-  "| Helm's release records | opengate: 0 copied, 0 already there<br>opengate-staging: 0 copied, 0 already there<br>monitoring: 0 copied, 0 already there<br>ingress-nginx: 0 copied, 0 already there |" \
+  "| Helm's release records | opengate: 0 copied, 0 already there<br>opengate-staging: 0 copied, 0 already there<br>monitoring: 0 copied, 0 already there<br>ingress-nginx: 0 copied, 0 already there<br>cert-manager: 0 copied, 0 already there |" \
+  "| Cert-manager | Release \"cert-manager\" has been upgraded. Happy Helming! |" \
   "| The workflows' access | set2/first unchanged<br>set2/second configured |" \
   "| Monitoring's cluster roles | set4/first unchanged<br>set4/second configured |" \
   "| The ingress controller | the ingress controller holds deploy/ingress-nginx/values.yaml at chart 9.9.9 |"; do

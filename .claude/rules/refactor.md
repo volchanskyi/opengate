@@ -66,32 +66,36 @@ In order, with elapsed time printed per step:
    and reachable, VictoriaMetrics reachable (auto-started via
    `make victoriametrics-test-up`, then exported as `VICTORIAMETRICS_TEST_URL`
    so every Go package shares one store), `SONAR_TOKEN` set.
-2. **Lints** — `cargo fmt --check`, `cargo clippy -D warnings`, `go vet`,
-   `eslint`, `tsc -b` in `web/`, the dependency check
+2. **Dependency fixes** — [`scripts/dependency-fixes`](../../scripts/dependency-fixes/)
+   checks every dependency for an advisory a patch release of the line in use
+   fixes ([`tool-versions.md`](tool-versions.md)), and a finding ends the run
+   there.
+3. **Lints** — `cargo fmt --check`, `cargo clippy -D warnings`, `go vet`,
+   `eslint`, `tsc -b` in `web/`, the module dependency check
    ([`depcruise-check.sh`](../../scripts/depcruise-check.sh)), `actionlint`,
    `make taint-go`, `make taint-web`, `make dead-code`,
    `gitleaks protect --staged`, `make lint-deploy`.
-3. **Codegen sync** — `make verify-codegen`.
-4. **Tests** — Go unit + integration with `-race`, Rust workspace, Vitest with
+4. **Codegen sync** — `make verify-codegen`.
+5. **Tests** — Go unit + integration with `-race`, Rust workspace, Vitest with
    coverage.
-5. **Coverage thresholds** — Go, Web and Rust each ≥ 80%, per the exclusion
+6. **Coverage thresholds** — Go, Web and Rust each ≥ 80%, per the exclusion
    lists in [`coverage-exclusions.md`](coverage-exclusions.md).
-6. **Security audits** — `govulncheck`, `cargo audit`, and
+7. **Security audits** — `govulncheck`, `cargo audit`, and
    [`npm-audit.sh`](../../scripts/npm-audit.sh) per lockfile: high and above,
    minus the expiring exceptions in
    [`npm-audit-exceptions.json`](../../scripts/lib/npm-audit-exceptions.json).
-7. **Benchmarks** — [`benchmark-local-check.sh`](../../scripts/benchmark-local-check.sh):
+8. **Benchmarks** — [`benchmark-local-check.sh`](../../scripts/benchmark-local-check.sh):
    the Go benchmarks at the nightly's processor count, their allocations held to
    the CI [baseline](../../benchmarks/baseline.json), and every Rust suite run
    once. Skip with `PRECOMMIT_SKIP_BENCH=1` only for clearly non-perf-touching
    iterations.
-8. **PMAT TDG gate** — `pmat tdg check-quality` on each changed code file at the
+9. **PMAT TDG gate** — `pmat tdg check-quality` on each changed code file at the
    **B+** floor. Ordered before the slow phase because it is fast and frequently
    the failing check.
-9. **E2E** — `make e2e`.
-10. **SonarCloud** — `make sonar`, full scan with fresh coverage upload. No skip.
+10. **E2E** — `make e2e`.
+11. **SonarCloud** — `make sonar`, full scan with fresh coverage upload. No skip.
 
-Steps 9–10 are deferred when an earlier check has already failed. That changes
+Steps 10–11 are deferred when an earlier check has already failed. That changes
 runtime, never the pass/fail outcome.
 
 ### Why every commit

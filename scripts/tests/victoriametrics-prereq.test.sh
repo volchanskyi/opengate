@@ -33,13 +33,14 @@ assert_eq() {
 }
 
 echo "vm_probe — open port detection:"
-TEST_PORT=$(((RANDOM % 10000) + 40000))
+# The kernel assigns the listener's port, so the test never lands on one another program holds.
+PORT_FILE="$(mktemp)"
 python3 -c "
 import socket, sys, time
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.bind(('127.0.0.1', $TEST_PORT))
+s.bind(('127.0.0.1', 0))
 s.listen(5)
-sys.stdout.write('ready\n'); sys.stdout.flush()
+open(sys.argv[1], 'w').write(str(s.getsockname()[1]))
 deadline = time.time() + 5
 while time.time() < deadline:
     try:
@@ -49,8 +50,14 @@ while time.time() < deadline:
     except socket.timeout:
         pass
 s.close()
-" >/dev/null 2>&1 &
+" "$PORT_FILE" >/dev/null 2>&1 &
 LISTENER_PID=$!
+for _ in $(seq 1 30); do
+  [ -s "$PORT_FILE" ] && break
+  sleep 0.1
+done
+TEST_PORT="$(cat "$PORT_FILE")"
+rm -f "$PORT_FILE"
 
 probed=false
 for _ in $(seq 1 30); do
