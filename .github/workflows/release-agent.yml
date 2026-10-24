@@ -32,7 +32,9 @@ jobs:
       # so /releases/latest keeps pointing at the latest release that carries binaries.
       - name: Gate on agent/ diff
         id: gate
-        run: ./scripts/release-agent-gate.sh "${{ inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: ./scripts/release-agent-gate.sh "$RELEASE_TAG" >> "$GITHUB_OUTPUT"
 
   build:
     name: Build ${{ matrix.target }}
@@ -79,8 +81,9 @@ jobs:
 
       - name: Determine version
         id: version
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          TAG="${{ inputs.tag || github.ref_name }}"
           VERSION="${TAG#v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Agent version: $VERSION"

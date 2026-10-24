@@ -264,7 +264,10 @@ install_case 2 'snap install helm --classic'
 assert_stderr_contains "distribution install refused: names the pin" "$TOOL_VERSION_HELM"
 install_case 0 'go install golang.org/x/tools/gopls@latest'
 install_case 0 'cd server && go install ./cmd/meshserver'
-install_case 0 'cargo install --locked cross --git https://github.com/cross-rs/cross'
+install_case 2 'cargo install --locked cross --git https://github.com/cross-rs/cross'
+assert_stderr_contains "a git install with no rev refused: names the pinned commit" "$TOOL_VERSION_CROSS"
+install_case 0 "cargo install --locked cross --git https://github.com/cross-rs/cross --rev $TOOL_VERSION_CROSS"
+install_case 0 'cargo install --locked ripgrep'
 install_case 0 'sudo apt-get install -y build-essential'
 install_case 0 'npm install'
 install_case 0 "go version -m \"\$(command -v govulncheck)\""

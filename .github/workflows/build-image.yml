@@ -142,7 +142,7 @@ jobs:
       attestations: write
     # Equals the scanner's row in scripts/lib/tool-versions.sh; trivy reads each TRIVY_* as a flag.
     env:
-      PINNED_TRIVY: v0.70.0
+      PINNED_TRIVY: v0.72.0
     steps:
       - uses: actions/checkout@v7
         with:

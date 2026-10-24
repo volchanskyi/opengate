@@ -650,6 +650,83 @@ else
   fail "a job takes the staging slot without proving staging runs the build it tests:$slot_bad"
 fi
 
+# A dispatched input or an event field pasted into a script is code GitHub writes into it; through
+# env it stays a value. Prints file<TAB>job<TAB>step<TAB>expression per paste, then read<TAB>N.
+pasted_inputs() {
+  python3 - "$@" <<'PY'
+import re, sys
+import yaml
+PASTE = re.compile(r"\$\{\{[^}]*?\b(inputs\.[\w-]+|github\.event\.[\w.-]+|github\.head_ref)\b[^}]*\}\}")
+read = 0
+for path in sys.argv[1:]:
+    document = yaml.safe_load(open(path, encoding="utf-8")) or {}
+    jobs = [(name, job.get("steps") or []) for name, job in (document.get("jobs") or {}).items()]
+    jobs.append(("runs", (document.get("runs") or {}).get("steps") or []))
+    for job, steps in jobs:
+        for index, step in enumerate(steps):
+            run = step.get("run") if isinstance(step, dict) else None
+            if not isinstance(run, str):
+                continue
+            read += 1
+            for match in PASTE.finditer(run):
+                print(f"{path}\t{job}\t{step.get('name') or index}\t{match.group(1)}")
+print(f"read\t{read}")
+PY
+}
+
+paste_fixture="$(mktemp -d)"
+payload="x\"; touch \"$paste_fixture/ran\"; echo \""
+# shellcheck disable=SC2016 # the expression is GitHub's to fill in and the variable the script's own
+pasted_script='TAG="${{ inputs.image_tag }}"; echo "$TAG"'
+# GitHub substitutes the expression into the script's text before the shell reads it.
+bash -c "${pasted_script//'${{ inputs.image_tag }}'/$payload}" >/dev/null 2>&1 || true
+pasted_ran="$([ -e "$paste_fixture/ran" ] && echo yes || echo no)"
+rm -f "$paste_fixture/ran"
+TAG="$payload" bash -c 'echo "$TAG"' >/dev/null 2>&1 || true
+env_ran="$([ -e "$paste_fixture/ran" ] && echo yes || echo no)"
+cat >"$paste_fixture/pasted.yml" <<'YAML'
+on: workflow_dispatch
+jobs:
+  deploy:
+    steps:
+      - name: Determine tag
+        run: TAG="${{ inputs.image_tag }}"
+      - name: Read the head
+        run: echo "${{ github.event.workflow_run.head_sha }} ${{ github.head_ref }}"
+YAML
+cat >"$paste_fixture/through-env.yml" <<'YAML'
+on: workflow_dispatch
+jobs:
+  deploy:
+    steps:
+      - name: Determine tag
+        env:
+          TAG: ${{ inputs.image_tag }}
+        run: echo "$TAG ${{ github.sha }}"
+YAML
+paste_demo="$(pasted_inputs "$paste_fixture/pasted.yml" "$paste_fixture/through-env.yml")"
+if [ "$pasted_ran" = yes ] && [ "$env_ran" = no ] \
+  && grep -qF $'pasted.yml\tdeploy\tDetermine tag\tinputs.image_tag' <<<"$paste_demo" \
+  && grep -qF $'pasted.yml\tdeploy\tRead the head\tgithub.head_ref' <<<"$paste_demo" \
+  && ! grep -qF 'through-env.yml' <<<"$paste_demo"; then
+  pass "a pasted input runs as code and one read through env does not, and the sweep tells them apart"
+else
+  fail "the paste sweep does not reproduce: pasted ran=$pasted_ran, env ran=$env_ran, found [$paste_demo]"
+fi
+rm -rf "$paste_fixture"
+
+mapfile -t paste_sources < <(find "$WORKFLOWS" "$REPO_ROOT/.github/actions" -name '*.yml' | sort)
+paste_found="$(pasted_inputs "${paste_sources[@]}")"
+paste_read="$(awk -F'\t' '$1 == "read" { print $2 }' <<<"$paste_found")"
+paste_bad="$(grep -v $'^read\t' <<<"$paste_found" | sed 's/\t/: /g; s/^/ [/; s/$/]/' | paste -sd '' - || true)"
+if [ "${paste_read:-0}" -eq 0 ]; then
+  fail "the paste sweep read no run: block, so it is asserting an absence it never tested"
+elif [ -z "$paste_bad" ]; then
+  pass "none of $paste_read run: blocks pastes an input or an event field into its own text"
+else
+  fail "a run: block pastes an input or an event field into its own text; pass it through env:$paste_bad"
+fi
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

@@ -360,9 +360,9 @@ jobs:
 
           # The request is sized to twenty simulated machines because the node is mostly claimed.
           kubectl -n "$NAMESPACE" run "$FLEET_POD" \
-            --image=docker.io/library/alpine:3.21.3 \
+            --image=docker.io/library/alpine:3.21.9 \
             --restart=Never \
-            --overrides='{"spec":{"hostAliases":[{"ip":"'"$SHAPER_IP"'","hostnames":["'"${RELEASE}"'-server"]}],"containers":[{"name":"'"$FLEET_POD"'","image":"docker.io/library/alpine:3.21.3","command":["sleep","2700"],"resources":{"requests":{"cpu":"25m","memory":"128Mi"},"limits":{"cpu":"400m","memory":"384Mi"}}}]}}' \
+            --overrides='{"spec":{"hostAliases":[{"ip":"'"$SHAPER_IP"'","hostnames":["'"${RELEASE}"'-server"]}],"containers":[{"name":"'"$FLEET_POD"'","image":"docker.io/library/alpine:3.21.9","command":["sleep","2700"],"resources":{"requests":{"cpu":"25m","memory":"128Mi"},"limits":{"cpu":"400m","memory":"384Mi"}}}]}}' \
             --command -- sleep 2700
           deploy/scripts/wait-for-pod-ready.sh "$FLEET_POD" 120
           kubectl_retry -n "$NAMESPACE" cp /tmp/loadtest "$FLEET_POD:/tmp/loadtest"

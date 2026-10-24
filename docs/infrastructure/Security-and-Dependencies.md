@@ -3,6 +3,7 @@
 - [Scanning](#scanning)
   - [CodeQL](#codeql)
   - [Vulnerability scanners](#vulnerability-scanners)
+  - [Dependency fixes](#dependency-fixes)
   - [Secrets](#secrets)
   - [Dependabot](#dependabot)
 - [Pen-test gate](#pen-test-gate)
@@ -38,6 +39,7 @@ Three layers of automated security analysis run on every CI trigger:
 │  Go               │  govulncheck     │  Daily updates   │
 │  TypeScript       │  cargo audit     │  Auto-merge      │
 │  Rust             │  npm audit       │  after CI pass   │
+│                   │  dependency fixes│                  │
 │                   │                  │                  │
 │  security-and-    │  Known CVE       │  Go, Cargo,      │
 │  quality queries  │  databases       │  npm, Actions    │
@@ -63,10 +65,44 @@ Static analysis for Go, TypeScript, and Rust with `security-and-quality` queries
   and in the gauntlet. It fails on any high or critical advisory except one
   named in
   [`npm-audit-exceptions.json`](../../scripts/lib/npm-audit-exceptions.json),
-  which holds only advisories with no fixed release. An exception carries a
+  which holds only advisories no patch release fixes. An exception carries a
   reason and a review date, and fails the audit once that date passes, once
   its package publishes another release, or once the audit stops reporting it
   ([ADR-126](../adr/ADR-126-advisory-exceptions-lapse.md)).
+
+### Dependency fixes
+
+[`scripts/dependency-fixes`](../../scripts/dependency-fixes/) reads every
+dependency the repository declares and refuses a commit while an advisory, of
+any severity, has a fix in a patch release of the line in use
+([ADR-126](../adr/ADR-126-advisory-exceptions-lapse.md)). It is the precommit
+gauntlet's first check after the prerequisites, and a step of CI's
+`security-audit` job.
+
+| Kind | Read from | Answered by |
+|---|---|---|
+| npm packages | each lockfile, through `npm audit` | the GitHub advisory database |
+| Go modules and the standard library | [`go.mod`](../../server/go.mod), through [`govulncheck-scan.sh`](../../scripts/govulncheck-scan.sh) | the Go vulnerability database |
+| Rust crates | every Cargo workspace, the fuzz targets' included, through `cargo audit` | RustSec |
+| Pinned tools, and what each is built from | each row of [`tool-versions.sh`](../../scripts/lib/tool-versions.sh) and the source it names | OSV |
+| GitHub Actions | every `uses:` | OSV |
+| Terraform and Kubernetes | the CLI pin and the line the workflows ask for, the provider lockfiles, the tflint plugins, the cluster's Kubernetes version | OSV; a Kubernetes fix counts once OKE offers it |
+| Charts installed into the cluster | the manifest's chart rows | OSV for the program, and the images the release renders |
+| Container images | every image a tracked file names | Trivy, over a package list cached per digest |
+
+- A finding a patch fixes refuses the commit and prints the move that takes the
+  fix. One fixed only in a newer minor or major is listed for Ivan, and one no
+  release fixes passes.
+- A tool, chart or provider is judged by what it is built from as well: its own
+  newest patch release building past an affected module is the fix.
+- An image is judged against the newest patch tag of the same shape; a tag that
+  names a line, such as `17-alpine`, is read at the build it points at.
+- A declaration no reader reads fails the check, and so does a lookup that gives
+  no answer it can read. Files that only look like a declaration are listed in
+  [`scope.json`](../../scripts/dependency-fixes/scope.json).
+- The production deploy reads back every image the cluster runs and fails on
+  one the repository does not declare
+  ([`running-images-check.sh`](../../deploy/scripts/running-images-check.sh)).
 
 ### Secrets
 

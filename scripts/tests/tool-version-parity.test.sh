@@ -109,6 +109,11 @@ check_tool SONAR_SCANNER sonar-scanner '^\s*scannerVersion:'
 check_tool SONAR_SCANNER_IMAGE sonar-scanner-image 'sonar-scanner-cli:'
 # The chart deploy/scripts/ingress-controller-apply.sh installs and reads back.
 check_tool INGRESS_NGINX_CHART ingress-nginx-chart 'TOOL_VERSION_INGRESS_NGINX_CHART'
+# The chart deploy/scripts/cluster-apply.sh installs.
+check_tool CERT_MANAGER_CHART cert-manager-chart 'TOOL_VERSION_CERT_MANAGER_CHART'
+# Both agent builds install cross from the one commit the manifest names.
+check_tool CROSS cross 'cross-rs/cross'
+check_tool LHCI lighthouse-ci '@lhci/cli'
 
 if [[ "$TOOL_VERSION_SONAR_SCANNER_IMAGE" == *_"${TOOL_VERSION_SONAR_SCANNER%.*}" ]]; then
   pass "the scanner image $TOOL_VERSION_SONAR_SCANNER_IMAGE bundles the pinned CLI $TOOL_VERSION_SONAR_SCANNER"
@@ -116,7 +121,7 @@ else
   fail "the scanner image $TOOL_VERSION_SONAR_SCANNER_IMAGE does not bundle the pinned CLI $TOOL_VERSION_SONAR_SCANNER"
 fi
 
-if [ "$checked_tools" -ge 28 ]; then
+if [ "$checked_tools" -ge 34 ]; then
   pass "$checked_tools manifest rows were checked against every install site"
 else
   fail "only $checked_tools manifest rows were checked — the sweep lost rows"
@@ -133,6 +138,18 @@ for installer_path in "$ROOT"/scripts/install-*.sh; do
 done
 held_keys="$(printf '%s\n' "${CHECKED_KEYS[@]}" "$installer_keys" | grep -v '^$' | sort -u)"
 unheld_keys="$(comm -23 <(printf '%s\n' "$manifest_keys") <(printf '%s\n' "$held_keys"))"
+# Every pin names where its releases come from, which scripts/dependency-fixes reads.
+source_keys="$(grep -oE '^export TOOL_SOURCE_[A-Z0-9_]+=' "$ROOT/scripts/lib/tool-versions.sh" \
+  | sed 's/^export TOOL_SOURCE_//; s/=$//' | sort -u)"
+unsourced_keys="$(comm -23 <(printf '%s\n' "$manifest_keys") <(printf '%s\n' "$source_keys"))"
+orphaned_keys="$(comm -13 <(printf '%s\n' "$manifest_keys") <(printf '%s\n' "$source_keys"))"
+if [ -z "$source_keys" ]; then
+  fail "the source sweep read no TOOL_SOURCE rows"
+elif [ -n "$unsourced_keys$orphaned_keys" ]; then
+  fail "a pin names no source, or a source names no pin: $(tr '\n' ' ' <<<"$unsourced_keys$orphaned_keys")"
+else
+  pass "all $(wc -l <<<"$source_keys") manifest rows name where their releases come from"
+fi
 if [ -z "$manifest_keys" ]; then
   fail "the CI-half sweep read no manifest rows"
 elif [ -n "$unheld_keys" ]; then
@@ -251,6 +268,27 @@ while IFS= read -r line; do
   add_unpinned "action install with no version: ${line#"${line%%[![:space:]]*}"}"
 done < <(grep -E '^[[:space:]]*tool:[[:space:]]*[A-Za-z]' <<<"$install_lines" \
   | grep -vE 'tool:[[:space:]]*[^[:space:]]+@' || true)
+
+# Prints each package a global npm install names at anything but an exact release.
+npm_unpinned() {
+  local line word words
+  while IFS= read -r line; do
+    read -ra words <<<"${line#*npm }"
+    for word in "${words[@]:1}"; do
+      case "$word" in -*) continue ;; esac
+      [[ "$word" =~ @[0-9]+\.[0-9]+\.[0-9]+$ ]] || printf '%s\n' "$word"
+    done
+  done < <(grep -oE '(^|[^[:alnum:]_-])npm (install|i)( [^;&|]*)? (-g|--global)( [^;&|]*)?' || true)
+}
+if grep -qxF '@lhci/cli@0.14.x' <<<"$(npm_unpinned <<<'run: npm install -g @lhci/cli@0.14.x && lhci')"; then
+  pass "a global npm install naming a range is read as one naming no version"
+else
+  fail "the npm sweep lets a range such as 0.14.x through"
+fi
+while IFS= read -r package; do
+  [ -n "$package" ] || continue
+  add_unpinned "npm global install with no exact version: $package"
+done < <(npm_unpinned <<<"$install_lines")
 
 if [ -n "$unpinned" ]; then
   fail "something installs a tool without naming its version"

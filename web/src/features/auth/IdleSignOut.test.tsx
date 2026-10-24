@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IdleSignOut } from './IdleSignOut';
@@ -82,6 +82,6 @@ describe('IdleSignOut', () => {
     await user.click(screen.getByRole('button', { name: 'Stay signed in' }));
 
     expect(mockGet).toHaveBeenCalledWith('/api/v1/auth/session');
-    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
   });
 });

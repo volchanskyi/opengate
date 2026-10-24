@@ -120,7 +120,7 @@ The CI workflow jobs are grouped by concern:
 | **Config** | `config-lint` | the shell behavioural tests, including the [comment sweep](../../scripts/tests/check-comments.test.sh), actionlint, yamllint, `terraform fmt/validate`, tflint, `terraform test` (module invariants), output-sensitivity grep, gitleaks (L2), Hadolint Dockerfile policy (L4), Checkov (L4: terraform + dockerfile + github_actions, baseline at `.checkov.baseline`), Conftest+Rego custom policies (L5: compose images, action SHA-pinning), `docker compose config`, `caddy fmt/validate`, Trivy IaC scan, cross-config integration tests |
 | **IaC gate** | `iac-gate` | Runs `terraform plan` on every commit / PR that touches `deploy/terraform/**`. Posts a sticky PR comment on PRs and writes the plan summary to the GitHub Job Summary on direct pushes. Blocks merge if a destroy targets a protected resource type. Bypass: `iac:approve-destroy` label on PR only — no bypass for direct pushes to `dev`. Wired into `merge-to-main.needs`. See [Infrastructure.md → IaC plan + destroy-blocklist gate](OCI-Terraform.md#plan-and-destroy-gate). |
 | **Golden** | `golden` | Cross-language wire format verification (needs `rust-test` artifact) |
-| **Security** | `security-audit` | govulncheck, cargo audit, npm audit |
+| **Security** | `security-audit` | govulncheck, cargo audit, npm audit, and the [dependency check](Security-and-Dependencies.md#dependency-fixes), which keeps its image package lists in a cache it reads back |
 | **CodeQL** | `codeql-go`, `codeql-js`, `codeql-rust` | GitHub Code Scanning with `security-and-quality` queries |
 | **SonarCloud** | `sonarcloud` | Static analysis + coverage aggregation via SonarSource scan action |
 | **E2E** | `e2e` | Playwright end-to-end + Lighthouse CI audits via `docker-compose.test.yml` (needs `agent-binary`); the speed specs run nightly in [`e2e-performance.yml`](../../.github/workflows/e2e-performance.yml) |
@@ -170,7 +170,10 @@ can be on a tool the other is not.
 [`tool-version-parity.test.sh`](../../scripts/tests/tool-version-parity.test.sh)
 holds every workflow copy, and every shared action under
 [`.github/actions`](../../.github/actions), equal to the manifest and refuses an
-install that names no version at all. The workstation half is held the same
+install that names no version at all. Each row also names where its releases
+come from, which the
+[dependency check](Security-and-Dependencies.md#dependency-fixes) reads. The
+workstation half is held the same
 way: before any check runs, the gauntlet asks every pinned tool it runs for its
 version through [`require-tool.sh`](../../scripts/require-tool.sh) and refuses a
 drifted one with the command that installs the pin, and a pinned tool installed

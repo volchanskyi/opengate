@@ -73,7 +73,7 @@ jobs:
         with:
           # Pinned in scripts/lib/tool-versions.sh; a bare name is whatever
           # released this morning.
-          tool: cargo-nextest@0.9.129
+          tool: cargo-nextest@0.9.149
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2 — newer pin requires explicit tool input
         with:
@@ -159,7 +159,7 @@ jobs:
       - name: go-arch-lint check
         run: go-arch-lint check
       - name: Install oapi-codegen
-        run: go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.6.0
+        run: go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.7.2
       - name: Verify OpenAPI codegen is in sync
         run: |
           cd server && oapi-codegen -config oapi-codegen.yaml ../api/openapi.yaml > internal/api/openapi_gen.go
@@ -612,7 +612,7 @@ jobs:
         working-directory: web
         run: npx playwright test
       - name: Install Lighthouse CI
-        run: npm install -g @lhci/cli@0.14.x
+        run: npm install -g @lhci/cli@0.14.0
 
       - name: Run Lighthouse CI
         working-directory: web
@@ -741,7 +741,7 @@ jobs:
     env:
       PINNED_ACTIONLINT: 1.7.12
       PINNED_TFLINT: v0.64.0
-      PINNED_TRIVY: v0.70.0
+      PINNED_TRIVY: v0.72.0
     steps:
       - uses: actions/checkout@v7
         with:
@@ -761,7 +761,7 @@ jobs:
 
       - name: Install gitleaks
         env:
-          GITLEAKS_VERSION: 8.21.2
+          GITLEAKS_VERSION: 8.21.4
         run: |
           set -euo pipefail
           url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
@@ -790,7 +790,7 @@ jobs:
       # Helm renders the charts for Checkov and `make lint-k8s`; kubeconform and conftest read the output.
       - name: Install helm, kubeconform, conftest
         env:
-          HELM_VERSION: 3.16.3
+          HELM_VERSION: 3.20.2
           KUBECONFORM_VERSION: 0.6.7
           CONFTEST_VERSION: 0.55.0
         run: |
@@ -973,8 +973,10 @@ jobs:
   security-audit:
     name: Security Audit
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # A digest the cache has not seen costs a read of every layer of that image.
+    timeout-minutes: 60
     permissions:
+      actions: read
       contents: read
     steps:
       - uses: actions/checkout@v7
@@ -1000,7 +1002,7 @@ jobs:
         # `cargo audit` clones the advisory database on each run, the step that fails transiently.
         run: |
           set -e
-          cargo install --locked cargo-audit@0.22.1
+          cargo install --locked cargo-audit@0.22.2
           for attempt in 1 2 3; do
             if (cd agent && cargo audit); then exit 0; fi
             echo "::warning::cargo audit attempt $attempt/3 failed; retrying in $((attempt * 15))s"
@@ -1018,6 +1020,49 @@ jobs:
           for dir in web tools/mermaid-validate; do
             scripts/npm-audit.sh "$dir"
           done
+      - name: Install what the dependency check reads
+        # Each Python tool is read from the environment its own install makes.
+        run: |
+          set -euo pipefail
+          scripts/install-release-tools.sh helm trivy
+          bash scripts/install-semgrep.sh
+          pipx install checkov==3.3.16
+          pip install --user yamllint==1.38.0
+          pip install --user oci-cli==3.94.1
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      # The newest entry under the prefix holds every image digest an earlier run read.
+      - name: Restore the image package lists
+        id: package-lists
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.cache/opengate/dependency-fixes
+          key: dependency-fixes-${{ github.run_id }}
+          restore-keys: dependency-fixes-
+      - name: Dependency fixes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/dependency-fixes
+      # Package lists are named by digest, so the set of names is the cache's identity.
+      - name: Name the package lists the run holds
+        id: package-key
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.cache/opengate/dependency-fixes/sbom
+          names="$(find ~/.cache/opengate/dependency-fixes/sbom -type f -printf '%f\n' | sort)"
+          echo "key=dependency-fixes-$(sha256sum <<<"$names" | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      - name: Save the image package lists
+        if: ${{ !cancelled() && steps.package-key.outputs.key != steps.package-lists.outputs.cache-matched-key }}
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.cache/opengate/dependency-fixes
+          key: ${{ steps.package-key.outputs.key }}
+      - name: Read the image package lists back
+        if: ${{ !cancelled() && steps.package-key.outputs.key != steps.package-lists.outputs.cache-matched-key }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: scripts/assert-cache-written.sh "${{ steps.package-key.outputs.key }}"
 
   pentest-review:
     name: Pen-Test Gate
@@ -1177,26 +1222,29 @@ jobs:
 
       - name: Detect terraform changes
         id: changes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
-          # The baseline is the PR base, or github.event.before (all zeros on a new branch: HEAD~1).
+          # The baseline is the PR base, or the push's before (all zeros on a new branch: HEAD~1).
           # Any other event has no baseline and runs the gate.
-          case "${{ github.event_name }}" in
+          case "$EVENT_NAME" in
             pull_request)
-              BASE_SHA="${{ github.event.pull_request.base.sha }}"
+              BASE_SHA="$PR_BASE_SHA"
               ;;
             push)
-              BEFORE="${{ github.event.before }}"
-              if [[ "$BEFORE" =~ ^0+$ ]]; then BASE_SHA="HEAD~1"; else BASE_SHA="$BEFORE"; fi
+              if [[ "$PUSH_BEFORE" =~ ^0+$ ]]; then BASE_SHA="HEAD~1"; else BASE_SHA="$PUSH_BEFORE"; fi
               ;;
             *)
-              echo "no baseline for event=${{ github.event_name }}; running the gate"
+              echo "no baseline for event=$EVENT_NAME; running the gate"
               echo "terraform=true" >> "$GITHUB_OUTPUT"
               exit 0
               ;;
           esac
-          if git diff --name-only "$BASE_SHA" HEAD 2>/dev/null | \
-               grep -qE '^deploy/terraform/|^deploy/scripts/parse-tfplan\.sh$'; then
+          changed="$(git diff --name-only "$BASE_SHA" HEAD 2>/dev/null || true)"
+          if grep -qE '^deploy/terraform/|^deploy/scripts/parse-tfplan\.sh$' <<<"$changed"; then
             echo "terraform changes detected; running the gate"
             echo "terraform=true" >> "$GITHUB_OUTPUT"
           else

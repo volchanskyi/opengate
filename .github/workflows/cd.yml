@@ -48,12 +48,21 @@ jobs:
 
       - name: Determine tag
         id: tag
+        # The dispatched tag and the head commit reach the script as variables, never as its text.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCHED_TAG: ${{ inputs.image_tag }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            TAG="${{ inputs.image_tag }}"
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            TAG="$DISPATCHED_TAG"
           else
-            SHA="${{ github.event.workflow_run.head_sha }}"
-            TAG="sha-${SHA:0:7}"
+            TAG="sha-${HEAD_SHA:0:7}"
+          fi
+          if [[ ! "$TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+            echo "::error::'$TAG' is not an image tag." >&2
+            exit 1
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Resolved image tag: $TAG"
@@ -182,6 +191,8 @@ jobs:
           elif ! git diff --quiet "$PRIOR_SHA" "$GIT_SHA" -- "${paths[@]}"; then
             changed="$(git diff --name-only "$PRIOR_SHA" "$GIT_SHA" -- "${paths[@]}" | paste -sd, -)"
             reason="changed since ${PRIOR_SHA:0:7}: ${changed//,/, }"
+          elif rows="$(cluster_rows_changed "$PRIOR_SHA" "$GIT_SHA")"; then
+            reason="changed since ${PRIOR_SHA:0:7}: $(paste -sd, - <<<"$rows" | sed 's/,/, /g')"
           fi
           if [[ -n "$reason" ]]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
@@ -633,6 +644,8 @@ jobs:
             | kubectl -n "$NAMESPACE" exec -i "statefulset/${RELEASE}-postgres" -- \
                 psql -U opengate -d opengate -v ON_ERROR_STOP=1
 
+      # One server, stopped before the next starts: a release whose server is not ready within the
+      # wait is rolled back to the one before, and the step still fails.
       - name: Helm upgrade
         env:
           DOMAIN: ${{ secrets.DEPLOY_DOMAIN }}
@@ -643,7 +656,7 @@ jobs:
             --set server.replicas=1 \
             --set domain="$DOMAIN" \
             --set certManager.create=false \
-            --wait --timeout 5m
+            --atomic --wait --timeout 5m
           kubectl -n "$NAMESPACE" rollout status "deploy/${RELEASE}-server" --timeout=300s
 
       - name: Read back what this login may do
@@ -671,6 +684,10 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
           MONITORING_NAMESPACE: monitoring
         run: deploy/scripts/monitoring-config-apply.sh
+
+      # The dependency check reads what the repository declares, so nothing else may run.
+      - name: Read back every image the cluster runs
+        run: deploy/scripts/running-images-check.sh
 
       - name: Port-forward + smoke test
         run: |

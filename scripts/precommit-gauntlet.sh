@@ -192,6 +192,25 @@ fi
 
 echo "✓ all prerequisites present" >&2
 
+banner "Dependency fixes"
+# A hole a patch release fixes ends the run here, before any slower check spends time on it.
+dependency_start="$(date +%s)"
+dependency_report="$(mktemp)"
+running "dependency fixes"
+dependency_rc=0
+python3 scripts/dependency-fixes >"$dependency_report" 2>&1 || dependency_rc=$?
+if [ "$dependency_rc" -ne 0 ]; then
+  fail "dependency fixes" "$(($(date +%s) - dependency_start))"
+  # The newer-line list is printed as its count; the full report keeps every entry.
+  awk '/^dependency-fixes: .*newer minor or major/ { print; skip = 1; next }
+    /^dependency-fixes:/ { skip = 0 } !skip' "$dependency_report" >&2
+  printf '  (full report: %s, exit code: %s)\n' "$dependency_report" "$dependency_rc" >&2
+  exit 1
+fi
+ok "dependency fixes" "$(($(date +%s) - dependency_start))"
+grep '^dependency-fixes:' "$dependency_report" >&2 || true
+rm -f "$dependency_report"
+
 banner "Lints"
 run_check "rust fmt" -- bash -c 'cd agent && cargo fmt --all -- --check'
 run_check "rust clippy" -- bash -c 'cd agent && cargo clippy --workspace -- -D warnings'

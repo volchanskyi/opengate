@@ -35,9 +35,18 @@ command -v python3 >/dev/null 2>&1 \
 
 WORK="$(mktemp -d)"
 STUB_PID=""
+STUB_PORT=""
+# stop_stub stops the running stub, if any, and waits for its port to close.
+stop_stub() {
+  if [ -n "$STUB_PID" ]; then
+    kill "$STUB_PID" 2>/dev/null || true
+    wait "$STUB_PID" 2>/dev/null || true
+  fi
+  STUB_PID=""
+}
 # shellcheck disable=SC2329 # invoked by the EXIT trap below
 cleanup() {
-  [ -n "$STUB_PID" ] && kill "$STUB_PID" 2>/dev/null
+  stop_stub
   rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -98,19 +107,20 @@ with open(PORT_FILE, "w", encoding="utf-8") as fh:
 server.serve_forever()
 PYEOF
 
+# start_stub MODE stops the running stub and starts one in MODE, setting STUB_PID and STUB_PORT.
+# Called as a plain command in this shell, so the PID it sets is the one the next start stops.
 start_stub() {
   local mode="$1"
-  [ -n "$STUB_PID" ] && kill "$STUB_PID" 2>/dev/null || true
+  stop_stub
   rm -f "$WORK/port" "$WORK/sent.json"
-  # The stub's stdout is detached so the enclosing command substitution can return.
   python3 "$WORK/telegram.py" "$mode" "$WORK/port" "$WORK/sent.json" >/dev/null 2>>"$WORK/stub.err" &
   STUB_PID=$!
   local _
   for _ in $(seq 1 100); do
-    [ -s "$WORK/port" ] && {
-      cat "$WORK/port"
+    if [ -s "$WORK/port" ]; then
+      STUB_PORT="$(cat "$WORK/port")"
       return 0
-    }
+    fi
     sleep 0.1
   done
   echo "stub Telegram never reported a port" >&2
@@ -145,7 +155,8 @@ sent_field() {
 
 echo "telegram alert delivery:"
 
-PORT="$(start_stub accept)"
+start_stub accept
+PORT="$STUB_PORT"
 OUT="$WORK/accept.out"
 if run_alert "$OUT" "$PORT" "Load-test regression on dev"; then
   pass "an accepted message reports success"
@@ -163,7 +174,8 @@ else
   fail "the message body is what the caller asked to send (got [$(sent_field text)])"
 fi
 
-PORT="$(start_stub bad-token)"
+start_stub bad-token
+PORT="$STUB_PORT"
 OUT="$WORK/bad-token.out"
 if run_alert "$OUT" "$PORT" "anything"; then
   fail "a refused bot token fails the send"
@@ -176,7 +188,8 @@ else
   fail "and says so as an annotation (out=[$(cat "$OUT")])"
 fi
 
-PORT="$(start_stub bad-chat)"
+start_stub bad-chat
+PORT="$STUB_PORT"
 OUT="$WORK/bad-chat.out"
 if run_alert "$OUT" "$PORT" "anything"; then
   fail "a refused chat fails the send"
@@ -184,7 +197,8 @@ else
   pass "a refused chat fails the send"
 fi
 
-PORT="$(start_stub ok-false)"
+start_stub ok-false
+PORT="$STUB_PORT"
 OUT="$WORK/ok-false.out"
 if run_alert "$OUT" "$PORT" "anything"; then
   fail "a 200 carrying ok:false fails the send"
@@ -200,7 +214,8 @@ else
   pass "a send that reaches nothing fails"
 fi
 
-PORT="$(start_stub accept)"
+start_stub accept
+PORT="$STUB_PORT"
 OUT="$WORK/no-token.out"
 if TELEGRAM_API_BASE="http://127.0.0.1:${PORT}" \
   TELEGRAM_BOT_TOKEN="" \
@@ -227,7 +242,8 @@ else
   pass "an empty message is refused rather than delivered"
 fi
 
-PORT="$(start_stub accept)"
+start_stub accept
+PORT="$STUB_PORT"
 OUT="$WORK/long.out"
 LONG="$(python3 -c 'print("drift " * 2000, end="")')"
 if run_alert "$OUT" "$PORT" "$LONG"; then
@@ -240,6 +256,13 @@ if [ "$SENT_LEN" -gt 0 ] && [ "$SENT_LEN" -le 4096 ]; then
   pass "and arrives inside Telegram's 4096-character ceiling (len=$SENT_LEN)"
 else
   fail "and arrives inside Telegram's 4096-character ceiling (len=$SENT_LEN)"
+fi
+
+stop_stub
+if pgrep -f "$WORK/telegram.py" >/dev/null; then
+  fail "a stub Telegram this run started still holds its port: [$(pgrep -af "$WORK/telegram.py" || true)]"
+else
+  pass "every stub Telegram this run started is stopped"
 fi
 
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"

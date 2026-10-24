@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The smoke run drives a stub edge that answers soundly, one that serves the exposition,
-# and one that does not answer; the boundary checks pass only on the first.
+# Drives the smoke run against a sound stub edge, one serving the exposition and a silent one;
+# only the first passes, and its console sign-in only with an HttpOnly cookie and CSRF refusal.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,9 +30,18 @@ command -v python3 >/dev/null 2>&1 \
 
 WORK="$(mktemp -d)"
 STUB_PID=""
+STUB_PORT=""
+# stop_stub stops the running stub, if any, and waits for its port to close.
+stop_stub() {
+  if [ -n "$STUB_PID" ]; then
+    kill "$STUB_PID" 2>/dev/null || true
+    wait "$STUB_PID" 2>/dev/null || true
+  fi
+  STUB_PID=""
+}
 # shellcheck disable=SC2329 # invoked by the EXIT trap below
 cleanup() {
-  [ -n "$STUB_PID" ] && kill "$STUB_PID" 2>/dev/null
+  stop_stub
   rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -75,14 +84,22 @@ EXPOSITION_LARGE = EXPOSITION + (
 PROFILER = b"<html><body>Types of profiles available:<br>heap<br>goroutine</body></html>\n"
 
 
+SESSION = {"live": False}
+
+
 class Edge(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+
+    def _signed_in(self):
+        return SESSION["live"] and "og_session=stub-session" in (self.headers.get("Cookie") or "")
 
     def log_message(self, *args):
         pass
 
-    def _send(self, status, body, ctype="text/html; charset=utf-8"):
+    def _send(self, status, body, ctype="text/html; charset=utf-8", cookie=None):
         self.send_response(status)
+        if cookie:
+            self.send_header("Set-Cookie", cookie)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
@@ -92,6 +109,11 @@ class Edge(BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         if path == "/api/v1/health":
             self._send(200, b'{"status":"ok"}', "application/json")
+        elif path == "/api/v1/auth/session":
+            if self._signed_in():
+                self._send(200, b'{"csrf_token":"stub-csrf"}', "application/json")
+            else:
+                self._send(401, b'{"error":"missing authorization"}', "application/json")
         elif path == "/api/v1/sites":
             self._send(200, b"[]", "application/json")
         elif path == "/vite.svg":
@@ -119,10 +141,26 @@ class Edge(BaseHTTPRequestHandler):
     def do_POST(self):
         length = int(self.headers.get("Content-Length") or 0)
         self.rfile.read(length)
-        if self.path.split("?", 1)[0] == "/api/v1/auth/register":
-            self._send(201, b'{"token":"stub-jwt-value"}', "application/json")
+        path = self.path.split("?", 1)[0]
+        if path == "/api/v1/auth/register":
+            self._send(201, b'{"token":"stub-bearer-value"}', "application/json")
+        elif path == "/api/v1/auth/session":
+            SESSION["live"] = True
+            flags = "Path=/; SameSite=Strict" if MODE == "readable-cookie" else "Path=/; HttpOnly; SameSite=Strict"
+            self._send(200, b'{"csrf_token":"stub-csrf"}', "application/json", f"og_session=stub-session; {flags}")
         else:
             self._send(200, SPA)
+
+    def do_DELETE(self):
+        if self.path.split("?", 1)[0] != "/api/v1/auth/session":
+            self._send(200, SPA)
+        elif not self._signed_in():
+            self._send(401, b'{"error":"missing authorization"}', "application/json")
+        elif self.headers.get("X-CSRF-Token") != "stub-csrf" and MODE != "no-csrf":
+            self._send(403, b'{"error":"missing or wrong X-CSRF-Token"}', "application/json")
+        else:
+            SESSION["live"] = False
+            self._send(204, b"", "application/json", "og_session=; Path=/; Max-Age=0; HttpOnly")
 
 
 server = ThreadingHTTPServer(("127.0.0.1", 0), Edge)
@@ -131,18 +169,19 @@ with open(PORT_FILE, "w", encoding="utf-8") as fh:
 server.serve_forever()
 PYEOF
 
+# start_stub MODE stops the running stub and starts one in MODE, setting STUB_PID and STUB_PORT.
+# Called as a plain command in this shell, so the PID it sets is the one the next start stops.
 start_stub() {
   local mode="$1"
-  [ -n "$STUB_PID" ] && kill "$STUB_PID" 2>/dev/null || true
+  stop_stub
   rm -f "$WORK/port"
-  # Stdout is detached so the calling command substitution does not wait on the server.
   python3 "$WORK/edge.py" "$mode" "$WORK/port" >/dev/null 2>>"$WORK/stub.err" &
   STUB_PID=$!
   for _ in $(seq 1 100); do
-    [ -s "$WORK/port" ] && {
-      cat "$WORK/port"
+    if [ -s "$WORK/port" ]; then
+      STUB_PORT="$(cat "$WORK/port")"
       return 0
-    }
+    fi
     sleep 0.1
   done
   echo "stub edge never reported a port" >&2
@@ -180,7 +219,8 @@ summary_has() {
 
 echo "smoke test through the edge:"
 
-PORT="$(start_stub sound)"
+start_stub sound
+PORT="$STUB_PORT"
 OUT="$WORK/sound.log"
 if SMOKE_SUMMARY="$WORK/sound.md" run_smoke "$OUT" --domain edge.test --mode staging \
   --scheme http --edge-address "127.0.0.1:${PORT}"; then
@@ -205,6 +245,25 @@ else
   fail "--edge-address must reach the edge behind a name DNS cannot resolve"
 fi
 
+CONSOLE_CHECKS=(
+  "GET /api/v1/auth/session without a cookie returns 401"
+  "POST /api/v1/auth/session signs the console in with an HttpOnly cookie"
+  "GET /api/v1/auth/session answers the cookie alone with 200"
+  "DELETE /api/v1/auth/session without X-CSRF-Token is refused with 403"
+  "DELETE /api/v1/auth/session with X-CSRF-Token signs the console out"
+)
+console_passed=yes
+for console_check in "${CONSOLE_CHECKS[@]}"; do
+  check_line "$OUT" PASS "$console_check" || console_passed=no
+done
+if [ "$console_passed" = yes ] \
+  && check_line "$OUT" PASS "POST /api/v1/auth/register returns 201 and a script's bearer token" \
+  && check_line "$OUT" PASS "GET /api/v1/sites with the script's bearer token returns 200"; then
+  pass "the console signs in by cookie and out with its value, and a script by its bearer token"
+else
+  fail "a sound edge must pass every console sign-in check and both script sign-in checks (see $OUT)"
+fi
+
 if summary_has "$WORK/sound.md" "### Smoke tests: staging, through the public edge" \
   && summary_has "$WORK/sound.md" "**Result:** pass: every check passed." \
   && summary_has "$WORK/sound.md" "| GET /api/v1/health returns 200 | pass |" \
@@ -214,7 +273,8 @@ else
   fail "the job summary must name the run and list every check as pass (see $WORK/sound.md)"
 fi
 
-PORT="$(start_stub breached)"
+start_stub breached
+PORT="$STUB_PORT"
 OUT="$WORK/breached.log"
 if SMOKE_SUMMARY="$WORK/breached.md" run_smoke "$OUT" --domain edge.test --mode staging \
   --scheme http --edge-address "127.0.0.1:${PORT}"; then
@@ -223,7 +283,7 @@ else
   pass "a run through an edge that serves the exposition fails"
 fi
 
-if summary_has "$WORK/breached.md" "**Result:** FAIL: 2 of 9 checks failed." \
+if summary_has "$WORK/breached.md" "**Result:** FAIL: 2 of 14 checks failed." \
   && summary_has "$WORK/breached.md" "| GET /metrics through the ingress is not the exposition | FAIL |" \
   && summary_has "$WORK/breached.md" "| GET /api/v1/health returns 200 | pass |"; then
   pass "the job summary names the checks a failing run failed"
@@ -243,9 +303,34 @@ else
   fail "an edge serving the profiler must fail its boundary check"
 fi
 
+# A cookie a page script can read, or a change taken without the session's value, fails the run.
+
+start_stub readable-cookie
+PORT="$STUB_PORT"
+OUT="$WORK/readable-cookie.log"
+if run_smoke "$OUT" --domain edge.test --mode staging --scheme http --edge-address "127.0.0.1:${PORT}"; then
+  fail "a sign-in cookie a page script could read must fail the run"
+elif check_line "$OUT" FAIL "POST /api/v1/auth/session signs the console in with an HttpOnly cookie"; then
+  pass "a sign-in cookie a page script could read fails the console sign-in check"
+else
+  fail "a sign-in cookie without HttpOnly must be named by the sign-in check (see $OUT)"
+fi
+
+start_stub no-csrf
+PORT="$STUB_PORT"
+OUT="$WORK/no-csrf.log"
+if run_smoke "$OUT" --domain edge.test --mode staging --scheme http --edge-address "127.0.0.1:${PORT}"; then
+  fail "a server that takes a change without the session's value must fail the run"
+elif check_line "$OUT" FAIL "DELETE /api/v1/auth/session without X-CSRF-Token is refused with 403"; then
+  pass "a change taken without the session's value fails the refusal check"
+else
+  fail "a change taken without X-CSRF-Token must be named by the refusal check (see $OUT)"
+fi
+
 # The verdict holds for a large exposition, where a reader that stops at the match loses it.
 
-PORT="$(start_stub breached-large)"
+start_stub breached-large
+PORT="$STUB_PORT"
 OUT="$WORK/breached-large.log"
 if run_smoke "$OUT" --domain edge.test --mode staging \
   --scheme http --edge-address "127.0.0.1:${PORT}"; then
@@ -262,8 +347,7 @@ fi
 
 # Nothing listens, so every request comes back empty and an absence-shaped check must not pass.
 
-kill "$STUB_PID" 2>/dev/null || true
-STUB_PID=""
+stop_stub
 DEAD_PORT="$(closed_port)"
 OUT="$WORK/refused.log"
 if run_smoke "$OUT" --domain edge.test --mode staging \
@@ -293,7 +377,8 @@ fi
 
 # A domain run told nothing asks for https, which the plain-HTTP stub cannot serve.
 
-PORT="$(start_stub sound)"
+start_stub sound
+PORT="$STUB_PORT"
 OUT="$WORK/scheme.log"
 if run_smoke "$OUT" --domain edge.test --mode staging \
   --edge-address "127.0.0.1:${PORT}"; then
@@ -323,7 +408,8 @@ fi
 # Through the edge an exposition on /metrics is the breach; on the forwarded internal port it is
 # expected, so the --host run passes on responses the --domain run fails.
 
-PORT="$(start_stub breached)"
+start_stub breached
+PORT="$STUB_PORT"
 OUT="$WORK/forwarded.log"
 if run_smoke "$OUT" --host 127.0.0.1 --port "$PORT" --metrics-port "$PORT" \
   --mode local --scheme http; then
@@ -343,7 +429,8 @@ fi
 # A fresh server's exposition carries gauges and no request counters, and both runs must
 # still recognise it.
 
-PORT="$(start_stub quiet)"
+start_stub quiet
+PORT="$STUB_PORT"
 OUT="$WORK/quiet-forwarded.log"
 if run_smoke "$OUT" --host 127.0.0.1 --port "$PORT" --metrics-port "$PORT" \
   --mode local --scheme http; then
@@ -371,6 +458,13 @@ if check_line "$OUT" FAIL "GET /metrics through the ingress is not the expositio
   pass "the boundary catches an exposition with no request counter in it"
 else
   fail "the boundary must catch an exposition with no request counter in it"
+fi
+
+stop_stub
+if pgrep -f "$WORK/edge.py" >/dev/null; then
+  fail "a stub edge this run started still holds its port: [$(pgrep -af "$WORK/edge.py" || true)]"
+else
+  pass "every stub edge this run started is stopped"
 fi
 
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"
