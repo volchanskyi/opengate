@@ -116,6 +116,7 @@ jobs:
   release:
     name: Create Release
     needs: build
+    if: success()
     runs-on: ubuntu-24.04
     # Write scope sits on this job alone, so the gate and build jobs keep the read-only token.
     permissions:

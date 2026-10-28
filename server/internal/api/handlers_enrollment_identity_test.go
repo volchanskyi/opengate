@@ -54,6 +54,7 @@ func enrolWith(t *testing.T, srv *Server, adminToken, csrPEM string) (EnrollResp
 }
 
 func TestEnrollIgnoresTheRequestedSubject(t *testing.T) {
+	t.Parallel()
 	srv, cfg := newTestServerWithSigning(t)
 	_, adminToken := seedTestUser(t, srv, cfg, "admin@test.com", true)
 	existing := uuid.New()
@@ -74,6 +75,7 @@ func TestEnrollIgnoresTheRequestedSubject(t *testing.T) {
 }
 
 func TestEnrollReplyCarriesTheNumberInTheCertificate(t *testing.T) {
+	t.Parallel()
 	srv, cfg := newTestServerWithSigning(t)
 	_, adminToken := seedTestUser(t, srv, cfg, "admin@test.com", true)
 
@@ -83,6 +85,7 @@ func TestEnrollReplyCarriesTheNumberInTheCertificate(t *testing.T) {
 }
 
 func TestEnrollRecordsIssuedCertificate(t *testing.T) {
+	t.Parallel()
 	srv, cfg := newTestServerWithSigning(t)
 	_, adminToken := seedTestUser(t, srv, cfg, "admin@test.com", true)
 
@@ -124,6 +127,7 @@ func TestEnrollAssignsANumberWithNoDeviceDeletedOrLedgerRow(t *testing.T) {
 }
 
 func TestEnrollReturns500WhenLedgerWriteFails(t *testing.T) {
+	t.Parallel()
 	srv, cfg := newTestServerWithSigning(t)
 	_, adminToken := seedTestUser(t, srv, cfg, "admin@test.com", true)
 	tok := createEnrollmentTokenViaAPI(t, srv, adminToken, CreateEnrollmentTokenRequest{})

@@ -144,7 +144,7 @@ jobs:
   gate:
     name: Code-quality regression gate
     needs: [pmat-trend]
-    if: always()
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:

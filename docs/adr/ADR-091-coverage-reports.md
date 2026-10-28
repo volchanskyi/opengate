@@ -24,7 +24,13 @@ all. The rewrite is not the guard; the read-back is.
 **The list of what goes unmeasured has one shape everywhere it is written** —
 the scanner configuration, the per-language jobs, the local run, and the target
 that generates the report. A path exempt in all four is checked by nothing, and
-that had already happened.
+that had already happened. The four are
+[`sonar-project.properties`](../../sonar-project.properties)'s
+`sonar.coverage.exclusions` (the new-code gate), the per-language 80% jobs in
+[`ci.yml`](../../.github/workflows/ci.yml), the same checks in
+[`precommit-gauntlet.sh`](../../scripts/precommit-gauntlet.sh), and the
+[`Makefile`](../../Makefile)'s `sonar-coverage` target, which writes the report
+the gate reads.
 
 **Exclusions are re-earned, not inherited.** Four carve-outs were deleted rather
 than moved, because the code had gained a harness since.

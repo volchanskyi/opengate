@@ -170,7 +170,7 @@ can be on a tool the other is not.
 [`tool-version-parity.test.sh`](../../scripts/tests/tool-version-parity.test.sh)
 holds every workflow copy, and every shared action under
 [`.github/actions`](../../.github/actions), equal to the manifest and refuses an
-install that names no version at all. Each row also names where its releases
+install that names no version at all, and a `cargo install` without `--locked`. Each row also names where its releases
 come from, which the
 [dependency check](Security-and-Dependencies.md#dependency-fixes) reads. The
 workstation half is held the same
@@ -218,6 +218,11 @@ All three shade red → green across the `minColorRange` / `maxColorRange` span 
 on the badge steps in [`ci.yml`](../../.github/workflows/ci.yml).
 
 Each CI job posts a native Markdown summary (pass/fail counts, failed test names) to the GitHub Actions job summary tab for quick triage without digging into logs.
+The Go unit and integration jobs also write each failure into the job log, with its output, as an
+error annotation and a collapsed group
+([`go-test-failures.sh`](../../scripts/go-test-failures.sh)): a failed test, a package that did
+not build, and a package that failed with no test failing, such as one past its time limit, named
+with the tests still running when it stopped.
 
 ## Docker Hub pulls
 
@@ -439,7 +444,9 @@ audit trail.
 
 The publish job reports only whether the trend was published; the gate job
 carries the regression verdict, so a red run says which of the two went wrong. The
-benchmark and mutation trend workflows are split the same way. No scheduled job
+benchmark and mutation trend workflows are split the same way. Both jobs run after
+a failed night and stop on a cancel, and the alert job, which outlives a cancel,
+names it ([ADR-129](../adr/ADR-129-workflow-verdicts-and-inputs.md)). No scheduled job
 names a GitHub environment: an environment with no person to approve it can hold a
 job waiting with no limit, so only `staging` and `production`, which a person
 approves, are named

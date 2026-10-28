@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Enforces the three-tree split of docs/: product, architecture, infrastructure.
-# README.md, Home.md and Architecture-Decision-Records.md are exempt from rule 1.
+# README.md and Home.md are exempt from rule 1.
 
 set -euo pipefail
 
@@ -32,7 +32,6 @@ chapters() {
     -not -path "$REPO_ROOT/docs/api/*" \
     -not -path "$REPO_ROOT/docs/README.md" \
     -not -path "$REPO_ROOT/docs/Home.md" \
-    -not -path "$REPO_ROOT/docs/Architecture-Decision-Records.md" \
     | sed "s|^$REPO_ROOT/||" | sort
 }
 

@@ -46,7 +46,8 @@ commit, and nothing in the repository could change its answer.
   tag that drops a platform is never the fix: the cluster's node is arm64, and
   a move to a tag pushed for amd64 alone stops the pod at its first start.
 - A declaration no reader reads fails the check, and so does a lookup that gives
-  no answer it can read. The production deploy reads back every image the
+  no answer it can read. Files that only look like a declaration are listed, each
+  with its reason, in [`scope.json`](../../scripts/dependency-fixes/scope.json). The production deploy reads back every image the
   cluster runs and fails on one the repository does not declare
   ([`running-images-check.sh`](../../deploy/scripts/running-images-check.sh)).
 - An image's package list is read once per digest and cached, so a run judges

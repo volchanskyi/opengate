@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -101,6 +102,7 @@ func accountToken(t *testing.T, cfg *auth.JWTConfig) string {
 }
 
 func TestAPIRequestsAreCountedUnderTheAccountThatMadeThem(t *testing.T) {
+	t.Parallel()
 	srv, cfg := newTestServer(t)
 	forger := &auth.JWTConfig{Secret: "another-secret-key-of-32-bytes-or-more", Issuer: cfg.Issuer, Duration: time.Hour}
 	const tooMany = http.StatusTooManyRequests
@@ -117,10 +119,18 @@ func TestAPIRequestsAreCountedUnderTheAccountThatMadeThem(t *testing.T) {
 
 	t.Run("forty technicians signed in to the console from one office share no allowance", func(t *testing.T) {
 		const office = "203.0.113.50:41000"
-		senders := make([]func() int, 0, 40)
-		for range 40 {
-			user, _ := seedTestUser(t, srv, cfg, "office-"+uuid.NewString()[:8]+"@northwind.test", false)
-			c, _ := signIn(t, srv, user.Email)
+		consoles := make([]console, 40)
+		t.Run("sign in", func(t *testing.T) {
+			for i := range consoles {
+				t.Run(strconv.Itoa(i), func(t *testing.T) {
+					t.Parallel()
+					user, _ := seedTestUser(t, srv, cfg, "office-"+uuid.NewString()[:8]+"@northwind.test", false)
+					consoles[i], _ = signIn(t, srv, user.Email)
+				})
+			}
+		})
+		senders := make([]func() int, 0, len(consoles))
+		for _, c := range consoles {
 			senders = append(senders, func() int { return consoleHealthAs(c, office) })
 		}
 		assert.Zero(t, refusalsAtOnce(senders, 6), "240 requests from forty console sessions share no allowance")

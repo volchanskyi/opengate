@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Runs every mandatory precommit check in order and records the content it passed on success.
-# The commit guard invokes it, and it runs by hand to check without committing.
+# Runs every mandatory precommit check in order; the commit guard invokes it on every commit.
 #
 # Environment:
 #   POSTGRES_TEST_URL  (required) the Postgres the Go database tests use
@@ -27,10 +26,6 @@ fi
 # The guard gives every docker step a config whose broken credential helper is removed.
 DOCKER_CONFIG="$(./scripts/docker-credstore-guard.sh)"
 export DOCKER_CONFIG
-
-# shellcheck source=../.claude/hooks/lib/tidy-up.sh
-source "$PROJECT_ROOT/.claude/hooks/lib/tidy-up.sh"
-TIDY_START="$(tidy_fingerprint || true)"
 
 START_EPOCH="$(date +%s)"
 FAIL_COUNT=0
@@ -341,11 +336,6 @@ if [ "$FAIL_COUNT" -eq 0 ]; then
   color "1;32"
   printf 'ALL CHECKS PASSED in %ds\n' "$ELAPSED" >&2
   color "0"
-  if tidy_gauntlet_passed "$TIDY_START"; then
-    echo "Pass recorded for this content; /refactor may begin on it." >&2
-  else
-    echo "No pass recorded: the work tree changed while the checks ran, so what passed is not what is on disk. Run the gauntlet again before /refactor." >&2
-  fi
   exit 0
 fi
 

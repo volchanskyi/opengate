@@ -392,7 +392,7 @@ monitoring release, and the nightly
 again — so the configuration the cluster evaluates is compared against the one
 this repository declares at every deploy and every night. The apply is not what
 makes that true; the read-back is, for the reason
-[`ci-cd-determinism.md`](../../.claude/rules/ci-cd-determinism.md) gives.
+[ADR-123](../adr/ADR-123-alert-delivery.md) gives.
 
 The read-back asks the running programs, not their ConfigMaps
 ([`monitoring-readback.py`](../../deploy/scripts/monitoring-readback.py)):

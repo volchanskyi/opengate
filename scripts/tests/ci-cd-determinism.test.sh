@@ -5,8 +5,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-WORKFLOWS="$REPO_ROOT/.github/workflows"
-RULE="$REPO_ROOT/.claude/rules/ci-cd-determinism.md"
 GUARD="scripts/assert-cache-written.sh"
 
 PASS=0
@@ -14,349 +12,418 @@ FAIL=0
 FAILURES=()
 pass() {
   PASS=$((PASS + 1))
-  printf '  ok   %s\n' "$1"
+  printf '  ok   [%s] %s\n' "$1" "$2"
 }
 fail() {
   FAIL=$((FAIL + 1))
-  FAILURES+=("$1")
-  printf '  FAIL %s\n' "$1" >&2
+  FAILURES+=("[$1] $2")
+  printf '  FAIL [%s] %s\n' "$1" "$2" >&2
+}
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+
+# Reads every workflow once and prints read<TAB>sweep<TAB>N and finding<TAB>sweep<TAB>text.
+# The files after the root are the nightly scripts and workflows whose cluster calls it reads.
+cat >"$WORK/sweeps.py" <<'PY'
+import os
+import re
+import sys
+
+import yaml
+
+ROOT = sys.argv[1]
+RETRY_SCOPE = sys.argv[2:]
+GUARD = "scripts/assert-cache-written.sh"
+SENDER = "scripts/telegram-alert.sh"
+TARGETS = ("x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl")
+CACHES = (r"actions/cache", r"Swatinem/rust-cache", r"cache-to:", r"^[ \t]*cache:[ \t]")
+STATUS = re.compile(r"\b(always|success|failure|cancelled)\(\)")
+ALWAYS = re.compile(r"\balways\(\)")
+CLEAN_UP = ("Clean up", "Remove", "Release", "Tear")
+TAKE = re.compile(r"scripts/staging-lease\.sh\s+acquire\b")
+CHECK = re.compile(r"scripts/staging-version-check\.sh\b")
+CAPTURE = re.compile(r"^[ \t]*[A-Za-z_][A-Za-z0-9_]*=\$\?[ \t]*$")
+INLINE_CAPTURE = re.compile(r"\|\|[ \t]*[A-Za-z_][A-Za-z0-9_]*=\$\?")
+PRINTS = re.compile(r"^(cat|echo|printf|tee|true|:)([ \t]|$)")
+CLUSTER_CALL = re.compile(r"kubectl[^|&;]*(exec|cp)[ \t]")
+
+
+def report(sweep, text):
+    print(f"finding\t{sweep}\t{text}")
+
+
+def reached(sweep, count):
+    print(f"read\t{sweep}\t{count}")
+
+
+def read(rel):
+    path = os.path.join(ROOT, rel)
+    return open(path, encoding="utf-8").read() if os.path.isfile(path) else None
+
+
+NAMES = sorted(f for f in os.listdir(os.path.join(ROOT, ".github/workflows")) if f.endswith(".yml"))
+TEXT = {name: read(f".github/workflows/{name}") for name in NAMES}
+DOCS = {name: yaml.safe_load(TEXT[name]) or {} for name in NAMES}
+
+
+def jobs_of(name):
+    return {job: body for job, body in (DOCS[name].get("jobs") or {}).items() if isinstance(body, dict)}
+
+
+def steps_of(job):
+    return [step for step in job.get("steps") or [] if isinstance(step, dict)]
+
+
+def needs_of(job):
+    needs = job.get("needs") or []
+    return [needs] if isinstance(needs, str) else list(needs)
+
+
+def caches():
+    text = TEXT.get("cd.yml")
+    for shape in CACHES if text is not None else ():
+        if re.search(shape, text, re.M):
+            report("cache-undeclared", f"cd.yml declares a cache ({shape})")
+    reached("cache-undeclared", 1 if text is not None else 0)
+    saves = [name for name in NAMES if "actions/cache/save@" in TEXT[name]]
+    for name in saves:
+        if GUARD not in TEXT[name]:
+            report("cache-read-back", f"{name} writes a cache entry and never reads it back")
+    image = TEXT.get("build-image.yml") or ""
+    for needed in (GUARD,) + TARGETS:
+        if needed not in image:
+            report("cache-read-back", f"build-image.yml never reads back the agent build's cache for {needed}")
+    reached("cache-read-back", len(saves) + (1 if image else 0))
+
+
+def mutation_reports():
+    uploads = 0
+    for job, body in jobs_of("mutation.yml").items() if "mutation.yml" in DOCS else ():
+        for step in steps_of(body):
+            if not str(step.get("uses", "")).startswith("actions/upload-artifact@"):
+                continue
+            uploads += 1
+            if (step.get("with") or {}).get("if-no-files-found") != "error":
+                report("mutation-report", f"mutation.yml {job}: '{step.get('name')}' passes an empty file set")
+    reached("mutation-report", uploads)
+
+
+def status_reads():
+    blocks = 0
+    for name in NAMES:
+        for job, body in jobs_of(name).items():
+            for step in steps_of(body):
+                run = step.get("run")
+                if not isinstance(run, str):
+                    continue
+                where = f"{name} {job}: '{step.get('name') or step.get('id') or run.splitlines()[0]}'"
+                guarded, captures, prev = False, 0, ""
+                for line in run.split("\n"):
+                    if not line.strip() or line.lstrip().startswith("#"):
+                        continue
+                    guarded = guarded or bool(re.search(r"set[ \t]+\+e", line))
+                    if INLINE_CAPTURE.search(line):
+                        prev = line.strip()
+                        continue
+                    if CAPTURE.match(line):
+                        captures += 1
+                        if not guarded:
+                            report("errexit-status", f"{where} reads $? under errexit")
+                        if PRINTS.match(prev):
+                            report("errexit-status", f"{where} reads the status of a print")
+                    prev = line.strip()
+                blocks += 1 if captures else 0
+    reached("errexit-status", blocks)
+
+
+def environments():
+    named = 0
+    for name in NAMES:
+        for job, body in jobs_of(name).items():
+            if "environment" not in body:
+                continue
+            named += 1
+            environment = body["environment"]
+            if isinstance(environment, dict):
+                environment = environment.get("name", "")
+            if environment not in ("staging", "production"):
+                report("approved-environment", f"{name}:{job} names {environment}")
+    reached("approved-environment", named)
+
+
+def staging_slot():
+    takers = 0
+    for name in NAMES:
+        for job, body in jobs_of(name).items() if name != "cd.yml" else ():
+            steps = steps_of(body)
+            takes = [i for i, s in enumerate(steps) if TAKE.search(str(s.get("run", "")))]
+            if not takes:
+                continue
+            takers += 1
+            where = f"{name}:{job}"
+            after = steps[takes[0] + 1] if takes[0] + 1 < len(steps) else {}
+            if not CHECK.search(str(after.get("run", ""))):
+                report("staging-build", f"{where}: the step after taking the slot does not check staging's build")
+            elif not str((after.get("env") or {}).get("UNDER_TEST", "")).strip():
+                report("staging-build", f"{where}: the check names no commit under test")
+            elif not after.get("id"):
+                report("staging-build", f"{where}: the check has no id, so its reason cannot reach the alert")
+            elif f"steps.{after['id']}.outputs.not_started" not in str(body.get("outputs") or {}):
+                report("staging-build", f"{where}: the job does not hand the check's reason to its outputs")
+            checkouts = [s for s in steps if str(s.get("uses", "")).startswith("actions/checkout@")]
+            if not any(str((c.get("with") or {}).get("fetch-depth", "")) == "0" for c in checkouts):
+                report("staging-build", f"{where}: its checkout is shallow, so staging's commit cannot be read")
+    reached("staging-build", takers)
+
+
+def ancestors(jobs, job, seen=None):
+    seen = set() if seen is None else seen
+    for parent in needs_of(jobs.get(job, {})):
+        if parent not in seen:
+            seen.add(parent)
+            ancestors(jobs, parent, seen)
+    return seen
+
+
+def job_status():
+    below = outliving = 0
+    for name in NAMES:
+        jobs = jobs_of(name)
+        for job, body in jobs.items():
+            condition = str(body.get("if", "") or "")
+            skippable = sorted(a for a in ancestors(jobs, job) if "if" in jobs.get(a, {}))
+            if skippable:
+                below += 1
+                if not STATUS.search(condition):
+                    report("stated-status", f"{name}:{job} reads success() of {', '.join(skippable)}, which can be skipped")
+            if not ALWAYS.search(condition):
+                continue
+            outliving += 1
+            sends = any(SENDER in str(s.get("run", "")) for s in steps_of(body))
+            if not sends and not str(body.get("name", "")).startswith(CLEAN_UP):
+                report("outlives-cancel", f"{name}:{job} runs on after a cancel and neither alerts nor cleans up")
+    reached("stated-status", below)
+    reached("outlives-cancel", outliving)
+
+
+def cluster_calls():
+    calls = 0
+    for rel in RETRY_SCOPE:
+        text = read(rel)
+        if text is None:
+            report("cluster-retry", f"{rel} is in the retry sweep's scope and is not there")
+            continue
+        lines, comments, index = text.split("\n"), "", 0
+        while index < len(lines):
+            line, start = lines[index], index + 1
+            index += 1
+            if not line.strip():
+                comments = ""
+                continue
+            if line.lstrip().startswith("#"):
+                comments += line + " "
+                continue
+            while re.search(r"\\[ \t]*$", line) and index < len(lines):
+                line = re.sub(r"\\[ \t]*$", "", line) + " " + lines[index]
+                index += 1
+            if not CLUSTER_CALL.search(line):
+                continue
+            calls += 1
+            block = comments + line
+            comments = ""
+            if "kubectl_retry" not in block and "Not retried" not in block:
+                report("cluster-retry", f"{rel}:{start} is a bare cluster call with no reason beside it")
+    reached("cluster-retry", calls)
+
+
+caches()
+mutation_reports()
+status_reads()
+environments()
+staging_slot()
+job_status()
+cluster_calls()
+PY
+
+read_of() { awk -F'\t' -v s="$2" '$1 == "read" && $2 == s { print $3 }' <<<"$1"; }
+findings_of() { awk -F'\t' -v s="$2" '$1 == "finding" && $2 == s { print "      " $3 }' <<<"$1"; }
+
+# Judges one sweep: the demonstration finds exactly what was planted, the repository nothing.
+judge() { # id, expected demo findings, what the sweep holds
+  local id="$1" expected="$2" holds="$3" demo_found real_found count
+  demo_found="$(findings_of "$DEMO_OUT" "$id" | sed 's/^ *//' | sort)"
+  if [ "$demo_found" = "$(sort <<<"$expected")" ]; then
+    pass "$id" "demonstrated: the sweep finds exactly the defects planted for it"
+  else
+    fail "$id" "demonstrated: expected [$expected], found [$demo_found]"
+  fi
+  count="$(read_of "$REAL_OUT" "$id")"
+  real_found="$(findings_of "$REAL_OUT" "$id")"
+  if [ "${count:-0}" -eq 0 ]; then
+    fail "$id" "the sweep reached nothing, so it is asserting an absence it never tested"
+  elif [ -z "$real_found" ]; then
+    pass "$id" "${holds/N/$count}"
+  else
+    fail "$id" "${holds/N/$count}, except:"$'\n'"$real_found"
+  fi
 }
 
 echo "ci-cd-determinism:"
 
-if [ -f "$RULE" ]; then
-  pass "the rule exists"
-else
-  fail "the rule exists"
-fi
-if grep -qF 'rules/ci-cd-determinism.md' "$REPO_ROOT/CLAUDE.md"; then
-  pass "the rule is indexed in CLAUDE.md"
-else
-  fail "the rule is not indexed in CLAUDE.md, so nothing points a reader at it"
-fi
-if [ -x "$REPO_ROOT/$GUARD" ]; then
-  pass "the read-back guard is executable"
-else
-  fail "the read-back guard is executable"
-fi
-
-# The deploy token cannot write, so the deploy declares no cache of any kind.
-CD="$WORKFLOWS/cd.yml"
-for shape in 'actions/cache' 'Swatinem/rust-cache' 'cache-to:' '^[[:space:]]*cache:[[:space:]]'; do
-  if grep -qE -- "$shape" "$CD"; then
-    fail "cd.yml declares a cache ($shape); its token cannot write, so that save is refused and reported as a success"
-  else
-    pass "cd.yml declares no cache ($shape)"
-  fi
-done
-
-# An inline save names its own key, so the step after it can assert that key.
-SAVE_HITS=0
-for wf in "$WORKFLOWS"/*.yml; do
-  grep -qF 'actions/cache/save@' "$wf" || continue
-  SAVE_HITS=$((SAVE_HITS + 1))
-  name="$(basename "$wf")"
-  if grep -qF "$GUARD" "$wf"; then
-    pass "$name reads back the cache entry it writes"
-  else
-    fail "$name writes a cache entry and never reads it back"
-  fi
-done
-if [ "$SAVE_HITS" -eq 0 ]; then
-  pass "no workflow writes a cache entry inline"
-fi
-
-# The image workflow's cache keeps the agent cross-build off a cold start.
-BUILD_IMAGE="$WORKFLOWS/build-image.yml"
-if grep -qF "$GUARD" "$BUILD_IMAGE"; then
-  pass "build-image reads back the agent build's cache"
-else
-  fail "build-image never reads back the agent build's cache, so a refusal there is silent"
-fi
-
-for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
-  if grep -qF "$target" "$BUILD_IMAGE"; then
-    pass "the read-back covers $target"
-  else
-    fail "the read-back covers $target"
-  fi
-done
-
-# A mutation shard that wrote no report fails where it ran, since the upload default only warns.
-MUTATION="$WORKFLOWS/mutation.yml"
-uploads="$(grep -c 'uses: actions/upload-artifact' "$MUTATION" || true)"
-errors="$(grep -c 'if-no-files-found: error' "$MUTATION" || true)"
-if [ "$uploads" -gt 0 ] && [ "$uploads" -eq "$errors" ]; then
-  pass "all $uploads mutation.yml artifact uploads fail on an empty file set"
-else
-  fail "mutation.yml has $uploads artifact upload(s) but only $errors fail on an empty set — a shard that produced no report would report success"
-fi
-
-# `--locked` builds from the lockfile the tool's authors tested, not a fresh dependency graph.
-install_bad=""
-while IFS= read -r line; do
-  case "$line" in
-    *'#'*) continue ;;
-  esac
-  case "$line" in
-    *'cargo install'*) ;;
-    *) continue ;;
-  esac
-  case "$line" in
-    *--locked*) ;;
-    *) install_bad="$install_bad [$(printf '%s' "$line" | sed 's/^[[:space:]]*//')]" ;;
-  esac
-done < <(grep -rh 'cargo install' "$WORKFLOWS"/*.yml | sed 's/[[:space:]]*$//' | sort -u)
-if [ -z "$install_bad" ]; then
-  pass "every workflow cargo install pins its dependency graph with --locked"
-else
-  fail "cargo install without --locked re-resolves the tool's whole graph every run:$install_bad"
-fi
-
-# `gh api` infers POST from any field flag, and a list endpoint answers a POST with 404.
-# This file is excluded because its own matcher strings carry the pattern it matches.
-SELF="scripts/tests/ci-cd-determinism.test.sh"
-GH_SOURCES=()
-while IFS= read -r f; do
-  [ "$f" = "$SELF" ] || GH_SOURCES+=("$REPO_ROOT/$f")
-done < <(
-  {
-    git -C "$REPO_ROOT" ls-files '.github/workflows/*.yml'
-    git -C "$REPO_ROOT" ls-files '*.sh'
-  } | sort -u
-)
-
-gh_bad=""
-gh_seen=0
-gh_fielded=0
-for f in "${GH_SOURCES[@]}"; do
-  [ -f "$f" ] || continue
-  grep -qF 'gh api' "$f" || continue
-  while IFS= read -r entry; do
-    where="${entry%%$'\t'*}"
-    cmd="${entry#*$'\t'}"
-    case "$cmd" in
-      *'gh api'*) ;;
-      *) continue ;;
-    esac
-    case "$cmd" in
-      '#'*) continue ;;
-    esac
-    gh_seen=$((gh_seen + 1))
-    grep -qE '(^|[[:space:]])(-f|-F|--field|--raw-field)([[:space:]=])' \
-      <<<"$cmd" || continue
-    gh_fielded=$((gh_fielded + 1))
-    case "$cmd" in
-      *'-X '* | *'--method '*) ;;
-      *) gh_bad="$gh_bad"$'\n'"      $where" ;;
-    esac
-  done < <(awk '
-    {
-      line = $0
-      sub(/^[[:space:]]+/, "", line)
-      buf = buf (buf == "" ? "" : " ") line
-      if (line ~ /\\$/) { sub(/\\$/, "", buf); next }
-      print FILENAME ":" FNR "\t" buf
-      buf = ""
-    }
-    END { if (buf != "") print FILENAME ":" FNR "\t" buf }
-  ' "$f" | sed "s#^$REPO_ROOT/##")
-done
-
-if [ "$gh_seen" -eq 0 ]; then
-  fail "the gh api sweep reached no call at all, so it is asserting an absence it never tested"
-elif [ -z "$gh_bad" ]; then
-  pass "of $gh_seen gh api calls, the $gh_fielded passing a field flag state their HTTP method"
-else
-  fail "gh api infers POST from a field flag, and a list endpoint answers a POST with 404:$gh_bad"
-fi
-
-# A required input is visible inline, through a wrapper, and per job plus the workflow-level env.
-env_demo="$(mktemp -d)"
-trap 'rm -rf "$env_demo"' EXIT
-
-required_env_of() {
-  local body
-  body="$(grep -vE '^[[:space:]]*#' "$1" || true)"
-  {
-    grep -oE '\$\{[A-Z][A-Z0-9_]*:\?' <<<"$body" | grep -oE '[A-Z][A-Z0-9_]*' || true
-    grep -E '^#[[:space:]]+[A-Z][A-Z0-9_]*([[:space:]]|$).*\(required\)' "$1" \
-      | grep -oE '^#[[:space:]]+[A-Z][A-Z0-9_]*' | grep -oE '[A-Z][A-Z0-9_]*' || true
-  } | sort -u
-}
-
-provided_env_of() {
-  local body
-  body="$(grep -vE '^[[:space:]]*#' "$1" || true)"
-  grep -oE '(^|[[:space:];&(]|export[[:space:]]+)[A-Z][A-Z0-9_]*=' <<<"$body" \
-    | grep -oE '[A-Z][A-Z0-9_]*' | sort -u
-}
-
-# Basenames survive being spelled through $SCRIPT_DIR or $ROOT. A line that only prints a path,
-# continuations joined, lists it as data and calls nothing.
-scripts_run_by() {
-  local body
-  body="$(grep -vE '^[[:space:]]*#' "$1" | awk '
-    { buf = buf $0; if ($0 ~ /\\$/) { sub(/\\$/, "", buf); next } print buf; buf = "" }
-    END { if (buf != "") print buf }
-  ' | grep -vE '^[[:space:]]*(printf|echo)([[:space:]]|$)' || true)"
-  grep -oE '[a-z0-9][a-z0-9-]*\.sh' <<<"$body" | sort -u || true
-}
-
-declare -A SCRIPT_BY_BASE=()
-while IFS= read -r tracked; do
-  SCRIPT_BY_BASE["$(basename "$tracked")"]="$tracked"
-done < <(git -C "$REPO_ROOT" ls-files '*.sh')
-
-required_env_closure() {
-  local rel="$1" seen="${2:-}" path provided child childrel
-  case " $seen " in *" $rel "*) return 0 ;; esac
-  path="$REPO_ROOT/$rel"
-  [ -f "$path" ] || return 0
-  required_env_of "$path"
-  provided="$(provided_env_of "$path")"
-  while IFS= read -r child; do
-    [ -n "$child" ] || continue
-    childrel="${SCRIPT_BY_BASE[$child]:-}"
-    [ -n "$childrel" ] && [ "$childrel" != "$rel" ] || continue
-    required_env_closure "$childrel" "$seen $rel" \
-      | { grep -vxF -e "$provided" || true; }
-  done < <(scripts_run_by "$path")
-}
-
-workflow_env_of() { awk '/^jobs:[[:space:]]*$/ { exit } { print }' "$1"; }
-
-job_names_of() {
-  awk '
-    /^jobs:[[:space:]]*$/ { injobs = 1; next }
-    injobs && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { n = $1; sub(/:$/, "", n); print n }
-  ' "$1"
-}
-
-job_block_of() {
-  awk -v want="$2" '
-    /^jobs:[[:space:]]*$/ { injobs = 1; next }
-    !injobs { next }
-    /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { n = $1; sub(/:$/, "", n); inwant = (n == want) }
-    inwant { print }
-  ' "$1"
-}
-
-# The demonstration comes first, so a sweep that reproduces nothing fails.
-cat >"$env_demo/inner.sh" <<'DEMO'
-#!/usr/bin/env bash
-set -euo pipefail
-run --env "URL=${DEMO_ONLY_NEEDED:?DEMO_ONLY_NEEDED must be set}"
-DEMO
-cat >"$env_demo/wrapper.sh" <<'DEMO'
-#!/usr/bin/env bash
-set -euo pipefail
-"$ROOT/scripts/inner.sh" one two
-DEMO
-cat >"$env_demo/lister.sh" <<'DEMO'
-#!/usr/bin/env bash
-listed() {
-  printf '%s\n' \
-    scripts/inner.sh \
-    deploy/other.sh
-}
-DEMO
-cat >"$env_demo/flow.yml" <<'DEMO'
-name: demo
-env:
-  UNRELATED: yes
+DEMO="$WORK/demo"
+mkdir -p "$DEMO/.github/workflows" "$DEMO/scripts"
+cat >"$DEMO/.github/workflows/cd.yml" <<'YAML'
+on: workflow_dispatch
 jobs:
-  names-it:
+  resolve:
+    if: github.event_name == 'workflow_dispatch'
     steps:
-      - run: scripts/wrapper.sh
+      - run: echo resolve
+  cluster:
+    needs: resolve
+    if: needs.resolve.outputs.changed == 'true'
+    steps:
+      - run: echo cluster
+  deploy:
+    needs: [resolve, cluster]
+    if: always() && needs.resolve.result == 'success'
+    environment: staging
+    steps:
+      - uses: actions/cache@v4
+  drills:
+    needs: [resolve, deploy]
+    if: vars.DRILLS == 'true'
+    steps:
+      - run: echo drill
+  promote:
+    needs: [deploy, drills]
+    if: ${{ !cancelled() && needs.drills.result == 'success' }}
+    environment:
+      name: production
+    steps:
+      - run: echo promote
+  alert:
+    needs: [deploy]
+    if: always()
+    steps:
+      - run: scripts/telegram-alert.sh "x"
+  tidy:
+    name: Remove the staging machines
+    needs: [deploy]
+    if: always()
+    steps:
+      - run: echo tidy
+  observe:
+    environment: observability
+    steps:
+      - run: echo observe
+YAML
+cat >"$DEMO/.github/workflows/ci.yml" <<'YAML'
+on: push
+jobs:
+  build:
+    steps:
+      - uses: actions/cache/save@v4
+      - name: Unguarded
+        run: |
+          some-check
+          rc=$?
+      - name: Guarded
+        run: |
+          set +e
+          some-check
+          rc=$?
+          set -e
+      - name: Printed
+        run: |
+          set +e
+          some-check
+          echo done
+          rc=$?
+      - name: Inline
+        run: some-check || rc=$?
+YAML
+cat >"$DEMO/.github/workflows/build-image.yml" <<'YAML'
+on: push
+jobs:
+  agent:
+    steps:
+      - run: cargo build --target x86_64-unknown-linux-musl
+YAML
+cat >"$DEMO/.github/workflows/mutation.yml" <<'YAML'
+on: schedule
+jobs:
+  shard:
+    steps:
+      - name: Upload report
+        uses: actions/upload-artifact@v7
+        with:
+          if-no-files-found: error
+      - name: Upload status
+        uses: actions/upload-artifact@v7
+YAML
+cat >"$DEMO/.github/workflows/drill.yml" <<'YAML'
+on: schedule
+jobs:
+  unguarded:
+    steps:
+      - uses: actions/checkout@v7
+      - run: scripts/staging-lease.sh acquire "$HOLDER"
+      - run: scripts/fault/pod-delete.sh
+  guarded:
+    outputs:
+      not_started: ${{ steps.version.outputs.not_started }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - run: scripts/staging-lease.sh acquire "$HOLDER"
+      - id: version
         env:
-          DEMO_ONLY_NEEDED: set-here
-  does-not:
-    steps:
-      - run: scripts/wrapper.sh
-DEMO
+          UNDER_TEST: ${{ github.sha }}
+        run: scripts/staging-version-check.sh >>"$GITHUB_OUTPUT"
+YAML
+cat >"$DEMO/scripts/nightly.sh" <<'SH'
+kubectl exec pod -- true
+# Not retried: a second run repeats the fault.
+kubectl -n ns exec pod -- false
 
-required_env_lineform() {
-  grep -oE '^: *"\$\{[A-Z][A-Z0-9_]*:\?' "$1" | grep -oE '[A-Z][A-Z0-9_]*' || true
-}
+kubectl_retry exec pod -- true
+kubectl cp \
+  pod:/tmp/out out
+SH
 
-if [ -z "$(required_env_lineform "$env_demo/inner.sh")" ]; then
-  pass "a refusal written where the value is used is invisible to a line-form reader"
+DEMO_OUT="$(python3 "$WORK/sweeps.py" "$DEMO" scripts/nightly.sh scripts/absent.sh)"
+REAL_OUT="$(python3 "$WORK/sweeps.py" "$REPO_ROOT" \
+  .github/workflows/network-drill.yml \
+  .github/workflows/load-test.yml \
+  scripts/loadtest-k6-incluster.sh \
+  scripts/loadtest-quic-incluster.sh \
+  scripts/loadtest-cleanup.sh \
+  deploy/scripts/pg-app-role-sql.sh \
+  deploy/scripts/loadtest-account-sql.sh)"
+
+if [ -x "$REPO_ROOT/$GUARD" ]; then
+  pass cache-read-back "the read-back guard is executable"
 else
-  fail "the inline-refusal direction no longer reproduces"
+  fail cache-read-back "the read-back guard is missing or not executable"
 fi
-if [ "$(required_env_of "$env_demo/inner.sh")" = "DEMO_ONLY_NEEDED" ]; then
-  pass "and is read by this sweep"
-else
-  fail "this sweep does not read a refusal written where the value is used"
-fi
+judge cache-read-back "ci.yml writes a cache entry and never reads it back
+build-image.yml never reads back the agent build's cache for $GUARD
+build-image.yml never reads back the agent build's cache for aarch64-unknown-linux-musl" \
+  "each of N workflows writing a cache entry reads it back, the agent build's for both targets"
 
-if [ -z "$(required_env_of "$env_demo/wrapper.sh")" ]; then
-  pass "a wrapper requires nothing of its own, so the named file answers nothing"
-else
-  fail "the wrapper direction no longer reproduces"
-fi
+judge cache-undeclared "cd.yml declares a cache (actions/cache)" \
+  "cd.yml, whose token cannot write, declares no cache of any kind"
 
-if grep -qF 'inner.sh' <"$env_demo/lister.sh"; then
-  pass "a printed list of paths names the scripts it lists"
-else
-  fail "the printed-list direction no longer reproduces"
-fi
-if [ -z "$(scripts_run_by "$env_demo/lister.sh")" ] \
-  && grep -qxF 'inner.sh' <<<"$(scripts_run_by "$env_demo/wrapper.sh")"; then
-  pass "and this sweep reads them as data, while a script that runs one still calls it"
-else
-  fail "this sweep reads a printed path as a call, or misses a script that runs one"
-fi
+judge mutation-report "mutation.yml shard: 'Upload status' passes an empty file set" \
+  "all N mutation.yml artifact uploads fail on an empty file set"
 
-demo_scope_pooled="$(workflow_env_of "$env_demo/flow.yml")
-$(job_block_of "$env_demo/flow.yml" names-it)
-$(job_block_of "$env_demo/flow.yml" does-not)"
-demo_scope_job="$(workflow_env_of "$env_demo/flow.yml")
-$(job_block_of "$env_demo/flow.yml" does-not)"
-if grep -qE '(^|[^A-Z0-9_])DEMO_ONLY_NEEDED[=:]' <<<"$demo_scope_pooled" \
-  && ! grep -qE '(^|[^A-Z0-9_])DEMO_ONLY_NEEDED[=:]' <<<"$demo_scope_job"; then
-  pass "a scope pooling every calling job lets one answer for another; one job's scope does not"
-else
-  fail "the pooled-scope direction no longer reproduces"
-fi
+judge staging-build "drill.yml:unguarded: the step after taking the slot does not check staging's build
+drill.yml:unguarded: its checkout is shallow, so staging's commit cannot be read" \
+  "each of N jobs taking the staging slot checks staging runs the build it tests"
 
-# The membership test is a here-string: a piped `grep -q` loses the race on a large file.
-env_bad=""
-env_calls=0
-while IFS= read -r script; do
-  case "$script" in scripts/tests/*) continue ;; esac
-  vars="$(required_env_closure "$script" | sort -u)"
-  [ -n "$vars" ] || continue
-  for wf in "$WORKFLOWS"/*.yml; do
-    wf_body="$(grep -vE '^[[:space:]]*#' "$wf" || true)"
-    grep -qF "$script" <<<"$wf_body" || continue
-    wf_env="$(workflow_env_of "$wf")"
-    while IFS= read -r job; do
-      [ -n "$job" ] || continue
-      block="$(job_block_of "$wf" "$job")"
-      block_body="$(grep -vE '^[[:space:]]*#' <<<"$block" || true)"
-      grep -qF "$script" <<<"$block_body" || continue
-      env_calls=$((env_calls + 1))
-      scope="$wf_env"$'\n'"$block"
-      for var in $vars; do
-        grep -qE "(^|[^A-Z0-9_])${var}[=:]" <<<"$scope" && continue
-        env_bad="$env_bad"$'\n'"      $(basename "$wf") job '$job' calls $script without $var"
-      done
-    done < <(job_names_of "$wf")
-  done
-done < <(git -C "$REPO_ROOT" ls-files '*.sh')
-
-if [ "$env_calls" -eq 0 ]; then
-  fail "the required-input sweep reached no call at all, so it is asserting an absence it never tested"
-elif [ -z "$env_bad" ]; then
-  pass "each of $env_calls workflow jobs names every input the process it starts refuses to run without"
-else
-  fail "a script refuses to run without an input its caller never names:$env_bad"
-fi
-
-rm -rf "$env_demo"
-trap - EXIT
 # GitHub runs `run:` blocks under `bash -e`, so a failing command ends the step before `rc=$?`.
 demo_captured=$(
   bash -e -c '
@@ -376,356 +443,32 @@ demo_guarded=$(
     echo "rc=$rc reached=yes"
   ' 2>/dev/null || true
 )
-if [ -z "$demo_captured" ] && [ "$demo_guarded" = "rc=1 reached=yes" ]; then
-  pass "a status read under errexit is unreachable, and a guarded one is not"
-else
-  fail "the errexit demonstration no longer reproduces (unguarded='$demo_captured' guarded='$demo_guarded')"
-fi
-# A print between the command and the read hands the read the print's own status.
 demo_after_print=$(bash -c 'set +e; false; cat /dev/null >&2; rc=$?; echo "$rc"')
 demo_before_print=$(bash -c 'set +e; false; rc=$?; cat /dev/null >&2; echo "$rc"')
-if [ "$demo_after_print" = 0 ] && [ "$demo_before_print" = 1 ]; then
-  pass "a status read after a print holds the print's status, and one read first holds the command's"
+if [ -z "$demo_captured" ] && [ "$demo_guarded" = "rc=1 reached=yes" ] \
+  && [ "$demo_after_print" = 0 ] && [ "$demo_before_print" = 1 ]; then
+  pass errexit-status "a status read under errexit is unreachable, and one read after a print holds the print's"
 else
-  fail "the print demonstration no longer reproduces (after='$demo_after_print' before='$demo_before_print')"
+  fail errexit-status "the errexit demonstration no longer reproduces (unguarded='$demo_captured' guarded='$demo_guarded' after='$demo_after_print' before='$demo_before_print')"
 fi
+judge errexit-status "ci.yml build: 'Unguarded' reads \$? under errexit
+ci.yml build: 'Printed' reads the status of a print" \
+  "each of N workflow steps reading an exit status turns errexit off first and reads its command's"
 
-# A block that reads `$?` turns errexit off first or takes the status with `|| var=$?`.
-status_blocks=0
-status_bad=""
-while IFS= read -r finding; do
-  case "$finding" in
-    COUNT*) status_blocks=$((status_blocks + ${finding#COUNT })) ;;
-    *) status_bad="$status_bad"$'\n'"      $finding" ;;
-  esac
-done < <(
-  for wf in "$WORKFLOWS"/*.yml; do
-    awk -v file="$(basename "$wf")" '
-      # A run: block starts at "run:" and holds every line indented past it.
-      /^[[:space:]]*(-[[:space:]]+)?run:/ {
-        match($0, /^[[:space:]]*/)
-        indent = RLENGTH
-        inblock = 1; guarded = 0; captures = 0; start = NR; prev = ""
-        next
-      }
-      inblock {
-        if ($0 ~ /^[[:space:]]*$/) next
-        match($0, /^[[:space:]]*/)
-        if (RLENGTH <= indent) { inblock = 0 }
-      }
-      inblock {
-        if ($0 ~ /^[[:space:]]*#/) next
-        if ($0 ~ /set[[:space:]]+\+e/) guarded = 1
-        line = $0
-        sub(/^[[:space:]]+/, "", line)
-        # A status taken on the failing command line survives errexit.
-        if ($0 ~ /\|\|[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=\$\?/) { prev = line; next }
-        if ($0 ~ /^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=\$\?[[:space:]]*$/) {
-          captures++
-          if (!guarded) {
-            printf "%s line %d reads $? under errexit, so the branch below it is unreachable\n", file, NR
-          }
-          if (prev ~ /^(cat|echo|printf|tee|true|:)([[:space:]]|$)/) {
-            printf "%s line %d reads the status of a print, so the command it judges never reaches it\n", file, NR
-          }
-        }
-        prev = line
-      }
-      !inblock && captures > 0 { blocks += 1; captures = 0 }
-      { if (!inblock) captures = 0 }
-      END { printf "COUNT %d\n", blocks + 0 }
-    ' "$wf"
-  done
-)
-if [ "$status_blocks" -eq 0 ]; then
-  fail "the errexit status sweep reached no status read at all, so it is asserting an absence it never tested"
-elif [ -z "$status_bad" ]; then
-  pass "each of $status_blocks workflow steps reading an exit status turns errexit off first and reads its command's"
-else
-  fail "a workflow step reads an exit status other than its command's:$status_bad"
-fi
+judge approved-environment "cd.yml:observe names observability" \
+  "every one of N environments a workflow names is one a person approves"
 
-# Each cluster call goes through the retry helper or carries its own reason for not retrying.
-RETRY_SCOPE=(
-  ".github/workflows/network-drill.yml"
-  ".github/workflows/load-test.yml"
-  "scripts/loadtest-k6-incluster.sh"
-  "scripts/loadtest-quic-incluster.sh"
-  "scripts/loadtest-cleanup.sh"
-  "deploy/scripts/pg-app-role-sql.sh"
-  "deploy/scripts/loadtest-account-sql.sh"
-)
+judge cluster-retry "scripts/nightly.sh:1 is a bare cluster call with no reason beside it
+scripts/nightly.sh:6 is a bare cluster call with no reason beside it
+scripts/absent.sh is in the retry sweep's scope and is not there" \
+  "each of N cluster calls in the nightlies is retried or says why it is not"
 
-retry_bad=""
-retry_calls=0
-for relative in "${RETRY_SCOPE[@]}"; do
-  file="$REPO_ROOT/$relative"
-  [ -f "$file" ] || {
-    retry_bad="$retry_bad"$'\n'"      $relative is in the retry sweep's scope and is not there"
-    continue
-  }
-  while IFS=$'\t' read -r line rendered; do
-    retry_calls=$((retry_calls + 1))
-    grep -qF 'kubectl_retry' <<<"$rendered" && continue
-    grep -qF 'Not retried' <<<"$rendered" && continue
-    retry_bad="$retry_bad"$'\n'"      $relative:$line is a bare cluster call with no reason beside it"
-  done < <(awk '
-    # Carry the comment block above each call, so a reason written there is part
-    # of what the call is read as. A blank line ends the block and a line of code
-    # does not: a reason written above `launch() {` is a reason written about the
-    # call inside it, and a sweep that lost it there would ask for the same
-    # sentence twice.
-    /^[[:space:]]*$/ { comments = ""; next }
-    /^[[:space:]]*#/ { comments = comments $0 "\n"; next }
-    {
-      joined = $0
-      start = NR
-      while (joined ~ /\\[[:space:]]*$/ && (getline next_line) > 0) {
-        sub(/\\[[:space:]]*$/, "", joined)
-        joined = joined " " next_line
-      }
-      if (joined ~ /kubectl[^|&;]*(exec|cp)[[:space:]]/) {
-        block = comments joined
-        gsub(/\t/, " ", block)
-        gsub(/\n/, " ", block)
-        printf "%d\t%s\n", start, block
-        comments = ""
-      }
-    }
-  ' "$file")
-done
+judge stated-status "cd.yml:cluster reads success() of resolve, which can be skipped
+cd.yml:drills reads success() of cluster, deploy, resolve, which can be skipped" \
+  "each of N jobs below a job that can be skipped states the status it runs under"
 
-if [ "$retry_calls" -eq 0 ]; then
-  fail "the cluster-call sweep reached no call at all, so it is asserting an absence it never tested"
-elif [ -z "$retry_bad" ]; then
-  pass "each of $retry_calls cluster calls in the nightlies is retried or says why it is not"
-else
-  fail "a cluster call in a nightly is neither retried nor exempt:$retry_bad"
-fi
-
-# A job naming an environment waits on GitHub to release it, so only a person's approval earns one.
-environments_named() {
-  python3 - "$@" <<'PY'
-import sys
-
-import yaml
-
-for path in sys.argv[1:]:
-    with open(path, encoding="utf-8") as handle:
-        workflow = yaml.safe_load(handle) or {}
-    for job, body in (workflow.get("jobs") or {}).items():
-        if not isinstance(body, dict) or "environment" not in body:
-            continue
-        named = body["environment"]
-        if isinstance(named, dict):
-            named = named.get("name", "")
-        print(f"{path.rsplit('/', 1)[-1]}\t{job}\t{named}")
-PY
-}
-
-unapproved_environments() {
-  local file job named
-  while IFS=$'\t' read -r file job named; do
-    case "$named" in
-      staging | production) ;;
-      *) printf ' [%s:%s names %s]' "$file" "$job" "$named" ;;
-    esac
-  done <<<"$(environments_named "$@")"
-}
-
-env_fixture="$(mktemp -d)"
-cat >"$env_fixture/alert.yml" <<'YAML'
-jobs:
-  alert:
-    runs-on: ubuntu-24.04
-    environment: observability
-  deploy:
-    runs-on: ubuntu-24.04
-    environment:
-      name: production
-YAML
-if [ -n "$(unapproved_environments "$env_fixture/alert.yml")" ]; then
-  pass "an alert job naming an environment with no approver is caught"
-else
-  fail "the environment sweep passes an alert job naming observability, so it proves nothing"
-fi
-rm -rf "$env_fixture"
-
-env_named="$(environments_named "$WORKFLOWS"/*.yml)"
-env_bad="$(unapproved_environments "$WORKFLOWS"/*.yml)"
-if [ -z "$env_named" ]; then
-  fail "the environment sweep reached no job naming an environment, so it is asserting an absence it never tested"
-elif [ -z "$env_bad" ]; then
-  pass "every one of $(wc -l <<<"$env_named") environments a workflow names is one a person approves"
-else
-  fail "a workflow names an environment no person approves, which GitHub can hold indefinitely:$env_bad"
-fi
-
-# A job holding the staging slot checks, in its next step, that staging runs the build under test.
-# Prints file<TAB>job<TAB>problem per breach and file<TAB>job<TAB>ok per job that holds the slot.
-staging_slot_jobs() {
-  python3 - "$@" <<'PY'
-import re
-import sys
-
-import yaml
-
-TAKE = re.compile(r"scripts/staging-lease\.sh\s+acquire\b")
-CHECK = re.compile(r"scripts/staging-version-check\.sh\b")
-
-for path in sys.argv[1:]:
-    name = path.rsplit("/", 1)[-1]
-    if name == "cd.yml":
-        continue
-    with open(path, encoding="utf-8") as handle:
-        workflow = yaml.safe_load(handle) or {}
-    for job, body in (workflow.get("jobs") or {}).items():
-        if not isinstance(body, dict):
-            continue
-        steps = [s for s in body.get("steps") or [] if isinstance(s, dict)]
-        takes = [i for i, s in enumerate(steps) if TAKE.search(str(s.get("run", "")))]
-        if not takes:
-            continue
-        problems = []
-        after = steps[takes[0] + 1] if takes[0] + 1 < len(steps) else {}
-        if not CHECK.search(str(after.get("run", ""))):
-            problems.append("the step after taking the slot does not check staging's build")
-        elif not str((after.get("env") or {}).get("UNDER_TEST", "")).strip():
-            problems.append("the check names no commit under test")
-        elif not after.get("id"):
-            problems.append("the check has no id, so its reason cannot reach the alert")
-        elif f"steps.{after['id']}.outputs.not_started" not in str(body.get("outputs") or {}):
-            problems.append("the job does not hand the check's reason to its outputs")
-        checkouts = [s for s in steps if str(s.get("uses", "")).startswith("actions/checkout@")]
-        if not any(str((c.get("with") or {}).get("fetch-depth", "")) == "0" for c in checkouts):
-            problems.append("its checkout is shallow, so staging's commit cannot be read")
-        for problem in problems or ["ok"]:
-            print(f"{name}\t{job}\t{problem}")
-PY
-}
-
-slot_fixture="$(mktemp -d)"
-cat >"$slot_fixture/unguarded.yml" <<'YAML'
-jobs:
-  drill:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-      - run: scripts/staging-lease.sh acquire "$HOLDER"
-      - run: scripts/fault/pod-delete.sh
-YAML
-cat >"$slot_fixture/guarded.yml" <<'YAML'
-jobs:
-  drill:
-    runs-on: ubuntu-24.04
-    outputs:
-      not_started: ${{ steps.version.outputs.not_started }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - run: scripts/staging-lease.sh acquire "$HOLDER"
-      - id: version
-        env:
-          UNDER_TEST: ${{ github.sha }}
-        run: scripts/staging-version-check.sh >>"$GITHUB_OUTPUT"
-YAML
-slot_demo="$(staging_slot_jobs "$slot_fixture/unguarded.yml" "$slot_fixture/guarded.yml")"
-if grep -qF $'unguarded.yml\tdrill\tthe step after taking the slot does not check' <<<"$slot_demo" \
-  && grep -qF $'unguarded.yml\tdrill\tits checkout is shallow' <<<"$slot_demo" \
-  && grep -qxF $'guarded.yml\tdrill\tok' <<<"$slot_demo"; then
-  pass "a drill that takes the slot with no check of staging's build is caught, and a checked one is not"
-else
-  fail "the staging-slot sweep does not tell an unchecked drill from a checked one: $slot_demo"
-fi
-rm -rf "$slot_fixture"
-
-slot_jobs="$(staging_slot_jobs "$WORKFLOWS"/*.yml)"
-slot_bad="$(grep -vP '\tok$' <<<"$slot_jobs" | sed 's/\t/: /g; s/^/ [/; s/$/]/' | paste -sd '' - || true)"
-if [ -z "$slot_jobs" ]; then
-  fail "the staging-slot sweep reached no job taking the slot, so it is asserting an absence it never tested"
-elif [ -z "$slot_bad" ]; then
-  pass "each of $(cut -f1,2 <<<"$slot_jobs" | sort -u | wc -l) jobs taking the staging slot checks staging runs the build it tests"
-else
-  fail "a job takes the staging slot without proving staging runs the build it tests:$slot_bad"
-fi
-
-# A dispatched input or an event field pasted into a script is code GitHub writes into it; through
-# env it stays a value. Prints file<TAB>job<TAB>step<TAB>expression per paste, then read<TAB>N.
-pasted_inputs() {
-  python3 - "$@" <<'PY'
-import re, sys
-import yaml
-PASTE = re.compile(r"\$\{\{[^}]*?\b(inputs\.[\w-]+|github\.event\.[\w.-]+|github\.head_ref)\b[^}]*\}\}")
-read = 0
-for path in sys.argv[1:]:
-    document = yaml.safe_load(open(path, encoding="utf-8")) or {}
-    jobs = [(name, job.get("steps") or []) for name, job in (document.get("jobs") or {}).items()]
-    jobs.append(("runs", (document.get("runs") or {}).get("steps") or []))
-    for job, steps in jobs:
-        for index, step in enumerate(steps):
-            run = step.get("run") if isinstance(step, dict) else None
-            if not isinstance(run, str):
-                continue
-            read += 1
-            for match in PASTE.finditer(run):
-                print(f"{path}\t{job}\t{step.get('name') or index}\t{match.group(1)}")
-print(f"read\t{read}")
-PY
-}
-
-paste_fixture="$(mktemp -d)"
-payload="x\"; touch \"$paste_fixture/ran\"; echo \""
-# shellcheck disable=SC2016 # the expression is GitHub's to fill in and the variable the script's own
-pasted_script='TAG="${{ inputs.image_tag }}"; echo "$TAG"'
-# GitHub substitutes the expression into the script's text before the shell reads it.
-bash -c "${pasted_script//'${{ inputs.image_tag }}'/$payload}" >/dev/null 2>&1 || true
-pasted_ran="$([ -e "$paste_fixture/ran" ] && echo yes || echo no)"
-rm -f "$paste_fixture/ran"
-TAG="$payload" bash -c 'echo "$TAG"' >/dev/null 2>&1 || true
-env_ran="$([ -e "$paste_fixture/ran" ] && echo yes || echo no)"
-cat >"$paste_fixture/pasted.yml" <<'YAML'
-on: workflow_dispatch
-jobs:
-  deploy:
-    steps:
-      - name: Determine tag
-        run: TAG="${{ inputs.image_tag }}"
-      - name: Read the head
-        run: echo "${{ github.event.workflow_run.head_sha }} ${{ github.head_ref }}"
-YAML
-cat >"$paste_fixture/through-env.yml" <<'YAML'
-on: workflow_dispatch
-jobs:
-  deploy:
-    steps:
-      - name: Determine tag
-        env:
-          TAG: ${{ inputs.image_tag }}
-        run: echo "$TAG ${{ github.sha }}"
-YAML
-paste_demo="$(pasted_inputs "$paste_fixture/pasted.yml" "$paste_fixture/through-env.yml")"
-if [ "$pasted_ran" = yes ] && [ "$env_ran" = no ] \
-  && grep -qF $'pasted.yml\tdeploy\tDetermine tag\tinputs.image_tag' <<<"$paste_demo" \
-  && grep -qF $'pasted.yml\tdeploy\tRead the head\tgithub.head_ref' <<<"$paste_demo" \
-  && ! grep -qF 'through-env.yml' <<<"$paste_demo"; then
-  pass "a pasted input runs as code and one read through env does not, and the sweep tells them apart"
-else
-  fail "the paste sweep does not reproduce: pasted ran=$pasted_ran, env ran=$env_ran, found [$paste_demo]"
-fi
-rm -rf "$paste_fixture"
-
-mapfile -t paste_sources < <(find "$WORKFLOWS" "$REPO_ROOT/.github/actions" -name '*.yml' | sort)
-paste_found="$(pasted_inputs "${paste_sources[@]}")"
-paste_read="$(awk -F'\t' '$1 == "read" { print $2 }' <<<"$paste_found")"
-paste_bad="$(grep -v $'^read\t' <<<"$paste_found" | sed 's/\t/: /g; s/^/ [/; s/$/]/' | paste -sd '' - || true)"
-if [ "${paste_read:-0}" -eq 0 ]; then
-  fail "the paste sweep read no run: block, so it is asserting an absence it never tested"
-elif [ -z "$paste_bad" ]; then
-  pass "none of $paste_read run: blocks pastes an input or an event field into its own text"
-else
-  fail "a run: block pastes an input or an event field into its own text; pass it through env:$paste_bad"
-fi
+judge outlives-cancel "cd.yml:deploy runs on after a cancel and neither alerts nor cleans up" \
+  "each of N jobs that run on after a cancel sends an alert or cleans up"
 
 echo
 echo "Summary: $PASS passed, $FAIL failed"

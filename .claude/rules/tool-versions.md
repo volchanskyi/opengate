@@ -29,6 +29,8 @@ governs everything else, and which version changes any dependency takes.
   <pkg>`, an action asked for a bare `tool:` name, and `--git <url>` with no
   `--rev`.
 - An unreleased tree is pinned by **rev**, never by branch.
+- Every `cargo install` passes `--locked`, so the tool builds from the lockfile its authors
+  tested.
 - The sweep reads the Makefile, the install scripts and the shared actions under
   `.github/actions/` as well as the workflows.
 - The workstation's installs are spelled once, in
@@ -82,9 +84,8 @@ governs everything else, and which version changes any dependency takes.
 - An advisory a patch fixes is fixed in the same change, before the commit. It is
   never excepted.
 - An advisory no release fixes leaves nothing to take, and this check passes it.
-- A declaration the check has no reader for fails it, and so does a lookup that
-  gives no answer it can read. Files that only look like a declaration are listed,
-  with the reason, in [`scope.json`](../../scripts/dependency-fixes/scope.json).
+- How the check reads declarations, lookups and image tags:
+  [ADR-126](../../docs/adr/ADR-126-advisory-exceptions-lapse.md).
 - An advisory fixed only in a newer minor or major release is brought to Ivan
   explicitly the moment it is found, as a question with options to act on (in
   Claude Code, the AskUserQuestion modal). The question names the advisory, the
@@ -92,8 +93,7 @@ governs everything else, and which version changes any dependency takes.
   that release risks. Its options include taking that release and keeping the
   version in use. Nothing moves until Ivan chooses.
 - An image takes a newer patch tag of its own line, built for every platform the
-  tag in use is built for. A tag that names a line (`17-alpine`, `24-alpine`) is
-  read at its newest build.
+  tag in use is built for.
 
 ### A major upgrade or an end-of-life replacement waits for Ivan's explicit approval
 

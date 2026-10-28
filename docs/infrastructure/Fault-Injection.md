@@ -334,8 +334,9 @@ Two disjoint CI surfaces gate promotion:
 Activation is **config-only**, by repository variable:
 
 - `STAGING_FAULT_TESTS` — when `true`, the deploy pipeline runs the drill stage
-  after E2E and **gates production promotion** on it (a failed drill blocks the
-  deploy). Unset or `false` skips the stage and production proceeds.
+  once staging has deployed, after E2E, and **gates production promotion** on it:
+  a failed drill, and a drill stage skipped while the variable is `true`, block the
+  deploy. Unset or `false` skips the stage and production proceeds.
 - `STAGING_FAULT_PROFILE` — selects the enumerated scenario (`pod-delete`,
   `bad-rollout`, `ingress-504`, `ingress-502`); defaults to `pod-delete`.
 

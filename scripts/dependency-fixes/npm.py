@@ -1,6 +1,7 @@
 """npm packages: each tracked lockfile's audit, with each copy's version read from the lockfile
 and the fixing release read from the advisory's record."""
 
+import functools
 import json
 import os
 import tempfile
@@ -36,22 +37,28 @@ def findings(directory, label, packages, remedy):
     found = []
     for entry in audit(directory)["vulnerabilities"].values():
         for via in entry.get("via") or []:
-            if not isinstance(via, dict):
-                continue
-            advisory = (via.get("url") or "").rsplit("/", 1)[-1]
-            if not advisory:
-                raise fetch.Unreadable(f"npm audit in {label}: an advisory of {via.get('name')} names no id")
-            record = osv.record({"id": advisory})
-            for node in entry.get("nodes") or []:
-                version = (packages.get(node) or {}).get("version")
-                if not version:
-                    raise fetch.Unreadable(f"{label}: {node} has no version")
-                fix = osv.fixes("npm", via["name"], version, record)
-                if fix is None:
-                    raise fetch.Unreadable(f"npm audit names {advisory} on {via['name']} {version}, "
-                                           "which the advisory's own ranges do not cover")
-                found.append(Finding("npm", label, via["name"], version, advisory, fix, osv.summary(record),
-                                     remedy(via["name"]), aliases=osv.aliases(record)))
+            if isinstance(via, dict):
+                found += copies(label, packages, entry.get("nodes") or [], via, remedy)
+    return found
+
+
+def copies(label, packages, nodes, via, remedy):
+    """One finding for each copy in NODES of the package VIA's advisory is about."""
+    advisory = (via.get("url") or "").rsplit("/", 1)[-1]
+    if not advisory:
+        raise fetch.Unreadable(f"npm audit in {label}: an advisory of {via.get('name')} names no id")
+    record = osv.record({"id": advisory})
+    found = []
+    for node in nodes:
+        version = (packages.get(node) or {}).get("version")
+        if not version:
+            raise fetch.Unreadable(f"{label}: {node} has no version")
+        fix = osv.fixes("npm", via["name"], version, record)
+        if fix is None:
+            raise fetch.Unreadable(f"npm audit names {advisory} on {via['name']} {version}, "
+                                   "which the advisory's own ranges do not cover")
+        found.append(Finding("npm", label, via["name"], version, advisory, fix, osv.summary(record),
+                             remedy(via["name"], node, fix), aliases=osv.aliases(record)))
     return found
 
 
@@ -62,8 +69,15 @@ def read(root):
         packages = json.loads(repo.text(root, lockfile)).get("packages") or {}
         count += sum(1 for key in packages if key)
         found += findings(os.path.join(root, relative), relative, packages,
-                          lambda name, relative=relative: f"cd {relative} && npm update {name} --package-lock-only")
+                          functools.partial(take, lockfile, relative))
     return Reading("npm packages", count, found)
+
+
+def take(lockfile, relative, name, node, fix):
+    """The edit that moves NODE to exactly FIX, which the install then keeps as it is."""
+    # npm has no exact update; npm update takes the newest release the dependents allow.
+    return (f'in {lockfile} set "{node}" to {fix} (resolved, integrity and dependencies from '
+            f"npm view {name}@{fix} dist dependencies), then cd {relative} && npm install --package-lock-only")
 
 
 def resolved(package, version):

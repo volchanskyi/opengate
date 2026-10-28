@@ -26,7 +26,6 @@ BANNED='is deprecated|was deprecated|has been removed|(was|were) removed|previou
 in_scope_docs() {
   find "$REPO_ROOT/docs" -type f -name '*.md' \
     -not -path "$REPO_ROOT/docs/adr/*" \
-    -not -path "$REPO_ROOT/docs/Architecture-Decision-Records.md" \
     | sort
 }
 

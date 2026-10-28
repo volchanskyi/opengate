@@ -209,11 +209,11 @@ echo "package api" >server/internal/api/foo_test.go
 marker_cmds=(
   'git rev-parse HEAD > .claude/.markers/refactor.head'
   "git rev-parse HEAD >\"\$PWD/.claude/.markers/refactor.head\""
-  'echo x | tee .claude/.markers/gauntlet.pass'
+  'echo x | tee .claude/.markers/refactor.start'
   'cp /tmp/proof .claude/.markers/refactor.done'
   'mv /tmp/proof .claude/.markers/refactor.done'
   'touch .claude/.markers/refactor.start'
-  'rm -f .claude/.markers/gauntlet.pass'
+  'rm -f .claude/.markers/refactor.head'
   'sed -i s/a/b/ .claude/.markers/refactor.done'
   "python3 -c \"open('.claude/.markers/refactor.done','w').write('x')\""
 )
@@ -295,11 +295,9 @@ tidy_here() {
   )
 }
 fingerprint_here() { tidy_here tidy_fingerprint; }
-gauntlet_pass_here() { tidy_here tidy_gauntlet_passed "$(fingerprint_here)"; }
 
 # Called after every file the case needs exists, since the proof names its content.
 prove_tidy_up() {
-  gauntlet_pass_here
   "$PROJECT_ROOT/scripts/refactor-gate.sh" start >/dev/null
   "$PROJECT_ROOT/scripts/refactor-gate.sh" finish >/dev/null
 }
@@ -421,7 +419,7 @@ assert_exit "git commit happy path: PASS" 0
 cleanup_repo
 
 setup_passing_commit_repo
-rm -f .claude/.markers/gauntlet.pass .claude/.markers/refactor.done
+rm -f .claude/.markers/refactor.done
 cat >scripts/precommit-gauntlet.sh <<'EOF'
 #!/usr/bin/env bash
 touch "$(dirname "$0")/../gauntlet-ran"
@@ -433,6 +431,11 @@ run_hook pretooluse-git-commit-guard.sh "$envelope"
 assert_exit "git commit with no tidy-up: BLOCK" 2
 assert_stderr_contains "no tidy-up: stderr cites /refactor" "/refactor"
 assert_stderr_contains "no tidy-up: stderr cites the gauntlet" "precommit-gauntlet.sh"
+if grep -qF 'until it passes' <<<"$HOOK_STDERR"; then
+  fail "no tidy-up: the order begins at /refactor, with no gauntlet run before it"
+else
+  pass "no tidy-up: the order begins at /refactor, with no gauntlet run before it"
+fi
 if [ -e gauntlet-ran ]; then
   fail "no tidy-up: refused before the gauntlet runs (it ran)"
 else
@@ -507,32 +510,15 @@ fi
 cleanup_repo
 
 make_repo
+echo "work no check has run on" >>base.txt
 gate_run start
-assert_exit "refactor-gate start with no gauntlet pass: BLOCK" 1
-assert_stderr_contains "no gauntlet pass: cites the gauntlet" "precommit-gauntlet.sh"
+assert_exit "refactor-gate start on content no gauntlet ran on: PASS" 0
+if [ "$(cat .claude/.markers/refactor.start 2>/dev/null)" = "$(fingerprint_here)" ]; then
+  pass "start: the record names the content /refactor begins on"
+else fail "start: the record names the content /refactor begins on"; fi
 cleanup_repo
 
 make_repo
-gauntlet_pass_here
-echo "edited after the checks" >>base.txt
-gate_run start
-assert_exit "refactor-gate start after an edit following the pass: BLOCK" 1
-cleanup_repo
-
-make_repo
-start_fp="$(fingerprint_here)"
-echo "edited while the checks ran" >>base.txt
-if tidy_here tidy_gauntlet_passed "$start_fp"; then
-  fail "a tree edited while the checks ran records no pass"
-elif [ -e .claude/.markers/gauntlet.pass ]; then
-  fail "a tree edited while the checks ran records no pass (one was written)"
-else
-  pass "a tree edited while the checks ran records no pass"
-fi
-cleanup_repo
-
-make_repo
-gauntlet_pass_here
 gate_run finish
 assert_exit "refactor-gate finish with no start: BLOCK" 1
 if [ -e .claude/.markers/refactor.done ]; then
@@ -542,9 +528,7 @@ cleanup_repo
 
 make_repo
 echo "work" >>base.txt
-gauntlet_pass_here
 gate_run start
-assert_exit "refactor-gate start after a pass on this content: PASS" 0
 echo "tidied" >>base.txt
 gate_run finish
 assert_exit "refactor-gate finish after a start: PASS" 0
@@ -557,36 +541,17 @@ cleanup_repo
 
 make_repo
 echo "work" >>base.txt
-gauntlet_pass_here
 gate_run start
 gate_run finish
 if [ -e .claude/.markers/refactor.head ]; then
   fail "finish with uncommitted work marks no commit"
 else pass "finish with uncommitted work marks no commit"; fi
 git checkout --quiet -- base.txt
-gauntlet_pass_here
 gate_run start
 gate_run finish
 if [ "$(cat .claude/.markers/refactor.head 2>/dev/null)" = "$(git rev-parse HEAD)" ]; then
   pass "finish on HEAD's own content marks HEAD for the push guard"
 else fail "finish on HEAD's own content marks HEAD for the push guard"; fi
-cleanup_repo
-
-make_repo
-envelope="$(build_envelope Skill '{"skill":"refactor"}')"
-run_hook pretooluse-refactor-start-gate.sh "$envelope"
-assert_exit "Skill refactor with no gauntlet pass: BLOCK" 2
-assert_stderr_contains "Skill refactor refused: cites the gauntlet" "precommit-gauntlet.sh"
-envelope="$(build_envelope Skill '{"skill":"tests-audit"}')"
-run_hook pretooluse-refactor-start-gate.sh "$envelope"
-assert_exit "Skill tests-audit: allow (not /refactor)" 0
-gauntlet_pass_here
-envelope="$(build_envelope Skill '{"skill":"refactor"}')"
-run_hook pretooluse-refactor-start-gate.sh "$envelope"
-assert_exit "Skill refactor after a pass on this content: allow" 0
-if [ "$(cat .claude/.markers/refactor.start 2>/dev/null)" = "$(fingerprint_here)" ]; then
-  pass "Skill refactor after a pass records the start"
-else fail "Skill refactor after a pass records the start"; fi
 cleanup_repo
 
 echo
@@ -817,7 +782,7 @@ cleanup_repo
 
 # Each marker is written by the step it proves, so one written any other way proves nothing.
 make_repo
-for marker in refactor.done refactor.head gauntlet.pass; do
+for marker in refactor.start refactor.done refactor.head; do
   envelope="$(build_envelope Write "$(printf '{"file_path":"%s/.claude/.markers/%s","content":"x"}' "$REPO" "$marker")")"
   run_hook pretooluse-write-guard.sh "$envelope"
   assert_exit "Write .claude/.markers/$marker: BLOCK" 2

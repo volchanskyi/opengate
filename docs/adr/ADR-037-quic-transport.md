@@ -15,7 +15,7 @@ enough to be worth doing often.
 
 **QUIC with mutual TLS**, using `quic-go` at the version pinned in
 [`server/go.mod`](../../server/go.mod). Agent certificates are issued at
-enrollment ([ADR-004](../Architecture-Decision-Records.md)).
+enrollment ([ADR-004](ADR-004-mutual-tls-enrollment.md)).
 
 **The agent opens the control stream and writes first.** The endpoint that opens
 a bidirectional stream has to write before the other side can accept it, so

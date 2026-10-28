@@ -87,6 +87,7 @@ func seedOwnedDevice(t *testing.T, srv *Server) *device.Device {
 }
 
 func TestGetDeviceMetricsHandler(t *testing.T) {
+	t.Parallel()
 	srv, cfg := newTestServer(t)
 	_, token := seedTestUser(t, srv, cfg, "metrics@example.com", false)
 	dev := seedOwnedDevice(t, srv)
@@ -261,6 +262,7 @@ func TestAssembleMetricRangeDimFilterAndDownsampled(t *testing.T) {
 }
 
 func TestEnrichAnomalyRates(t *testing.T) {
+	t.Parallel()
 	srv, _ := newTestServer(t)
 	dev := seedOwnedDevice(t, srv)
 	other := uuid.New()
@@ -281,6 +283,7 @@ func TestEnrichAnomalyRates(t *testing.T) {
 }
 
 func TestEnrichAnomalyRatesBestEffort(t *testing.T) {
+	t.Parallel()
 	srv, _ := newTestServer(t)
 	// nil reader and query error must both leave devices untouched, never panic.
 	srv.telemetryReader = nil

@@ -65,4 +65,4 @@ Devices** is the day-to-day console, and the rest go deeper per capability.
 
 | Chapter | Description |
 |---------|-------------|
-| [Architecture Decision Records](./Architecture-Decision-Records.md) | Combined ADR log (ADR-001 … ADR-012); later ADRs live as per-file records in [`adr/`](./adr/) |
+| [Architecture Decision Records](./adr/) | One file per decision, indexed by number in [`decisions.md`](../.claude/decisions.md) |

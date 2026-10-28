@@ -66,6 +66,5 @@ __pycache__/
 
 # Tidy-up proof markers; tracked subdirectories of .claude/.markers/ stay unignored.
 /.claude/.markers/*.head
-/.claude/.markers/gauntlet.pass
 /.claude/.markers/refactor.start
 /.claude/.markers/refactor.done

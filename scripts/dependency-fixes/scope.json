@@ -57,10 +57,6 @@
       "reason": "protocol fixtures carry a host's container inventory"
     },
     {
-      "path": "scripts/tests/ci-cd-determinism.test.sh",
-      "reason": "the sweep's own fixtures and messages quote install lines"
-    },
-    {
       "path": "scripts/tests/dependency-fixes-*.test.sh",
       "reason": "the check's own fixtures name images, installs and releases no registry holds"
     },

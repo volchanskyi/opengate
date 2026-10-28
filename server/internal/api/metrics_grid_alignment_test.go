@@ -43,6 +43,7 @@ func writeRawWindow(t *testing.T, srv *Server, ctx context.Context, tenant, devi
 }
 
 func TestMetricGridMatchesVictoriaMetricsEvaluationInstants(t *testing.T) {
+	t.Parallel()
 	srv, m := newVMBackedServer(t)
 	ctx := context.Background()
 	tenant := uuid.New()
@@ -88,6 +89,7 @@ func TestMetricGridMatchesVictoriaMetricsEvaluationInstants(t *testing.T) {
 }
 
 func TestGetDeviceMetricsSevenDayWindowOverTwentyMinutesOfData(t *testing.T) {
+	t.Parallel()
 	srv, m := newVMBackedServer(t)
 	ctx := context.Background()
 	tenant := uuid.New()
@@ -130,6 +132,7 @@ func TestGetDeviceMetricsSevenDayWindowOverTwentyMinutesOfData(t *testing.T) {
 }
 
 func TestGetDeviceMetricsWindowSelectorChangesThePointCount(t *testing.T) {
+	t.Parallel()
 	srv, _ := newVMBackedServer(t)
 	ctx := context.Background()
 	tenant := uuid.New()

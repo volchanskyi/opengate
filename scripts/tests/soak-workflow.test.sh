@@ -254,14 +254,14 @@ if "scripts/perf-regression-check.sh" not in runs:
     print("the publish job does not compare the legs with the nights before them")
 if "outputs.started_at" not in str(env.get("VM_RUN_STARTED_AT", "")):
     print("the publish job is not handed the time the run started")
-if "always()" not in str(publish.get("if", "")):
-    print("the publish job does not run after a leg that failed")
+if "!cancelled()" not in str(publish.get("if", "")):
+    print("the publish job does not run after a leg that failed, or runs on after a cancel")
 if not any("oci-kube-setup" in str(s.get("uses", "")) for s in publish.get("steps", [])):
     print("the publish job never reaches the store")
 gate = jobs.get("gate") or {}
 gate_runs = "\n".join(str(s.get("run", "")) for s in gate.get("steps", []))
-if "publish" not in (gate.get("needs") or []) or "always()" not in str(gate.get("if", "")):
-    print("no gate job reads the publish job whatever happened to it")
+if "publish" not in (gate.get("needs") or []) or "!cancelled()" not in str(gate.get("if", "")):
+    print("no gate job reads the publish job whatever it met short of a cancel")
 if "needs.publish.result" not in gate_runs or "needs.publish.outputs.regression" not in gate_runs:
     print("the gate does not read the publish job's result and its finding")
 PY_PUBLISH

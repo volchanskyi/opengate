@@ -30,13 +30,9 @@ Banned in live docs and comments (non-exhaustive):
 
 ## The gate
 
-- It matches paragraph-joined text, so a phrase straddling an 80-column wrap is
-  caught.
-- It carries no allowlist.
-- Its phrase list is narrower than the rule above — `used to `, `the old ` and
-  `the previous ` are deliberately absent. Clearing the gate is the floor.
-- Scope is `docs/**` minus `docs/adr/**` and
-  `docs/Architecture-Decision-Records.md`.
+- The gate's phrase list is narrower than the rule above; clearing the gate is the
+  floor. How it matches and what it reads:
+  [ADR-080](../../docs/adr/ADR-080-documentation.md).
 
 ## Exceptions
 

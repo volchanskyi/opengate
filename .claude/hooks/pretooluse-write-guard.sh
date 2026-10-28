@@ -55,7 +55,7 @@ fi
 # Each marker is written by the step it proves, so a hand-written one proves nothing.
 case "$path" in
   .claude/.markers/* | */.claude/.markers/*)
-    block markers-direct-write "Write/Edit refused: $path is a marker. It is written by the step it proves — ./scripts/precommit-gauntlet.sh on a pass, scripts/refactor-gate.sh start/finish, the post-commit hook — never by hand. .claude/rules/refactor.md."
+    block markers-direct-write "Write/Edit refused: $path is a marker. It is written by the step it proves — scripts/refactor-gate.sh start/finish, the post-commit hook — never by hand. .claude/rules/refactor.md."
     ;;
 esac
 

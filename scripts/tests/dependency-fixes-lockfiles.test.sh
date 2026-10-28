@@ -122,10 +122,18 @@ echo "dependency-fixes lockfiles:"
 status=0
 run npm || status=$?
 if [ "$status" -eq 1 ] && out_has 'npm (web) zod 4.6.5: GHSA-mrhx-c7xc-m3w5 fixed in 4.6.6' \
-  && out_has 'take it: cd web && npm update zod --package-lock-only'; then
-  pass "an npm advisory a patch fixes refuses the commit and names the update that takes it"
+  && out_has 'take it: in web/package-lock.json set "node_modules/zod" to 4.6.6' \
+  && out_has 'npm view zod@4.6.6 dist dependencies' \
+  && out_has 'then cd web && npm install --package-lock-only'; then
+  pass "an npm advisory a patch fixes refuses the commit and names the lockfile entry and release"
 else
   fail "an npm advisory a patch fixes must refuse the commit (status=$status out=[$(cat "$WORK/out")])"
+fi
+# The update takes the newest release the dependents allow, which can be a newer line than the fix.
+if out_has 'npm update'; then
+  fail "the npm advice names the fixed release, never an update to the newest one"
+else
+  pass "the npm advice names the fixed release, never an update to the newest one"
 fi
 
 status=0
@@ -151,6 +159,23 @@ if [ "$status" -eq 2 ] && out_has 'stayed unreadable'; then
 else
   fail "an audit that never answers must exit 2 (status=$status out=[$(cat "$WORK/out")])"
 fi
+
+# Each report differs from the zod one in the one field the reader cannot trust.
+sed 's|"url": "https://github.com/advisories/GHSA-mrhx-c7xc-m3w5"|"url": ""|' "$WORK/zod.json" >"$WORK/no-id.json"
+sed 's|"nodes": \["node_modules/zod"\]|"nodes": ["node_modules/absent"]|' "$WORK/zod.json" >"$WORK/no-copy.json"
+sed 's|"nodes": \["node_modules/zod"\]|"nodes": ["node_modules/react"]|' "$WORK/zod.json" >"$WORK/uncovered.json"
+for unreadable in "no-id|an advisory of zod names no id|an advisory naming no id" \
+  "no-copy|node_modules/absent has no version|a copy the lockfile holds no version for" \
+  "uncovered|on zod 19.2.0, which the advisory's own ranges do not cover|a version outside the advisory's ranges"; do
+  IFS='|' read -r report says what <<<"$unreadable"
+  status=0
+  run npm FAKE_NPM="$WORK/$report.json" || status=$?
+  if [ "$status" -eq 2 ] && out_has "$says"; then
+    pass "$what fails the check as unreadable"
+  else
+    fail "$what must exit 2 naming it (status=$status out=[$(cat "$WORK/out")])"
+  fi
+done
 
 status=0
 run rust || status=$?

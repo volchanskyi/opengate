@@ -42,6 +42,24 @@ out of scope with its reason, and a file of a type nothing reads fails the
 sweep, so a new language arriving with a new platform is a decision rather than
 a gap.
 
+The extractors are `go/scanner` for Go, a lexer for Rust, the TypeScript
+compiler in `web/node_modules` for TypeScript, JavaScript and JSON, `shfmt`'s
+syntax tree for shell, and line rules for YAML, Helm templates, Makefile,
+Dockerfile, TOML, HCL, SQL, Rego, Python, properties, CSS, HTML and the ignore
+files. A GitHub `run:` block is read as shell; any other block scalar, an HCL
+heredoc and an SQL dollar-quoted body are data. The out-of-scope list is
+[`scope.tsv`](../../scripts/check-comments/scope.tsv), and an entry matching no
+file fails the sweep. The hook refuses only a violation the edit adds, leaving
+one already in the file to the sweep, and a missing TypeScript compiler or a
+drifted `shfmt` exits 2 with the command that fixes it.
+
+| Mode | What it does |
+|---|---|
+| `sweep [PATH…]` | Every in-scope file, zero violations; prints what it read and fails on a read of nothing |
+| `hook` | Applies the proposed Write, Edit or MultiEdit in memory and refuses any new violation |
+| `same-code BASE [--no-new-comments] [--declared FILE]` | Proves each changed file's code identical to `BASE` and, with the flag, that no comment sits where `BASE` had none |
+| `stats [PATH…]` | Comment lines per language and area |
+
 **Machine-read comments stay verbatim.** Compiler and linter directives, the
 version beside a pinned action, and the markers other gates read are exempt
 from the rules and checked by those gates.

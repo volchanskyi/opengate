@@ -24,7 +24,7 @@ whether a test runs. This governs what it runs against.
   load, and invoke the real code.
 - The one sanctioned seam is the fault-injection substitution point, supplied at
   test time rather than compiled into the shipped binary
-  ([`ci-cd-determinism.md`](ci-cd-determinism.md)).
+  ([ADR-055](../../docs/adr/ADR-055-fault-injection.md)).
 
 ### A test leaves the environment as it found it
 
@@ -65,13 +65,8 @@ test fails against today's code before the fix.
 
 ## What is deliberately not banned
 
-Assertion shape is not evidence of value. Measured against the nightly breakage
-report:
-
-| Test-file weakness by assertion shape | Mean unnoticed-breakage rate |
-|---|---|
-| ≥30% "weak" assertions | 5.8% |
-| <10% "weak" assertions | 9.3% |
+Assertion shape is not evidence of value, measured against the nightly breakage
+report in [ADR-098](../../docs/adr/ADR-098-test-value.md).
 
 None of the following is refused, and removing them is a regression:
 

@@ -36,12 +36,12 @@ if [ "$branch" != "dev" ]; then
   exit 0
 fi
 
-# Only a commit of the content /refactor finished on, after a gauntlet pass, is marked or pushed.
+# Only a commit of the content /refactor finished on is marked or pushed.
 # shellcheck source=lib/tidy-up.sh
 source "$root/.claude/hooks/lib/tidy-up.sh"
 if ! tidy_done_matches; then
   dbg "exit: no finished /refactor for this content"
-  echo "auto-push skipped: no finished /refactor for the content this commit was made from. Run ./scripts/precommit-gauntlet.sh to a pass, then /refactor, then push."
+  echo "auto-push skipped: no finished /refactor for the content this commit was made from. Run /refactor, then push."
   exit 0
 fi
 

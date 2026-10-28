@@ -30,6 +30,14 @@ chapter lives in exactly one tree, appears in exactly one row of
 
 **Documentation describes live state only.** Nothing narrates what was removed
 or replaced. Both the seam and this are gates, not conventions.
+The live-state gate
+([`docs-live-state.test.sh`](../../scripts/tests/docs-live-state.test.sh))
+matches paragraph-joined text, so a phrase straddling an 80-column wrap is
+caught, and carries no allowlist. Its phrase list is narrower than the rule:
+`used to `, `the old ` and `the previous ` are left out, since each also reads
+as plain description — "the namespace used to construct the endpoint" — in a
+dozen live pages. Its scope is `docs/**` minus the decision records, whose
+Context sections state the problem a decision solved.
 
 **Every page opens with its contents.** Each page under `docs/` except the
 decision records starts, right after its title, with a list linking every

@@ -46,14 +46,3 @@ is `lacks`.
   — an `if`, an `&&`, an `||`, a bare statement.
 - Redirection is not subject to it. `<<<`, `< file` and a command substitution
   hand the reader a source it can abandon without failing anybody.
-
-## What the guard does
-
-- **Demonstrates** the defect first, against a haystack sized to make the race
-  certain, requiring the piped form to lose a needle that is present and the
-  here-string form to find it.
-- **Sweeps** every tracked shell script that enables `pipefail`, and counts what
-  it read, so a sweep that reached nothing fails.
-- Joins line continuations before matching.
-- Removes command substitutions before matching, depth-aware, so what is judged
-  is the pipeline's position rather than its text.

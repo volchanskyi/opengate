@@ -115,7 +115,7 @@ for path in sorted(workflows.glob("*.yml")):
                     if isinstance(candidate, dict)
                     and other != job_name
                     and job_name in (candidate.get("needs") or [])
-                    and "always()" in str(candidate.get("if", "") or "")
+                    and any(status in str(candidate.get("if", "") or "") for status in ("always()", "!cancelled()"))
                 ]
                 if not readers:
                     findings.append(

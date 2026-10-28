@@ -550,7 +550,7 @@ jobs:
   publish:
     name: Publish the network-drill trend
     needs: [network-drill]
-    if: always()
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     # This job reports only whether the trend was published; the gate job carries the regression
@@ -646,7 +646,7 @@ jobs:
   gate:
     name: Network-drill regression gate
     needs: [publish]
-    if: always()
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -682,7 +682,7 @@ jobs:
       - name: Send Telegram alert
         # Says which of the three the publish job met. A refused send fails this job alone, so the
         # verdict the gate reads stays the run's.
-        if: always() && needs.publish.result != 'skipped'
+        if: always()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
@@ -693,6 +693,8 @@ jobs:
           JOB_STATUS: ${{ needs.publish.result }}
         run: |
           set -euo pipefail
+          # A cancel is what skips the publish job once the run it reads has finished.
+          if [ "$JOB_STATUS" = "skipped" ]; then JOB_STATUS="cancelled before publishing"; fi
           if [ "$JOB_STATUS" = "success" ] && [ "${FINDING:-0}" != "1" ]; then
             echo "No alert sent: the run finished and found nothing."
             exit 0

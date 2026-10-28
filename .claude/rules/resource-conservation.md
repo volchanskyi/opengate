@@ -35,10 +35,9 @@ work was undone is not evidence that it was.
 
 ### The assertion is a slope, never a fixed baseline
 
-- A baseline has to guess at the constant every `NewServer` starts, and goes
-  stale when anything else in the process changes.
-- A tolerance is stated beside the two measurements that bracket it — what the
-  defect read, and what the fixed code reads.
+- The test states its tolerance beside the two readings that bracket it — what the
+  defect read, and what the fixed code reads. Why a slope:
+  [ADR-093](../../docs/adr/ADR-093-relay-session-lifetime.md).
 
 ### The tier is the one that needs the transport
 
@@ -48,7 +47,5 @@ work was undone is not evidence that it was.
 
 ## Scope
 
-- The conservation tests cover the relay and the Intel AMT path. The agent QUIC
-  path is not yet covered by them.
-- A new long-lived connection path inherits the rule when it is written, and the
-  static guard fires before the test has to.
+- A new long-lived connection path inherits the rule when it is written. What the
+  tests cover today: [ADR-093](../../docs/adr/ADR-093-relay-session-lifetime.md).
