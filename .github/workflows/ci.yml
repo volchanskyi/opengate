@@ -214,6 +214,7 @@ jobs:
           go test -json -race -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/... > unit-results.json 2>unit-stderr.log
           EXIT_CODE=$?
           cat unit-stderr.log >&2
+          ../scripts/go-test-failures.sh unit-results.json
           PASSED=$(jq -r 'select(.Action=="pass" and .Test != null) | .Test' unit-results.json | wc -l | tr -d ' ')
           FAILED=$(jq -r 'select(.Action=="fail" and .Test != null) | .Test' unit-results.json | wc -l | tr -d ' ')
           # The verdict is go test's own, so the summary and the job agree.
@@ -308,6 +309,7 @@ jobs:
           go test -json -race -timeout 10m ./tests/... > integration-results.json 2>integration-stderr.log
           EXIT_CODE=$?
           cat integration-stderr.log >&2
+          ../scripts/go-test-failures.sh integration-results.json
           PASSED=$(jq -r 'select(.Action=="pass" and .Test != null) | .Test' integration-results.json | wc -l | tr -d ' ')
           FAILED=$(jq -r 'select(.Action=="fail" and .Test != null) | .Test' integration-results.json | wc -l | tr -d ' ')
           # The verdict is go test's own, so the summary and the job agree.

@@ -40,16 +40,19 @@ func getStatus(t *testing.T, url string) int {
 }
 
 func TestHealthz_LivenessIsDependencyFree(t *testing.T) {
+	t.Parallel()
 	ts := degradedRelayServer(t)
 	assert.Equal(t, http.StatusOK, getStatus(t, ts.URL+"/healthz"))
 }
 
 func TestHealth_ReadyWhenRegistryHealthy(t *testing.T) {
+	t.Parallel()
 	ts, _, _ := newRelayTestServer(t)
 	assert.Equal(t, http.StatusOK, getStatus(t, ts.URL+"/api/v1/health"))
 }
 
 func TestHealth_DrainsWhenRegistryDown(t *testing.T) {
+	t.Parallel()
 	ts := degradedRelayServer(t)
 	assert.Equal(t, http.StatusServiceUnavailable, getStatus(t, ts.URL+"/api/v1/health"))
 }

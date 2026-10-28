@@ -87,6 +87,7 @@ func newPurgeTestServer(t *testing.T, purger DevicePurger, jobs PurgeJobReader) 
 }
 
 func TestDeleteDeviceRunsPurgeWhenWired(t *testing.T) {
+	t.Parallel()
 	purger := &fakePurger{}
 	srv, cfg := newPurgeTestServer(t, purger, nil)
 	_, token := seedTestUser(t, srv, cfg, "admin-purge@example.com", true)
@@ -104,6 +105,7 @@ func TestDeleteDeviceRunsPurgeWhenWired(t *testing.T) {
 }
 
 func TestPurgeTenantAdminOnly(t *testing.T) {
+	t.Parallel()
 	purger := &fakePurger{}
 	srv, cfg := newPurgeTestServer(t, purger, nil)
 	_, userToken := seedTestUser(t, srv, cfg, "user-purge@example.com", false)
@@ -114,6 +116,7 @@ func TestPurgeTenantAdminOnly(t *testing.T) {
 }
 
 func TestPurgeTenantCrossTenantDenied(t *testing.T) {
+	t.Parallel()
 	purger := &fakePurger{}
 	srv, cfg := newPurgeTestServer(t, purger, nil)
 	_, adminToken := seedTestUser(t, srv, cfg, "admin-cross@example.com", true)
@@ -126,6 +129,7 @@ func TestPurgeTenantCrossTenantDenied(t *testing.T) {
 }
 
 func TestPurgeTenantAcceptsAndRunsAsync(t *testing.T) {
+	t.Parallel()
 	purger := &fakePurger{}
 	srv, cfg := newPurgeTestServer(t, purger, nil)
 	_, adminToken := seedTestUser(t, srv, cfg, "admin-ok@example.com", true)
@@ -138,6 +142,7 @@ func TestPurgeTenantAcceptsAndRunsAsync(t *testing.T) {
 }
 
 func TestGetPurgeJobScopedToTenant(t *testing.T) {
+	t.Parallel()
 	otherTenantJob := &lifecycle.PurgeJob{ID: uuid.New(), TenantID: uuid.New(), Scope: lifecycle.ScopeTenant, State: lifecycle.StateComplete}
 	ownJob := &lifecycle.PurgeJob{ID: uuid.New(), TenantID: dbtx.DefaultTenantID, Scope: lifecycle.ScopeTenant, State: lifecycle.StateComplete}
 	reader := &fakeJobReader{jobs: map[uuid.UUID]*lifecycle.PurgeJob{otherTenantJob.ID: otherTenantJob, ownJob.ID: ownJob}}
@@ -155,6 +160,7 @@ func TestGetPurgeJobScopedToTenant(t *testing.T) {
 }
 
 func TestDeleteDeviceRefusedWithoutPurger(t *testing.T) {
+	t.Parallel()
 	srv, cfg := newPurgeTestServer(t, nil, nil)
 	_, token := seedTestUser(t, srv, cfg, "admin-nopurger@example.com", true)
 

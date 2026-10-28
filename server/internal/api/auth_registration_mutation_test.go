@@ -10,6 +10,7 @@ import (
 )
 
 func TestRegisterPromotesOnlyTheFirstUser(t *testing.T) {
+	t.Parallel()
 	srv, _ := newTestServer(t)
 	ctx := testTenantContext(t)
 

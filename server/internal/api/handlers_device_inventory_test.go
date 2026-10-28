@@ -39,6 +39,7 @@ func (f *fakeInventoryRepo) ListForDevice(_ context.Context, deviceID uuid.UUID,
 }
 
 func TestGetDeviceInventoryHandler(t *testing.T) {
+	t.Parallel()
 	srv, cfg := newTestServer(t)
 	_, token := seedTestUser(t, srv, cfg, "inv@example.com", false)
 	ctx := testTenantContext(t)

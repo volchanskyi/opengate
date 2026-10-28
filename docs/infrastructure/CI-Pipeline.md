@@ -218,6 +218,11 @@ All three shade red → green across the `minColorRange` / `maxColorRange` span 
 on the badge steps in [`ci.yml`](../../.github/workflows/ci.yml).
 
 Each CI job posts a native Markdown summary (pass/fail counts, failed test names) to the GitHub Actions job summary tab for quick triage without digging into logs.
+The Go unit and integration jobs also write each failure into the job log, with its output, as an
+error annotation and a collapsed group
+([`go-test-failures.sh`](../../scripts/go-test-failures.sh)): a failed test, a package that did
+not build, and a package that failed with no test failing, such as one past its time limit, named
+with the tests still running when it stopped.
 
 ## Docker Hub pulls
 
