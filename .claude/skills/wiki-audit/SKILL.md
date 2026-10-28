@@ -26,8 +26,7 @@ gated by [`docs-seam.test.sh`](../../../scripts/tests/docs-seam.test.sh) and
 [`docs-live-state.test.sh`](../../../scripts/tests/docs-live-state.test.sh); this
 skill audits what those cannot see. **Every** ADR describes **live state**
 — a stale link, moved path, or fact the code has since reversed is fixed in
-place, like any other doc. This covers both the per-file ADRs in `docs/adr/*.md`
-and the combined log `docs/Architecture-Decision-Records.md` (001–012). An ADR
+place, like any other doc. This covers every ADR, each a file in `docs/adr/`. An ADR
 whose decision leaves nothing behind is deleted, not marked as past.
 
 **Reference:** [`docs/README.md`](../../../docs/README.md) — link-over-paraphrase rule.
@@ -184,10 +183,8 @@ done
 ## 2. ADR currency check
 
 Every ADR describes live state: fix stale links, moved paths, and facts the
-code has since reversed in place, like any other doc. This applies to the
-per-file ADRs in `docs/adr/` **and** to the combined log at
-[`docs/Architecture-Decision-Records.md`](../../../docs/Architecture-Decision-Records.md)
-(001–012). There is no superseded status: a changed decision rewrites its ADR,
+code has since reversed in place, like any other doc. This applies to every
+ADR in `docs/adr/`. There is no superseded status: a changed decision rewrites its ADR,
 and a decision that leaves nothing behind has its ADR deleted with anything
 still live merged into the ADR that replaced it. A minor fix belongs in the ADR
 whose decision it refines rather than in one of its own. When cutting an ADR

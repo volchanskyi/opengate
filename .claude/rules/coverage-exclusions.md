@@ -47,22 +47,14 @@ Not reasons, and an entry resting on one is removed:
 
 ### The lists must agree
 
-| Where | What it holds |
-|---|---|
-| [`sonar-project.properties`](../../sonar-project.properties) | `sonar.coverage.exclusions` — the new-code gate |
-| [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) | the per-language ≥80% jobs |
-| [`scripts/precommit-gauntlet.sh`](../../scripts/precommit-gauntlet.sh) | the same per-language checks locally |
-| [`Makefile`](../../Makefile)'s `sonar-coverage` | the report the gate itself reads |
-
+- The four places that list exclusions hold the same entries
+  ([ADR-091](../../docs/adr/ADR-091-coverage-reports.md) names them).
 - The guard fails when the Rust ignore lists disagree.
 
 ### The report has to be readable by the scanner that reads it
 
-- The report is rewritten into the reader's coordinates and then asked whether
-  it worked.
-- [`rust-lcov-relativize.sh`](../../scripts/rust-lcov-relativize.sh) fails on a
-  report that still names an absolute path, and on one that names no source at
-  all.
+- A coverage report is rewritten into its reader's coordinates and read back
+  ([ADR-091](../../docs/adr/ADR-091-coverage-reports.md)).
 
 ### An exclusion is re-earned, not kept
 

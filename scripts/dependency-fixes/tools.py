@@ -139,7 +139,7 @@ def _npm_advisories(name, version):
     """{(package, advisory)} an install of NAME at VERSION resolves into today."""
     work, tree = npm.resolved(name, version)
     try:
-        return {(f.name, f.advisory) for f in npm.findings(work, work, tree, lambda _: "")}
+        return {(f.name, f.advisory) for f in npm.findings(work, work, tree, lambda *_: "")}
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -149,7 +149,7 @@ def _npm(key, name, version):
     each answered by whether a later release of the tool still resolves into it."""
     work, tree = npm.resolved(name, version)
     try:
-        built = npm.findings(work, f"{_label(key)} {version}", tree, lambda _: "")
+        built = npm.findings(work, f"{_label(key)} {version}", tree, lambda *_: "")
     finally:
         shutil.rmtree(work, ignore_errors=True)
     releases = _npm_releases(name)

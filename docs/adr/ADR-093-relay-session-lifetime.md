@@ -39,7 +39,16 @@ drives a growing number of complete sessions against one server, fits a line
 through goroutines and retained memory against sessions completed, and requires
 both slopes flat. A fixed baseline would have to guess at what the process holds
 at rest and would go stale on the next change; a slope states the property
-directly — a finished operation gives back what it took.
+directly — a finished operation gives back what it took. Each test states its
+tolerance beside the two readings that bracket it: what the defect read, and
+what the fixed code reads.
+
+[`mps_conservation_test.go`](../../server/tests/integration/mps_conservation_test.go)
+holds Intel AMT requests the same way, a third of them answered, a third stalled
+after the channel opens and a third never confirmed. The relay and the Intel AMT
+path are what the conservation tests drive; the agent's QUIC path has no
+conservation test of its own, and the static rule below fires on a new
+long-lived connection path before a test has to.
 
 A static rule
 ([`hijacked-request-context.yaml`](../../policy/semgrep/resources/hijacked-request-context.yaml))

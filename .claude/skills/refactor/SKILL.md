@@ -2,18 +2,17 @@
 name: refactor
 description: |
   Tidy-up of the change about to be committed. Improves readability and performance
-  without changing business logic. Runs after the gauntlet passes and before the
-  commit; the commit is refused without it.
+  without changing business logic. Runs before the commit, which runs the
+  gauntlet; the commit is refused without it.
 ---
 
 # Tidy-up Before Commit
 
-Refactor the code this change adds — the uncommitted diff against `HEAD` — after
-every check has passed on it and before it is committed. DO NOT CHANGE BUSINESS
-LOGIC.
+Refactor the code this change adds — the uncommitted diff against `HEAD` —
+before it is committed. DO NOT CHANGE BUSINESS LOGIC.
 
-The order is enforced end to end ([`refactor.md`](../../rules/refactor.md)): the
-gauntlet passes, then this skill, then the commit, which runs the gauntlet again.
+The order is enforced end to end ([`refactor.md`](../../rules/refactor.md)): this
+skill, then the commit, which runs the gauntlet.
 
 ## Constraints
 
@@ -23,9 +22,8 @@ gauntlet passes, then this skill, then the commit, which runs the gauntlet again
 
 ## Steps (follow in order)
 
-0. **Start** — from the repo root run `scripts/refactor-gate.sh start`. It refuses
-   unless `./scripts/precommit-gauntlet.sh` passed on exactly the content on disk;
-   when it refuses, run the gauntlet to a pass and start again.
+0. **Start** — from the repo root run `scripts/refactor-gate.sh start`. It records
+   the content the tidy-up begins on, which the finish requires.
 1. **Analyze** — Review the current code and explain potential bottlenecks within the repo
 2. **Slice before you cut** — Before any change that touches more than one file, build the **call slice** (what calls this; what does this call) and the **test slice** (which tests cover the rename or hoist or extraction). The slice is the verification gate: a refactor that compiles but breaks an uncovered caller path is the most expensive failure mode this skill can produce.
    - Rust: `cargo check --workspace --all-targets` after every micro-step; `rust-analyzer` gives the call slice via "find references". For non-trivial extractions, also run `cargo expand` on the affected module if macros are involved.
@@ -73,7 +71,6 @@ Validate changes with `make lint-deploy && actionlint`.
 ## The markers
 
 Steps 0 and 7 write `.claude/.markers/refactor.start` and `refactor.done`; the
-gauntlet writes `gauntlet.pass` and the post-commit hook `refactor.head`. Never
-write one by hand — the write guards refuse it, and a hand-written proof proves
-nothing. **There is NO bypass** — the only way to change enforcement is editing
-`.claude/settings.json`.
+post-commit hook writes `refactor.head`. Never write one by hand — the write
+guards refuse it, and a hand-written proof proves nothing. **There is NO
+bypass** — the only way to change enforcement is editing `.claude/settings.json`.

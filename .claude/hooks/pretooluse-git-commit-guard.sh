@@ -64,7 +64,7 @@ fi
 
 # The tidy-up is refused before the gauntlet runs, since a commit attempt costs a full run.
 if ! tidy_done_matches; then
-  block git-tidy-up-first "git commit refused: no finished /refactor for the content on disk. The order is: ./scripts/precommit-gauntlet.sh until it passes, then /refactor (scripts/refactor-gate.sh start … finish), then the commit, which runs the gauntlet again. Any edit after /refactor finishes — a new file included — starts the order over. Keep the commit message file, and any log of the commit, outside the work tree: a new file there is content the proof never saw."
+  block git-tidy-up-first "git commit refused: no finished /refactor for the content on disk. The order is: /refactor (scripts/refactor-gate.sh start … finish), then the commit, which runs ./scripts/precommit-gauntlet.sh. Any edit after /refactor finishes — a new file included — starts the order over. Keep the commit message file, and any log of the commit, outside the work tree: a new file there is content the proof never saw."
 fi
 
 # The gauntlet exits 0 when clean, 1 on a failed check and 2 on a missing prerequisite.

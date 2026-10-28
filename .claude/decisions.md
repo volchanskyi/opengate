@@ -3,8 +3,7 @@
 <!-- Index only. A decision and its reasoning live in the ADR; a row here exists -->
 <!-- so a reader can choose a link. Prose per row is capped at 200 characters, -->
 <!-- enforced by scripts/tests/state-index-density.test.sh. -->
-<!--   - ADR-001 … ADR-012: docs/Architecture-Decision-Records.md (one page) -->
-<!--   - ADR-014 onward:    docs/adr/ADR-NNN-title.md (one file each) -->
+<!-- Every ADR is a file of its own: docs/adr/ADR-NNN-title.md. -->
 <!-- Every ADR describes live state. A decision that changes rewrites its ADR; -->
 <!-- one that leaves nothing behind is deleted. Git history holds the history. -->
 <!-- Numbers are not reused, so gaps are expected. -->
@@ -12,15 +11,15 @@
 
 | ADR | Decision | Record |
 |-----|----------|--------|
-| 001 | MessagePack on the wire, internally tagged enums, `[type][length][payload]` framing | [log](../docs/Architecture-Decision-Records.md) |
-| 002 | Golden fixtures prove Rust and Go agree, in both directions, each with a sidecar saying what it holds | [log](../docs/Architecture-Decision-Records.md) |
-| 004 | The server is its own certificate authority; agents enrol by signing request over TLS 1.3 | [log](../docs/Architecture-Decision-Records.md) |
-| 006 | Agent capabilities are traits, and a platform that implements none of them gets the null ones | [log](../docs/Architecture-Decision-Records.md) |
-| 007 | Web push with the keypair persisted to the data directory | [log](../docs/Architecture-Decision-Records.md) |
-| 008 | The agent cross-compiles to static aarch64 musl | [log](../docs/Architecture-Decision-Records.md) |
-| 009 | Container images are signed without keys, through the pipeline's own identity | [log](../docs/Architecture-Decision-Records.md) |
-| 010 | Hardware inventory is its own table, collected when asked for rather than on a schedule | [log](../docs/Architecture-Decision-Records.md) |
-| 012 | The SonarCloud gate blocks the merge on new code; per-language coverage and per-file repeated code are held across the whole codebase | [log](../docs/Architecture-Decision-Records.md) |
+| 001 | MessagePack on the wire, internally tagged enums, `[type][length][payload]` framing | [ADR-001](../docs/adr/ADR-001-messagepack-wire-protocol.md) |
+| 002 | Golden fixtures prove Rust and Go agree, in both directions, each with a sidecar saying what it holds | [ADR-002](../docs/adr/ADR-002-golden-files.md) |
+| 004 | The server is its own certificate authority; agents enrol by signing request over TLS 1.3 | [ADR-004](../docs/adr/ADR-004-mutual-tls-enrollment.md) |
+| 006 | Agent capabilities are traits, and a platform that implements none of them gets the null ones | [ADR-006](../docs/adr/ADR-006-platform-traits.md) |
+| 007 | Web push with the keypair persisted to the data directory | [ADR-007](../docs/adr/ADR-007-web-push.md) |
+| 008 | The agent cross-compiles to static aarch64 musl | [ADR-008](../docs/adr/ADR-008-aarch64-musl-agent.md) |
+| 009 | Container images are signed without keys, through the pipeline's own identity | [ADR-009](../docs/adr/ADR-009-keyless-image-signing.md) |
+| 010 | Hardware inventory is its own table, collected when asked for rather than on a schedule | [ADR-010](../docs/adr/ADR-010-hardware-inventory.md) |
+| 012 | The SonarCloud gate blocks the merge on new code; per-language coverage and per-file repeated code are held across the whole codebase | [ADR-012](../docs/adr/ADR-012-sonarcloud-gate.md) |
 | 014 | PostgreSQL 17 through pgx, native column types, running in the cluster | [ADR-014](../docs/adr/ADR-014-postgresql.md) |
 | 015 | Infrastructure code is scanned by Checkov, Hadolint and Trivy; one baseline is the only suppression | [ADR-015](../docs/adr/ADR-015-iac-scanning.md) |
 | 018 | Operators reach nodes through OCI Bastion; automation uses the cluster API instead | [ADR-018](../docs/adr/ADR-018-operator-node-access.md) |
@@ -79,3 +78,4 @@
 | 126 | Every dependency is checked before a commit for a hole a patch release fixes; an npm advisory with no patch fix may be excepted until a review date, and the exception lapses on its own | [ADR-126](../docs/adr/ADR-126-advisory-exceptions-lapse.md) |
 | 127 | A session moves to a direct link when the networks allow and loses nothing moving back; downloads stream, one at a time | [ADR-127](../docs/adr/ADR-127-direct-link.md) |
 | 128 | A machine's identity survives a reinstall, renews from day 60 of 90, is admitted expired only to renew or be removed, and is signed by a master key only the server can read | [ADR-128](../docs/adr/ADR-128-machine-identity-lifecycle.md) |
+| 129 | A workflow reports only work that happened — status read with errexit off, each job's status stated, only alerts outlive a cancel — and hands scripts their inputs named and as values | [ADR-129](../docs/adr/ADR-129-workflow-verdicts-and-inputs.md) |

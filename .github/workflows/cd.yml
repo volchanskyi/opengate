@@ -212,7 +212,7 @@ jobs:
   cluster:
     name: Admin cluster changes
     needs: resolve-tag
-    if: needs.resolve-tag.outputs.cluster_changed == 'true'
+    if: success() && needs.resolve-tag.outputs.cluster_changed == 'true'
     runs-on: ubuntu-24.04
     environment: production
     steps:
@@ -246,12 +246,12 @@ jobs:
   deploy-staging-k8s:
     name: Deploy staging
     needs: [resolve-tag, cluster]
-    # Runs past a skipped cluster job; a failed or refused one stops the deploy here.
+    # Runs past a skipped cluster job; a failed or refused one, or a cancel, stops the deploy here.
     if: >-
-      always() &&
+      ${{ !cancelled() &&
       needs.resolve-tag.result == 'success' &&
       needs.resolve-tag.outputs.should_skip_staging != 'true' &&
-      (needs.cluster.result == 'success' || needs.cluster.result == 'skipped')
+      (needs.cluster.result == 'success' || needs.cluster.result == 'skipped') }}
     runs-on: ubuntu-24.04
     environment: staging
     # Bounded below the lease it holds, so the job cannot outlive its own claim
@@ -585,14 +585,16 @@ jobs:
         if: always()
         uses: ./.github/actions/oci-kube-teardown
 
-  # Runs only when STAGING_FAULT_TESTS is 'true' and gates production promotion;
+  # Runs once staging deployed when STAGING_FAULT_TESTS is 'true', and gates production promotion;
   # STAGING_FAULT_PROFILE picks the scenario.
   staging-fault-drills:
     name: Staging fault drills
     needs: [resolve-tag, deploy-staging-k8s]
     if: >-
+      ${{ !cancelled() &&
+      needs.deploy-staging-k8s.result == 'success' &&
       needs.resolve-tag.outputs.should_skip_staging != 'true' &&
-      vars.STAGING_FAULT_TESTS == 'true'
+      vars.STAGING_FAULT_TESTS == 'true' }}
     uses: ./.github/workflows/fault-tolerance.yml
     with:
       scenario: ${{ vars.STAGING_FAULT_PROFILE || 'pod-delete' }}
@@ -602,14 +604,13 @@ jobs:
   deploy-production-k8s:
     name: Deploy production
     needs: [resolve-tag, deploy-staging-k8s, staging-fault-drills]
-    # Promotes when staging deployed and the drills passed or were skipped; always() lets
-    # the condition evaluate past a skipped drill job.
+    # Promotes when staging deployed and the drills passed, or were skipped while switched off.
     if: >-
-      always() &&
+      ${{ !cancelled() &&
       needs.resolve-tag.outputs.should_skip_staging != 'true' &&
       needs.deploy-staging-k8s.result == 'success' &&
       (needs.staging-fault-drills.result == 'success' ||
-       needs.staging-fault-drills.result == 'skipped')
+      (needs.staging-fault-drills.result == 'skipped' && vars.STAGING_FAULT_TESTS != 'true')) }}
     runs-on: ubuntu-24.04
     environment: production
     env:

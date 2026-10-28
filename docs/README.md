@@ -92,10 +92,9 @@ the system does, not what it stopped doing. Keep the `number:` and `title:`
 frontmatter. Do not link a plan — plans are working documents and are deleted
 when their work lands; fold what matters inline.
 
-New ADRs are individual files named `ADR-NNN-kebab-title.md`. The combined
-[`Architecture-Decision-Records.md`](./Architecture-Decision-Records.md) holds
-the early ones, ADR-001 … ADR-012, on the same terms. The compact
-[`index`](../.claude/decisions.md) gains a row for every new ADR. See
+Every ADR is a file of its own under [`adr/`](./adr/), named
+`ADR-NNN-kebab-title.md`. The compact [`index`](../.claude/decisions.md) gains a
+row for every new ADR. See
 [`adr/ADR-080`](./adr/ADR-080-documentation.md) for the full convention.
 
 ### 3. No paraphrased ADR bodies
@@ -206,11 +205,10 @@ Three trees, one rule: **a fact has one home, and everything else links to it.**
 docs/
 ├── README.md                           This file
 ├── Home.md                             Chapter index — the authoritative list of chapters
-├── Architecture-Decision-Records.md    ADR log (ADR-001 … ADR-012)
 ├── product/                            What the system does — one chapter per capability
 ├── architecture/                       How it is built — components, protocol, API, schema
 ├── infrastructure/                     How it runs — cluster, IaC, CI/CD, observability, test tooling
-├── adr/                                Per-file ADRs (ADR-014+)
+├── adr/                                One file per ADR
 │   └── ADR-NNN-title.md
 └── api/                                Generated Scalar OpenAPI reference
     └── index.html

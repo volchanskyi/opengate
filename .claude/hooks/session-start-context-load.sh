@@ -19,7 +19,7 @@ MANDATORY RULES (enforced by .claude/hooks/, NO bypass):
   - Work on dev only; never commit/push to main (git-commit-guard, git-push-guard)
   - Author = Ivan Volchanskyi <ivan.volchanskyi@gmail.com>; no Co-Authored-By (git-commit-guard)
   - TDD: write failing test BEFORE source code (tdd-gate, bash-source-write-guard, git-commit-guard backup)
-  - Order: scripts/precommit-gauntlet.sh to a pass -> /refactor -> commit, which runs the gauntlet again; any edit after /refactor starts it over (refactor-start-gate, git-commit-guard)
+  - Order: /refactor -> commit, which runs scripts/precommit-gauntlet.sh; any edit after /refactor starts it over (refactor-gate.sh, git-commit-guard)
   - The post-commit hook pushes only tidied content and writes the marker the push guard reads; never write .claude/.markers/ by hand (write-guard, bash-source-write-guard)
   - Plans live in /home/ivan/opengate/.claude/plans/, NOT ~/.claude/plans/ (write-guard)
   - ADRs in docs/adr/ describe live state — edit in place, never link a plan (write-guard)

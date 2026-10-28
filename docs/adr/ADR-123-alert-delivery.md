@@ -61,6 +61,9 @@ three happened: a finding, a night that failed, or a run somebody cancelled.
 Where a workflow has several jobs, or one job whose timeout is barely over what
 the work takes, the alert is a job with `needs:` and `if: always()` rather than a
 step — a job killed at its timeout may run no step at all.
+The jobs the alert reads — publish, gate — state `!cancelled()`, so a cancel
+stops them, and the alert reports a publish job a cancel skipped as cancelled
+([ADR-129](ADR-129-workflow-verdicts-and-inputs.md)).
 
 **The alert path passes through no environment check.** A scheduled job reads
 the Telegram token and chat id as repository secrets and names no GitHub
@@ -251,4 +254,8 @@ before applying it.
 triggered by somebody already watching it. Whether that holds is a separate
 question.
 
-The standing rule is [`ci-cd-determinism.md`](../../.claude/rules/ci-cd-determinism.md).
+No rule file restates these requirements;
+[`alert-delivery.test.sh`](../../scripts/tests/alert-delivery.test.sh),
+[`monitoring-config-apply.test.sh`](../../scripts/tests/monitoring-config-apply.test.sh)
+and [`telegram-alert.test.sh`](../../scripts/tests/telegram-alert.test.sh) hold them
+on every commit.

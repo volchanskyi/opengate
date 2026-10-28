@@ -107,6 +107,7 @@ jobs:
   assert-agent-cache:
     name: The agent cache write landed for ${{ matrix.target }}
     needs: build-agent
+    if: success()
     runs-on: ubuntu-24.04
     permissions:
       actions: read
@@ -133,7 +134,7 @@ jobs:
   build-and-push:
     name: Build & Push
     needs: check-image-changed
-    if: needs.check-image-changed.outputs.image_changed == 'true'
+    if: success() && needs.check-image-changed.outputs.image_changed == 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -232,7 +233,7 @@ jobs:
   tag-forward:
     name: Tag-forward :latest → sha-<newsha>
     needs: check-image-changed
-    if: needs.check-image-changed.outputs.image_changed != 'true'
+    if: success() && needs.check-image-changed.outputs.image_changed != 'true'
     runs-on: ubuntu-24.04
     permissions:
       packages: write

@@ -431,7 +431,7 @@ jobs:
     timeout-minutes: 10
     needs: volume
     # A leg that failed leaves a hole in the curve, which the script reports.
-    if: always()
+    if: ${{ !cancelled() }}
     steps:
       - uses: actions/checkout@v7
 
@@ -666,7 +666,7 @@ jobs:
     timeout-minutes: 10
     needs: scaling
     # A leg that failed leaves a hole in the curve, which the script reports.
-    if: always()
+    if: ${{ !cancelled() }}
     steps:
       - uses: actions/checkout@v7
 
@@ -685,7 +685,7 @@ jobs:
   publish:
     name: Publish the performance trend
     needs: [started, scaling, volume, shapes]
-    if: always() && needs.started.result == 'success'
+    if: ${{ !cancelled() && needs.started.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -762,7 +762,7 @@ jobs:
   gate:
     name: Performance regression gate
     needs: [publish]
-    if: always()
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -821,9 +821,12 @@ jobs:
           scripts/telegram-alert.sh "$(printf 'The performance stack did not finish:\n\n%s\nRun: %s' "$LOST" "$RUN_URL")"
 
       - name: Send Telegram alert
-        # Says which of the three the publish job met. A refused send fails this job alone, so the
-        # verdict the gate reads stays the run's.
-        if: always() && needs.publish.result != 'skipped'
+        # Fires once the publish job ran, or was skipped by a cancel after every job it reads finished.
+        # A refused send fails this job alone, so the verdict the gate reads stays the run's.
+        if: >-
+          ${{ always() && (needs.publish.result != 'skipped' ||
+          (contains(needs.*.result, 'success') && !contains(needs.*.result, 'cancelled') &&
+          !contains(needs.*.result, 'failure'))) }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
@@ -833,6 +836,8 @@ jobs:
           JOB_STATUS: ${{ needs.publish.result }}
         run: |
           set -euo pipefail
+          # A cancel is what skips the publish job once the run it reads has finished.
+          if [ "$JOB_STATUS" = "skipped" ]; then JOB_STATUS="cancelled before publishing"; fi
           if [ "$JOB_STATUS" = "success" ] && [ "${FINDING:-0}" != "1" ]; then
             echo "No alert sent: the legs were published and none is past its nights."
             exit 0

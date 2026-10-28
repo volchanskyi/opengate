@@ -88,7 +88,7 @@ repo_root="$(project_root)"
 while IFS=$'\t' read -r _ raw; do
   case "$raw" in
     *.claude/.markers*)
-      block markers-direct-write "Bash write refused: the command writes ${raw}, a marker. It is written by the step it proves — ./scripts/precommit-gauntlet.sh on a pass, scripts/refactor-gate.sh start/finish, the post-commit hook — never by hand. .claude/rules/refactor.md.
+      block markers-direct-write "Bash write refused: the command writes ${raw}, a marker. It is written by the step it proves — scripts/refactor-gate.sh start/finish, the post-commit hook — never by hand. .claude/rules/refactor.md.
 Detected command: ${cmd}"
       ;;
   esac

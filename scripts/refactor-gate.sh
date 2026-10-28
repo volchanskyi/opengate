@@ -2,7 +2,7 @@
 # The two ends of /refactor; finish with nothing tracked uncommitted also marks HEAD for push.
 #
 # Usage:
-#   refactor-gate.sh start   refuses unless the gauntlet passed on the content on disk
+#   refactor-gate.sh start   records the content /refactor begins on
 #   refactor-gate.sh finish  spends a recorded start and records the content left
 #
 # Exit codes:
@@ -24,18 +24,13 @@ tidy_root >/dev/null || refuse "not inside a git work tree."
 case "${1:-}" in
   start)
     now="$(tidy_fingerprint)" || refuse "could not read the working tree."
-    passed="$(tidy_read gauntlet.pass)"
-    [ -n "$passed" ] \
-      || refuse "no gauntlet pass is recorded. Run ./scripts/precommit-gauntlet.sh until it passes; /refactor tidies content every check has passed."
-    [ "$passed" = "$now" ] \
-      || refuse "the gauntlet passed on other content than is on disk now. Run ./scripts/precommit-gauntlet.sh again on what is here."
     tidy_write refactor.start "$now"
-    echo "refactor-gate: /refactor begins on content the gauntlet passed."
+    echo "refactor-gate: /refactor begins; the commit runs ./scripts/precommit-gauntlet.sh on what it leaves."
     ;;
   finish)
     started="$(tidy_read refactor.start)"
     [ -n "$started" ] \
-      || refuse "no /refactor start is recorded. The order is ./scripts/precommit-gauntlet.sh to a pass, then 'scripts/refactor-gate.sh start', the tidy-up, and 'scripts/refactor-gate.sh finish'."
+      || refuse "no /refactor start is recorded. The order is 'scripts/refactor-gate.sh start', the tidy-up, 'scripts/refactor-gate.sh finish', then the commit, which runs ./scripts/precommit-gauntlet.sh."
     now="$(tidy_fingerprint)" || refuse "could not read the working tree."
     tidy_write refactor.done "$now"
     tidy_clear refactor.start

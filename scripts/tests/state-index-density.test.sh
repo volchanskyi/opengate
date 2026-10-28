@@ -90,16 +90,18 @@ for adr in "$ADR_DIR"/ADR-*.md; do
 done
 [ "$missing_row" -eq 0 ] && pass "every ADR file has exactly one decisions.md row"
 
+# Each row links the file of its own number under docs/adr/, so no decision lives on a shared page.
 dangling=0
-while IFS= read -r number; do
-  if [ "$number" -le 12 ] 2>/dev/null; then
-    continue
-  fi
+while IFS= read -r line; do
+  number="$(cut -d'|' -f2 <<<"$line" | tr -d ' ')"
   if ! ls "$ADR_DIR/ADR-$number-"*.md >/dev/null 2>&1; then
     dangling=$((dangling + 1))
     fail "decisions.md row $number resolves to no ADR file"
+  elif ! grep -qE "\]\(\.\./docs/adr/ADR-$number-[a-z0-9-]+\.md\)" <<<"$line"; then
+    dangling=$((dangling + 1))
+    fail "decisions.md row $number links something other than its own file under docs/adr/"
   fi
-done < <(grep -oE '^\| [0-9]{3} \|' "$DECISIONS" | tr -d '| ' || true)
+done < <(grep -E '^\| [0-9]{3} \|' "$DECISIONS" || true)
 
 [ "$dangling" -eq 0 ] && pass "every decisions.md row resolves to an ADR"
 

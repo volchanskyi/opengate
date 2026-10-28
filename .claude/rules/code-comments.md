@@ -62,7 +62,8 @@ Permanent standard numbers stay: `RFC 9000 §8.1`, `CVE-…`, `GHSA-…`,
   `// @ts-nocheck`, `/// <reference`, `// @vitest-environment`,
   `/** @type … */`, `# hadolint`, Dockerfile parser directives, and the
   `# vX.Y.Z` after a pinned action hash.
-- Contract markers a gate reads: `(required)` in `Environment:` lists and
+- Contract markers a gate reads: `(required)` in `Environment:` lists (read by
+  [`workflow-inputs.test.sh`](../../scripts/tests/workflow-inputs.test.sh)),
   `Not retried` beside cluster calls (read by
   [`ci-cd-determinism.test.sh`](../../scripts/tests/ci-cd-determinism.test.sh)),
   and the `JUSTIFICATIONS` list (read by
@@ -70,27 +71,5 @@ Permanent standard numbers stay: `RFC 9000 §8.1`, `CVE-…`, `GHSA-…`,
 
 ## How the checker reads
 
-- One extractor per language, each exact: `go/scanner` for Go, a lexer for
-  Rust, the TypeScript compiler in `web/node_modules` for TypeScript,
-  JavaScript and JSON, `shfmt`'s syntax tree for shell, and line rules for
-  YAML, Helm templates, Makefile, Dockerfile, TOML, HCL, SQL, Rego, Python,
-  properties, CSS, HTML and the ignore files. A GitHub `run:` block is read as
-  shell; any other block scalar, an HCL heredoc and an SQL dollar-quoted body
-  are data.
-- Every tracked file is either read or listed in
-  [`scope.tsv`](../../scripts/check-comments/scope.tsv) with its reason. A file
-  of an unknown type fails the sweep, and so does a scope entry that matches no
-  file.
-- The hook refuses only a violation the edit adds; one already in the file is
-  left for the sweep.
-- A missing TypeScript compiler or a drifted `shfmt` exits 2 with the command
-  that fixes it.
-
-## Modes
-
-| Mode | What it does |
-|---|---|
-| `sweep [PATH…]` | Every in-scope file, zero violations; prints what it read and fails on a read of nothing |
-| `hook` | Applies the proposed Write, Edit or MultiEdit in memory and refuses any new violation |
-| `same-code BASE [--no-new-comments] [--declared FILE]` | Proves each changed file's code identical to `BASE` and, with the flag, that no comment sits where `BASE` had none |
-| `stats [PATH…]` | Comment lines per language and area |
+How each language is read, what the scope list holds, and the checker's modes:
+[ADR-125](../../docs/adr/ADR-125-comments-and-repeated-code.md).

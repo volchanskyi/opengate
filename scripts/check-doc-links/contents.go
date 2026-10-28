@@ -25,7 +25,6 @@ type contentsEntry struct {
 func needsContents(path string) bool {
 	return strings.HasPrefix(path, "docs/") &&
 		!strings.HasPrefix(path, "docs/adr/") &&
-		path != "docs/Architecture-Decision-Records.md" &&
 		strings.EqualFold(filepath.Ext(path), ".md")
 }
 

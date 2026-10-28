@@ -59,11 +59,11 @@ if [ -n "$base" ] && [ "$base" != "$(git rev-parse HEAD 2>/dev/null || echo .)" 
   marker_file="$(project_root)/.claude/.markers/refactor.head"
   head_sha="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
   if [ ! -f "$marker_file" ]; then
-    block git-refactor-marker "git push refused: branch has commits since origin/dev but .claude/.markers/refactor.head is missing. Run ./scripts/precommit-gauntlet.sh to a pass, then /refactor; with nothing tracked uncommitted, its finish marks HEAD."
+    block git-refactor-marker "git push refused: branch has commits since origin/dev but .claude/.markers/refactor.head is missing. Run /refactor; with nothing tracked uncommitted, its finish marks HEAD."
   fi
   expected="$(cat "$marker_file" 2>/dev/null || echo "")"
   if [ "$expected" != "$head_sha" ]; then
-    block git-refactor-marker "git push refused: refactor marker ($expected) does not match HEAD ($head_sha). Run ./scripts/precommit-gauntlet.sh to a pass, then /refactor; with nothing tracked uncommitted, its finish marks HEAD."
+    block git-refactor-marker "git push refused: refactor marker ($expected) does not match HEAD ($head_sha). Run /refactor; with nothing tracked uncommitted, its finish marks HEAD."
   fi
 fi
 

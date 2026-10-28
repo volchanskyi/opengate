@@ -245,6 +245,12 @@ while IFS= read -r line; do
 done < <(grep -E '(^|[^[:alnum:]_-])cargo install ' <<<"$install_lines" \
   | grep -vE '@[0-9]|--version|--rev [0-9a-f]{40}' || true)
 
+# `--locked` builds from the lockfile the tool's authors tested, not a fresh dependency graph.
+while IFS= read -r line; do
+  [ -n "$line" ] || continue
+  add_unpinned "cargo install with no --locked: ${line#"${line%%[![:space:]]*}"}"
+done < <(grep -E '(^|[^[:alnum:]_-])cargo install ' <<<"$install_lines" | grep -vF -- '--locked' || true)
+
 while IFS= read -r line; do
   [ -n "$line" ] || continue
   add_unpinned "go install with no version: ${line#"${line%%[![:space:]]*}"}"

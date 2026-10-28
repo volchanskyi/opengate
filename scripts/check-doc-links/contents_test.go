@@ -95,7 +95,7 @@ func TestContentsProblems(t *testing.T) {
 		},
 		{name: "the docs README is a page", path: "docs/README.md", content: "# Title\n\n## First part\n", wantSubstr: "no contents list"},
 		{name: "a decision record is left out", path: "docs/adr/ADR-001-x.md", content: "# Title\n\n## Decision\n"},
-		{name: "the decision index is left out", path: "docs/Architecture-Decision-Records.md", content: "# Title\n\n## ADR-012\n"},
+		{name: "a page of decisions outside adr/ is a page", path: "docs/Architecture-Decision-Records.md", content: "# Title\n\n## ADR-012\n", wantSubstr: "no contents list"},
 		{name: "a rule outside docs is left out", path: ".claude/rules/tdd.md", content: "# Title\n\n## Section\n"},
 	}
 
