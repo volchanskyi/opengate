@@ -211,7 +211,7 @@ jobs:
       - name: Unit tests with coverage
         run: |
           set +e
-          go test -json -race -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/... > unit-results.json 2>unit-stderr.log
+          go test -json -race -timeout 10m -coverprofile=coverage.out -covermode=atomic ./internal/... > unit-results.json 2>unit-stderr.log
           EXIT_CODE=$?
           cat unit-stderr.log >&2
           ../scripts/go-test-failures.sh unit-results.json

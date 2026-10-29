@@ -35,9 +35,9 @@ main() {
   done
 
   local status=0
-  # Not retried: the exec carries the workload, and a dropped connection leaves the pod's process
-  # running, so a second attempt would add a second generator to the same server.
-  kubectl -n "$namespace" exec "$pod" -- "$pod_k6" "$@" || status=$?
+  # Repeated only when the node never received the start, since a connection dropped after k6
+  # started leaves it running and a second start would add a second generator to the server.
+  kubectl_retry --unstarted -n "$namespace" exec "$pod" -- "$pod_k6" "$@" || status=$?
 
   # Copied whatever the run produced, including after an abort, so a partial export is kept.
   if [ -n "$export_path" ]; then

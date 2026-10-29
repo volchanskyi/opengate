@@ -509,7 +509,9 @@ belongs in the profile.
 Against staging, k6 itself runs in a short-lived cluster pod through
 [`scripts/loadtest-k6-incluster.sh`](../../scripts/loadtest-k6-incluster.sh), which
 executes the same k6 argument list beside the server and copies the summary export
-back to the runner for the decision above. Generating load one hop from the server
+back to the runner for the decision above. A start the node never received is made
+again; a connection lost once k6 is running fails the scenario, since a second start
+would put a second generator on the server. Generating load one hop from the server
 is what keeps the trend a measurement of the server rather than of the path to it.
 The generator pod holds its own processor and memory allocation, separate from the
 server's: sharing them is why the API mark had to be set wider than any regression
