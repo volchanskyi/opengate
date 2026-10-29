@@ -28,7 +28,7 @@ export TOOL_VERSION_HELM="3.20.2"
 # The ingress controller's chart, installed by a production deploy and read back nightly.
 export TOOL_VERSION_INGRESS_NGINX_CHART="4.15.1"
 # The certificate issuer's chart, installed by the cluster job.
-export TOOL_VERSION_CERT_MANAGER_CHART="v1.20.4"
+export TOOL_VERSION_CERT_MANAGER_CHART="v1.20.5"
 export TOOL_VERSION_KUBECONFORM="0.6.7"
 export TOOL_VERSION_CONFTEST="0.55.0"
 export TOOL_VERSION_CHECKOV="3.3.16"

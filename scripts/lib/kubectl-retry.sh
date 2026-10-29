@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Retries a short cluster call after a dropped connection; any other failure returns at once.
-# Probes under a fault, long-lived workload execs and non-idempotent writes are never repeated.
+# Probes under a fault, workload starts and non-idempotent writes repeat only an undelivered call.
 # Environment:
 #   KUBECTL_RETRY_ATTEMPTS  how many times in total (default 4)
 #   KUBECTL_RETRY_DELAY     seconds between attempts (default 3)
