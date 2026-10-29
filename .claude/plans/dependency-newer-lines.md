@@ -21,7 +21,7 @@ list comes from `python3 scripts/dependency-fixes`, under "fixed only in a newer
 | grafana/loki | 3.5.12 | 3.7.9 | minor | 81 | CVE-2026-111943 | monitoring values |
 | prom/node-exporter | v1.9.1 | v1.12.1 | minor | 74 | CVE-2025-0913 | monitoring values |
 | curlimages/curl | 8.11.1 | 8.23.0 | minor | 64 | CVE-2024-12797 | `deploy/helm/opengate/values.yaml`, `network-drill.yml`, `vm-push.sh`, `vm-query.sh` |
-| cert-manager (chart, program and its four images) | v1.20.4 | v1.21.3 | minor | 88 | GHSA-8wmf-6v46-5gfg, GO-2026-6354, CVE-2026-111943 | `TOOL_VERSION_CERT_MANAGER_CHART` |
+| cert-manager (chart, program and its four images) | v1.20.5 | v1.21.3 | minor | 88 | GHSA-8wmf-6v46-5gfg, GO-2026-6354, CVE-2026-111943 | `TOOL_VERSION_CERT_MANAGER_CHART` |
 | grafana/promtail | 3.5.12 | 3.6.11 | minor | 19 | CVE-2026-21726 | monitoring values |
 
 ## What builds, tests and deploys the product

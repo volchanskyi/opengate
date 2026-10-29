@@ -62,6 +62,11 @@ case "\$verb" in
       [ -f "$WORK/pod/\$(basename "\$probe")" ] || exit 1
       exit 0
     fi
+    if [ -s "$WORK/drops-left" ] && [ "\$(cat "$WORK/drops-left")" -gt 0 ]; then
+      echo \$((\$(cat "$WORK/drops-left") - 1)) >"$WORK/drops-left"
+      cat "$WORK/drop-text" >&2
+      exit 1
+    fi
     prev=""
     for arg in "\$@"; do
       if [ "\$prev" = "--summary-export" ] && [ ! -f "$WORK/k6-writes-nothing" ]; then
@@ -94,6 +99,7 @@ run_shim() {
     "$WORK/cp-refuses" "$WORK/k6-writes-nothing"
   STATUS=0
   PATH="$WORK/bin:$PATH" \
+    KUBECTL_RETRY_DELAY=0 \
     NAMESPACE=opengate-staging \
     LOADTEST_K6_POD=k6-loadtest-1 \
     "$SHIM" run \
@@ -101,6 +107,11 @@ run_shim() {
     --summary-trend-stats "avg,p(95)" \
     --env "BASE_URL=$STAGING_URL" \
     /tmp/load/k6/scenarios/api-baseline.js >"$WORK/out.txt" 2>&1 || STATUS=$?
+}
+
+# k6_starts counts the exec calls that asked the pod to start k6.
+k6_starts() {
+  grep -c -- 'exec k6-loadtest-1 -- /tmp/k6 run' "$WORK/kubectl-calls.txt" || true
 }
 
 echo "loadtest-k6-incluster:"
@@ -138,6 +149,32 @@ if [ -s "$WORK/summaries/api-baseline.json" ]; then
 else
   fail "aborted run still copies the export back for the runner to judge"
 fi
+
+# The text kubectl printed when the node closed the connection before the exec started.
+NEVER_ARRIVED='error: Internal error occurred: error sending request: Post '
+NEVER_ARRIVED+='"https://10.0.2.227:10250/exec/opengate-staging/k6-loadtest-1/k6-loadtest-1": EOF'
+echo 1 >"$WORK/drops-left"
+printf '%s\n' "$NEVER_ARRIVED" >"$WORK/drop-text"
+run_shim 0
+assert_eq "a start the node never received is repeated and the scenario passes" "0" "$STATUS"
+assert_eq "a start the node never received is tried twice" "2" "$(k6_starts)"
+if [ -s "$WORK/summaries/api-baseline.json" ]; then
+  pass "a repeated start copies the summary export back"
+else
+  fail "a repeated start copies the summary export back"
+fi
+
+# The text kubectl prints when the connection drops while the command is already running.
+echo 1 >"$WORK/drops-left"
+printf '%s\n' 'error: error reading from error stream: next reader: EOF' >"$WORK/drop-text"
+run_shim 0
+if [ "$STATUS" -ne 0 ]; then
+  pass "a connection lost after k6 started fails the scenario"
+else
+  fail "a connection lost after k6 started fails the scenario"
+fi
+assert_eq "a connection lost after k6 started is never repeated" "1" "$(k6_starts)"
+rm -f "$WORK/drops-left"
 
 run_shim 0
 : >"$WORK/cp-refuses"
