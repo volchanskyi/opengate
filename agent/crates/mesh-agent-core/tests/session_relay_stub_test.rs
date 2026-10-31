@@ -335,7 +335,11 @@ async fn a_second_offer_is_refused_and_the_session_carries_on_over_the_relay() {
                 assert!(!reason.is_empty());
                 refusals += 1;
             }
-            Frame::Control(ControlMessage::DirectFallback { received }) => assert_eq!(received, 0),
+            Frame::Control(ControlMessage::DirectFallback {
+                received,
+                received_screen,
+                received_files,
+            }) => assert_eq!([received, received_screen, received_files], [0, 0, 0]),
             Frame::Pong => break,
             other => panic!("unexpected frame from the host: {other:?}"),
         }

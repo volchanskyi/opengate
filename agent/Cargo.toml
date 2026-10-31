@@ -67,6 +67,26 @@ tempfile = "3"
 mockito = "1"
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 
+# rtc 0.21 with SCTP's time-based loss detection and fair queueing, until a release carries them;
+# every rtc crate comes from the one commit, so the build holds one copy of each.
+[patch.crates-io]
+rtc = { git = "https://github.com/volchanskyi/rtc", rev = "bb228c7d4d4aa792f01147da55f4316aee76e031" }
+rtc-crypto = { git = "https://github.com/volchanskyi/rtc", rev = "bb228c7d4d4aa792f01147da55f4316aee76e031" }
+rtc-datachannel = { git = "https://github.com/volchanskyi/rtc", rev = "bb228c7d4d4aa792f01147da55f4316aee76e031" }
+rtc-dtls = { git = "https://github.com/volchanskyi/rtc", rev = "bb228c7d4d4aa792f01147da55f4316aee76e031" }
+rtc-ice = { git = "https://github.com/volchanskyi/rtc", rev = "bb228c7d4d4aa792f01147da55f4316aee76e031" }
+rtc-interceptor = { git = "https://github.com/volchanskyi/rtc", rev = "bb228c7d4d4aa792f01147da55f4316aee76e031" }
+rtc-mdns = { git = "https://github.com/volchanskyi/rtc", rev = "bb228c7d4d4aa792f01147da55f4316aee76e031" }
+rtc-media = { git = "https://github.com/volchanskyi/rtc", rev = "bb228c7d4d4aa792f01147da55f4316aee76e031" }
+rtc-rtcp = { git = "https://github.com/volchanskyi/rtc", rev = "bb228c7d4d4aa792f01147da55f4316aee76e031" }
+rtc-rtp = { git = "https://github.com/volchanskyi/rtc", rev = "bb228c7d4d4aa792f01147da55f4316aee76e031" }
+rtc-sctp = { git = "https://github.com/volchanskyi/rtc", rev = "bb228c7d4d4aa792f01147da55f4316aee76e031" }
+rtc-sdp = { git = "https://github.com/volchanskyi/rtc", rev = "bb228c7d4d4aa792f01147da55f4316aee76e031" }
+rtc-shared = { git = "https://github.com/volchanskyi/rtc", rev = "bb228c7d4d4aa792f01147da55f4316aee76e031" }
+rtc-srtp = { git = "https://github.com/volchanskyi/rtc", rev = "bb228c7d4d4aa792f01147da55f4316aee76e031" }
+rtc-stun = { git = "https://github.com/volchanskyi/rtc", rev = "bb228c7d4d4aa792f01147da55f4316aee76e031" }
+rtc-turn = { git = "https://github.com/volchanskyi/rtc", rev = "bb228c7d4d4aa792f01147da55f4316aee76e031" }
+
 # Dropping debug info shortens the per-mutant rebuild; .cargo/mutants.toml selects this profile.
 [profile.mutants]
 inherits = "test"

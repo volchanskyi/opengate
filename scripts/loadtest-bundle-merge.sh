@@ -42,6 +42,49 @@ journeys_from() {
     | sort_by(.name)' "$1"
 }
 
+# arrivals_from prints, for each phase the export times arrivals in, how many of the technician
+# arrivals completed and their 95th-percentile time.
+arrivals_from() {
+  jq '
+    def stats($key): (.metrics[$key] // {}) | (.values // .);
+    . as $doc
+    | [.metrics | keys[] | select(startswith("iterations{phase:"))
+        | ltrimstr("iterations{phase:") | rtrimstr("}")]
+    | unique
+    | map(. as $phase | {
+        key: $phase,
+        value: {
+          completed: ($doc | stats("iterations{phase:" + $phase + "}").count // 0),
+          p95: ($doc | stats("iteration_duration{phase:" + $phase + "}")["p(95)"])
+        }
+      })
+    | from_entries' "$1"
+}
+
+# with_arrivals sets each timed phase's completed share against the arrivals it offered over its
+# own span, with their 95th-percentile time; both are watched and judge nothing.
+with_arrivals() {
+  jq --argjson timed "$1" '
+    def epoch:
+      capture("^(?<d>[0-9-]+T[0-9:]+)(\\.(?<f>[0-9]+))?(?<z>Z|[+-][0-9]{2}:[0-9]{2})$")
+      | ((.d + "Z") | fromdateiso8601) + (("0." + (.f // "0")) | tonumber)
+        - (if .z == "Z" then 0
+           else ((.z[0:1] + "1") | tonumber) * ((.z[1:3] | tonumber) * 3600 + (.z[4:6] | tonumber) * 60)
+           end);
+    if .phases == null then . else
+      .phases |= map(
+        . as $phase
+        | ($timed[$phase.name] // null) as $t
+        | (($phase.finished_at | epoch) - ($phase.started_at | epoch)) as $span
+        | ($phase.offered_operator_arrivals_per_second // 0) as $rate
+        | if $t == null or $rate <= 0 or $span <= 0 then .
+          else
+            .operator_completed_share = ($t.completed / ($rate * $span))
+            | if $t.p95 == null then . else .operator_journey_p95_ms = $t.p95 end
+          end)
+    end'
+}
+
 # refusals_from prints one export's request count and its refused-request count over the whole run.
 # A count the export lacks reads -1.
 refusals_from() {
@@ -147,7 +190,7 @@ main() {
   fi
 
   if [ "${#journeys[@]}" -gt 0 ]; then
-    local exported rows all='[]' asked turned_away requests=0 refused=0
+    local exported rows all='[]' asked turned_away requests=0 refused=0 timed='{}'
     for exported in "${journeys[@]}"; do
       if [ ! -s "$exported" ]; then
         echo "::error::$exported holds no export, so this night's journeys would reach the evidence as a null." >&2
@@ -159,6 +202,7 @@ main() {
         return 1
       fi
       all="$(jq -c --argjson rows "$rows" '. + $rows' <<<"$all")"
+      timed="$(jq -c --argjson more "$(arrivals_from "$exported")" '. + $more' <<<"$timed")"
 
       # A counter nobody incremented is absent from the export, so the scenarios add a zero per
       # answered request; an export with requests but no such counter did not count refusals.
@@ -178,6 +222,7 @@ main() {
       merged=$((merged + 1))
     done
     updated="$(jq --argjson j "$(jq -c 'sort_by(.name)' <<<"$all")" '.journeys = $j' <<<"$updated")"
+    updated="$(with_arrivals "$timed" <<<"$updated")"
     updated="$(
       jq --argjson requests "$requests" --argjson refused "$refused" \
         '.refusals = { requests: $requests, refused: $refused }' <<<"$updated"

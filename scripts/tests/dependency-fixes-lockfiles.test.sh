@@ -186,6 +186,25 @@ else
   fail "a crate a patch fixes must refuse the commit (status=$status out=[$(cat "$WORK/out")])"
 fi
 
+# cargo audit reads crates.io sources only: a crate a [patch] takes from git leaves it silent.
+echo '{"vulnerabilities": {"found": false, "count": 0, "list": []}}' >"$WORK/cargo-clean.json"
+COPY_SHA=0b2b4e53a5cf86740b2515907dd53252b3b59401
+cp "$REPO/agent/Cargo.lock" "$WORK/Cargo.lock.registry"
+printf '[[package]]\nname = "smallvec"\nversion = "1.6.0"\nsource = "%s"\n' \
+  "git+https://github.com/example/rust-smallvec?rev=0b2b4e5#$COPY_SHA" >"$REPO/agent/Cargo.lock"
+echo '{"crates.io|smallvec|1.6.0": ["RUSTSEC-2021-0003"]}' >"$HTTP/osv-matches.json"
+status=0
+run rust FAKE_CARGO="$WORK/cargo-clean.json" || status=$?
+if [ "$status" -eq 1 ] \
+  && out_has 'rust (agent, copy example/rust-smallvec@0b2b4e53a5cf) smallvec 1.6.0: RUSTSEC-2021-0003 fixed in 1.6.1' \
+  && out_has 'rebuild the copy on smallvec 1.6.1'; then
+  pass "a crate taken from a git copy is read against its crates.io version's advisories"
+else
+  fail "a git copy of a crate must be checked by its version (status=$status out=[$(cat "$WORK/out")])"
+fi
+echo '{}' >"$HTTP/osv-matches.json"
+cp "$WORK/Cargo.lock.registry" "$REPO/agent/Cargo.lock"
+
 status=0
 run go || status=$?
 if [ "$status" -eq 1 ] && out_has 'go (server) stdlib 1.27.3: GO-2026-6001 fixed in 1.27.4'; then

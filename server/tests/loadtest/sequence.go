@@ -24,6 +24,10 @@ type FleetOutcomes struct {
 	// StoodDown is machines the run cancelled before they registered; they are neither an
 	// arrival nor a failure to arrive.
 	StoodDown int64
+	// Begun is dials the generator began, and Late those it began more than lateAfter past
+	// their turn: the generator's own lateness, apart from how the server answered.
+	Begun int64
+	Late  int64
 }
 
 // Attempted is how many machines produced an outcome either way.
@@ -42,7 +46,18 @@ func (o FleetOutcomes) Since(earlier FleetOutcomes) FleetOutcomes {
 		Severed:   o.Severed - earlier.Severed,
 		Rejected:  o.Rejected - earlier.Rejected,
 		StoodDown: o.StoodDown - earlier.StoodDown,
+		Begun:     o.Begun - earlier.Begun,
+		Late:      o.Late - earlier.Late,
 	}
+}
+
+// LateShare is the share of begun dials that began past their turn, absent with none begun.
+func (o FleetOutcomes) LateShare() *float64 {
+	if o.Begun <= 0 {
+		return nil
+	}
+	share := float64(o.Late) / float64(o.Begun)
+	return &share
 }
 
 // ErrorRate is the share of attempted machines that did not arrive.
@@ -176,6 +191,7 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, readings Phase
 		// The generator's room and each end's kernel drops over the same window.
 		GeneratorCPUHeadroomPercent: generatorHeadroom,
 		GeneratorCPURefusedPercent:  generatorRefused,
+		GeneratorLateShare:          saw.LateShare(),
 		GeneratorUDPReceiveErrors:   generatorDrops,
 		TargetUDPReceiveErrors:      targetDrops,
 		ExpectedRejections:          saw.Rejected,

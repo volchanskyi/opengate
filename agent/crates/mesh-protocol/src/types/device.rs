@@ -58,6 +58,9 @@ pub enum AgentCapability {
     ThresholdAlerts,
     /// Gates the agent → server `AgentAlert` transport, which carries the evidence.
     Alerts,
+    /// The direct link takes a channel per job (typing, screen, files) as well as one shared
+    /// channel; a browser opens the three only for an agent that lists this.
+    DirectChannels,
 }
 
 /// Current status of a device.

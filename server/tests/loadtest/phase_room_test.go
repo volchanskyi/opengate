@@ -25,6 +25,24 @@ func TestAPhaseReadsTheGeneratorsRoomOverItsOwnWindow(t *testing.T) {
 	assert.InDelta(t, 10.0, *result.GeneratorCPURefusedPercent, 0.01)
 }
 
+func TestAPhaseReportsTheShareOfDialsTheGeneratorBeganPastTheirTurn(t *testing.T) {
+	phase := Phase{Name: "spike", Duration: Duration{Duration: time.Minute}, ConnectedAgents: 1000}
+	fleet := &recordingFleet{lateNumerator: 1, lateDenominator: 5}
+	result, err := runOnePhase(phase, 0, fleet, &testClock{now: time.Now()}, PhaseReadings{})
+	require.NoError(t, err)
+
+	require.NotNil(t, result.GeneratorLateShare, "a phase that dialled says how many dials ran late")
+	assert.InDelta(t, 0.2, *result.GeneratorLateShare, 0.001)
+}
+
+func TestAPhaseThatDialledNothingHasNoLateShare(t *testing.T) {
+	phase := Phase{Name: "recovery", Duration: Duration{Duration: time.Second}, ConnectedAgents: 0}
+	result, err := runOnePhase(phase, 0, &recordingFleet{}, &testClock{now: time.Now()}, PhaseReadings{})
+	require.NoError(t, err)
+
+	assert.Nil(t, result.GeneratorLateShare)
+}
+
 func TestAGeneratorWithNoAllowanceHasNoRoomToReadPerPhase(t *testing.T) {
 	phase := Phase{Name: "steady", Duration: Duration{Duration: time.Second}, ConnectedAgents: 1}
 	result, err := runOnePhase(phase, 0, &recordingFleet{}, &testClock{now: time.Now()}, PhaseReadings{})

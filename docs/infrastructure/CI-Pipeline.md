@@ -396,36 +396,33 @@ nightly schedule and by `workflow_dispatch`:
 - **Rust benchmarks** — every Criterion suite in `mesh-protocol`, `mesh-agent-core` and
   `edge-tsdb`: codec, direct link and send limit, Edge Sentinel, and the local metrics store.
 
-The gauntlet holds every commit's Go allocations to the same baseline at the same processor
-count ([`benchmark-local-check.sh`](../../scripts/benchmark-local-check.sh)), so an
-allocation regression fails the commit rather than the night after it merges.
+Each language's job checks out the anchor commit
+[`benchmarks/baseline.json`](../../benchmarks/baseline.json) names beside tonight's and runs
+the whole suite at the two in turns on its one runner
+([`benchmark-anchor.sh`](../../scripts/benchmark-anchor.sh)), and records the runner's
+processor model and the time the host took back in its summary. The gauntlet holds every
+commit's Go allocations to the same baseline at the same processor count, and its Rust
+benchmark names to the baseline's both ways
+([`benchmark-local-check.sh`](../../scripts/benchmark-local-check.sh)), so an allocation
+regression or a renamed benchmark fails the commit rather than the night after it merges.
 
 The workflow publishes canonical rows to VictoriaMetrics through
 [`scripts/benchmark-vm-push.sh`](../../scripts/benchmark-vm-push.sh) and hard-gates
 regressions in two ways, by metric class:
 
 - **Deterministic allocation metrics** (`allocs/op`, `bytes/op`) are gated against the
-  committed [`benchmarks/baseline.json`](../../benchmarks/baseline.json) at ±2% — the same
-  code yields the same count, so a small fixed tolerance never false-fires.
-- **Machine-dependent `ns/op`** is hard-gated against a noise-robust VictoriaMetrics
-  window baseline read back through the nightly reader in
-  [`scripts/lib/vm-query.sh`](../../scripts/lib/vm-query.sh) — the latest reading of
-  each recent night before tonight's: a run reds when its `ns/op` exceeds **either**
-  that window's median × a frozen relative band **or** an absolute ceiling anchored on
-  the committed baseline (the drift-proof boiling-frog backstop). The band and ceiling
-  are calibrated from the live series' measured run-to-run variance, not hand-picked.
-  The gate is fail-open: a VM or transport failure falls back to the absolute rule only
-  and never reds on infra, and a cold-start window (too few nights) skips the relative
-  rule. A Go benchmark past its line is not failed on one reading: the `confirm` job
-  runs it again ten times and compares the runs with the window's nights through
-  `benchstat` ([`benchmark-confirm.sh`](../../scripts/benchmark-confirm.sh)), and fails
-  only on a change benchstat finds significant whose median is past the line, quoting
-  benchstat's verdict in the summary. A Rust timing is judged on the one reading,
-  since Criterion already samples within the run.
-- **A row with a `history_from` date** ignores the nights before it, and is reported
-  without a limit until three CI nights exist after it; then its time and its
-  allocations are held to those nights' median. That is how a benchmark is
-  re-baselined on purpose ([ADR-088](../adr/ADR-088-benchmarks-measure-the-code.md)).
+  committed baseline at ±2% — the same code yields the same count, so a small fixed
+  tolerance never false-fires.
+- **Machine-dependent `ns/op`** is judged by the `compare` job: `benchstat` compares
+  tonight's turns with the anchor's, and a slowdown fails the night when it is
+  significant and past the limit, so the machine cancels out. A benchmark the baseline
+  names that tonight did not run fails it too; one absent at the anchor is reported
+  until the anchor moves, and the anchor moves only by a commit accepting a change
+  ([ADR-088](../adr/ADR-088-benchmarks-measure-the-code.md)).
+- **A row with a `history_from` date** ignores the allocation nights before it, and is
+  reported without a limit until three CI nights exist after it; then its allocations
+  are held to those nights' median. That is how an allocation count is re-baselined on
+  purpose.
 
 All benchmark trends are also rendered in Grafana's **Benchmark Trends** dashboard.
 
@@ -469,11 +466,17 @@ job reads the publish job's result. A night past its line is pushed flagged and
 left out of later windows, so one slow night never moves the median the next is
 judged by; a held leg fails only when it is past its line on two of its last three
 nights. Each sample's workload label carries a digest of the profile it ran, so a
-change in what a leg offers starts a fresh window. Every leg's bundle also records
-what the runner did — processor steal and the server container's throttling
-counters ([`perf-runner-record.sh`](../../scripts/perf-runner-record.sh)) — so a slow
-night says whether the machine or the code was slow. Each run writes a summary table of every limit
+change in what a leg offers starts a fresh window. Every leg, a failed one
+included, also records what the runner did — its processor model, processor steal
+and the server container's throttling counters
+([`perf-runner-record.sh`](../../scripts/perf-runner-record.sh)) — so a slow night
+says whether the machine or the code was slow, and its samples carry the processor
+model as a `processor` label. Each run writes a summary table of every limit
 beside its reading ([ADR-101](../adr/ADR-101-load-profiles-and-limits.md)).
+A dispatch of [`perf-one-runner.yml`](../../.github/workflows/perf-one-runner.yml)
+runs the scaling family at one processor allowance once per leg, the legs in turn on
+one runner, each leg naming the commit its server is built from and whether the two
+generators share one allowance; it publishes nothing and uploads every leg's bundle.
 
 ## Frontend performance
 

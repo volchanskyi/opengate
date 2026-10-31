@@ -22,6 +22,29 @@ func awaitStarted(t *testing.T, starter *startCounter, want int) {
 		2*time.Second, 10*time.Millisecond)
 }
 
+func TestADialBegunPastItsTurnCountsAsLate(t *testing.T) {
+	_, fleet := newCountedFleet(t)
+	turn := time.Unix(1_800_000_000, 0)
+
+	fleet.noteDial(turn, turn.Add(lateAfter+time.Millisecond))
+	fleet.noteDial(turn, turn.Add(lateAfter/2))
+
+	outcomes := fleet.Outcomes()
+	assert.EqualValues(t, 2, outcomes.Begun)
+	assert.EqualValues(t, 1, outcomes.Late, "only the dial begun past the allowance is late")
+}
+
+func TestAFleetOnTimeBeginsEveryDialWithNoneLate(t *testing.T) {
+	starter, fleet := newCountedFleet(t)
+
+	require.NoError(t, fleet.HoldConnected(0, 4))
+
+	awaitStarted(t, starter, 4)
+	outcomes := fleet.Outcomes()
+	assert.EqualValues(t, 4, outcomes.Begun)
+	assert.Zero(t, outcomes.Late)
+}
+
 func TestFleetHoldsTheLevelItIsAskedFor(t *testing.T) {
 	t.Run("climbs to the level", func(t *testing.T) {
 		starter, fleet := newCountedFleet(t)

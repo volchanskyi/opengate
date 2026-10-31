@@ -223,6 +223,20 @@ the whole-run figure says little about the rung that gave. Each phase also
 counts the datagrams each end's kernel dropped at a full receive buffer, which
 is where a machine's packets go missing before either process sees them.
 
+**A generator's lateness and the server's pace are recorded apart, watched.** Each
+phase records the share of its dials the machine generator began past their turn,
+and, for the phase the technician generator times, the share of the technician
+arrivals it offered that completed and their 95th-percentile time
+([`loadtest-bundle-merge.sh`](../../scripts/loadtest-bundle-merge.sh)). None of the
+three judges a run yet: together they tell a generator that fell behind its own
+schedule from a server that took arrivals slower than offered, which the arrival
+share alone reads as one. A generator named a slice of its own holds its allowance
+alone, and
+[`perf-one-runner.yml`](../../.github/workflows/perf-one-runner.yml) runs the
+scaling family's legs in turn on one runner, each naming the commit its server is
+built from and whether the two generators share one allowance, so the two compare
+on one machine.
+
 **Each step sits below what the rest of the stack leaves free**, so a step is a
 question about the target and not about the node.
 

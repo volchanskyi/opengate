@@ -9,9 +9,9 @@ import fnmatch
 import os
 import re
 
-import images
+import imagerefs
 import repo
-import tools
+import toolrow
 
 UNREAD = ("yarn.lock", "pnpm-lock.yaml", "requirements.txt", "Pipfile", "Pipfile.lock", "poetry.lock",
           "pyproject.toml", "setup.py", "Gemfile", "Gemfile.lock", "composer.json", "Chart.lock", "bun.lockb")
@@ -26,7 +26,7 @@ def _covered(root):
     """For each install verb, the package names a manifest row's source covers."""
     covered = {"go": set(), "cargo": set(), "pip": set(), "npm": set()}
     verbs = {"Go": "go", "crates.io": "cargo", "PyPI": "pip", "npm": "npm", "git-rev": "cargo"}
-    for _, _, source in tools.rows(root):
+    for _, _, source in toolrow.rows(root):
         ecosystem, _, spec = source.partition(":")
         if ecosystem in verbs:
             name = spec.split("@")[0] if ecosystem == "git-rev" else spec.split(":")[0]
@@ -79,7 +79,7 @@ def _text_findings(path, text, covered):
 
 def unread(root):
     """Every declaration no reader reads, each with where it is written."""
-    skipped = [entry["path"] for entry in images.scope().get("files", [])]
+    skipped = [entry["path"] for entry in imagerefs.scope().get("files", [])]
     covered, found = _covered(root), []
     tracked = repo.tracked(root)
     for path in tracked:

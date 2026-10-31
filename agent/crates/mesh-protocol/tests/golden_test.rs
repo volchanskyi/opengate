@@ -273,14 +273,33 @@ fn golden_control_frame_direct_switch() {
 
 #[test]
 fn golden_control_frame_direct_fallback() {
-    let msg = ControlMessage::DirectFallback { received: 70_000 };
+    let msg = ControlMessage::DirectFallback {
+        received: 70_000,
+        received_screen: 0,
+        received_files: 0,
+    };
     let encoded = Frame::Control(msg).encode().unwrap();
     golden_check("control_direct_fallback.bin", &encoded);
 }
 
 #[test]
+fn golden_control_frame_direct_fallback_per_channel() {
+    let msg = ControlMessage::DirectFallback {
+        received: 3,
+        received_screen: 0,
+        received_files: 9,
+    };
+    let encoded = Frame::Control(msg).encode().unwrap();
+    golden_check("control_direct_fallback_channels.bin", &encoded);
+}
+
+#[test]
 fn golden_control_frame_direct_fallback_none_received() {
-    let msg = ControlMessage::DirectFallback { received: 0 };
+    let msg = ControlMessage::DirectFallback {
+        received: 0,
+        received_screen: 0,
+        received_files: 0,
+    };
     let encoded = Frame::Control(msg).encode().unwrap();
     golden_check("control_direct_fallback_min.bin", &encoded);
 }
@@ -289,9 +308,22 @@ fn golden_control_frame_direct_fallback_none_received() {
 fn golden_control_frame_direct_ack() {
     let msg = ControlMessage::DirectAck {
         received: 4_294_967_296,
+        received_screen: 0,
+        received_files: 0,
     };
     let encoded = Frame::Control(msg).encode().unwrap();
     golden_check("control_direct_ack.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_direct_ack_per_channel() {
+    let msg = ControlMessage::DirectAck {
+        received: 12,
+        received_screen: 4_294_967_296,
+        received_files: 70_000,
+    };
+    let encoded = Frame::Control(msg).encode().unwrap();
+    golden_check("control_direct_ack_channels.bin", &encoded);
 }
 
 #[test]

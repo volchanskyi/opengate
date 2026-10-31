@@ -10,10 +10,12 @@
 #   GITHUB_SHA          tagged into the canonical row
 #   APPEND              1 appends the canonical row to HISTORY_FILE and rotates it to 90 days
 #   MUTATION_LANGUAGES  legs to carry, space-separated (default: all three)
+#   MUTATION_FLOORS_FILE  committed floors (default: benchmarks/mutation-floors.json)
+#   MUTATION_FLOORS_CANDIDATE  raised floors on offer (default: mutation-floors-candidate.json)
 #
 # Exit codes:
 #   0  no regression
-#   1  a language dropped more than 2pp from the previous row or scored under 85%
+#   1  a language fell more than 2pp from the previous row, or under 85% or its committed floor
 #   2  an input file is missing or unparseable
 
 set -euo pipefail
@@ -22,12 +24,17 @@ RUST_OUTCOMES="${RUST_OUTCOMES:-agent/mutants.out/outcomes.json}"
 GO_REPORT="${GO_REPORT:-server/mutation-report.json}"
 WEB_REPORT="${WEB_REPORT:-web/reports/mutation/mutation.json}"
 HISTORY_FILE="${HISTORY_FILE:-docs/mutation-history.jsonl}"
+MUTATION_FLOORS_FILE="${MUTATION_FLOORS_FILE:-benchmarks/mutation-floors.json}"
+MUTATION_FLOORS_CANDIDATE="${MUTATION_FLOORS_CANDIDATE:-mutation-floors-candidate.json}"
 
 # A leg nobody asked for is absent from the row; a leg asked for and broken is exit 2.
 MUTATION_LANGUAGES="${MUTATION_LANGUAGES-rust go web}"
 
 REGRESSION_DROP_PP=2.0
 REGRESSION_FLOOR_PCT=85.0
+# A raised floor sits this far under the score it is offered from: on unchanged code a score moved
+# at most 0.2 points a night.
+FLOOR_MARGIN_PCT=0.5
 RETENTION_DAYS=90
 
 COMMIT_SHA="${GITHUB_SHA:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
@@ -164,31 +171,63 @@ previous_row() {
   tail -n 1 "$HISTORY_FILE" 2>/dev/null || echo "null"
 }
 
+# committed_floors prints each language's committed floor, null where none is set.
+committed_floors() {
+  [[ -f "$MUTATION_FLOORS_FILE" ]] || {
+    echo "missing: $MUTATION_FLOORS_FILE" >&2
+    return 2
+  }
+  jq -ce '{rust: .rust, go: .go, web: .web}' "$MUTATION_FLOORS_FILE" 2>/dev/null || {
+    echo "invalid JSON: $MUTATION_FLOORS_FILE" >&2
+    return 2
+  }
+}
+
+# offer_floors writes MUTATION_FLOORS_CANDIDATE when a score has risen past its bar by more than the
+# margin: the committed floors with each such language's score less the margin.
+offer_floors() {
+  local curr="$1" floors="$2" candidate
+  candidate="$(jq -nc --argjson curr "$curr" --argjson floors "$floors" \
+    --argjson minimum "$REGRESSION_FLOOR_PCT" --argjson margin "$FLOOR_MARGIN_PCT" '
+    reduce ($curr.scores | to_entries[]) as $e ({offered: false, floors: $floors};
+      ((($e.value.score_pct - $margin) * 10 | round) / 10) as $offer
+      | ([$minimum, ($floors[$e.key] // $minimum)] | max) as $bar
+      | if $e.value.score_pct != null and $offer > $bar
+          then .floors[$e.key] = $offer | .offered = true
+          else . end)
+    | select(.offered) | .floors')"
+  [[ -z "$candidate" ]] && return 0
+  printf '%s\n' "$candidate" >"$MUTATION_FLOORS_CANDIDATE"
+  echo "FLOOR_OFFER:$candidate"
+}
+
 # regression_check returns 1 and prints REGRESSION_ALERT lines when a language regressed; with a
-# null PREV_ROW only the absolute floor applies.
+# null PREV_ROW only each language's bar applies, the higher of 85% and its committed floor.
 regression_check() {
-  local curr="$1" prev="$2"
+  local curr="$1" prev="$2" floors="$3"
   local branch="${GITHUB_REF_NAME:-dev}"
 
   local result
   result="$(jq -nc \
     --argjson curr "$curr" \
     --argjson prev "$prev" \
+    --argjson floors "$floors" \
     --argjson drop "$REGRESSION_DROP_PP" \
     --argjson floor "$REGRESSION_FLOOR_PCT" \
     '
-    def regressed(c; p):
+    def regressed(c; p; bar):
       if c == null then false
       else
-        (c < $floor)
+        (c < bar)
         or (p != null and (p - c) > $drop)
       end;
 
     # Only the legs the row carries are judged, so a leg that did not run stays out of the alert.
     [ $curr.scores | keys[] ] as $languages
     | reduce $languages[] as $l ({};
-        .[$l] = { curr: $curr.scores[$l].score_pct, prev: ($prev.scores[$l].score_pct // null) }
-        | .[$l].regressed = regressed(.[$l].curr; .[$l].prev))
+        .[$l] = { curr: $curr.scores[$l].score_pct, prev: ($prev.scores[$l].score_pct // null),
+                  bar: ([$floor, ($floors[$l] // $floor)] | max) }
+        | .[$l].regressed = regressed(.[$l].curr; .[$l].prev; .[$l].bar))
     | .any = ([ .[$languages[]].regressed ] | any)
     ')"
 
@@ -201,8 +240,8 @@ regression_check() {
       def fmt(lang; row):
         if row.regressed
           then "  \(lang | ascii_upcase): \(row.prev // "n/a") → \(row.curr)" +
-               (if row.prev == null then " (below floor)"
-                elif (row.curr < 85.0) then " (below 85% floor)"
+               (if row.curr < row.bar and row.bar > 85.0 then " (below its committed floor \(row.bar)%)"
+                elif row.curr < 85.0 then " (below 85% floor)"
                 else " (drop > 2pp)" end)
           else "  \(lang | ascii_upcase): \(row.prev // "n/a") → \(row.curr)"
           end;
@@ -240,9 +279,11 @@ rotate_history() {
 }
 
 main() {
-  local row prev
+  local row prev floors
+  floors="$(committed_floors)" || exit 2
   row="$(build_row)" || exit 2
   echo "$row"
+  offer_floors "$row" "$floors"
 
   prev="$(previous_row)"
 
@@ -251,7 +292,7 @@ main() {
     echo "$row" >>"$HISTORY_FILE"
   fi
 
-  if regression_check "$row" "$prev"; then
+  if regression_check "$row" "$prev" "$floors"; then
     return 0
   else
     return 1

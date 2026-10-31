@@ -539,7 +539,10 @@ Options:
   share one connection, so a real failure takes all three anyway.
 - **Item 1, pacing and windows** (Ivan, 2026-10-25): one send limit for the path, measured from
   every channel's confirmations and applied to screen and file bytes; typing is exempt, since its
-  lane caps it at 256 KiB. Replay windows: typing 256 KiB, screen 4 MiB, files 4 MiB, so a side
+  lane caps it at 256 KiB. **Changed (Ivan, 2026-10-31):** typing counts under the one limit too,
+  sent first, at once while its own channel has nothing unconfirmed; listing pages ride the files
+  channel. Measured first: a 120 000-entry listing on the unpaced typing channel held the 10 Mbit/s
+  echo at 330–560 ms for 3 s (p95 387/368 ms; 173/173 without the listing; `main` 282–288). Replay windows: typing 256 KiB, screen 4 MiB, files 4 MiB, so a side
   holds at most 8.25 MiB per session (4 MiB today). This is the split SCTP (RFC 9260 section 7.2,
   congestion control per association), QUIC (RFC 9000 section 4, RFC 9002 section 7) and Chrome's
   own SCTP stack make: how fast to send is decided once per path, how much is held is bounded per
@@ -564,15 +567,10 @@ Options:
   ([`control_loop.rs`](../../agent/crates/mesh-agent/src/control_loop.rs) hands every session
   `NullCapture`, and no agent lists `RemoteDesktop`), so commit 2 writes a Low register entry for
   it, paid down by a Windows agent with screen capture (Ivan, 2026-10-26).
-- **Item 1, uploads** (Ivan, 2026-10-26): in an upload Chrome's SCTP sends, and it resends on the
-  third report and halves its window with no time rule (dcSCTP `outstanding_data.cc`,
-  `retransmission_queue.cc`), so the patched agent leaves uploads on a reordering line as slow as
-  today. The speed spec gains an upload over Direct at 100 Mbit/s with 1% out of order, the whole
-  512 MiB file to completion as the download case does, under a 6-minute limit of its own (Ivan,
-  2026-10-26; at about 16 Mbit/s it takes about 4.5 minutes), marked "read" with no floor, and
-  [`Remote-Sessions.md`](../../docs/product/Remote-Sessions.md) states the behaviour. MeshCentral
-  sends files through its server by default and RustDesk over the operating system's TCP; Chrome
-  Remote Desktop shares the weakness.
+- **Item 1, uploads** (Ivan, 2026-10-29): OpenGate has no uploads (the browser sends no file data
+  and the agent drops `FileUploadRequest`), so the upload speed reading moved to
+  [`file-uploads.md`](file-uploads.md), a plan of its own for Ivan to approve; commit 2 leaves it
+  out.
 - **Item 1, acceptance** (Ivan, 2026-10-26): the feature's high-level acceptance tests are the
   three browser specs already run on every commit with a real agent, kept unchanged so a pass
   means what it means today: [`direct-link.spec.ts`](../../web/e2e/direct-link.spec.ts) "reaches
@@ -616,7 +614,17 @@ Options:
      7.3; pion/sctp#498 fixes a missing re-arm).
   5. The receiving side acknowledges at once when a gap appears (Pion measured about 30% in its
      reordering tests from this alone); `rtc-sctp` 0.21.1 already does (`has_packet_loss` in
-     `association/mod.rs`), so nothing changes here.
+     `association/mod.rs`).
+  6. Found while building (2026-10-28): `rtc-sctp`'s receiver never fills the duplicate list
+     (`handle_data` calls `payload_queue.push`, which records a repeat, only when `can_push`
+     already refused repeats) and never acknowledges a repeats-only packet at once, which RFC
+     9260 section 6.2 requires (MUST) and Chrome, Linux and usrsctp do; Pion has the same defect.
+     With rtc on both ends and no reports, the setting turned 2 cuts into 28 at 1% reordering.
+     Ivan's choice (2026-10-28): a separate pull request fixes the receiver, recording each
+     repeat (at most 20, as Chrome and usrsctp) and acknowledging a repeats-only packet at once,
+     and bounds every SACK to one packet (gap blocks too, as Pion's #493 did); the loss-detection
+     pull request depends on it. The undo carries RFC 3708's safeguards: no undo for a TSN resent
+     twice, and none for the association once a repeat names a TSN never resent.
 
   Pion's published numbers (+44% in an unordered test mixing 1.5% loss with reordering at an
   unstated rate, +35% with no loss) do not cover an ordered, reorder-only path, so nothing here
@@ -646,7 +654,10 @@ Options:
   behind its own setting, off by default, which the agent switches on (Ivan, 2026-10-25):
   `feat(sctp)` time-based loss detection (RFC 8985, with the undo of a needless cut) and
   `feat(sctp)` weighted fair queueing
-  (RFC 8260 section 3.6), each with its own tests. The repository asks only for a pull request;
+  (RFC 8260 section 3.6), each with its own tests. A third, `fix(sctp)`, fixes the receiver
+  (repeats reported, a repeats-only packet acknowledged at once, every SACK bounded to one
+  packet) with no setting, since RFC 9260 requires it; the loss-detection pull request depends
+  on it (Ivan, 2026-10-28). The repository asks only for a pull request;
   its merged pull requests carry one concern each, under titles of that shape, and `master` (at
   0.21.1) is copied into the 0.21 branch in bulk before each 0.21 release, so a merged change
   reaches the agent as a 0.21 patch. The scheduler touches the send queue that #253 and #259
@@ -699,7 +710,10 @@ a test gap".
    — name that path. The version check (`go version -m`), the version sweep and the dependency
    check's Go reader read it unchanged, and Go's checksum log records the code.
 3. Offered to the maintainers as a pull request I open from a branch of that copy holding only the
-   fix, without the rename; Ivan sees the text first.
+   fix, without the rename; Ivan sees the text first. Opened 2026-10-29 as go-gremlins/gremlins#325
+   from `case-expression-coverage` (15307af), citing #299, an open, unreviewed fix of #298 with a
+   looser rule (Ivan's choice). Pinned: `opengate` branch e308edc, version
+   `0.6.1-0.20261029003107-e308edc98a35`; both commits Ivan's, made by hand (Ivan, 2026-10-28).
 4. The register's Go entry is edited to what remains (step 2, the survivors), with the numbers of
    the night after commit 2.
 
@@ -727,10 +741,10 @@ As few as the waits allow, whatever their size.
    run before `/refactor` is gone — the order is `/refactor`, then the commit's one gauntlet run,
    with the pass marker, the `/refactor` start hook and every mention of the hand run removed.
 2. **Commit 2, everything that waits on nothing:**
-   - item 1: the patched `rtc-sctp` (time-based loss detection with undo, and sharing by bytes
-     between channels) with `agent/deny.toml` and the dependency check's reader, the three
+   - item 1: the patched `rtc-sctp` (the receiver's repeat reports and bounded SACKs, time-based
+     loss detection with undo, and sharing by bytes between channels) with `agent/deny.toml` and the dependency check's reader, the three
      channels with one hand-off per channel and one writer for screen and files, their capability
-     and fallback, the 5% case's fixed window, the upload reading, the 2 Mbit/s echo reading, the
+     and fallback, the 5% case's fixed window, the 2 Mbit/s echo reading, the
      runner summary, and the three Direct-link browser specs passing unchanged;
    - item 2: the anchor comparison at the 10% limit over whole suites, 10 rounds a side, the first
      anchor the last `main` commit before commit 2, benchmark names kept across the rewrite, the
@@ -755,6 +769,90 @@ As few as the waits allow, whatever their size.
      Windows agent with screen capture; the speed spec then keeps the screen busy during a
      download, reading the router's queued bytes against one allowance and each channel's share;
    - every dependency move approved by then.
+   **Progress (session 6, 2026-10-30), all uncommitted on `dev`:**
+   - Built and green: the rtc `opengate` branch pushed at `a9990730` (every upstream check
+     passed) and pinned for all 16 rtc crates, `deny.toml`, both settings on; three channels end
+     to end (shared scenarios, both hand-offs, Go fields 105–106, goldens, `DirectChannels`, agent
+     lanes and `share.rs`, link writers, browser layout from the device record); the held-frames
+     bound across channels; the speed spec's 5% window and 2 Mbit/s readings; the speed nightly's
+     runner record; the Low register entry; item 3 whole (splits, both checks, docs); item 4's
+     record on every leg outcome, generator room from the slice, `processor` trend label and the
+     machine generator's late share; the Go switch-mutant pin (session 5).
+   - **Measured on the local stack:** 100 Mbit/s Direct echo p95 62 ms (78–89 before), download
+     88.5% at 0% reordered, **18.1 Mbit/s at 1%** (16–17 before, floor 80), 2.9 Mbit/s at 5%;
+     2 Mbit/s echo p95 1087 ms Direct, 921 ms through the server. With the agent's send limit
+     removed the 1% case still read 17.3 Mbit/s, so the patched library's loss handling is not
+     taking effect against Chrome. **Ivan (2026-10-30): investigate now** — counters in the fork
+     (cuts made and undone, needless resends, the reorder allowance, repeats Chrome reports), find
+     why, fix in the fork and the open pull requests, then commit 2.
+   - **Session 7 (2026-10-30), measured on the rig and in the library's simulation:** the library's
+     reordering allowance grows from the least round trip, which a packet reordered both ways reads as
+     0.3 ms; an out-of-date SACK is dropped with its duplicate list; an undo is dropped two round trips
+     after a resend. The agent's DTLS replay window (64) discarded a quarter of Chrome's packets.
+     **Ivan (2026-10-30):** the three library fixes go into PR #302 and the `opengate` branch, then the
+     pins move; the agent's DTLS replay window becomes 256, as Chrome's; the 1% floor waits on proof that
+     Chrome's own 256-packet window drops what remains (46–47 Mbit/s with everything); the agent's
+     send-limit round trip is decided after that.
+   - **Session 9 (2026-10-30), proved on the rig and in the simulation:** the router's `netem reorder`
+     sends a packet ahead of its whole queue (200+ packets at 100 Mbit/s), and Chrome's 256-record
+     replay window (BoringSSL `std::bitset<256>`) discards what it overtook: 49 Mbit/s with no send
+     limit at all. A fourth library fault: round-trip samples from gap-acknowledged pieces read short.
+     **Ivan (2026-10-30):** (1) a fourth fix in PR #302: round trips sampled only from in-order
+     pieces — pushed as `b67196f` with fixes 1–3, whole upstream checklist passed, PR text updated;
+     (2) realistic mixing, 80% floor kept: [`router.sh`](../../deploy/router/router.sh) queues for
+     the rate in a root netem and delays and reorders in its child, so a reordered packet skips the
+     wait, never the queue (rig 87.8–88.8 Mbit/s at 1%); every speed case is re-read once;
+     (3) the send limit's path delay takes a new least round trip only once two checks in a row
+     agree (today's least read 45, 79 and 89 Mbit/s by whether a check got reordered); (4) the
+     10 Mbit/s Direct echo (353–402 ms locally in every variant, 287 ms on `main`'s nightly) is
+     traced and fixed before commit 2: first run `main`'s code on the same rig.
+   - **Session 10 (2026-10-31):** rtc `opengate` pushed at `bb228c7` after the whole upstream
+     checklist, all 16 pins moved; agent DTLS replay window 256, its relay test red at 64 and green
+     at 256; the send limit takes a new least only when two checks in a row agree (the first check
+     stands until then), fed once per answered check; the 10 Mbit/s echo traced to listings on the
+     unpaced typing channel and fixed as Ivan chose (above); the spike's completed technician share
+     and journey time recorded, watched; item 2's anchor comparison built. Item 5 (Ivan: all of it
+     in commit 2): the agent's process tests do run against each mutated build (the harness
+     links `CARGO_BIN_EXE_mesh-agent`); floors and per-shard runner records built; survivor tests
+     written. Judged equivalent: `systemctl`'s `!` (a debug line only), the hang-up's `> 1`
+     (a foreground group is never 1), `<=` against `<` at the grace's last instant, `wait_for_exit`'s
+     `^` for `|` (disjoint flags) and its error-branch flips (only an error that never occurs),
+     `log_try_send` (a log line only), and `FileManagerView`'s two at line 52 (going up from `/`,
+     whose button is hidden there). Proven 2026-10-31: lifecycle 15 of 16 killed, hardware report
+     22 of 22, control loop 0 missed, download-saver 0 survivors (was 11), FileManagerView 2 (was 23).
+     Left: four hang-up paths a real shell never reaches (line 95's `!`, `wait_for_exit` `&` and
+     `()`, `signal_shell` `()`: the shell ends on the closed terminal before its kill), and the
+     rewritten web files' survivors: `handoff.ts` 43, `session-channel.ts` 64, `SessionView.tsx` 28.
+   - **Session 11 (2026-10-31):** the hang-up's shell test now keeps the shell busy off its closed
+     terminal, and all four paths are caught (`rc == 0`'s flip joins the judged error-branch
+     flips). Web survivors written for and re-run: `handoff.ts` 43 → 15,
+     `session-channel.ts` 64 → 25, `SessionView.tsx` 28 → 4. Found and fixed: a session whose
+     relay closed kept a 10 ms retry timer running for as long as a feature sent into it, and the
+     summarizer test wrote its offered floors into the work tree. Dead
+     `delivered()` and `attempted()` removed, unreachable guards folded. Judged equivalent or
+     unreachable: the listing check's control-type and header-range tests (the encoder writes every
+     browser message as a map of at most fifteen keys, a terminal frame's first key is `data`);
+     `canTake`'s relay case (nothing is unconfirmed on the relay); the reassembly catch (the
+     reassembler throws only its own error); the budget's both-switched guard (the budget clears
+     when both switch); `leave`'s attempted flag (the browser begins when the relay opens); the
+     clearing on leaving and `links.clear()` (memory only); `controlMessage`'s type check (decode
+     cost only); the screen and files lanes (the browser queues neither until
+     [`file-uploads.md`](file-uploads.md) lands); log lines; empty last `default`s; `?? ''` on
+     an offer and a candidate a browser always fills; `{ ordered: true }` against `{}` (WebRTC's
+     default); and the session tab's route and effect lists (one host per tab, never changed while
+     mounted). The first commit attempt's gauntlet then asked for: the link shard split in two
+     (`rust-core-session-link` peer and core, `rust-core-session-sending` pacing and the shared
+     writer), the one-runner dispatch reading each leg's limits (Ivan: every leg runs, then the
+     job fails naming a leg that tripped one), the load generator's cgroup reading split from its
+     meters for the B+ grade, and the module-graph snapshot carrying `share`.
+   - **Found:** the spike's 78% (run 40192556668) was the machines' arrival share (38.7 of 49.4 a
+     second); nothing writes `achieved_operator_arrivals_per_second`, so `AchievedFraction` always
+     reads machines. Commit 3's technician-judge reasoning rests on the opposite; bring it to Ivan
+     before commit 3.
+   - **Left for commit 2:** the library investigation; item 4's technician readings in the spike
+     (completed share and 95th-percentile time, from the k6 exports, in new watched fields so no
+     verdict changes) and the one-runner measurement's inputs; item 2 whole; item 5 whole; the
+     upload reading moved to [`file-uploads.md`](file-uploads.md) (Ivan, 2026-10-29).
 3. **Commit 3, after a night of commit 2:**
    - the committed mutation floors, 0.5 point under each language's score that night;
    - item 4's fix, as Ivan chooses from the numbers the one-runner measurement brings back, and
@@ -765,6 +863,6 @@ As few as the waits allow, whatever their size.
      maintainer release that carries the fix (Ivan approved the entry, 2026-10-25);
    - this plan's deletion and its `phases.md` row.
 
-Between commits 2 and 3: the 2 Mbit/s echo numbers go to Ivan, the one-runner measurement is dispatched, the three pull requests (two to
+Between commits 2 and 3: the 2 Mbit/s echo numbers go to Ivan, the one-runner measurement is dispatched, the four pull requests (three to
 `webrtc-rs/rtc`, one to `go-gremlins/gremlins`) go to the maintainers once Ivan has read them, and the dependency rows are brought to Ivan one at a time, the
 rows customers' traffic runs through first.

@@ -55,8 +55,25 @@ jobs:
       - name: Start the test stack
         working-directory: .
         run: bash deploy/scripts/e2e-stack-up.sh
+      # Read beside the specs' numbers, so a slow night says whether the machine or the server held it.
+      - name: Note what the runner and the server's container did before the specs
+        working-directory: .
+        run: |
+          scripts/perf-runner-record.sh snapshot \
+            "$(scripts/database-levels.sh cgroup-of opengate-test-server)" /tmp/runner-before.json
       - name: Run the speed specs
         run: npx playwright test
+      - name: Record what the runner and the server's container did
+        # Runs on a red run too, so a failed night keeps the machine it ran on.
+        if: always()
+        working-directory: .
+        run: |
+          set -euo pipefail
+          scripts/perf-runner-record.sh snapshot \
+            "$(scripts/database-levels.sh cgroup-of opengate-test-server)" /tmp/runner-after.json
+          scripts/perf-runner-record.sh delta /tmp/runner-before.json /tmp/runner-after.json >/tmp/runner.json
+          jq -r '"Runner: \(.processor_model), steal \(.steal_percent)%; the server throttled in \(.server_throttled_periods) of \(.server_periods) periods (\(.server_throttled_ms) ms)"' \
+            /tmp/runner.json | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Write the run summary
         # Runs on a red or a lost run too; a run that wrote no report says so in its summary.
         if: always()

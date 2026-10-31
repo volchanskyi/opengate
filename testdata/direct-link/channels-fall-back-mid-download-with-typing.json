@@ -1,0 +1,116 @@
+{
+  "description": "The link drops in the middle of a download with typing interleaved; the browser says how many frames it took on each channel and the host re-sends the rest of each on the relay, once and in order.",
+  "steps": [
+    {
+      "step": "begin",
+      "side": "both"
+    },
+    {
+      "step": "open",
+      "side": "both",
+      "channels": "separate"
+    },
+    {
+      "step": "settle"
+    },
+    {
+      "step": "queue",
+      "side": "host",
+      "lane": "bulk",
+      "frames": [
+        {
+          "label": "f1",
+          "size": 40000
+        },
+        {
+          "label": "f2",
+          "size": 40000
+        },
+        {
+          "label": "f3",
+          "size": 40000
+        }
+      ]
+    },
+    {
+      "step": "queue",
+      "side": "host",
+      "lane": "interactive",
+      "frames": [
+        {
+          "label": "t1"
+        },
+        {
+          "label": "t2"
+        }
+      ]
+    },
+    {
+      "step": "take",
+      "side": "host"
+    },
+    {
+      "step": "carry",
+      "path": "link",
+      "channel": "typing",
+      "to": "browser",
+      "count": 1
+    },
+    {
+      "step": "carry",
+      "path": "link",
+      "channel": "files",
+      "to": "browser",
+      "count": 3
+    },
+    {
+      "step": "expect",
+      "side": "browser",
+      "delivered": [
+        "t1",
+        "f1"
+      ]
+    },
+    {
+      "step": "cut"
+    },
+    {
+      "step": "lose",
+      "side": "host",
+      "reason": "silence"
+    },
+    {
+      "step": "expect",
+      "side": "host",
+      "path": "holding"
+    },
+    {
+      "step": "settle"
+    }
+  ],
+  "expect": {
+    "browser": {
+      "delivered": [
+        "t1",
+        "f1",
+        "t2",
+        "f2",
+        "f3"
+      ],
+      "path": "relay",
+      "outcomes": [
+        "direct",
+        "dropped"
+      ]
+    },
+    "host": {
+      "delivered": [],
+      "path": "relay",
+      "outcomes": [
+        "direct",
+        "dropped"
+      ],
+      "kept": 0
+    }
+  }
+}

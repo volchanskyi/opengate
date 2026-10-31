@@ -3,4 +3,4 @@
 pub mod pacing;
 pub(crate) mod peer;
 
-pub use peer::{CHANNEL_LABEL, CHECK_EVERY, SILENCE_LIMIT};
+pub use peer::{CHANNEL_LABELS, CHECK_EVERY, SHARED_LABEL, SILENCE_LIMIT};

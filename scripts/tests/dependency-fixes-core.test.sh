@@ -36,6 +36,7 @@ done < <(
   python3 - "$PACKAGE" <<'PY'
 import sys
 sys.path.insert(0, sys.argv[1])
+import affected
 import report
 import versions
 from report import NEWER_LINE, NO_FIX, PATCH, Finding, Reading
@@ -50,25 +51,25 @@ def semver(*events):
 
 
 verdict("a release before the fix is fixed by it", "4.6.6",
-        versions.fix_for("4.6.5", semver({"introduced": "0"}, {"fixed": "4.6.6"})))
+        affected.fix_for("4.6.5", semver({"introduced": "0"}, {"fixed": "4.6.6"})))
 verdict("a release at the fix is not covered", None,
-        versions.fix_for("4.6.6", semver({"introduced": "0"}, {"fixed": "4.6.6"})))
+        affected.fix_for("4.6.6", semver({"introduced": "0"}, {"fixed": "4.6.6"})))
 verdict("a line with a fix of its own takes that fix", "1.6.1",
-        versions.fix_for("1.6.0", semver({"introduced": "0.6.3"}, {"fixed": "0.6.14"},
+        affected.fix_for("1.6.0", semver({"introduced": "0.6.3"}, {"fixed": "0.6.14"},
                                          {"introduced": "1.0.0"}, {"fixed": "1.6.1"})))
 verdict("a release between two ranges is not covered", None,
-        versions.fix_for("0.9.0", semver({"introduced": "0.6.3"}, {"fixed": "0.6.14"},
+        affected.fix_for("0.9.0", semver({"introduced": "0.6.3"}, {"fixed": "0.6.14"},
                                          {"introduced": "1.0.0"}, {"fixed": "1.6.1"})))
 verdict("a range open to the newest release has no fix", "",
-        versions.fix_for("2.0.0", semver({"introduced": "1.0.0"})))
+        affected.fix_for("2.0.0", semver({"introduced": "1.0.0"})))
 verdict("the last affected release has no fix", "",
-        versions.fix_for("1.2.4", semver({"introduced": "0"}, {"last_affected": "1.2.4"})))
+        affected.fix_for("1.2.4", semver({"introduced": "0"}, {"last_affected": "1.2.4"})))
 verdict("a release after the last affected one is not covered", None,
-        versions.fix_for("1.2.5", semver({"introduced": "0"}, {"last_affected": "1.2.4"})))
+        affected.fix_for("1.2.5", semver({"introduced": "0"}, {"last_affected": "1.2.4"})))
 verdict("a second range with no fix leaves the release unfixed", "",
-        versions.fix_for("1.0.0", semver({"introduced": "0"}, {"fixed": "1.0.1"}) + semver({"introduced": "0"})))
+        affected.fix_for("1.0.0", semver({"introduced": "0"}, {"fixed": "1.0.1"}) + semver({"introduced": "0"})))
 verdict("a commit range is left to the commit query", None,
-        versions.fix_for("1.0.0", [{"type": "GIT", "events": [{"introduced": "0"}, {"fixed": "abc"}]}]))
+        affected.fix_for("1.0.0", [{"type": "GIT", "events": [{"introduced": "0"}, {"fixed": "abc"}]}]))
 
 order = ["0.0.0-20260908162731-ac862fd6552b", "1.0.0rc1", "1.0.0", "1.0.0.post1", "1.0.1", "v1.2.0", "1.10.0"]
 verdict("versions sort as releases do, pre-releases and pseudo-versions before their release",

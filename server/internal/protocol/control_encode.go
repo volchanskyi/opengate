@@ -4,7 +4,7 @@ import "github.com/vmihailenco/msgpack/v5"
 
 // controlFieldCount is the number of msgpack-encoded fields ControlMessage declares; the
 // positionally indexed controlFieldPresence and encodeControlField must track the struct.
-const controlFieldCount = 105
+const controlFieldCount = 107
 
 // Each put* helper writes one map entry through the encoder method the reflection encoder picks
 // for that Go type, keeping the integer widths and so the bytes identical.
@@ -210,6 +210,8 @@ func (m *ControlMessage) controlFieldPresence() [controlFieldCount]bool {
 	present[102] = len(m.CSR) != 0
 	present[103] = len(m.Cert) != 0
 	present[104] = m.CABundle != ""
+	present[105] = m.ReceivedScreen != 0
+	present[106] = m.ReceivedFiles != 0
 	return present
 }
 
@@ -233,6 +235,8 @@ func (m *ControlMessage) encodeControlField(enc *msgpack.Encoder, i int) error {
 		return m.encodeAlertField(enc, i)
 	case i <= 104:
 		return m.encodeCertificateField(enc, i)
+	case i <= 106:
+		return m.encodeChannelCountField(enc, i)
 	}
 	return nil
 }
@@ -500,6 +504,17 @@ func (m *ControlMessage) encodeCertificateField(enc *msgpack.Encoder, i int) err
 		return putBytes(enc, "cert", m.Cert)
 	case 104:
 		return putString(enc, "ca_bundle", m.CABundle)
+	}
+	return nil
+}
+
+// encodeChannelCountField writes one of fields 105–106: the direct link's screen and files counts.
+func (m *ControlMessage) encodeChannelCountField(enc *msgpack.Encoder, i int) error {
+	switch i {
+	case 105:
+		return putUint64(enc, "received_screen", m.ReceivedScreen)
+	case 106:
+		return putUint64(enc, "received_files", m.ReceivedFiles)
 	}
 	return nil
 }

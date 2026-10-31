@@ -65,4 +65,5 @@ skip = [
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-allow-git = []
+# Every rtc crate comes from this copy at one pinned commit, until a 0.21 release carries its fixes.
+allow-git = ["https://github.com/volchanskyi/rtc"]

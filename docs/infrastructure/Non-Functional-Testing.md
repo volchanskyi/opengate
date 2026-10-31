@@ -114,8 +114,9 @@ itself, including how much room it had left. A generator nobody measured
 invalidates the run.
 
 That room is bracketed around the load rather than sampled after it, and it names
-whose room it is. A generator with an allowance of its own — a cgroup quota, which
-the staging load-test pod has — is measured against that allowance, and three
+whose room it is. A generator with an allowance of its own — a cgroup quota, on its
+own cgroup as the staging load-test pod has, or on the slice above it that the
+runner's generators share — is measured against that allowance, and three
 rules fall on the figure: too little processor left, too much memory held, or too
 much of the run spent runnable and refused the processor. A generator that shares
 a box with the system it measures, which is what the throwaway stack is, has no
@@ -126,7 +127,10 @@ reading of the fleet.
 The arrival rate is two pairs, not one, because two processes offer arrivals. The
 machine side is the harness's own and is measured from the fleet; the technician
 side is the profile's declaration, and its achieved half stays absent until a
-browser-side generator fills it. A phase's latency is a live round trip taken
+browser-side generator fills it. Beside the machine side sits the harness's own
+lateness: the share of the phase's dials it began more than 100 ms past their turn,
+watched and judging nothing, so a generator that fell behind its schedule can be
+told from a server that answered slowly. A phase's latency is a live round trip taken
 during the phase — a machine that connects, handshakes, registers and hangs up —
 because the control stream has no reply to a heartbeat.
 
@@ -705,10 +709,10 @@ rule all three serve is
 The standalone [benchmark workflow](../../.github/workflows/benchmark.yml) tracks hot-path
 performance trends in VictoriaMetrics. Allocation metrics (`allocs/op`, `B/op`) are
 deterministic and gate against the committed
-[baseline](../../benchmarks/baseline.json); wall-clock `ns/op` gates against a
-VictoriaMetrics window baseline plus an absolute ceiling, sized from the live
-series' measured variance because shared GitHub runners are noisy. See
-[CI Pipeline](./CI-Pipeline.md) for the gate semantics.
+[baseline](../../benchmarks/baseline.json); wall-clock `ns/op` is judged against the
+anchor commit the baseline names, both run in turns on one runner, because shared
+GitHub runners differ from night to night. See [CI Pipeline](./CI-Pipeline.md) for the
+gate semantics.
 
 | Language | What's Benchmarked | Tool |
 |----------|--------------------|------|
@@ -723,7 +727,8 @@ spends rather than the wall time it takes.
 #### Running them locally
 
 ```bash
-# What the gauntlet runs: Go allocations against the CI baseline, every Rust suite once
+# What the gauntlet runs: Go allocations against the CI baseline, every Rust suite once,
+# its benchmark names held to the baseline's
 bash scripts/benchmark-local-check.sh go
 bash scripts/benchmark-local-check.sh rust
 
@@ -736,15 +741,16 @@ cd agent && cargo bench -p mesh-protocol -p mesh-agent-core -p edge-tsdb --bench
 
 The committed [`benchmarks/baseline.json`](../../benchmarks/baseline.json) holds CI's own
 readings and no other: each row is the median of the nightly runs that measured the code it
-describes. A benchmark CI has not measured yet has no row and is reported without a limit,
-until a baseline run with the workflow's `update-baseline` input includes it. A row may carry
-a `history_from` date instead of numbers: the nights before it are ignored, and from the
-third CI night after it the row is held to those nights' median, for time and allocations
-alike — so a benchmark changed on purpose, or a new one, starts gating with no second commit. Every commit
-holds its Go allocations to the baseline in the gauntlet, at the processor count the nightly
-runs at, where a workstation allocates as CI's runner does; time per call depends on the
-machine and is held by the nightly alone. Allocation regressions above the baseline tolerance fail the workflow, and so
-does an `ns/op` past the nights' median band or the ceiling over the baseline
+describes, and it names every benchmark the suites run. A benchmark CI has not measured yet
+carries its name alone, until a baseline run with the workflow's `update-baseline` input
+includes it. A row may carry a `history_from` date instead of numbers: the nights before it
+are ignored, and from the third CI night after it the row's allocations are held to those
+nights' median. Every commit holds its Go allocations to the baseline in the gauntlet, at
+the processor count the nightly runs at, where a workstation allocates as CI's runner does;
+time per call depends on the machine and is judged by the nightly alone, against the anchor
+commit on the same runner. Allocation regressions above the baseline tolerance fail the
+workflow, and so does a slowdown against the anchor that benchstat finds significant and past
+the limit, or a named benchmark missing from the night
 ([CI Pipeline](./CI-Pipeline.md#benchmark-trend)); every series is graphed on the Grafana
 **Benchmark Trends** dashboard.
 

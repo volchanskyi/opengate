@@ -70,8 +70,8 @@ set_udp() {
   esac
 }
 
-# Each direction leaves through one interface, so half the round trip is added on each. A reordered
-# packet skips that delay, so it arrives ahead of the packets sent before it.
+# Each direction leaves through one interface, queuing there for the line's rate and then waiting
+# half the round trip. A reordered packet skips the wait and keeps its place in the queue.
 set_shape() {
   local dev
   if [ "$1" = off ]; then
@@ -87,7 +87,8 @@ set_shape() {
   local reorder=()
   [ "${3:-0}" -gt 0 ] && reorder=(reorder "${3}%")
   for dev in "$LAN" "$WAN"; do
-    tc qdisc replace dev "$dev" root netem delay "$(($2 / 2))ms" "${reorder[@]}" rate "${1}mbit"
+    tc qdisc replace dev "$dev" root handle 1: netem rate "${1}mbit"
+    tc qdisc replace dev "$dev" parent 1:1 handle 2: netem delay "$(($2 / 2))ms" "${reorder[@]}"
   done
 }
 

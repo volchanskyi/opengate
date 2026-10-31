@@ -67,9 +67,39 @@ describe('openDownload', () => {
       const sink = openDownload('backup.tar', 10)!;
       sink.abort();
       workerPort().postMessage('ready');
-      await vi.advanceTimersByTimeAsync(100);
+      vi.useRealTimers();
+      await new Promise((resolve) => setTimeout(resolve, 50));
       expect(document.querySelector('iframe')).toBeNull();
     });
+
+    it('adds the download frame once, and removes it after the download ends', async () => {
+      const added = vi.spyOn(document.body, 'appendChild');
+      const sink = openDownload('backup.tar', 10)!;
+      workerPort().postMessage('ready');
+      await vi.waitFor(() => expect(document.querySelector('iframe')).not.toBeNull());
+      workerPort().postMessage('ready');
+      vi.useRealTimers();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(added).toHaveBeenCalledOnce();
+      vi.useFakeTimers();
+      sink.close();
+      vi.advanceTimersByTime(30_000);
+      expect(document.querySelector('iframe')).toBeNull();
+    });
+
+    it('hands the worker a copy of each piece, moved rather than copied again', () => {
+      const sink = openDownload('backup.tar', 10)!;
+      const piece = new Uint8Array([1, 2, 3]);
+      sink.write(piece);
+      const [message, transfer] = postMessage.mock.calls[1]! as [{ data: Uint8Array }, ArrayBuffer[]];
+      expect(transfer).toEqual([message.data.buffer]);
+      expect(message.data.buffer).not.toBe(piece.buffer);
+    });
+  });
+
+  it('holds a download in memory where the browser offers no service worker at all', () => {
+    vi.stubGlobal('navigator', { ...navigator, serviceWorker: undefined });
+    expect(openDownload('notes.txt', 5)).not.toBeNull();
   });
 
   describe('where no service worker controls the page', () => {
@@ -90,6 +120,42 @@ describe('openDownload', () => {
       expect(created).toHaveBeenCalledOnce();
       expect(click).toHaveBeenCalledOnce();
       expect(revoked).toHaveBeenCalledWith('blob:file');
+    });
+
+    // The page reads the blob it handed the browser, and the link it clicked.
+    const saved = () => {
+      const blobs: Blob[] = [];
+      vi.stubGlobal('URL', {
+        ...URL,
+        createObjectURL: (blob: Blob) => (blobs.push(blob), 'blob:file'),
+        revokeObjectURL: () => {},
+      });
+      const links: { connected: boolean; name: string }[] = [];
+      vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+        links.push({ connected: this.isConnected, name: this.download });
+      });
+      return { blobs, links };
+    };
+
+    it('saves the pieces as they were written, whatever the caller does with them after', async () => {
+      const { blobs, links } = saved();
+      const sink = openDownload('notes.txt', 5)!;
+      const piece = new TextEncoder().encode('hello');
+      sink.write(piece);
+      piece.fill(0);
+      sink.close();
+      expect(await blobs[0]!.text()).toBe('hello');
+      expect(links).toEqual([{ connected: true, name: 'notes.txt' }]);
+      expect(document.querySelector('a')).toBeNull();
+    });
+
+    it('lets go of the pieces of a download that failed', () => {
+      const { blobs } = saved();
+      const sink = openDownload('notes.txt', 5)!;
+      sink.write(new TextEncoder().encode('hello'));
+      sink.abort();
+      sink.close();
+      expect(blobs[0]!.size).toBe(0);
     });
 
     it('refuses a file past the stated limit rather than hold it in memory', () => {

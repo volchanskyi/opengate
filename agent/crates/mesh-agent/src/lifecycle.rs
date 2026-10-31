@@ -442,6 +442,97 @@ mod tests {
         ));
     }
 
+    fn paths_in(dir: &tempfile::TempDir) -> Paths {
+        Paths {
+            data_dir: dir.path().to_path_buf(),
+            server_ca: dir.path().join("ca.pem"),
+        }
+    }
+
+    fn fixture_ca() -> String {
+        let text = include_str!("../tests/fixtures/install-note.json");
+        serde_json::from_str::<InstallNote>(text).unwrap().ca_pem
+    }
+
+    #[test]
+    fn a_crash_safe_save_may_stage_the_identity_the_server_ca_and_the_update_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths_in(&dir);
+        let mut want = AgentIdentity::files(dir.path()).to_vec();
+        want.push(dir.path().join("ca.pem"));
+        want.push(dir.path().join(UPDATE_SIGNING_KEY_FILE));
+        assert_eq!(paths.staged_targets(), want);
+    }
+
+    #[test]
+    fn a_note_whose_server_shares_this_identitys_keys_is_not_foreign() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths_in(&dir);
+        let ca = fixture_ca();
+        std::fs::write(dir.path().join("ca.pem"), &ca).unwrap();
+        let shared = InstallNote {
+            ca_pem: ca,
+            ..note(false)
+        };
+        assert!(!paths.note_is_foreign(&shared));
+        assert!(paths.note_is_foreign(&note(false)));
+    }
+
+    #[test]
+    fn deleting_a_note_already_gone_is_silent_and_a_failed_delete_is_warned() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths_in(&dir);
+        let gone = crate::test_logs::log_lines(|| paths.consume_note());
+        assert!(!gone.contains("WARN"), "{gone}");
+        std::fs::create_dir(paths.note()).unwrap();
+        let stuck = crate::test_logs::log_lines(|| paths.consume_note());
+        assert!(
+            stuck.contains("could not delete the install note"),
+            "{stuck}"
+        );
+    }
+
+    #[test]
+    fn a_missing_file_or_folder_is_removed_silently_and_a_refusal_is_warned() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("absent");
+        let quiet = crate::test_logs::log_lines(|| {
+            remove_file_logged(&missing);
+            remove_dir_logged(&missing);
+        });
+        assert!(!quiet.contains("WARN"), "{quiet}");
+        let held = dir.path().join("held");
+        std::fs::create_dir(&held).unwrap();
+        std::fs::write(held.join("inside"), b"x").unwrap();
+        let warned = crate::test_logs::log_lines(|| {
+            remove_file_logged(&held);
+            remove_dir_logged(&held);
+        });
+        assert!(warned.contains("could not remove file"), "{warned}");
+        assert!(warned.contains("could not remove folder"), "{warned}");
+    }
+
+    #[test]
+    fn a_wipe_of_a_missing_folder_succeeds_and_of_an_unreadable_one_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let absent = Paths {
+            data_dir: dir.path().join("absent"),
+            server_ca: dir.path().join("ca.pem"),
+        };
+        assert!(wipe_data_folder(&absent, &[]).is_ok());
+        use std::os::unix::fs::PermissionsExt;
+        let locked = dir.path().join("locked");
+        std::fs::create_dir(&locked).unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let unreadable = Paths {
+            data_dir: locked.clone(),
+            server_ca: dir.path().join("ca.pem"),
+        };
+        let result = wipe_data_folder(&unreadable, &[]);
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(result.is_err());
+    }
+
     #[test]
     fn a_wipe_keeps_only_what_it_is_told_to() {
         let dir = tempfile::tempdir().unwrap();

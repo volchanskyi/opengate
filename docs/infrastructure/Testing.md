@@ -339,6 +339,13 @@ Coverage % asserts which lines executed; mutation score asserts which lines
 were *meaningfully* tested. Run `make mutate` to drive cargo-mutants (Rust),
 gremlins (Go), and stryker (Web).
 
+gremlins runs from the patched copy the
+[manifest](../../scripts/lib/tool-versions.sh) names. Go's coverage profile opens a
+`case` clause's block at its body, after the case expression, so the copy reads a
+case expression from the bodies that ran: a clause's own body proves its first
+expression, and a later clause's body or the `default`'s proves every expression
+above it. A switch holding `fallthrough` stays unread.
+
 **Carve-outs** (genuinely unmutateable code, analogous to platform shims). Each
 config carries a per-entry justification next to the exclusion it explains:
 - Rust: [agent/.cargo/mutants.toml](../../agent/.cargo/mutants.toml) — platform
@@ -455,10 +462,15 @@ publishes the others and still checks them for regressions, and still goes red:
 the gate reads the whole run. See [ADR-122](../adr/ADR-122-mutation-walk-and-legs.md).
 
 **Regression alert rules** — fired when any language regresses on either
-condition: its absolute score crosses below the floor, or it drops by more than
-the allowed margin from the previous successful run. Both values are the
-`REGRESSION_FLOOR_PCT` / `REGRESSION_DROP_PP` constants in
-[`mutation-summarize.sh`](../../scripts/mutation-summarize.sh).
+condition: its score falls below its bar, or it drops by more than the allowed
+margin from the previous successful run. A language's bar is the higher of the
+`REGRESSION_FLOOR_PCT` minimum and its committed floor in
+[`mutation-floors.json`](../../benchmarks/mutation-floors.json), so a drop stays red
+until it is repaired; the drop margin is `REGRESSION_DROP_PP`
+([`mutation-summarize.sh`](../../scripts/mutation-summarize.sh)). A score that rises
+past its bar by more than `FLOOR_MARGIN_PCT` is offered as a raised floor in the run's
+summary and artifact, which a commit accepting it sets. Every shard records its
+runner's processor model and the time the host took back in its own summary.
 
 The `no_coverage` field is reported as `—` for Rust: cargo-mutants does not
 distinguish "missed" from "not covered" — every untested mutant lands in
@@ -572,7 +584,11 @@ depends on is gone for every later run against that database.
   nightly, and every other run leaves them out
   ([`e2e-speed-nightly.test.sh`](../../scripts/tests/e2e-speed-nightly.test.sh)).
   Both nightly runs write their summary from the JSON report
-  ([`e2e-summarize.sh`](../../scripts/e2e-summarize.sh)).
+  ([`e2e-summarize.sh`](../../scripts/e2e-summarize.sh)), and the speed run adds
+  the runner's processor model, the share of time its host took back and how
+  often the server's container was throttled, read before and after the specs
+  ([`perf-runner-record.sh`](../../scripts/perf-runner-record.sh)), on every
+  outcome.
 - **Staging**: `web/playwright.staging.config.ts` — derives from the CI config and
   overrides only the target, the retry policy and the specs that drive the local
   stack, so the two cannot drift in how the suite executes;
@@ -705,8 +721,8 @@ The hand-off is proved where it is written, then on real peers, then in browsers
 
 | Where | What it proves |
 |---|---|
-| [`testdata/direct-link/`](../../testdata/direct-link/) | Scripted situations — a drop before the switch, mid-stream in either direction, between a frame's pieces, both sides falling back at once, an interactive frame ahead of queued bulk — with the exact deliveries on both sides. [`direct_link_scenarios_test.rs`](../../agent/crates/mesh-protocol/tests/direct_link_scenarios_test.rs) and [`handoff.test.ts`](../../web/src/lib/direct/handoff.test.ts) replay every one, and each adds 10 000 random drop points |
-| [`direct_link_test.rs`](../../agent/crates/mesh-agent-core/tests/direct_link_test.rs) | A browser-side peer on loopback against the host: the session moves onto the link, a silent peer is noticed within the silence limit, and sockets and tasks per completed session stay flat |
+| [`testdata/direct-link/`](../../testdata/direct-link/) | Scripted situations — a drop before the switch, mid-stream in either direction, between a frame's pieces, both sides falling back at once, an interactive frame ahead of queued file frames, and with a channel per job a keystroke passing a busy file channel, a fall-back mid-download with typing interleaved, and a full file window leaving typing free — with the exact deliveries on both sides. [`direct_link_scenarios_test.rs`](../../agent/crates/mesh-protocol/tests/direct_link_scenarios_test.rs) and [`handoff.test.ts`](../../web/src/lib/direct/handoff.test.ts) replay every one, and each adds 10 000 random drop points over one shared channel or three |
+| [`direct_link_test.rs`](../../agent/crates/mesh-agent-core/tests/direct_link_test.rs) | A browser-side peer on loopback against the host: the session moves onto a link of three channels or one shared channel, typing echoes while a download fills the files channel, a silent peer is noticed within the silence limit, and sockets and tasks per completed session stay flat |
 | [`download_memory_test.rs`](../../agent/crates/mesh-agent-core/tests/download_memory_test.rs) | The host's memory stays flat against file size during a download |
 | [`session_relay_stub_test.rs`](../../agent/crates/mesh-agent-core/tests/session_relay_stub_test.rs) | A second offer refused, a second download refused while one runs, a large folder in pages ahead of nothing |
 | [`signaling_relay_test.go`](../../server/tests/integration/signaling_relay_test.go) | The negotiation — `DirectOffer`, `DirectAnswer`, `IceCandidate`, `DirectSwitch` — crosses the relay byte for byte, and an offer nobody answers leaves the session relayed |

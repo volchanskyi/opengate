@@ -29,6 +29,7 @@ mutation_rust_shards() {
     rust-core-session-terminal
     rust-core-session-dispatch
     rust-core-session-link
+    rust-core-session-sending
     rust-core-discovery
     rust-core-identity
     rust-core-runtime-lifecycle
@@ -53,7 +54,7 @@ mutation_rust_shard_package() {
     rust-core-alerts-event | rust-core-alerts-sink) echo "mesh-agent-core" ;;
     rust-core-correlate-divergence | rust-core-correlate-ranking) echo "mesh-agent-core" ;;
     rust-core-session-terminal | rust-core-session-dispatch) echo "mesh-agent-core" ;;
-    rust-core-session-link) echo "mesh-agent-core" ;;
+    rust-core-session-link | rust-core-session-sending) echo "mesh-agent-core" ;;
     rust-core-discovery | rust-core-identity) echo "mesh-agent-core" ;;
     rust-core-runtime-lifecycle | rust-core-runtime) echo "mesh-agent-core" ;;
     rust-tsdb-blocks | rust-tsdb-encoding | rust-tsdb-surface) echo "edge-tsdb" ;;
@@ -120,7 +121,10 @@ mutation_rust_shard_units() {
       echo "dir:crates/mesh-agent-core/src/session/handlers file:crates/mesh-agent-core/src/session/handler.rs file:crates/mesh-agent-core/src/session/relay.rs file:crates/mesh-agent-core/src/session/mod.rs"
       ;;
     rust-core-session-link)
-      echo "dir:crates/mesh-agent-core/src/link file:crates/mesh-agent-core/src/session/core.rs"
+      echo "file:crates/mesh-agent-core/src/link/mod.rs file:crates/mesh-agent-core/src/link/peer.rs file:crates/mesh-agent-core/src/session/core.rs"
+      ;;
+    rust-core-session-sending)
+      echo "file:crates/mesh-agent-core/src/link/pacing.rs file:crates/mesh-agent-core/src/session/share.rs"
       ;;
     rust-core-discovery) echo "dir:crates/mesh-agent-core/src/discovery" ;;
     rust-core-identity)

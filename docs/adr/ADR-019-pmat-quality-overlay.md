@@ -12,10 +12,21 @@ nothing.**
 
 1. **A server for the coding agent**, so complexity and duplication can be asked
    about while working.
-2. **A step in the pre-commit run**, which fails when any single file's grade
-   drops below B+ since the last run. Per-file, because a repository average
-   moves too slowly to be actionable.
-3. **A daily analytics run** publishing the trend to Grafana.
+2. **A step in the pre-commit run**
+   ([`pmat-precommit.sh`](../../scripts/pmat-precommit.sh)), which fails when
+   any file the change touches grades below B+: Go, Rust, TypeScript and
+   JavaScript through PMAT's own check, generated code left out, and Python by
+   its own score, 80 or more, since PMAT's check holds Python to B whatever
+   floor it is asked for. Per-file, because a repository average moves too
+   slowly to be actionable. It asks for the PMAT version the manifest pins, so a
+   version move reaches this check and the nightly together.
+3. **A daily analytics run** publishing the trend to Grafana, and failing the
+   night, with an alert naming the branch it graded, when any file but
+   generated code sits below B+ by the same rules, when the repository score
+   falls under its committed floor
+   ([`pmat-summarize.sh`](../../scripts/pmat-summarize.sh)), or when either
+   worsened since the night before. A rule against the night before alone
+   alerted on a regression once and passed it the next night.
 
 The mutation engines, SonarCloud, the lints, the security audits, the secrets
 and infrastructure scanners, coverage, taint and dead-code sweeps all stay

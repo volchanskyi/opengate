@@ -30,6 +30,11 @@ const REORDER_HELD_PCT = 1;
 // Sized so each download outlasts the rate window at a full line.
 const REORDER_FILE_MIB: Record<string, number> = { "10": 64, "100": 512 };
 
+// A slow office line, read with a download filling it on both paths; its echo is read, not held.
+const SLOW_MBIT = "2";
+// Sized so the download outlasts the echo samples at the slow line's full rate.
+const SLOW_FILE_MIB = 64;
+
 /**
  * Reads, inside the page, how long the running download takes from now until it holds every
  * piece, and the share it already held at the start.
@@ -52,6 +57,27 @@ async function untilDownloaded(tab: Page): Promise<{ seconds: number; share: num
           });
         }, 20);
       }),
+  );
+}
+
+/**
+ * Reads, inside the page, the running download's share at the start and end of a window of
+ * `seconds`, and how long the window took.
+ */
+async function overWindow(tab: Page, seconds: number): Promise<{ seconds: number; from: number; to: number }> {
+  return tab.evaluate(
+    (windowMs) =>
+      new Promise<{ seconds: number; from: number; to: number }>((resolve) => {
+        const read = () => {
+          const bar = document.querySelector('progress[aria-label^="Downloading "]');
+          return bar ? Number(bar.getAttribute("value")) / 100 : 1;
+        };
+        const start = { at: performance.now(), share: read() };
+        setTimeout(() => {
+          resolve({ seconds: (performance.now() - start.at) / 1000, from: start.share, to: read() });
+        }, windowMs);
+      }),
+    seconds * 1000,
   );
 }
 
@@ -149,37 +175,71 @@ test.describe("Performance", () => {
         await openFolder(tab, "/tmp");
         sentThrough("office");
         const saved = await startDownload(tab, name);
-        const { seconds, share } = await untilDownloaded(tab);
+        const held = pct <= REORDER_HELD_PCT;
+        // A share only read is read over the fixed window and the download then stopped, so a slow
+        // line measures in about a minute.
+        const { seconds, from, to } = held
+          ? await untilDownloaded(tab).then(({ seconds, share }) => ({ seconds, from: share, to: 1 }))
+          : await overWindow(tab, RATE_WINDOW_S);
         const sentBytes = sentThrough("office");
-        const checksum = await savedChecksum(saved);
+        const checksum = held ? await savedChecksum(saved) : null;
+        if (!held) await tab.close();
 
         const fileBytes = mib * 1024 * 1024;
-        const mbits = ((1 - share) * fileBytes * 8) / 1e6 / seconds;
+        const received = (to - from) * fileBytes;
+        const mbits = (received * 8) / 1e6 / seconds;
         const lineShare = mbits / Number(mbit);
-        const beyond = sentBytes / fileBytes - 1;
+        const beyond = sentBytes / (held ? fileBytes : received) - 1;
         console.log(
           `${mbit} Mbit/s, ${pct}% reordered: ${mbits.toFixed(1)} Mbit/s over ${seconds.toFixed(1)} s, sent ${(beyond * 100).toFixed(1)}% beyond the file`,
         );
         recordMeasurement(
           `download over Direct at ${mbit} Mbit/s, ${pct}% reordered, share of the line`,
-          pct <= REORDER_HELD_PCT ? `≥ ${RATE_FLOOR * 100}%` : "read",
+          held ? `≥ ${RATE_FLOOR * 100}%` : "read",
           `${(lineShare * 100).toFixed(1)}% (${mbits.toFixed(1)} Mbit/s)`,
-          pct > REORDER_HELD_PCT || lineShare >= RATE_FLOOR,
+          !held || lineShare >= RATE_FLOOR,
         );
         recordMeasurement(
-          `download over Direct at ${mbit} Mbit/s, ${pct}% reordered, sent beyond the file`,
+          `download over Direct at ${mbit} Mbit/s, ${pct}% reordered, sent beyond what arrived`,
           "read",
           `${(beyond * 100).toFixed(1)}%`,
           true,
         );
-        expect(checksum).toBe(source);
-        if (pct <= REORDER_HELD_PCT) {
+        if (held) {
+          expect(checksum).toBe(source);
           expect(lineShare, `${mbits.toFixed(1)} Mbit/s over ${seconds.toFixed(1)} s`).toBeGreaterThanOrEqual(
             RATE_FLOOR,
           );
         }
       });
     }
+  }
+
+  for (const path of ["Direct", "Through server"]) {
+    test(`typing echo at ${SLOW_MBIT} Mbit/s ${path === "Direct" ? "over Direct" : "through the server"} with a download filling the line is read`, async ({
+      authedPage,
+      request,
+    }) => {
+      test.setTimeout(300_000);
+      const name = `og-slow-${SLOW_FILE_MIB}.bin`;
+      sourceFile(MACHINE_A, name, SLOW_FILE_MIB);
+      if (path === "Through server") router("office", "udp", "helper-only");
+      router("office", "shape", SLOW_MBIT, "40");
+
+      const tab = await openWithWorker(authedPage, (await enrolledMachine(request, MACHINE_A)).id);
+      await expect(sessionPath(tab)).toHaveText(path, { timeout: 12_000 });
+      await openFolder(tab, "/tmp");
+      await startDownload(tab, name);
+      await tab.getByRole("tab", { name: "Terminal" }).click();
+      await watchEcho(tab);
+      const times = await echoTimes(tab, ECHO_SAMPLES);
+      const running = (await progressOf(tab)) < 1;
+      const p95 = percentile(times, 0.95);
+
+      console.log(`${SLOW_MBIT} Mbit/s ${path}: echo p95 ${Math.round(p95)} ms with the download running: ${running}`);
+      recordMeasurement(`echo at ${SLOW_MBIT} Mbit/s ${path}, 95th percentile`, "read", `${Math.round(p95)} ms`, true);
+      expect(running, "the download fills the line for every sample").toBe(true);
+    });
   }
 
   test("the session moves to Direct within a second of the relay opening, through the router", async ({

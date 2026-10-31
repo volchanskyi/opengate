@@ -322,6 +322,38 @@ jq -n '{
 run_merge "$WORK/bundle.json" --journeys "$WORK/silent.json"
 assert_eq "an export naming no request at all fails" "1" "$STATUS"
 
+# The technician arrivals a phase offered are its rate over its own span; 960 of the spike's
+# 1 200 completed, which judges nothing yet.
+jq -n '{
+  schema_version: 12,
+  journeys: null,
+  verdict: { result: "valid" },
+  phases: [
+    { name: "baseline", started_at: "2026-10-25T03:00:00Z", finished_at: "2026-10-25T03:02:00Z",
+      offered_operator_arrivals_per_second: 5 },
+    { name: "spike", started_at: "2026-10-25T03:02:00.250-07:00",
+      finished_at: "2026-10-25T03:02:30.250-07:00", offered_operator_arrivals_per_second: 40 }
+  ]
+}' >"$WORK/bundle.json"
+jq -n '{
+  metrics: {
+    "journey_device_list_ms":           { med: 41.0, "p(95)": 88.5, count: 1200 },
+    "iterations{phase:spike}":          { count: 960, rate: 32 },
+    "iteration_duration{phase:spike}":  { med: 900.0, "p(95)": 2400.5 },
+    "http_reqs":                        { count: 7228, rate: 40.1 },
+    "requests_refused":                 { count: 0, rate: 0 }
+  }
+}' >"$WORK/spike.json"
+run_merge "$WORK/bundle.json" --journeys "$WORK/spike.json"
+assert_eq "an export timing the spike's arrivals merges" "0" "$STATUS"
+assert_eq "the spike carries the share of its technician arrivals that completed" "0.8" \
+  "$(jq -r '.phases[] | select(.name == "spike") | .operator_completed_share' "$WORK/bundle.json")"
+assert_eq "and their 95th-percentile time" "2400.5" \
+  "$(jq -r '.phases[] | select(.name == "spike") | .operator_journey_p95_ms' "$WORK/bundle.json")"
+assert_eq "a phase the export does not time carries neither" "null null" \
+  "$(jq -r '.phases[] | select(.name == "baseline") | "\(.operator_completed_share) \(.operator_journey_p95_ms)"' "$WORK/bundle.json")"
+assert_eq "the verdict is left as it was" "valid" "$(jq -r '.verdict.result' "$WORK/bundle.json")"
+
 fresh_bundle
 fresh_proof 0 0 0 0
 run_merge "$WORK/bundle.json" --cleanup "$WORK/cleanup.json"

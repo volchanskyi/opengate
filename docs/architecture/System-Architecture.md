@@ -329,7 +329,8 @@ sequenceDiagram
 
 A session runs on the relay from the moment it is established. Once the relay
 connects, the session tab tries once to move it onto a direct WebRTC link
-carrying one ordered data channel. The relay stays open for the whole session:
+carrying an ordered data channel per job — typing, screen, files — or one shared
+channel to a host that does not list `DirectChannels`. The relay stays open for the whole session:
 it carries the negotiation, and it carries the session again if the link drops.
 [ADR-127](../adr/ADR-127-direct-link.md) holds the rules and what was measured.
 
@@ -348,7 +349,7 @@ sequenceDiagram
     Browser->>Agent: IceCandidate (via relay)
     Agent->>Browser: IceCandidate (via relay)
   end
-  Note over Browser,Agent: data channel open
+  Note over Browser,Agent: every data channel open
   Browser->>Agent: DirectSwitch (via relay)
   Agent->>Browser: DirectSwitch (via relay)
   Note over Browser,Agent: session frames on the link, confirmed by DirectAck
@@ -362,15 +363,16 @@ sequenceDiagram
 - **Link-control and session data.** `DirectOffer`, `DirectAnswer`,
   `IceCandidate`, `DirectRefused`, `DirectSwitch` and `DirectFallback` travel on
   the relay only and are never numbered or held. Every other frame is session
-  data: numbered on the link, kept by its sender until a `DirectAck` confirms it,
-  and re-sent through the relay after a fallback, so each direction delivers
+  data: numbered on its channel, kept by its sender until a `DirectAck` confirms
+  it, and re-sent through the relay after a fallback, so each channel delivers
   every frame once and in order across a change of path.
 - **One sending point per side.** The host's
   [`session/core.rs`](../../agent/crates/mesh-agent-core/src/session/core.rs) and
   the browser's
-  [`session-channel.ts`](../../web/src/lib/transport/session-channel.ts) keep two
-  lanes — interactive before bulk — choose the path, and pace what they write to
-  it, so typing overtakes a download on either path. The hand-off rules are a
+  [`session-channel.ts`](../../web/src/lib/transport/session-channel.ts) keep a
+  lane per channel — typing first, then screen and files by bytes sent — choose
+  the path, and pace what they write to it, so typing overtakes a download on
+  either path. The hand-off rules are a
   pure state machine on each side,
   [`handoff.rs`](../../agent/crates/mesh-protocol/src/direct/handoff.rs) and
   [`handoff.ts`](../../web/src/lib/direct/handoff.ts), held equal by the scenario
@@ -402,7 +404,7 @@ When the server assigns a session to an agent, the agent connects to the relay a
   terminal frames
 - **File operations** — directory listing in pages of at most 16 KiB, each
   marked `more` until the last, and downloads read one 256 KiB piece at a time as
-  the bulk lane drains, one download per session, permission-gated; a failed read
+  the files lane drains, one download per session, permission-gated; a failed read
   or a second request while one runs answers `FileDownloadError`
 - **Input injection** — mouse and keyboard events forwarded to the OS through the
   platform traits

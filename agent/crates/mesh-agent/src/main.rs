@@ -18,6 +18,8 @@ mod logs;
 mod requests;
 mod retro_job;
 mod stop;
+#[cfg(test)]
+mod test_logs;
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -548,6 +550,7 @@ pub(crate) fn agent_capabilities(has_local_store: bool) -> Vec<mesh_protocol::Ag
         AgentCapability::Discovery,
         AgentCapability::ThresholdAlerts,
         AgentCapability::Alerts,
+        AgentCapability::DirectChannels,
     ];
     if has_local_store {
         caps.push(AgentCapability::Backfill);
@@ -622,6 +625,11 @@ mod tests {
         assert!(caps.contains(&mesh_protocol::AgentCapability::HardwareInventory));
         assert!(caps.contains(&mesh_protocol::AgentCapability::DeviceLogs));
         assert!(!caps.contains(&mesh_protocol::AgentCapability::Backfill));
+    }
+
+    #[test]
+    fn agent_capabilities_say_the_direct_link_takes_a_channel_per_job() {
+        assert!(agent_capabilities(false).contains(&mesh_protocol::AgentCapability::DirectChannels));
     }
 
     #[test]

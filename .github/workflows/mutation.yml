@@ -22,7 +22,7 @@ env:
   GO_VERSION: '1.27'
   NODE_VERSION: '24'
   CARGO_MUTANTS_VERSION: 27.0.0
-  GREMLINS_VERSION: v0.6.0
+  GREMLINS_VERSION: v0.6.1-0.20261029003107-e308edc98a35
 jobs:
   # Projects each shard's mutant count against the job cap; it does not gate the matrix.
   # The Go count is a gremlins dry-run, since a Go mutant runs only where coverage reaches it.
@@ -102,7 +102,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: server/go.sum
       - name: Install gremlins
-        run: go install github.com/go-gremlins/gremlins/cmd/gremlins@${{ env.GREMLINS_VERSION }}
+        run: go install github.com/volchanskyi/gremlins/cmd/gremlins@${{ env.GREMLINS_VERSION }}
       # Stryker counts each web shard's mutants by instrumenting alone, which runs no install script.
       - uses: actions/setup-node@v7
         with:
@@ -149,6 +149,7 @@ jobs:
           - { language: rust, shard: rust-core-session-terminal }
           - { language: rust, shard: rust-core-session-dispatch }
           - { language: rust, shard: rust-core-session-link }
+          - { language: rust, shard: rust-core-session-sending }
           - { language: rust, shard: rust-core-discovery }
           - { language: rust, shard: rust-core-identity }
           - { language: rust, shard: rust-core-runtime-lifecycle }
@@ -200,6 +201,12 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-pinned-tools
+      # Read beside the shard's score, so a slow or cut-off shard says what the machine was doing.
+      - name: Note what the runner did before the shard
+        run: |
+          scripts/perf-runner-record.sh snapshot \
+            "/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)" /tmp/runner-before.json
       # Only the Go legs pull an image, so only they need the registry mirror.
       - uses: ./.github/actions/docker-hub-mirror
         if: matrix.language == 'go'
@@ -296,7 +303,7 @@ jobs:
           cache-dependency-path: server/go.sum
       - name: Install gremlins
         if: matrix.language == 'go'
-        run: go install github.com/go-gremlins/gremlins/cmd/gremlins@${{ env.GREMLINS_VERSION }}
+        run: go install github.com/volchanskyi/gremlins/cmd/gremlins@${{ env.GREMLINS_VERSION }}
       - name: Run gremlins (shard ${{ matrix.shard }})
         if: matrix.language == 'go'
         env:
@@ -350,6 +357,16 @@ jobs:
           ./node_modules/.bin/stryker run --mutate "$mutate"
           "$GITHUB_WORKSPACE/scripts/assert-mutation-report.sh" stryker reports/mutation/mutation.json
 
+      - name: Record what the runner did
+        # Runs on a red shard too, so a failed or cut-off shard keeps the machine it ran on.
+        if: always()
+        run: |
+          set -euo pipefail
+          scripts/perf-runner-record.sh snapshot \
+            "/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)" /tmp/runner-after.json
+          scripts/perf-runner-record.sh delta /tmp/runner-before.json /tmp/runner-after.json >/tmp/runner.json
+          jq -r '"Runner: \(.processor_model), steal \(.steal_percent)%; the job throttled in \(.server_throttled_periods) of \(.server_periods) periods (\(.server_throttled_ms) ms)"' \
+            /tmp/runner.json | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Upload mutation artifacts (${{ matrix.shard || matrix.language }})
         if: always()
         uses: actions/upload-artifact@v7
@@ -541,6 +558,18 @@ jobs:
             exit 2
           fi
           echo "$CANONICAL_ROW" > canonical-row.json
+          # A rising score is offered as a committed floor, which a commit accepting it sets.
+          if [ -s mutation-floors-candidate.json ]; then
+            echo "floor_offer=1" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Raised mutation floors on offer"
+              echo '```json'
+              cat mutation-floors-candidate.json
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "floor_offer=0" >> "$GITHUB_OUTPUT"
+          fi
           # Extract Telegram-friendly text from REGRESSION_ALERT: lines
           ALERT_TEXT="$(printf '%s\n' "$OUTPUT" | grep '^REGRESSION_ALERT:' | sed 's/^REGRESSION_ALERT://' || true)"
           {
@@ -548,6 +577,15 @@ jobs:
             echo "$ALERT_TEXT"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Upload the raised floors on offer
+        if: steps.summarize.outputs.floor_offer == '1'
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutation-floors-candidate
+          path: mutation-floors-candidate.json
+          retention-days: 90
+          if-no-files-found: error
 
       - name: Upload canonical row as artifact
         if: steps.status.outputs.complete-legs != ''

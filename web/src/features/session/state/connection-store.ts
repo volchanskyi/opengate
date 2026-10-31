@@ -9,6 +9,7 @@ import {
   type SessionPath,
 } from '../../../lib/transport/session-channel';
 import type { ControlMessage, DesktopFrame, TerminalFrame, FileFrame } from '../../../lib/protocol/types';
+import type { Layout } from '../../../lib/direct/handoff';
 
 interface ConnectionStore {
   state: ConnectionState;
@@ -21,7 +22,8 @@ interface ConnectionStore {
   /** Why the relay closed, as the server said it: "Opened elsewhere", "Ended by <name>". */
   closedReason: string | null;
 
-  connect: (token: string, relayUrl: string, helpers: string[]) => void;
+  /** Opens the session; `layout` is a channel per job for a host that takes them. */
+  connect: (token: string, relayUrl: string, helpers: string[], layout?: Layout) => void;
   disconnect: () => void;
 
   /** Every feature listening for control messages; each takes the types it handles. */
@@ -71,7 +73,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
   setOnTerminalFrame: (cb) => set({ onTerminalFrame: cb }),
   setOnFileFrame: (cb) => set({ onFileFrame: cb }),
 
-  connect: (token, relayUrl, helpers) => {
+  connect: (token, relayUrl, helpers, layout = 'shared') => {
     get().transport?.disconnect();
 
     const events: SessionChannelEvents = {
@@ -88,7 +90,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
       onClosed: (reason) => set({ closedReason: reason }),
     };
 
-    const transport = new SessionChannel(events, helpers);
+    const transport = new SessionChannel(events, helpers, layout);
     set({ transport, token, error: null, closedReason: null, path: THROUGH_SERVER });
     transport.connect(relayUrl);
   },

@@ -35,6 +35,25 @@ pub(crate) struct Shared {
     pub(crate) maintenance: mesh_agent_core::maintenance::MaintenanceGate,
 }
 
+impl Shared {
+    /// Installs a ruleset: the sampler reads the mailbox on its next tick, and the per-machine
+    /// alert allowance applies on arrival.
+    fn install_rules(&self, rules: Vec<mesh_protocol::ThresholdRule>, device_hourly_ceiling: u32) {
+        debug!(
+            count = rules.len(),
+            ceiling = device_hourly_ceiling,
+            "edge-sentinel: threshold-alert ruleset received"
+        );
+        self.alert_sink.set_ceiling(device_hourly_ceiling);
+        if let Ok(mut installed) = self.installed_rules.lock() {
+            installed.clone_from(&rules);
+        }
+        if let Ok(mut slot) = self.alert_rules_mailbox.lock() {
+            *slot = Some(rules);
+        }
+    }
+}
+
 /// A post-update verification still waiting for the server's acknowledgement.
 pub(crate) struct PendingUpdate {
     pub(crate) watchdog_cancel: Arc<tokio::sync::Notify>,
@@ -91,8 +110,7 @@ struct HourlyLog {
 impl HourlyLog {
     const PERIOD: Duration = Duration::from_secs(3600);
 
-    fn due(&mut self, key: &'static str) -> bool {
-        let now = Instant::now();
+    fn due(&mut self, key: &'static str, now: Instant) -> bool {
         match self.last.get(key) {
             Some(at) if now.duration_since(*at) < Self::PERIOD => false,
             _ => {
@@ -156,26 +174,19 @@ pub(crate) async fn run(mut agent: Agent, mut sigterm: tokio::signal::unix::Sign
                 agent.act_on(verdict).await?;
                 continue;
             }
-            End::Dropped { code } => match code {
-                Some(close_code::DEVICE_DELETED) => {
-                    info!("device deregistered by server");
-                    agent.act_on(Verdict::Deleted).await?;
-                    continue;
-                }
-                Some(close_code::CERTIFICATE_REFUSED) => {
-                    if hourly.due("certificate refused") {
-                        warn!("this machine's certificate refused by the server, retrying");
+            End::Dropped { code } => {
+                match after_drop(code, used_fast_path, &mut hourly, Instant::now()) {
+                    AfterDrop::Removed => {
+                        agent.act_on(Verdict::Deleted).await?;
+                        continue;
                     }
-                    agent.act_on(Verdict::CertificateRefused).await?;
+                    AfterDrop::CertificateRefused => {
+                        agent.act_on(Verdict::CertificateRefused).await?;
+                    }
+                    AfterDrop::FullHandshake => agent.force_full_next = true,
+                    AfterDrop::Reconnect => {}
                 }
-                Some(close_code::HANDSHAKE_REFUSED) if used_fast_path => {
-                    agent.force_full_next = true
-                }
-                Some(close_code::REPLACED_BY_NEWER_CONNECTION) if hourly.due("replaced") => {
-                    warn!("another connection took this machine's identity");
-                }
-                _ => {}
-            },
+            }
         }
 
         // A drop within the stability window backs off before reconnecting; a long session
@@ -193,6 +204,48 @@ pub(crate) async fn run(mut agent: Agent, mut sigterm: tokio::signal::unix::Sign
     agent.service.notify_stopping();
     info!("mesh-agent stopped");
     Ok(())
+}
+
+/// What a dropped connection's close code leaves the loop to do.
+#[derive(Debug, PartialEq, Eq)]
+enum AfterDrop {
+    /// The server deleted this machine.
+    Removed,
+    /// The server refused this machine's certificate.
+    CertificateRefused,
+    /// The server refused the fast path, so the next connection takes a full handshake.
+    FullHandshake,
+    /// Reconnect as usual.
+    Reconnect,
+}
+
+/// Reads a dropped connection's close code, logging what it means at most once an hour a reason.
+fn after_drop(
+    code: Option<u32>,
+    used_fast_path: bool,
+    hourly: &mut HourlyLog,
+    now: Instant,
+) -> AfterDrop {
+    match code {
+        Some(close_code::DEVICE_DELETED) => {
+            info!("device deregistered by server");
+            AfterDrop::Removed
+        }
+        Some(close_code::CERTIFICATE_REFUSED) => {
+            if hourly.due("certificate refused", now) {
+                warn!("this machine's certificate refused by the server, retrying");
+            }
+            AfterDrop::CertificateRefused
+        }
+        Some(close_code::HANDSHAKE_REFUSED) if used_fast_path => AfterDrop::FullHandshake,
+        Some(close_code::REPLACED_BY_NEWER_CONNECTION) => {
+            if hourly.due("replaced", now) {
+                warn!("another connection took this machine's identity");
+            }
+            AfterDrop::Reconnect
+        }
+        _ => AfterDrop::Reconnect,
+    }
 }
 
 /// Connects, retrying with jittered backoff; a refused chain or certificate is a verdict when a
@@ -216,7 +269,7 @@ async fn connect_until_up(agent: &Agent, hourly: &mut HourlyLog) -> Result<Conne
                     if agent.paths.read_note().is_some() {
                         return Err(verdict);
                     }
-                    log_refusal(hourly, verdict, &failure);
+                    log_refusal(hourly, verdict, &failure, Instant::now());
                 }
                 warn!(attempt, error = %failure, "connection attempt failed");
                 let delay = mesh_agent_core::full_jitter(
@@ -232,13 +285,13 @@ async fn connect_until_up(agent: &Agent, hourly: &mut HourlyLog) -> Result<Conne
     }
 }
 
-fn log_refusal(hourly: &mut HourlyLog, verdict: Verdict, failure: &ConnectFailure) {
+fn log_refusal(hourly: &mut HourlyLog, verdict: Verdict, failure: &ConnectFailure, now: Instant) {
     match verdict {
-        Verdict::ChainRefused if hourly.due("chain refused") => error!(
+        Verdict::ChainRefused if hourly.due("chain refused", now) => error!(
             error = %failure,
             "the server's master key is unknown; reinstall this machine, or uninstall it by hand"
         ),
-        Verdict::CertificateRefused if hourly.due("certificate refused") => {
+        Verdict::CertificateRefused if hourly.due("certificate refused", now) => {
             warn!(error = %failure, "this machine's certificate refused by the server, retrying")
         }
         _ => {}
@@ -387,7 +440,12 @@ impl Agent {
                     return End::Shutdown;
                 }
                 _ = heartbeat.tick() => {
-                    if !self.on_heartbeat(&mut control).await {
+                    let draining = self
+                        .backfill
+                        .as_ref()
+                        .is_some_and(backfill_loop::BackfillCoordinator::is_draining);
+                    let sink = &self.shared.alert_sink;
+                    if !send_heartbeat(&mut control, &self.telemetry, draining, sink).await {
                         break;
                     }
                 }
@@ -450,46 +508,6 @@ impl Agent {
             return End::Renewed;
         }
         End::Dropped { code }
-    }
-
-    /// Sends the heartbeat, the telemetry the background tasks queued, and the queued alerts;
-    /// returns whether the connection is still usable.
-    async fn on_heartbeat(&mut self, control: &mut Control) -> bool {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
-        if let Err(e) = control
-            .send_control(ControlMessage::AgentHeartbeat { timestamp: now })
-            .await
-        {
-            warn!(error = %e, "heartbeat failed, will reconnect");
-            return false;
-        }
-        debug!("heartbeat sent");
-        if self
-            .backfill
-            .as_ref()
-            .is_some_and(backfill_loop::BackfillCoordinator::is_draining)
-        {
-            debug!("backfill: reconnect drain in progress");
-        }
-
-        // Draining into a Vec first keeps every receiver out of the send await.
-        let t = &self.telemetry;
-        let mut windows: Vec<ControlMessage> =
-            std::iter::from_fn(|| t.host_metric_rx.try_recv().ok()).collect();
-        windows.extend(std::iter::from_fn(|| t.discovery_rx.try_recv().ok()));
-        windows.extend(std::iter::from_fn(|| t.health_rx.try_recv().ok()));
-        for window in windows {
-            if let Err(e) = control.send_control(window).await {
-                warn!(error = %e, "telemetry send failed, will reconnect");
-                return false;
-            }
-        }
-
-        // Alerts go last: a failed telemetry send leaves them queued in the sink.
-        crate::send_queued_alerts(control, &self.shared.alert_sink).await
     }
 
     async fn next_backfill_batch(&mut self) -> Option<ControlMessage> {
@@ -586,7 +604,7 @@ impl Agent {
                 rules,
                 device_hourly_ceiling,
             } => {
-                self.install_rules(rules, device_hourly_ceiling);
+                self.shared.install_rules(rules, device_hourly_ceiling);
                 Flow::Continue
             }
             other => self.dispatch_request(control, state, other).await,
@@ -647,27 +665,6 @@ impl Agent {
             return Flow::Reconnect;
         }
         Flow::Continue
-    }
-
-    /// Installs a ruleset: the sampler reads the mailbox on its next tick, and the per-machine
-    /// alert allowance applies on arrival.
-    fn install_rules(
-        &mut self,
-        rules: Vec<mesh_protocol::ThresholdRule>,
-        device_hourly_ceiling: u32,
-    ) {
-        debug!(
-            count = rules.len(),
-            ceiling = device_hourly_ceiling,
-            "edge-sentinel: threshold-alert ruleset received"
-        );
-        self.shared.alert_sink.set_ceiling(device_hourly_ceiling);
-        if let Ok(mut installed) = self.shared.installed_rules.lock() {
-            installed.clone_from(&rules);
-        }
-        if let Ok(mut slot) = self.shared.alert_rules_mailbox.lock() {
-            *slot = Some(rules);
-        }
     }
 
     /// Handles a server request that sends something back.
@@ -815,6 +812,47 @@ impl Agent {
     }
 }
 
+/// Sends the heartbeat, the telemetry the background tasks queued, and the queued alerts;
+/// returns whether the connection is still usable.
+async fn send_heartbeat<S: mesh_agent_core::ControlStream>(
+    control: &mut mesh_agent_core::AgentConnection<S>,
+    telemetry: &Telemetry,
+    draining: bool,
+    sink: &mesh_agent_core::alerts::AlertSink,
+) -> bool {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    if let Err(e) = control
+        .send_control(ControlMessage::AgentHeartbeat { timestamp: now })
+        .await
+    {
+        warn!(error = %e, "heartbeat failed, will reconnect");
+        return false;
+    }
+    debug!("heartbeat sent");
+    if draining {
+        debug!("backfill: reconnect drain in progress");
+    }
+
+    // Draining into a Vec first keeps every receiver out of the send await.
+    let t = telemetry;
+    let mut windows: Vec<ControlMessage> =
+        std::iter::from_fn(|| t.host_metric_rx.try_recv().ok()).collect();
+    windows.extend(std::iter::from_fn(|| t.discovery_rx.try_recv().ok()));
+    windows.extend(std::iter::from_fn(|| t.health_rx.try_recv().ok()));
+    for window in windows {
+        if let Err(e) = control.send_control(window).await {
+            warn!(error = %e, "telemetry send failed, will reconnect");
+            return false;
+        }
+    }
+
+    // Alerts go last: a failed telemetry send leaves them queued in the sink.
+    crate::send_queued_alerts(control, sink).await
+}
+
 /// Sends a reply owed at once, such as a busy answer; the connection keeps serving either way.
 async fn answer_now(control: &mut Control, reply: Option<ControlMessage>) -> Flow {
     if let Some(reply) = reply {
@@ -846,4 +884,158 @@ fn x509_not_after(cert_der: &[u8]) -> Option<String> {
 fn short_fingerprint(cert_der: &[u8]) -> String {
     use sha2::{Digest, Sha256};
     hex::encode(&Sha256::digest(cert_der)[..6])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_logs::log_lines;
+
+    #[test]
+    fn a_ruleset_reaches_the_sampler_and_the_retro_scan() {
+        let shared = Shared {
+            alert_sink: mesh_agent_core::alerts::AlertSink::default(),
+            alert_rules_mailbox: edge_sentinel::AlertRulesMailbox::default(),
+            installed_rules: retro_job::InstalledRules::default(),
+            maintenance: mesh_agent_core::maintenance::MaintenanceGate::default(),
+        };
+        let rules = vec![crate::edge_sentinel::test_support::cpu_rule()];
+        shared.install_rules(rules.clone(), 7);
+        assert_eq!(*shared.installed_rules.lock().unwrap(), rules);
+        assert_eq!(*shared.alert_rules_mailbox.lock().unwrap(), Some(rules));
+    }
+
+    #[tokio::test]
+    async fn a_heartbeat_carries_the_queued_telemetry_and_says_whether_the_link_still_works() {
+        let (ours, theirs) = tokio::io::duplex(64 * 1024);
+        let mut control =
+            mesh_agent_core::AgentConnection::new(mesh_agent_core::AsyncControlStream::new(ours));
+        let mut server =
+            mesh_agent_core::AgentConnection::new(mesh_agent_core::AsyncControlStream::new(theirs));
+        let (health_tx, health_rx) = std::sync::mpsc::channel();
+        let (_host_tx, host_metric_rx) = std::sync::mpsc::channel();
+        let (_discovery_tx, discovery_rx) = std::sync::mpsc::channel();
+        let telemetry = Telemetry {
+            health_rx,
+            host_metric_rx,
+            discovery_rx,
+        };
+        health_tx
+            .send(ControlMessage::CertificateInstalled)
+            .unwrap();
+        let sink = mesh_agent_core::alerts::AlertSink::default();
+
+        assert!(send_heartbeat(&mut control, &telemetry, false, &sink).await);
+        assert!(matches!(
+            server.receive_control().await.unwrap(),
+            ControlMessage::AgentHeartbeat { .. }
+        ));
+        assert!(matches!(
+            server.receive_control().await.unwrap(),
+            ControlMessage::CertificateInstalled
+        ));
+        drop(server);
+        assert!(!send_heartbeat(&mut control, &telemetry, false, &sink).await);
+    }
+
+    #[test]
+    fn a_reason_is_logged_once_an_hour() {
+        let mut hourly = HourlyLog::default();
+        let start = Instant::now();
+        assert!(hourly.due("replaced", start));
+        assert!(!hourly.due("replaced", start + Duration::from_secs(1)));
+        assert!(!hourly.due(
+            "replaced",
+            start + HourlyLog::PERIOD - Duration::from_nanos(1)
+        ));
+        assert!(hourly.due("replaced", start + HourlyLog::PERIOD));
+        assert!(hourly.due("chain refused", start + Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn a_dropped_connection_is_read_by_its_close_code() {
+        let mut hourly = HourlyLog::default();
+        let now = Instant::now();
+        let mut read = |code, fast| after_drop(Some(code), fast, &mut hourly, now);
+        assert_eq!(read(close_code::DEVICE_DELETED, false), AfterDrop::Removed);
+        assert_eq!(
+            read(close_code::CERTIFICATE_REFUSED, false),
+            AfterDrop::CertificateRefused
+        );
+        assert_eq!(
+            read(close_code::HANDSHAKE_REFUSED, true),
+            AfterDrop::FullHandshake
+        );
+        assert_eq!(
+            read(close_code::HANDSHAKE_REFUSED, false),
+            AfterDrop::Reconnect
+        );
+        assert_eq!(
+            after_drop(None, true, &mut hourly, now),
+            AfterDrop::Reconnect
+        );
+    }
+
+    #[test]
+    fn a_replaced_connection_is_warned_about_once_an_hour() {
+        let mut hourly = HourlyLog::default();
+        let start = Instant::now();
+        let replaced = Some(close_code::REPLACED_BY_NEWER_CONNECTION);
+        let first = log_lines(|| {
+            after_drop(replaced, false, &mut hourly, start);
+        });
+        let again = log_lines(|| {
+            after_drop(
+                replaced,
+                false,
+                &mut hourly,
+                start + Duration::from_secs(60),
+            );
+        });
+        let later = log_lines(|| {
+            after_drop(replaced, false, &mut hourly, start + HourlyLog::PERIOD);
+        });
+        let warning = "another connection took this machine's identity";
+        assert!(first.contains(warning), "{first}");
+        assert!(!again.contains(warning), "{again}");
+        assert!(later.contains(warning), "{later}");
+    }
+
+    #[test]
+    fn a_refused_chain_or_certificate_is_logged_once_an_hour() {
+        let mut hourly = HourlyLog::default();
+        let start = Instant::now();
+        let chain = ConnectFailure::ChainRefused("unknown issuer".into());
+        let cert = ConnectFailure::CertificateRefused("bad certificate".into());
+        let first = log_lines(|| {
+            log_refusal(&mut hourly, Verdict::ChainRefused, &chain, start);
+            log_refusal(&mut hourly, Verdict::CertificateRefused, &cert, start);
+        });
+        let again = log_lines(|| {
+            log_refusal(&mut hourly, Verdict::ChainRefused, &chain, start);
+            log_refusal(&mut hourly, Verdict::CertificateRefused, &cert, start);
+        });
+        assert!(
+            first.contains("the server's master key is unknown"),
+            "{first}"
+        );
+        assert!(
+            first.contains("certificate refused by the server"),
+            "{first}"
+        );
+        assert_eq!(again, "");
+    }
+
+    #[test]
+    fn a_renewal_logs_the_certificates_expiry_and_its_fingerprint() {
+        let key = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256).unwrap();
+        let mut params = rcgen::CertificateParams::new(vec!["device".into()]).unwrap();
+        params.not_after = rcgen::date_time_ymd(2031, 1, 2);
+        let der = params.self_signed(&key).unwrap().der().to_vec();
+        let expiry = x509_not_after(&der).unwrap();
+        assert!(expiry.contains("2031"), "{expiry}");
+        assert_eq!(x509_not_after(b"not a certificate"), None);
+        // SHA-256 of "abc" begins ba7816bf8f01 (FIPS 180-2, appendix B.1).
+        assert_eq!(short_fingerprint(b"abc"), "ba7816bf8f01");
+    }
 }

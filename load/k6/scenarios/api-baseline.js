@@ -33,10 +33,16 @@ const WALK = phases();
 
 export const options = {
   scenarios: arrivalScenarios(WALK, REQUESTS_PER_JOURNEY),
-  // The measured phase's requests and any dropped arrivals join the export; the profile judges them.
+  // The measured phase's requests, completed arrivals and their time, and any dropped arrivals join
+  // the export; the profile judges what it names.
   thresholds: Object.assign(
     { dropped_iterations: exportOnly("counter") },
-    measuredExports(WALK, { http_req_duration: "trend", http_req_failed: "rate" })
+    measuredExports(WALK, {
+      http_req_duration: "trend",
+      http_req_failed: "rate",
+      iterations: "counter",
+      iteration_duration: "trend",
+    })
   ),
 };
 

@@ -16,6 +16,11 @@ STATUS_BUILD="$REPO_ROOT/scripts/mutation-status-build.sh"
 STATUS_PUSH="$REPO_ROOT/scripts/mutation-status-vm-push.sh"
 SUMMARIZE="$REPO_ROOT/scripts/mutation-summarize.sh"
 
+# The summarizer's offered floors land in a directory of the test's own.
+CANDIDATE_DIR="$(mktemp -d)"
+trap 'rm -rf "$CANDIDATE_DIR"' EXIT
+export MUTATION_FLOORS_CANDIDATE="$CANDIDATE_DIR/candidate.json"
+
 PASS=0
 FAIL=0
 FAILURES=()
@@ -102,7 +107,7 @@ if [ -f "$SHARDS_LIB" ]; then
   fi
 
   have_rust="$(mutation_rust_shards | tr ' ' '\n' | sort | tr '\n' ' ')"
-  meaningful_rust="rust-agent-loops rust-core-alerts-conditions rust-core-alerts-evaluator rust-core-alerts-event rust-core-alerts-retro-plan rust-core-alerts-retro-scan rust-core-alerts-sink rust-core-correlate-divergence rust-core-correlate-ranking rust-core-discovery rust-core-identity rust-core-ml-analysis rust-core-ml-backfill-drain rust-core-ml-backfill-tiers rust-core-ml-host-sources rust-core-ml-redaction rust-core-ml-sampling rust-core-ml-store-sink rust-core-runtime rust-core-runtime-lifecycle rust-core-session-dispatch rust-core-session-link rust-core-session-terminal rust-protocol-wire rust-tsdb-blocks rust-tsdb-encoding rust-tsdb-surface "
+  meaningful_rust="rust-agent-loops rust-core-alerts-conditions rust-core-alerts-evaluator rust-core-alerts-event rust-core-alerts-retro-plan rust-core-alerts-retro-scan rust-core-alerts-sink rust-core-correlate-divergence rust-core-correlate-ranking rust-core-discovery rust-core-identity rust-core-ml-analysis rust-core-ml-backfill-drain rust-core-ml-backfill-tiers rust-core-ml-host-sources rust-core-ml-redaction rust-core-ml-sampling rust-core-ml-store-sink rust-core-runtime rust-core-runtime-lifecycle rust-core-session-dispatch rust-core-session-link rust-core-session-sending rust-core-session-terminal rust-protocol-wire rust-tsdb-blocks rust-tsdb-encoding rust-tsdb-surface "
   if [ "$have_rust" = "$meaningful_rust" ]; then
     pass "Rust shard ids describe their owned behavior"
   else
@@ -980,6 +985,69 @@ web_report() { # $1=killed $2=survived → Stryker-shaped JSON at killed/(killed
     '{files:{"a.ts":{mutants:
        ([range(0; $k) | {status: "Killed"}] + [range(0; $s) | {status: "Survived"}])}}}'
 }
+
+# A committed floor raises a language's bar above 85% and never lowers it; a rising score is
+# offered as a new floor half a point under it.
+if [ -x "$SUMMARIZE" ]; then
+  tmp="$(mktemp -d)"
+  printf '%s' '{"caught":90,"missed":10,"timeout":0,"unviable":0}' >"$tmp/rust.json"
+  printf '%s' '{"mutants_killed":87,"mutants_lived":13,"mutants_not_covered":0,"mutants_not_viable":0}' >"$tmp/go.json"
+  web_report 86 14 >"$tmp/web.json"
+  floors() { jq -nc --argjson r "$1" --argjson g "$2" --argjson w "$3" '{rust: $r, go: $g, web: $w}' >"$tmp/floors.json"; }
+  summarize_floors() {
+    code=0
+    out="$(RUST_OUTCOMES="$tmp/rust.json" GO_REPORT="$tmp/go.json" WEB_REPORT="$tmp/web.json" \
+      HISTORY_FILE="$tmp/NOHIST" MUTATION_FLOORS_FILE="$tmp/floors.json" \
+      MUTATION_FLOORS_CANDIDATE="$tmp/candidate.json" "$SUMMARIZE" 2>&1)" || code=$?
+  }
+
+  floors null null null
+  rm -f "$tmp/candidate.json"
+  summarize_floors
+  if [ "$code" = "0" ]; then
+    pass "unset floors leave every language at the 85% bar"
+  else
+    fail "unset floors must leave the 85% bar alone (code=$code, out=$out)"
+  fi
+  if jq -e '.rust == 89.5 and .go == 86.5 and .web == 85.5' "$tmp/candidate.json" >/dev/null 2>&1; then
+    pass "each score above the bar is offered as a floor half a point under it"
+  else
+    fail "the candidate must offer each language its score less half a point (got: $(cat "$tmp/candidate.json" 2>/dev/null))"
+  fi
+
+  floors 91.0 null 84.0
+  summarize_floors
+  if [ "$code" = "1" ] && grep -q 'RUST: n/a → 90.*(below its committed floor 91' <<<"$out"; then
+    pass "a score under its committed floor fails, naming the floor"
+  else
+    fail "a score under its committed floor must fail and name it (code=$code, out=$out)"
+  fi
+  if grep -q 'WEB: n/a → 86 (below' <<<"$out"; then
+    fail "a floor under 85% never lowers the bar below 85% nor fails a score above it (out=$out)"
+  else
+    pass "a floor under 85% never lowers the bar below 85% nor fails a score above it"
+  fi
+
+  floors 89.5 86.5 85.5
+  rm -f "$tmp/candidate.json"
+  summarize_floors
+  if [ "$code" = "0" ] && [ ! -e "$tmp/candidate.json" ]; then
+    pass "no floor is offered while no score has risen past its floor's half point"
+  else
+    fail "an unchanged score must offer no floor (code=$code, candidate: $(cat "$tmp/candidate.json" 2>/dev/null))"
+  fi
+
+  rm -f "$tmp/floors.json"
+  summarize_floors
+  if [ "$code" = "2" ]; then
+    pass "a missing floors file is malformed input"
+  else
+    fail "a missing floors file must exit 2 (code=$code)"
+  fi
+  rm -rf "$tmp"
+else
+  fail "scripts/mutation-summarize.sh must exist and be executable"
+fi
 
 if [ -x "$SUMMARIZE" ]; then
   tmp="$(mktemp -d)"

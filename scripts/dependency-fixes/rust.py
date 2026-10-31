@@ -1,10 +1,11 @@
-"""Rust crates: cargo audit over each tracked lockfile, with the fixing release read from the
-advisory's record."""
+"""Rust crates: cargo audit over each tracked lockfile, and each git copy read by its crates.io
+version, with the fixing release read from the advisory's record."""
 
 import json
 import os
 import time
 
+import crates
 import fetch
 import osv
 import repo
@@ -65,4 +66,22 @@ def read(root):
                 entry["advisory"].get("title", ""),
                 f"cd {relative} && cargo update -p {package['name']} --precise {fix}",
                 aliases=osv.aliases(record)))
+        findings += copies(relative, repo.text(root, lockfile))
     return Reading("Rust crates", count, findings)
+
+
+def copies(relative, lockfile):
+    """The advisories of each crate the lockfile takes from a git copy, read by the crates.io
+    version the copy carries, since cargo audit reads crates.io sources only."""
+    found = crates.git_copies(lockfile)
+    by_package = {(name, version): (repository, commit) for name, version, repository, commit in found}
+    findings = []
+    for (_, name, version), record, fix in osv.check_packages(
+            [("crates.io", name, version) for name, version, _, _ in found]):
+        repository, commit = by_package[(name, version)]
+        findings.append(Finding(
+            "rust", f"{relative}, copy {repository}@{commit[:12]}", name, version, record["id"], fix,
+            osv.summary(record),
+            f"rebuild the copy on {name} {fix} and repin it in {relative}/Cargo.toml [patch.crates-io]",
+            aliases=osv.aliases(record)))
+    return findings

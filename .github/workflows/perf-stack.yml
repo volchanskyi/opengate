@@ -161,14 +161,19 @@ jobs:
             exit "$walk"
           fi
 
-      # Reported beside the leg's readings, so a slow night says whether the machine or the cap held it.
+      # Reported beside the leg's readings, so a slow night says whether the machine or the cap held it;
+      # a failed leg keeps it too, in its summary when it wrote no bundle.
       - name: Record what the runner and the server's allowance did
+        if: always() && steps.stack.outcome == 'success'
         run: |
           set -euo pipefail
           scripts/perf-runner-record.sh snapshot \
             "$(scripts/database-levels.sh cgroup-of opengate-perf-server)" /tmp/runner-after.json
           scripts/perf-runner-record.sh delta /tmp/runner-before.json /tmp/runner-after.json >/tmp/runner.json
-          scripts/loadtest-bundle-merge.sh "$PERF_BUNDLE_DIR/scaling-${{ matrix.cpus }}/bundle.json" --runner /tmp/runner.json
+          BUNDLE="$PERF_BUNDLE_DIR/scaling-${{ matrix.cpus }}/bundle.json"
+          if [ -s "$BUNDLE" ]; then
+            scripts/loadtest-bundle-merge.sh "$BUNDLE" --runner /tmp/runner.json
+          fi
           jq -r '"Runner: \(.processor_model), steal \(.steal_percent)%; the server throttled in \(.server_throttled_periods) of \(.server_periods) periods (\(.server_throttled_ms) ms)"' \
             /tmp/runner.json | tee -a "$GITHUB_STEP_SUMMARY"
 
@@ -347,14 +352,19 @@ jobs:
           # The stack is per-run and reachable only from the runner; the password is generated per run.
           PERF_FIXTURE_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-Perf!
 
-      # Reported beside the leg's readings, so a slow night says whether the machine or the cap held it.
+      # Reported beside the leg's readings, so a slow night says whether the machine or the cap held it;
+      # a failed leg keeps it too, in its summary when it wrote no bundle.
       - name: Record what the runner and the server's allowance did
+        if: always() && steps.stack.outcome == 'success'
         run: |
           set -euo pipefail
           scripts/perf-runner-record.sh snapshot \
             "$(scripts/database-levels.sh cgroup-of opengate-perf-server)" /tmp/runner-after.json
           scripts/perf-runner-record.sh delta /tmp/runner-before.json /tmp/runner-after.json >/tmp/runner.json
-          scripts/loadtest-bundle-merge.sh "$PERF_BUNDLE_DIR/volume-${{ matrix.agents }}/bundle.json" --runner /tmp/runner.json
+          BUNDLE="$PERF_BUNDLE_DIR/volume-${{ matrix.agents }}/bundle.json"
+          if [ -s "$BUNDLE" ]; then
+            scripts/loadtest-bundle-merge.sh "$BUNDLE" --runner /tmp/runner.json
+          fi
           jq -r '"Runner: \(.processor_model), steal \(.steal_percent)%; the server throttled in \(.server_throttled_periods) of \(.server_periods) periods (\(.server_throttled_ms) ms)"' \
             /tmp/runner.json | tee -a "$GITHUB_STEP_SUMMARY"
 
@@ -593,14 +603,19 @@ jobs:
           K6_BIN: /tmp/k6
           JOURNEYS: ${{ matrix.journeys }}
 
-      # Reported beside the leg's readings, so a slow night says whether the machine or the cap held it.
+      # Reported beside the leg's readings, so a slow night says whether the machine or the cap held it;
+      # a failed leg keeps it too, in its summary when it wrote no bundle.
       - name: Record what the runner and the server's allowance did
+        if: always() && steps.stack.outcome == 'success'
         run: |
           set -euo pipefail
           scripts/perf-runner-record.sh snapshot \
             "$(scripts/database-levels.sh cgroup-of opengate-perf-server)" /tmp/runner-after.json
           scripts/perf-runner-record.sh delta /tmp/runner-before.json /tmp/runner-after.json >/tmp/runner.json
-          scripts/loadtest-bundle-merge.sh "$PERF_BUNDLE_DIR/${{ matrix.profile }}/bundle.json" --runner /tmp/runner.json
+          BUNDLE="$PERF_BUNDLE_DIR/${{ matrix.profile }}/bundle.json"
+          if [ -s "$BUNDLE" ]; then
+            scripts/loadtest-bundle-merge.sh "$BUNDLE" --runner /tmp/runner.json
+          fi
           jq -r '"Runner: \(.processor_model), steal \(.steal_percent)%; the server throttled in \(.server_throttled_periods) of \(.server_periods) periods (\(.server_throttled_ms) ms)"' \
             /tmp/runner.json | tee -a "$GITHUB_STEP_SUMMARY"
 

@@ -80,7 +80,7 @@ export type LinkControlMessage =
   | { type: 'IceCandidate'; candidate: string; mid: string }
   | { type: 'DirectRefused'; reason: string }
   | { type: 'DirectSwitch' }
-  | { type: 'DirectFallback'; received?: number };
+  | { type: 'DirectFallback'; received?: number; received_screen?: number; received_files?: number };
 
 /** Control messages, internally tagged to match Rust's `#[serde(tag = "type")]`. */
 export type ControlMessage =
@@ -93,7 +93,7 @@ export type ControlMessage =
   | { type: 'AgentUpdateAck'; version: string; success: boolean; error: string }
   | { type: 'RelayReady' }
   | LinkControlMessage
-  | { type: 'DirectAck'; received?: number }
+  | { type: 'DirectAck'; received?: number; received_screen?: number; received_files?: number }
   | { type: 'MouseMove'; x: number; y: number }
   | { type: 'MouseClick'; button: MouseButton; pressed: boolean; x: number; y: number }
   | { type: 'KeyPress'; key: KeyCode; pressed: boolean }

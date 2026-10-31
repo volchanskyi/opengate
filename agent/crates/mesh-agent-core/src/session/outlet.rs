@@ -85,6 +85,11 @@ impl OutletReader {
         self.rx.recv().await
     }
 
+    /// The next item if one waits now, without waiting.
+    pub(crate) fn try_next(&mut self) -> Option<Vec<u8>> {
+        self.rx.try_recv().ok()
+    }
+
     /// Reports one item written.
     pub(crate) fn written(&self) {
         self.queued.fetch_sub(1, Ordering::SeqCst);
@@ -152,6 +157,17 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_reader_takes_what_waits_without_waiting() {
+        let (outlet, mut reader) = Outlet::new();
+        assert_eq!(reader.try_next(), None);
+        outlet.push(vec![7]);
+        assert_eq!(reader.try_next(), Some(vec![7]));
+        assert!(!outlet.is_empty(), "taken is not yet written");
+        reader.written();
+        assert!(outlet.is_empty());
     }
 
     #[tokio::test]

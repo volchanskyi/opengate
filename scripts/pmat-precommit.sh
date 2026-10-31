@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# Fails the commit when a changed code file grades below the PMAT TDG floor, B+ by default.
-# Changed code is changed, staged, unstaged and untracked files minus gofmt-only Go test files.
+# Fails the commit when a changed code or Python file grades below the PMAT TDG floor, B+ by
+# default. Changed files are changed, staged, unstaged and untracked minus gofmt-only Go tests.
 #
 # Environment:
 #   PMAT_BIN           pmat binary (default: pmat)
 #   PMAT_MIN_GRADE     grade floor (default: B+)
+#   PMAT_PYTHON_MIN    the score a Python file reaches, B+ in pmat's bands (default: 80)
 #   PMAT_BASELINE_REF  diff baseline ref (default: origin/dev)
-#   PMAT_PIN           required pmat version (default: 3.17.0), empty disables the check
+#   PMAT_PIN           required pmat version (default: the manifest's), empty disables the check
 #   GOFMT_BIN          gofmt binary (default: gofmt)
 #
 # Exit codes:
@@ -15,15 +16,18 @@
 #   2  prerequisite missing (wrong or absent pmat)
 set -uo pipefail
 
-PMAT_BIN="${PMAT_BIN:-pmat}"
-PMAT_MIN_GRADE="${PMAT_MIN_GRADE:-B+}"
-PMAT_BASELINE_REF="${PMAT_BASELINE_REF:-origin/dev}"
-# An explicitly empty PMAT_PIN disables the check; an unset one takes the default pin.
-PMAT_PIN="${PMAT_PIN-3.17.0}"
-GOFMT_BIN="${GOFMT_BIN:-gofmt}"
-
 PMAT_PRECOMMIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TDD_CHECK="$PMAT_PRECOMMIT_DIR/tdd-check.sh"
+# shellcheck source=lib/tool-versions.sh
+source "$PMAT_PRECOMMIT_DIR/lib/tool-versions.sh"
+
+PMAT_BIN="${PMAT_BIN:-pmat}"
+PMAT_MIN_GRADE="${PMAT_MIN_GRADE:-B+}"
+PMAT_PYTHON_MIN="${PMAT_PYTHON_MIN:-80}"
+PMAT_BASELINE_REF="${PMAT_BASELINE_REF:-origin/dev}"
+# An explicitly empty PMAT_PIN disables the check; an unset one takes the manifest's pin.
+PMAT_PIN="${PMAT_PIN-$TOOL_VERSION_PMAT}"
+GOFMT_BIN="${GOFMT_BIN:-gofmt}"
 
 # pmat_version_ok is true when PMAT_BIN reports exactly the pinned version or the pin is disabled.
 pmat_version_ok() {
@@ -60,7 +64,7 @@ pmat_is_gofmt_only_test() {
   [ "$baseline_fmt" = "$current_fmt" ]
 }
 
-# pmat_changed_code_files prints the changed code files that still exist, one per line.
+# pmat_changed_code_files prints the changed code and Python files that still exist, one per line.
 pmat_changed_code_files() {
   local base
   base="$(pmat_resolve_base 2>/dev/null || true)"
@@ -72,15 +76,49 @@ pmat_changed_code_files() {
   } | sort -u | while IFS= read -r f; do
     [ -n "$f" ] || continue
     [ -f "$f" ] || continue
-    "$TDD_CHECK" is-code "$f" || continue
+    [[ "$f" == *.py ]] || "$TDD_CHECK" is-code "$f" || continue
     pmat_is_gofmt_only_test "$f" "$base" && continue
     printf '%s\n' "$f"
   done
 }
 
+# pmat_python_score prints a file's own pmat score, `test` for a file pmat grades as a test, which
+# its whole-tree check leaves out too, or nothing when pmat gives no score.
+pmat_python_score() {
+  local report
+  report="$("$PMAT_BIN" tdg "$1" --format json 2>/dev/null)"
+  if grep -q '^Skipping test file' <<<"$report"; then
+    echo test
+    return 0
+  fi
+  # The report prints a banner before its JSON, so the slice starts at the first '{'.
+  sed -n '/^{/,$p' <<<"$report" | jq -r '.score.total // empty' 2>/dev/null
+}
+
+# pmat_check_python returns 0 when a Python file's own score reaches PMAT_PYTHON_MIN, and prints
+# its score otherwise; pmat's own check holds Python to B whatever floor it is asked for.
+pmat_check_python() {
+  local f="$1" score
+  score="$(pmat_python_score "$f")"
+  [ "$score" = test ] && return 0
+  if [ -z "$score" ]; then
+    printf '    %s: pmat gave no score\n' "$f"
+    return 1
+  fi
+  if awk -v s="$score" -v m="$PMAT_PYTHON_MIN" 'BEGIN { exit !(s >= m) }'; then
+    return 0
+  fi
+  printf '    %s: score %.1f, under %s\n' "$f" "$score" "$PMAT_PYTHON_MIN"
+  return 1
+}
+
 # pmat_check_file returns 0 when the file meets the floor and prints the failing grades otherwise.
 pmat_check_file() {
   local f="$1" out rc
+  if [[ "$f" == *.py ]]; then
+    pmat_check_python "$f"
+    return
+  fi
   out="$("$PMAT_BIN" tdg check-quality -p "$f" \
     --min-grade "$PMAT_MIN_GRADE" --fail-on-violation --format json 2>/dev/null)"
   rc=$?

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Builds benchmark rows from Go -benchmem and Criterion output and gates allocations, writing
-# out each Go timing past its line for scripts/benchmark-confirm.sh to measure again.
+# Builds benchmark rows from Go -benchmem and Criterion output and gates allocations; timings are
+# judged against the anchor commit by scripts/benchmark-anchor.sh.
 #
 # Environment:
 #   VM_RUN_STARTED_AT  the run's start, in seconds since the epoch (required)
@@ -16,23 +16,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # to, and what the check made of it.
 BENCHMARK_SUMMARY_FILE="${BENCHMARK_SUMMARY_FILE:-benchmark-summary.md}"
 
-# Where each Go timing past its line goes for the re-run: name, line and night count, and the
-# nights' readings as Go benchmark lines.
-BENCHMARK_FLAGGED_FILE="${BENCHMARK_FLAGGED_FILE:-benchmark-flagged.tsv}"
-BENCHMARK_WINDOW_FILE="${BENCHMARK_WINDOW_FILE:-benchmark-window.txt}"
-
 GO_BENCH_FILE="${GO_BENCH_FILE:-bench-go.txt}"
 CRITERION_ROOT="${CRITERION_ROOT:-agent/target/criterion}"
 BASELINE_FILE="${BASELINE_FILE:-benchmarks/baseline.json}"
 COMMIT_SHA="${GITHUB_SHA:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
 TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-# ns/op window-gate constants, calibrated from measured run-to-run variance.
-NS_WINDOW_DAYS=14   # < 30d VM retention; the 14 dates before tonight's
-NS_REL_TOL=0.50     # regress if ns/op > window median × (1 + this)
-NS_ABS_CEIL_TOL=1.0 # regress if ns/op > committed-baseline ns × (1 + this)
-# Fewer dates skip the relative rule, and hold a row with no committed numbers ungated.
-NS_MIN_WINDOW_SAMPLES=3
+# The nights an allocation count with no committed numbers is held to, inside the store's 30 days.
+WINDOW_DAYS=14
+# Fewer nights than this leave such a count reported and not held.
+MIN_WINDOW_SAMPLES=3
 
 parse_go_bench() {
   local file="$1"
@@ -118,20 +111,23 @@ rows_from_tsv() {
   }
 }
 
-# Writes a baseline from tonight's rows, keeping each row's history_from from BASELINE_FILE.
+# Writes a baseline from tonight's rows, keeping the anchor and each row's history_from from
+# BASELINE_FILE.
 build_baseline() {
-  local rows="$1" kept='{}'
+  local rows="$1" kept='{}' anchor=null
   if [[ -f "$BASELINE_FILE" ]]; then
     kept="$(jq -c '[.benchmarks[]? | select(.history_from != null)
       | {key: (.lang + "/" + .name), value: .history_from}] | from_entries' "$BASELINE_FILE")" || {
       echo "baseline is malformed: $BASELINE_FILE" >&2
       return 2
     }
+    anchor="$(jq -c '.anchor // null' "$BASELINE_FILE")"
   fi
-  jq -c --arg generated_at "$TIMESTAMP" --argjson kept "$kept" '
+  jq -c --arg generated_at "$TIMESTAMP" --argjson kept "$kept" --argjson anchor "$anchor" '
     {
       version: 1,
       generated_at: $generated_at,
+      anchor: $anchor,
       default_tolerances: { allocs_op: 0.02, bytes_op: 0.02 },
       benchmarks: [
         .[] | {name, lang, ns_op, bytes_op, allocs_op}
@@ -145,7 +141,7 @@ build_baseline() {
 # A store that cannot be read gives [], which leaves only the committed limits.
 nightly_json() {
   local lines
-  lines="$(vm_query_nightly "$1" 'env="ci"' "$NS_WINDOW_DAYS")" || lines=""
+  lines="$(vm_query_nightly "$1" 'env="ci"' "$WINDOW_DAYS")" || lines=""
   jq -Rnc '
     [ inputs | split("\t") | select(length >= 3)
       | (.[0] | split(",") | map(split("=") | {key: .[0], value: (.[1:] | join("="))})
@@ -155,15 +151,14 @@ nightly_json() {
   ' <<<"$lines" 2>/dev/null || printf '[]'
 }
 
-# benchmark_limits prints one object a row: each metric's reading beside the limit it is held to
-# and where that limit came from. Every gate and the summary page read these objects.
+# benchmark_limits prints one object a row: each allocation metric's reading beside the limit it
+# is held to and where that limit came from. Every gate and the summary page read these objects.
 benchmark_limits() {
-  local rows="$1" baseline="$2" ns="$3" allocs="$4" bytes="$5"
+  local rows="$1" baseline="$2" allocs="$3" bytes="$4"
   jq -c \
     --argjson rows "$rows" \
-    --argjson ns "$ns" --argjson allocs "$allocs" --argjson bytes "$bytes" \
-    --argjson reltol "$NS_REL_TOL" --argjson ceiltol "$NS_ABS_CEIL_TOL" \
-    --argjson minn "$NS_MIN_WINDOW_SAMPLES" '
+    --argjson allocs "$allocs" --argjson bytes "$bytes" \
+    --argjson minn "$MIN_WINDOW_SAMPLES" '
     def median:
       sort
       | if length == 0 then null
@@ -187,20 +182,10 @@ benchmark_limits() {
     | [ $rows[] as $row
         | ([$baseline.benchmarks[]? | select(.name == $row.name and .lang == $row.lang)] | first) as $base
         | ($base.history_from // null) as $from
-        | nights($ns; $row; $from) as $nsv
-        | ($nsv | length) as $count
-        | (if $count >= $minn then ($nsv | median) * (1 + $reltol) else null end) as $band
-        | (if $base.ns_op != null then $base.ns_op * (1 + $ceiltol) else null end) as $ceiling
-        | ([$band, $ceiling] | map(select(. != null)) | min) as $line
         | {
             lang: $row.lang,
             name: $row.name,
             from: $from,
-            ns: {
-              reading: $row.ns_op, nights: $nsv, count: $count, median: ($nsv | median),
-              band: $band, ceiling: $ceiling, base: $base.ns_op, line: $line,
-              over: ($line != null and $row.ns_op != null and $row.ns_op > $line)
-            },
             allocs_op: held($row.allocs_op; $base.allocs_op; nights($allocs; $row; $from);
               ($base.tolerances.allocs_op // $defaults.allocs_op // 0.02); $from),
             bytes_op: held($row.bytes_op; $base.bytes_op; nights($bytes; $row; $from);
@@ -209,31 +194,16 @@ benchmark_limits() {
   ' <<<"$baseline"
 }
 
-# Prints one alert line a reading that fails the run: an allocation count past its limit, or a
-# Rust timing past its line.
+# Prints one alert line an allocation count past its limit.
 hard_regressions() {
   local limits="$1"
-  jq -r --argjson reltol "$NS_REL_TOL" --argjson ceiltol "$NS_ABS_CEIL_TOL" '
+  jq -r '
     .[] as $r
-    | ( (["allocs_op", "bytes_op"][] as $m
-          | $r[$m] | select(. != null and .limit != null and .reading > .limit)
-          | "  • \($r.lang)/\($r.name) \($m): \(.base) → \(.reading) (>\(.tol * 100)% "
-            + (if .basis == "baseline" then "tolerance" else "over the nights\u0027 median" end) + ")"),
-        ($r.ns | select($r.lang != "go" and .over)
-          | if .band != null and .reading > .band
-              then "  • \($r.lang)/\($r.name) ns_op: \(.median) → \(.reading) (>\($reltol * 100)% window median)"
-              else "  • \($r.lang)/\($r.name) ns_op: \(.base) → \(.reading) (>\($ceiltol * 100)% baseline ceiling)"
-            end) )
+    | ["allocs_op", "bytes_op"][] as $m
+    | $r[$m] | select(. != null and .limit != null and .reading > .limit)
+    | "  • \($r.lang)/\($r.name) \($m): \(.base) → \(.reading) (>\(.tol * 100)% "
+      + (if .basis == "baseline" then "tolerance" else "over the nights\u0027 median" end) + ")"
   ' <<<"$limits"
-}
-
-# Writes each Go timing past its line, and its nights as Go benchmark lines, for the re-run.
-write_flagged() {
-  local limits="$1"
-  jq -r '.[] | select(.lang == "go" and .ns.over) | "\(.name)\t\(.ns.line)\t\(.ns.count)"' \
-    <<<"$limits" >"$BENCHMARK_FLAGGED_FILE" || return 2
-  jq -r '.[] | select(.lang == "go" and .ns.over) | .name as $n | .ns.nights[] | "\($n) 1 \(.) ns/op"' \
-    <<<"$limits" >"$BENCHMARK_WINDOW_FILE" || return 2
 }
 
 # Writes the summary page from the limits the gates apply.
@@ -242,34 +212,24 @@ summary_page() {
   {
     printf '### Benchmarks\n\n'
     summary_table_header
-    jq -r --argjson reltol "$NS_REL_TOL" --argjson ceiltol "$NS_ABS_CEIL_TOL" --argjson minn "$NS_MIN_WINDOW_SAMPLES" \
-      --argjson terms "$(summary_terms_json ns/op allocs/op B/op)" '
+    jq -r --argjson minn "$MIN_WINDOW_SAMPLES" --argjson terms "$(summary_terms_json allocs/op B/op)" '
       def term($w): "<span title=\"\($terms[$w])\">\($w)</span>";
       def num: (. * 100 | round) / 100 | tostring;
       def waiting($count; $from): "no limit yet (\($count) of \($minn) nights since \($from))";
       .[] as $r
       | ("\($r.lang)/\($r.name)") as $name
-      | ((["allocs_op", "bytes_op"][] as $m
-          | $r[$m] | select(. != null)
-          | ($m | sub("_op$"; "/op") | sub("^bytes"; "B") | term(.)) as $unit
-          | if .limit == null then
-              [$name + " " + $unit, (if .basis == "waiting" then waiting(.count; .from) else "no limit" end),
-               (.reading | num), "—"]
-            else
-              [$name + " " + $unit,
-               "≤ \(.limit | num) (" + (if .basis == "baseline" then "baseline" else "nights\u0027 median" end)
-                 + " \(.base | num) + \(.tol * 100 | num) %)",
-               (.reading | num), (if .reading > .limit then "FAIL" else "pass" end)]
-            end),
-         ($r.ns | select(.reading != null)
-          | ([ (if .band != null then "≤ \(.band | num) ns (nights\u0027 median × \(1 + $reltol | num))" else empty end),
-               (if .ceiling != null then "≤ \(.ceiling | num) ns (baseline × \(1 + $ceiltol | num))" else empty end) ]
-             | if length > 0 then join("; ")
-               elif $r.from != null then waiting($r.ns.count; $r.from)
-               else "no limit" end) as $expected
-          | [$name + " " + term("ns/op"), $expected, "\(.reading | num) ns",
-             (if .line == null then "—" elif .over then (if $r.lang == "go" then "re-run" else "FAIL" end)
-              else "pass" end)]))
+      | ["allocs_op", "bytes_op"][] as $m
+      | $r[$m] | select(. != null)
+      | ($m | sub("_op$"; "/op") | sub("^bytes"; "B") | term(.)) as $unit
+      | if .limit == null then
+          [$name + " " + $unit, (if .basis == "waiting" then waiting(.count; .from) else "no limit" end),
+           (.reading | num), "—"]
+        else
+          [$name + " " + $unit,
+           "≤ \(.limit | num) (" + (if .basis == "baseline" then "baseline" else "nights\u0027 median" end)
+             + " \(.base | num) + \(.tol * 100 | num) %)",
+           (.reading | num), (if .reading > .limit then "FAIL" else "pass" end)]
+        end
       | "| \(.[0]) | \(.[1]) | \(.[2]) | \(.[3]) |"
     ' <<<"$limits"
   } >"$BENCHMARK_SUMMARY_FILE"
@@ -290,8 +250,7 @@ regression_check() {
 
   # Without tonight's date the window would read tonight into itself.
   vm_tonight >/dev/null || return 2
-  local ns allocs='[]' bytes='[]'
-  ns="$(nightly_json benchmark_ns_op)"
+  local allocs='[]' bytes='[]'
   # Allocation nights are read only for a row with no committed numbers to hold them to.
   if jq -e '[.benchmarks[]? | select(.history_from != null and (.allocs_op == null or .bytes_op == null))]
     | length > 0' <<<"$baseline" >/dev/null; then
@@ -300,12 +259,11 @@ regression_check() {
   fi
 
   local limits
-  limits="$(benchmark_limits "$rows" "$baseline" "$ns" "$allocs" "$bytes")" || {
+  limits="$(benchmark_limits "$rows" "$baseline" "$allocs" "$bytes")" || {
     echo "could not work out the limits" >&2
     return 2
   }
   summary_page "$limits"
-  write_flagged "$limits" || return 2
 
   local branch="${GITHUB_REF_NAME:-dev}" lines
   lines="$(hard_regressions "$limits")" || return 2

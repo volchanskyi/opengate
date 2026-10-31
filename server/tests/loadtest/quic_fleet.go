@@ -16,6 +16,10 @@ type fleetPresence struct {
 	Left func()
 }
 
+// lateAfter is how far past its turn a dial begins before it counts as late: past a collector
+// pause or a refused scheduling period, so the generator itself fell behind its schedule.
+const lateAfter = 100 * time.Millisecond
+
 // StartAgent runs one machine until its context ends or it fails to connect, signalling presence.
 type StartAgent func(ctx context.Context, index int, presence fleetPresence) agentResult
 
@@ -115,12 +119,14 @@ func (f *QUICFleet) startOne(after time.Duration) {
 
 	f.wg.Add(1)
 	var arrived atomic.Bool
+	turn := time.Now().Add(after)
 	go func() {
 		defer f.wg.Done()
 		if !waitOut(ctx, after) {
 			// stopOne already removed the machine from the level.
 			return
 		}
+		f.noteDial(turn, time.Now())
 		result := f.start(ctx, index, fleetPresence{
 			Arrived: func() { f.noteArrival(&arrived) },
 			Left:    f.noteDeparture,
@@ -134,6 +140,16 @@ func (f *QUICFleet) startOne(after time.Duration) {
 		f.mu.Unlock()
 		cancel()
 	}()
+}
+
+// noteDial counts a dial begun at began whose turn was at turn, late when past lateAfter.
+func (f *QUICFleet) noteDial(turn, began time.Time) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.outcomes.Begun++
+	if began.Sub(turn) > lateAfter {
+		f.outcomes.Late++
+	}
 }
 
 // noteArrival counts every registration as connected and only a machine's first as an arrival.

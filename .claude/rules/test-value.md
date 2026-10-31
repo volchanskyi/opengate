@@ -56,7 +56,7 @@ holds the tool's behaviour on the point its test is about:
   ([`loadtest-generator-share.test.sh`](../../scripts/tests/loadtest-generator-share.test.sh)).
 - **go test** prints `goos`, `pkg` and `cpu` lines around its results, which
   benchstat reads as labels
-  ([`benchmark-confirm.test.sh`](../../scripts/tests/benchmark-confirm.test.sh)).
+  ([`benchmark-anchor.test.sh`](../../scripts/tests/benchmark-anchor.test.sh)).
 - **The kernel's processor counters** move only as time passes
   ([`safety_test.go`](../../server/tests/loadtest/safety_test.go)).
 

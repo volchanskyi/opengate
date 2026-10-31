@@ -3,7 +3,9 @@
 
 use std::time::{Duration, Instant};
 
-use mesh_protocol::direct::{Config, Handoff, Instruction, LeaveReason, Outcome, Path};
+use mesh_protocol::direct::{
+    Channel, Config, Handoff, Instruction, Layout, LeaveReason, Outcome, Path,
+};
 use mesh_protocol::{ControlMessage, Frame};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -61,9 +63,14 @@ impl Core {
                 .next_deadline()
                 .map(|ms| tokio::time::Instant::from_std(self.start + Duration::from_millis(ms)));
             let reading = self.dispatch.queued() < DISPATCH_BACKLOG;
-            let taking = self.handoff.can_take();
-            let writer = self.writer();
-            let ready = writer.as_ref().is_some_and(Outlet::is_empty);
+            let writers = self.writers();
+            let taking = Channel::ALL.map(|c| self.handoff.can_take(c));
+            let open =
+                [0, 1, 2].map(|i| taking[i] && writers[i].as_ref().is_some_and(Outlet::is_empty));
+            let busy: Vec<Outlet> = (0..3)
+                .filter(|&i| taking[i] && !open[i])
+                .filter_map(|i| writers[i].clone())
+                .collect();
 
             tokio::select! {
                 biased;
@@ -79,8 +86,10 @@ impl Core {
                     let out = self.handoff.tick(self.now());
                     self.execute(out);
                 }
-                Some(queued) = self.lanes.next(), if taking && ready => self.take(queued.bytes),
-                () = wait_empty(writer.as_ref()), if taking && !ready && writer.is_some() => {}
+                Some(queued) = self.lanes.next(open), if open.contains(&true) => {
+                    self.take(queued.bytes)
+                }
+                () = any_empty(&busy), if !busy.is_empty() => {}
                 () = self.dispatch.at_most(DISPATCH_BACKLOG - 1), if !reading => {}
             }
             if self.ended {
@@ -99,12 +108,16 @@ impl Core {
         u64::try_from(self.start.elapsed().as_millis()).unwrap_or(u64::MAX)
     }
 
-    /// The writer the next session frame goes to, if the hand-off sends at all now.
-    fn writer(&self) -> Option<Outlet> {
-        match self.handoff.path() {
-            Path::Relay => Some(self.relay.clone()),
-            Path::Link => self.link.as_ref().map(|l| l.outlet.clone()),
-            _ => None,
+    /// The writer each lane's next frame goes to, in [`Channel::ALL`] order, if the hand-off
+    /// sends at all now: the relay, the lane's own channel, or the one shared channel.
+    fn writers(&self) -> [Option<Outlet>; 3] {
+        match (self.handoff.path(), &self.link) {
+            (Path::Relay, _) => [(); 3].map(|()| Some(self.relay.clone())),
+            (Path::Link, Some(link)) if self.handoff.layout() == Layout::Separate => {
+                link.outlets.clone().map(Some)
+            }
+            (Path::Link, Some(link)) => [(); 3].map(|()| Some(link.outlets[0].clone())),
+            _ => [None, None, None],
         }
     }
 
@@ -120,12 +133,12 @@ impl Core {
             LinkEvent::LocalCandidate { candidate, mid } => {
                 self.relay_control(ControlMessage::IceCandidate { candidate, mid })
             }
-            LinkEvent::Open => {
-                let out = self.handoff.link_open(now);
+            LinkEvent::Open(layout) => {
+                let out = self.handoff.link_open(now, layout);
                 self.execute(out);
             }
-            LinkEvent::Piece(piece) => {
-                let out = self.handoff.from_link(&piece, now);
+            LinkEvent::Piece { channel, piece } => {
+                let out = self.handoff.from_link(channel, &piece, now);
                 self.execute(out);
             }
             LinkEvent::Lost(reason) => {
@@ -146,9 +159,9 @@ impl Core {
                 Instruction::Relay(frame) => {
                     self.relay.push(frame);
                 }
-                Instruction::Link(piece) => {
+                Instruction::Link { channel, piece } => {
                     if let Some(link) = &self.link {
-                        link.outlet.push(piece);
+                        link.outlets[channel.index()].push(piece);
                     }
                 }
                 Instruction::Deliver(frame) => {
@@ -231,8 +244,10 @@ async fn sleep_until(deadline: Option<tokio::time::Instant>) {
     }
 }
 
-async fn wait_empty(writer: Option<&Outlet>) {
-    if let Some(writer) = writer {
-        writer.empty().await;
+/// Resolves once any of `writers` has written everything pushed to it.
+async fn any_empty(writers: &[Outlet]) {
+    if writers.is_empty() {
+        return;
     }
+    futures_util::future::select_all(writers.iter().map(|w| Box::pin(w.empty()))).await;
 }

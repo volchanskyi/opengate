@@ -138,6 +138,17 @@ elif [ -z "$missing_dropped" ]; then
 else
   fail "these arrival scenarios must name dropped_iterations with exportOnly(\"counter\"):$missing_dropped"
 fi
+# The merge reads the measured phase's completed arrivals and their time from these two.
+missing_timed=""
+for scenario in "${arrival[@]}"; do
+  grep -qF 'iterations: "counter"' "$scenario" && grep -qF 'iteration_duration: "trend"' "$scenario" \
+    || missing_timed="$missing_timed $(basename "$scenario")"
+done
+if [ "${#arrival[@]}" -gt 0 ] && [ -z "$missing_timed" ]; then
+  pass "every arrival scenario exports its measured phase's completed arrivals and their time"
+else
+  fail "these arrival scenarios must name iterations and iteration_duration in measuredExports:$missing_timed"
+fi
 if grep -q 'export function exportOnly' "$REPO_ROOT/load/k6/lib/profile.js"; then
   pass "the k6 library names the export-only mark the scenarios use"
 else
