@@ -282,6 +282,38 @@ fn sync_parents<'a>(paths: impl Iterator<Item = &'a Path>) -> Result<(), AgentEr
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_marker_that_cannot_be_read_stops_recovery() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join(COMMIT_MARKER)).unwrap();
+        assert!(recover(dir.path(), &[]).is_err());
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_removed_is_an_error_and_one_already_gone_is_not() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!remove_if_present(&dir.path().join("absent")).unwrap());
+        let held = dir.path().join("held");
+        std::fs::create_dir(&held).unwrap();
+        assert!(remove_if_present(&held).is_err());
+    }
+
+    #[test]
+    fn flushing_a_folder_that_cannot_be_opened_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(sync_dir(&dir.path().join("absent")).is_err());
+        use std::os::unix::fs::PermissionsExt;
+        let locked = dir.path().join("locked");
+        std::fs::create_dir(&locked).unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let inside = locked.join("agent.crt");
+        let flushed = sync_parents([inside.as_path()].into_iter());
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(flushed.is_err());
+        let gone = dir.path().join("gone/agent.crt");
+        assert!(sync_parents([gone.as_path()].into_iter()).is_ok());
+    }
+
     struct Pair {
         key: Vec<u8>,
         cert: Vec<u8>,

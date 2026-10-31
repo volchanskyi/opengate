@@ -46,6 +46,9 @@ const (
 	// CapAlerts says this device's alerts arrive on the AgentAlert transport
 	// with their evidence attached, so nothing will be asked of it afterwards.
 	CapAlerts AgentCapability = "Alerts"
+	// CapDirectChannels says the agent's direct link takes a channel per job; the browser reads it
+	// from the device record to choose its channels.
+	CapDirectChannels AgentCapability = "DirectChannels"
 )
 
 // DeviceStatus represents the current connection state of a device.

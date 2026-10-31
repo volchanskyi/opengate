@@ -505,15 +505,25 @@ pub enum ControlMessage {
     },
     /// Both: the sender's last session-data frame on the relay; later ones go on the link.
     DirectSwitch,
-    /// Both: the sender left the link, having delivered `received` of the peer's link frames.
+    /// Both: the sender left the link, having delivered this many of the peer's link frames on
+    /// each channel: `received` on the typing (or only) channel.
     DirectFallback {
         #[serde(default, skip_serializing_if = "is_default")]
         received: u64,
+        #[serde(default, skip_serializing_if = "is_default")]
+        received_screen: u64,
+        #[serde(default, skip_serializing_if = "is_default")]
+        received_files: u64,
     },
-    /// Both, on the link: the sender has delivered `received` of the peer's link frames.
+    /// Both, on the link: the sender has delivered this many of the peer's link frames on each
+    /// channel: `received` on the typing (or only) channel.
     DirectAck {
         #[serde(default, skip_serializing_if = "is_default")]
         received: u64,
+        #[serde(default, skip_serializing_if = "is_default")]
+        received_screen: u64,
+        #[serde(default, skip_serializing_if = "is_default")]
+        received_files: u64,
     },
 
     // Input (browser → agent via relay)

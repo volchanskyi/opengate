@@ -98,3 +98,66 @@ fn collect_network_interfaces() -> Vec<mesh_protocol::NetworkInterface> {
 
     interfaces.into_values().collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mesh_protocol::ControlMessage;
+
+    const MIB: u64 = 1024 * 1024;
+
+    fn report() -> (u64, u64, u64) {
+        match collect_hardware_info() {
+            ControlMessage::HardwareReport {
+                ram_total_mb,
+                disk_total_mb,
+                disk_free_mb,
+                ..
+            } => (ram_total_mb, disk_total_mb, disk_free_mb),
+            other => panic!("not a hardware report: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn memory_is_reported_in_whole_mebibytes_as_the_kernel_counts_it() {
+        let meminfo = std::fs::read_to_string("/proc/meminfo").unwrap();
+        let kib: u64 = meminfo
+            .lines()
+            .find_map(|line| line.strip_prefix("MemTotal:"))
+            .and_then(|rest| rest.trim().trim_end_matches("kB").trim().parse().ok())
+            .unwrap();
+        assert_eq!(report().0, kib / 1024);
+    }
+
+    #[test]
+    fn disks_are_summed_and_reported_in_whole_mebibytes() {
+        let disks = sysinfo::Disks::new_with_refreshed_list();
+        let total: u64 = disks.iter().map(sysinfo::Disk::total_space).sum();
+        let free: u64 = disks.iter().map(sysinfo::Disk::available_space).sum();
+        assert!(total > 0, "the machine reports a disk");
+        let (_, total_mb, free_mb) = report();
+        assert_eq!(total_mb, total / MIB);
+        // Free space moves between the two readings, so they agree to within one percent.
+        assert!(
+            free_mb.abs_diff(free / MIB) * 100 <= (free / MIB).max(100),
+            "{free_mb} MiB free"
+        );
+    }
+
+    #[test]
+    fn every_interface_is_listed_with_its_addresses_and_hardware_address() {
+        let interfaces = collect_network_interfaces();
+        let mut names: Vec<_> = interfaces.iter().map(|i| i.name.clone()).collect();
+        names.sort();
+        let mut kernel: Vec<_> = std::fs::read_dir("/sys/class/net")
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        kernel.sort();
+        assert_eq!(names, kernel);
+        let lo = interfaces.iter().find(|i| i.name == "lo").unwrap();
+        assert!(lo.ipv4.iter().any(|ip| ip == "127.0.0.1"), "{:?}", lo.ipv4);
+        assert!(lo.ipv6.iter().all(|ip| ip == "::1"), "{:?}", lo.ipv6);
+        assert_eq!(lo.mac, "00:00:00:00:00:00");
+    }
+}

@@ -6,6 +6,7 @@ pub mod handlers;
 pub mod outbox;
 pub(crate) mod outlet;
 pub(crate) mod relay;
+pub(crate) mod share;
 pub(crate) mod terminal_handle;
 
 use std::sync::atomic::{AtomicBool, Ordering};

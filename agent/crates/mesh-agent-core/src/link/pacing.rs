@@ -21,7 +21,7 @@ pub const INITIAL: usize = 256 * 1024;
 /// How often the limit is recomputed.
 pub const INTERVAL: Duration = Duration::from_millis(250);
 
-/// How long a round-trip sample taken with the sender unheld counts towards the path's own delay.
+/// How long a round trip read with the sender unheld counts towards the path's own delay.
 const RTT_MEMORY: Duration = Duration::from_secs(10);
 
 /// How far back the delivery rate reads: confirmations arrive in steps of up to a quarter window,
@@ -29,12 +29,13 @@ const RTT_MEMORY: Duration = Duration::from_secs(10);
 const RATE_SPAN: Duration = Duration::from_secs(1);
 
 /// The path's bandwidth-delay product plus [`UNSENT_CUSHION`]; the delay is the least round trip
-/// sampled with the sender unheld, since a sample taken while it is held carries its own queue.
+/// two checks in a row agree on, since one check alone may carry a queue or skip a router's delay.
 #[derive(Debug)]
 pub struct SendLimit {
     limit: usize,
-    unheld_rtts: VecDeque<(Instant, Duration)>,
-    least_rtt: Option<Duration>,
+    last_check: Option<Duration>,
+    unheld_agreed: VecDeque<(Instant, Duration)>,
+    least: Option<Duration>,
     confirmations: VecDeque<(Instant, usize)>,
     interval_start: Instant,
     last_rate: Option<f64>,
@@ -46,8 +47,9 @@ impl SendLimit {
     pub fn new(now: Instant) -> Self {
         Self {
             limit: INITIAL,
-            unheld_rtts: VecDeque::new(),
-            least_rtt: None,
+            last_check: None,
+            unheld_agreed: VecDeque::new(),
+            least: None,
             confirmations: VecDeque::new(),
             interval_start: now,
             last_rate: None,
@@ -65,15 +67,17 @@ impl SendLimit {
         self.confirmations.push_back((now, bytes));
     }
 
-    /// A round-trip sample from the link's statistics, counted as the path's own delay only while
-    /// the sender has not waited at the limit this interval.
+    /// The round trip one new check read: the first sets the session's least, and each later one
+    /// agrees with the check before on the longer of the two, counted unheld only while unheld.
     pub fn round_trip(&mut self, rtt: Duration, now: Instant) {
         if rtt.is_zero() {
             return;
         }
-        self.least_rtt = Some(self.least_rtt.map_or(rtt, |least| least.min(rtt)));
-        if self.blocked_for.is_zero() {
-            self.unheld_rtts.push_back((now, rtt));
+        let previous = self.last_check.replace(rtt);
+        let agreed = previous.map_or(rtt, |previous| previous.max(rtt));
+        self.least = Some(self.least.map_or(agreed, |least| least.min(agreed)));
+        if previous.is_some() && self.blocked_for.is_zero() {
+            self.unheld_agreed.push_back((now, agreed));
         }
     }
 
@@ -88,14 +92,14 @@ impl SendLimit {
         if elapsed < INTERVAL {
             return false;
         }
-        forget_before(&mut self.unheld_rtts, now, RTT_MEMORY);
+        forget_before(&mut self.unheld_agreed, now, RTT_MEMORY);
         forget_before(&mut self.confirmations, now, RATE_SPAN);
         let path_delay = self
-            .unheld_rtts
+            .unheld_agreed
             .iter()
             .map(|(_, rtt)| *rtt)
             .min()
-            .or(self.least_rtt);
+            .or(self.least);
         let mut next = match (self.rate(), path_delay) {
             (Some(rate), Some(rtt)) => (rate * rtt.as_secs_f64()) as usize + UNSENT_CUSHION,
             _ => self.limit,
@@ -209,6 +213,44 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn one_short_check_among_steady_ones_leaves_the_limit() {
+        let mut now = Instant::now();
+        let mut limit = SendLimit::new(now);
+        interval(&mut limit, &mut now, 12_500_000, 40, false);
+        interval(&mut limit, &mut now, 12_500_000, 40, false);
+        // A check reordered past the router's delay reads half the path's round trip.
+        interval(&mut limit, &mut now, 12_500_000, 20, false);
+        interval(&mut limit, &mut now, 12_500_000, 40, false);
+        assert_eq!(limit.current(), 500_000 + UNSENT_CUSHION);
+    }
+
+    #[test]
+    fn two_short_checks_in_a_row_move_the_limit() {
+        let mut now = Instant::now();
+        let mut limit = SendLimit::new(now);
+        interval(&mut limit, &mut now, 12_500_000, 40, false);
+        interval(&mut limit, &mut now, 12_500_000, 40, false);
+        interval(&mut limit, &mut now, 12_500_000, 20, false);
+        interval(&mut limit, &mut now, 12_500_000, 20, false);
+        assert_eq!(limit.current(), 250_000 + UNSENT_CUSHION);
+    }
+
+    #[test]
+    fn a_short_check_the_sender_held_through_leaves_the_session_least() {
+        let mut now = Instant::now();
+        let mut limit = SendLimit::new(now);
+        interval(&mut limit, &mut now, 12_500_000, 40, false);
+        interval(&mut limit, &mut now, 12_500_000, 40, false);
+        for rtt_ms in [100, 20, 100] {
+            interval(&mut limit, &mut now, 12_500_000, rtt_ms, true);
+        }
+        for _ in 0..44 {
+            interval(&mut limit, &mut now, 12_500_000, 100, true);
+        }
+        assert_eq!(limit.current(), 500_000 + UNSENT_CUSHION);
     }
 
     #[test]

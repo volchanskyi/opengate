@@ -374,45 +374,19 @@ mod tests {
         assert_eq!(watch.undated_records, 0);
     }
 
-    fn watch_log_lines(f: impl FnOnce()) -> String {
-        use std::io::Write;
-        use std::sync::{Arc, Mutex};
-
-        #[derive(Clone)]
-        struct Lines(Arc<Mutex<Vec<u8>>>);
-        impl Write for Lines {
-            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-                self.0.lock().expect("log buffer").extend_from_slice(buf);
-                Ok(buf.len())
-            }
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
-
-        let lines = Lines(Arc::new(Mutex::new(Vec::new())));
-        let writer = lines.clone();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(move || writer.clone())
-            .with_ansi(false)
-            .finish();
-        tracing::subscriber::with_default(subscriber, f);
-        let captured = lines.0.lock().expect("log buffer").clone();
-        String::from_utf8_lossy(&captured).into_owned()
-    }
-
     #[test]
     fn a_watch_reports_what_it_lost_and_stays_quiet_when_it_lost_nothing() {
         let sink = AlertSink::default();
         let mut watch = EventWatch::new(sink.clone(), START);
 
-        let quiet = watch_log_lines(|| watch.ingest(&[], false, START + MICROS_PER_SEC));
+        let quiet =
+            crate::test_logs::log_lines(|| watch.ingest(&[], false, START + MICROS_PER_SEC));
         assert!(
             !quiet.contains("losing records"),
             "a watch that lost nothing raised the alarm: {quiet}"
         );
 
-        let lossy = watch_log_lines(|| {
+        let lossy = crate::test_logs::log_lines(|| {
             watch.ingest(
                 &[entry(
                     "",

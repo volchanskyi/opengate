@@ -60,14 +60,14 @@ def requirements(name, version):
     return parse_lockfile(cache.remember("cargolock", f"{name}@{version}", lambda: _lockfile(name, version)), name)
 
 
-def parse_lockfile(text, own=""):
-    """Every registry crate (name, version) a Cargo.lock holds, OWN left out."""
+def _entries(text):
+    """Every [[package]] entry of a Cargo.lock, as a dict of its keys."""
     found, entry = [], {}
     for line in text.splitlines() + ["[[package]]"]:
         line = line.strip()
         if line == "[[package]]":
-            if entry.get("source", "").startswith("registry+") and entry.get("name") != own:
-                found.append((entry["name"], entry["version"]))
+            if entry:
+                found.append(entry)
             entry = {}
         elif "=" in line:
             key, _, value = line.partition("=")
@@ -75,4 +75,22 @@ def parse_lockfile(text, own=""):
                 entry[key.strip()] = json.loads(value.strip())
             except ValueError:
                 continue
-    return sorted(set(found))
+    return found
+
+
+def parse_lockfile(text, own=""):
+    """Every registry crate (name, version) a Cargo.lock holds, OWN left out."""
+    return sorted({(e["name"], e["version"]) for e in _entries(text)
+                   if e.get("source", "").startswith("registry+") and e.get("name") != own})
+
+
+def git_copies(text):
+    """Every crate a Cargo.lock takes from a git copy, as (name, version, repository, commit)."""
+    found = set()
+    for entry in _entries(text):
+        source = entry.get("source", "")
+        if source.startswith("git+"):
+            address, _, commit = source[len("git+"):].partition("#")
+            repository = address.split("?", 1)[0].removeprefix("https://github.com/").removesuffix(".git")
+            found.add((entry["name"], entry["version"], repository, commit))
+    return sorted(found)

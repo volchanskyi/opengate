@@ -19,6 +19,10 @@ type recordingFleet struct {
 	// arriveNumerator over arriveDenominator is the share of machines asked for that turn up.
 	arriveNumerator   int64
 	arriveDenominator int64
+
+	// lateNumerator over lateDenominator is the share of dials the generator began past their turn.
+	lateNumerator   int64
+	lateDenominator int64
 }
 
 type fleetStep struct {
@@ -33,7 +37,10 @@ func (f *recordingFleet) HoldConnected(within time.Duration, target int) error {
 	}
 	f.steps = append(f.steps, fleetStep{within: within, target: target})
 	if target > f.connected {
-		f.outcomes.Arrived += f.arrivalsFor(int64(target - f.connected))
+		asked := int64(target - f.connected)
+		f.outcomes.Arrived += f.arrivalsFor(asked)
+		f.outcomes.Begun += asked
+		f.outcomes.Late += asked * f.lateNumerator / max(f.lateDenominator, 1)
 	}
 	f.connected = target
 	return nil

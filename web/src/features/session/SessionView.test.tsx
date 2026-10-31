@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { useConnectionStore } from './state/connection-store';
 import { useAuthStore } from '../../state/auth-store';
-import { identityOf, SIGNED_IN_KEY } from '../../lib/console-session';
+import { identityOf, lastRequest, noteRequest, SIGNED_IN_KEY } from '../../lib/console-session';
 import { holdsSessionTab } from './session-tab';
 import { SessionView } from './SessionView';
 import { useToastStore } from '../../lib/feedback/toast-store';
@@ -59,6 +59,8 @@ function answer(path: string, opts?: { capabilities?: string[] }) {
   return { data: undefined, error: { error: 'unexpected' }, response: { status: 404 } };
 }
 
+const unreadable = { data: undefined, error: { error: 'not found' }, response: { status: 404 } };
+
 function opened() {
   return {
     data: { token: 'tok', relay_url: 'wss://edge.test/ws/relay/tok', ice_servers: [{ urls: ['stun:helper.test:9090'] }] },
@@ -103,8 +105,20 @@ describe('SessionView', () => {
 
   it('opens a session on the host in the address and joins it with the relay and helpers the server named', async () => {
     renderPage();
-    await waitFor(() => expect(connect).toHaveBeenCalledWith('tok', 'wss://edge.test/ws/relay/tok', ['stun:helper.test:9090']));
+    await waitFor(() =>
+      expect(connect).toHaveBeenCalledWith('tok', 'wss://edge.test/ws/relay/tok', ['stun:helper.test:9090'], 'shared'),
+    );
     expect(mockPost).toHaveBeenCalledWith('/api/v1/sessions', expect.objectContaining({ body: expect.objectContaining({ device_id: 'dev-1' }) }));
+  });
+
+  it('joins with a channel per job when the host takes them', async () => {
+    mockGet.mockImplementation((path: string) =>
+      Promise.resolve(answer(path, { capabilities: ['Terminal', 'FileManager', 'DirectChannels'] })),
+    );
+    renderPage();
+    await waitFor(() =>
+      expect(connect).toHaveBeenCalledWith('tok', 'wss://edge.test/ws/relay/tok', ['stun:helper.test:9090'], 'separate'),
+    );
   });
 
   it('names the tab after its host and customer, and carries the host’s tab name', async () => {
@@ -129,6 +143,70 @@ describe('SessionView', () => {
     expect(await screen.findByRole('tab', { name: 'Desktop' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Chat' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Terminal' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Desktop' })).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByTestId('desktop-view')).toBeInTheDocument();
+    expect(screen.getByTestId('messenger-view')).toBeInTheDocument();
+  });
+
+  it('underlines the tab shown and greys the others', async () => {
+    renderPage();
+    const shown = await screen.findByRole('tab', { name: 'Terminal' });
+    expect(shown).toHaveClass('text-white', 'border-b-2', 'border-blue-500');
+    expect(screen.getByRole('tab', { name: 'Files' })).toHaveClass('text-gray-400');
+    expect(screen.getByRole('tab', { name: 'Files' })).not.toHaveClass('border-blue-500');
+  });
+
+  it('opens a session on a host whose record cannot be read, without its screen tabs', async () => {
+    mockGet.mockImplementation((path: string) =>
+      Promise.resolve(path === '/api/v1/devices/{id}' ? unreadable : answer(path)),
+    );
+    renderPage();
+    expect(document.title).toBe('Session');
+    expect(await screen.findByRole('tab', { name: 'Terminal' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Files' })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Desktop' })).not.toBeInTheDocument();
+    expect(connect).toHaveBeenCalledWith('tok', 'wss://edge.test/ws/relay/tok', ['stun:helper.test:9090'], 'shared');
+    expect(document.title).toBe('Session');
+  });
+
+  it('still names the tab after its host when its customer cannot be read', async () => {
+    mockGet.mockImplementation((path: string) =>
+      Promise.resolve(path === '/api/v1/organizations/{id}' ? unreadable : answer(path)),
+    );
+    renderPage();
+    await waitFor(() => expect(document.title).toBe('FS01 —'));
+  });
+
+  it('opens nothing for a tab closed before the server answered', async () => {
+    let reply: (value: ReturnType<typeof opened>) => void = () => {};
+    mockPost.mockReturnValue(new Promise((resolve) => { reply = resolve; }));
+    const { unmount } = renderPage();
+    unmount();
+    await act(async () => reply(opened()));
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  it('keeps the console active while the session is open, and stops once the relay closes', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      renderPage();
+      await screen.findByRole('tab', { name: 'Terminal' });
+      noteRequest(0);
+      act(() => {
+        vi.advanceTimersByTime(60_000);
+      });
+      expect(lastRequest()).toBeGreaterThan(0);
+
+      act(() => useConnectionStore.setState({ closedReason: 'Opened elsewhere' }));
+      await screen.findByText('Opened elsewhere');
+      noteRequest(0);
+      act(() => {
+        vi.advanceTimersByTime(120_000);
+      });
+      expect(lastRequest()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('hides Desktop and Chat on a host without a screen', async () => {
@@ -208,6 +286,21 @@ describe('SessionView', () => {
     act(() => useToastStore.getState().addToast("Couldn't download app.log: permission denied", 'error'));
     expect(screen.getByRole('alert')).toHaveTextContent("Couldn't download app.log: permission denied");
     act(() => useToastStore.setState({ toasts: [] }));
+  });
+
+  it('says the session ended when the technician leaves one the relay already closed', async () => {
+    const user = userEvent.setup();
+    const close = vi.spyOn(window, 'close').mockImplementation(() => {});
+    try {
+      renderPage();
+      await screen.findByRole('tab', { name: 'Terminal' });
+      act(() => useConnectionStore.setState({ closedReason: 'Opened elsewhere' }));
+      await screen.findByText('Opened elsewhere');
+      await user.click(screen.getByRole('button', { name: 'Disconnect' }));
+      expect(screen.getByText('Session ended')).toBeInTheDocument();
+    } finally {
+      close.mockRestore();
+    }
   });
 
   it('ends the session from its toolbar', async () => {

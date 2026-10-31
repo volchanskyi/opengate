@@ -37,14 +37,26 @@ assert_fail() {
   if "$@" >/dev/null 2>&1; then fail "$n (expected non-zero)"; else pass "$n"; fi
 }
 
-# The stub reads STUB_VERSION and STUB_FAIL_SUBSTR at call time; a check-quality on a -p path
-# containing STUB_FAIL_SUBSTR exits 3 with a violation JSON.
+# The stub fails check-quality on a -p path holding STUB_FAIL_SUBSTR, and `tdg <file>` prints
+# STUB_PY_SCORE after a banner, as the real tool does; both read the variables at call time.
 STUB_DIR="$(mktemp -d)"
 cat >"$STUB_DIR/pmat" <<'STUB'
 #!/usr/bin/env bash
 case "${1:-}" in
   --version) echo "pmat ${STUB_VERSION:-3.17.0}"; exit 0 ;;
 esac
+if [ "${1:-}" = "tdg" ] && [ "${2:-}" != "check-quality" ]; then
+  if [ -n "${STUB_PY_TEST:-}" ] && grep -q "$STUB_PY_TEST" <<<"$2"; then
+    echo "Skipping test file: $2"
+    exit 0
+  fi
+  if [ -n "${STUB_PY_NONE:-}" ]; then
+    exit 0
+  fi
+  echo "🔍 Analyzing..."
+  printf '{"file":"%s","score":{"total":%s,"grade":"X"}}\n' "$2" "${STUB_PY_SCORE:-90.0}"
+  exit 0
+fi
 path=""
 while [ $# -gt 0 ]; do [ "$1" = "-p" ] && path="${2:-}"; shift; done
 echo "🔍 Checking quality thresholds..."   # banner, like the real tool
@@ -129,6 +141,13 @@ got="$(
 assert_eq "only code files (incl _test.go), excl .md/_gen.go/.sh" "good.go helper_test.go" "$got"
 cleanup_repo
 
+make_repo
+echo x >good.go
+echo x >tool.py
+got="$(pmat_changed_code_files | sort | tr '\n' ' ' | sed 's/ *$//')"
+assert_eq "a Python file is graded beside the code files" "good.go tool.py" "$got"
+cleanup_repo
+
 echo
 echo "pmat_changed_code_files (gofmt-only Go *test* files excluded; ADR-019):"
 export GOFMT_BIN="$STUB_DIR/gofmt"
@@ -184,6 +203,44 @@ PMAT_PIN="9.9.9"
 assert_fail "wrong pmat version blocks the gate" pmat_precommit_main
 PMAT_PIN="3.17.0"
 cleanup_repo
+
+# pmat holds Python to B whatever floor it is asked for, so a Python file is held to B+ by its
+# own score, 80 or more, while check-quality passes it.
+make_repo
+echo x >charts.py
+export STUB_PY_SCORE="79.2"
+assert_fail "a Python file scoring 79.2 fails though check-quality passes it" pmat_precommit_main
+export STUB_PY_SCORE="80.0"
+assert_ok "a Python file scoring 80.0 passes" pmat_precommit_main
+unset STUB_PY_SCORE
+cleanup_repo
+
+make_repo
+mkdir -p tests/fixtures
+echo x >tests/fixtures/fake_tool.py
+export STUB_PY_TEST="fake_tool"
+assert_ok "a Python file pmat skips as a test passes, as check-quality leaves it out" pmat_precommit_main
+unset STUB_PY_TEST
+export STUB_PY_NONE=1
+assert_fail "a Python file pmat gives no score fails" pmat_precommit_main
+unset STUB_PY_NONE
+cleanup_repo
+
+echo
+echo "the pin defaults to the manifest's row:"
+COPY="$(mktemp -d)"
+mkdir -p "$COPY/lib"
+cp "$WRAPPER" "$SCRIPT_DIR/../tdd-check.sh" "$COPY/"
+printf 'export TOOL_VERSION_PMAT="4.0.1"\n' >"$COPY/lib/tool-versions.sh"
+make_repo
+status=0
+env -u PMAT_PIN STUB_VERSION="4.0.1" bash "$COPY/pmat-precommit.sh" >/dev/null 2>&1 || status=$?
+assert_eq "the manifest's version passes the pin" "0" "$status"
+status=0
+env -u PMAT_PIN STUB_VERSION="3.17.0" bash "$COPY/pmat-precommit.sh" >/dev/null 2>&1 || status=$?
+assert_eq "another version is refused as a missing prerequisite" "2" "$status"
+cleanup_repo
+rm -rf "$COPY"
 
 echo
 echo "Summary: $PASS passed, $FAIL failed"

@@ -6,5 +6,5 @@ pub mod handoff;
 pub mod pieces;
 
 pub use candidates::CandidateFilter;
-pub use handoff::{Config, Handoff, Instruction, LeaveReason, Outcome, Path};
+pub use handoff::{Channel, Config, Handoff, Instruction, Layout, LeaveReason, Outcome, Path};
 pub use pieces::{Reassembler, ReassemblyError, MAX_LINK_FRAME, MAX_PIECE};

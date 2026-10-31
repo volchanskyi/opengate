@@ -17,7 +17,7 @@ permissions:
 
 env:
   RUST_VERSION: stable
-  PMAT_VERSION: 3.17.0  # shared with .mcp.json and scripts/pmat-precommit.sh
+  PMAT_VERSION: 3.17.0  # held to scripts/lib/tool-versions.sh by the parity sweep
 jobs:
   pmat-trend:
     name: PMAT trend + alert on regression
@@ -67,6 +67,21 @@ jobs:
           pmat repo-score --format json > repo-score.json 2>/dev/null
           pmat tdg check-quality -p . --min-grade B+ --format json > tdg-check.json 2>/dev/null || true
           echo "repo-score (head):"; head -c 160 repo-score.json; echo
+
+      # pmat's check holds Python to B whatever floor it is asked for, so each file's own score is
+      # read here and held to 80, as the commit check holds it.
+      - name: Score each Python file
+        run: |
+          set -euo pipefail
+          # shellcheck source=/dev/null
+          source scripts/pmat-precommit.sh
+          # A test file pmat leaves out is left out here; a file it gives no score reads 0.
+          git ls-files '*.py' | while IFS= read -r file; do
+            score="$(pmat_python_score "$file")"
+            [ "$score" = test ] && continue
+            printf '%s %s\n' "$file" "${score:-0}"
+          done > python-scores.txt
+          wc -l < python-scores.txt
 
       - name: OCI + kubeconfig setup
         id: infra

@@ -2,14 +2,15 @@
 //! until confirmed, and the technician reassembling, delivering and confirming it.
 
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
-use mesh_protocol::direct::{Config, Handoff, Instruction};
+use mesh_protocol::direct::{Config, Handoff, Instruction, Layout};
 use mesh_protocol::{FileFrame, Frame, TerminalFrame};
 use std::hint::black_box;
 
 /// The bytes of a file piece, as the host reads a file for a download.
 const FILE_PIECE: usize = 256 * 1024;
 
-/// A host and a technician hand-off joined over an open link, both switch notices exchanged.
+/// A host and a technician hand-off joined over an open link with a channel per job, both switch
+/// notices exchanged.
 struct LinkedPair {
     host: Handoff,
     technician: Handoff,
@@ -22,10 +23,10 @@ impl LinkedPair {
         let mut technician = Handoff::new(Config::default());
         host.begin_attempt(0);
         technician.begin_attempt(0);
-        for notice in relay_frames(host.link_open(0)) {
+        for notice in relay_frames(host.link_open(0, Layout::Separate)) {
             technician.from_relay(notice, 0);
         }
-        for notice in relay_frames(technician.link_open(0)) {
+        for notice in relay_frames(technician.link_open(0, Layout::Separate)) {
             host.from_relay(notice, 0);
         }
         Self {
@@ -41,14 +42,14 @@ impl LinkedPair {
         self.now += 1;
         let mut delivered = 0;
         for instruction in self.host.send(frame, self.now) {
-            let Instruction::Link(piece) = instruction else {
+            let Instruction::Link { channel, piece } = instruction else {
                 continue;
             };
-            for reply in self.technician.from_link(&piece, self.now) {
+            for reply in self.technician.from_link(channel, &piece, self.now) {
                 match reply {
                     Instruction::Deliver(frame) => delivered += frame.len(),
-                    Instruction::Link(confirmation) => {
-                        self.host.from_link(&confirmation, self.now);
+                    Instruction::Link { channel, piece } => {
+                        self.host.from_link(channel, &piece, self.now);
                     }
                     _ => {}
                 }

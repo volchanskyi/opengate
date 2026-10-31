@@ -304,6 +304,8 @@ describe('round-trip encode/decode', () => {
       { type: 'DirectSwitch' },
       { type: 'DirectFallback', received: 70_000 },
       { type: 'DirectAck', received: 4_294_967_296 },
+      { type: 'DirectAck', received: 12, received_screen: 4_294_967_296, received_files: 70_000 },
+      { type: 'DirectFallback', received: 3, received_files: 9 },
       { type: 'FileDownloadError', path: '/var/log/huge.log', error: 'permission denied' },
       { type: 'FileListResponse', path: '/var/log', entries: [], more: true },
     ];

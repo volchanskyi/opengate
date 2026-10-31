@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs the pinned benchstat, which the benchmark nightly's re-run judges a slowdown with.
+# Installs the pinned benchstat, which the benchmark nightly judges tonight against the anchor with.
 #
 # Usage: install-benchstat.sh
 set -euo pipefail

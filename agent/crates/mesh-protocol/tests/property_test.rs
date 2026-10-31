@@ -93,8 +93,20 @@ fn arb_control_message() -> impl Strategy<Value = ControlMessage> {
         ".*".prop_map(|sdp| ControlMessage::DirectAnswer { sdp }),
         ".*".prop_map(|reason| ControlMessage::DirectRefused { reason }),
         Just(ControlMessage::DirectSwitch),
-        any::<u64>().prop_map(|received| ControlMessage::DirectFallback { received }),
-        any::<u64>().prop_map(|received| ControlMessage::DirectAck { received }),
+        (any::<u64>(), any::<u64>(), any::<u64>()).prop_map(|(received, screen, files)| {
+            ControlMessage::DirectFallback {
+                received,
+                received_screen: screen,
+                received_files: files,
+            }
+        }),
+        (any::<u64>(), any::<u64>(), any::<u64>()).prop_map(|(received, screen, files)| {
+            ControlMessage::DirectAck {
+                received,
+                received_screen: screen,
+                received_files: files,
+            }
+        }),
         (".*", any::<bool>()).prop_map(|(path, more)| ControlMessage::FileListResponse {
             path,
             entries: Vec::new(),

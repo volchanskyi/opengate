@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Tests scripts/benchmark-local-check.sh: this machine's Go allocations held to the CI baseline.
+# Tests scripts/benchmark-local-check.sh: this machine's Go allocations held to the CI baseline, and
+# the Rust benchmarks it runs held to the ones the baseline names.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CHECK="$REPO_ROOT/scripts/benchmark-local-check.sh"
-NIGHTLY="$REPO_ROOT/.github/workflows/benchmark.yml"
+NIGHTLY="$REPO_ROOT/scripts/benchmark-anchor.sh"
 [ -x "$CHECK" ] || {
   echo "FAIL: $CHECK not executable" >&2
   exit 1
@@ -94,6 +95,50 @@ check "$WORK/empty.txt"
 assert_eq "an output that reached no benchmark is refused" 2 "$rc"
 contains "the refusal says why" "read no Go benchmark" "$out"
 
+# Prints what Criterion prints in test mode: each benchmark's id, a group's under its group, then
+# Success.
+rust_output() {
+  local id
+  printf '   Compiling mesh-protocol v0.15.4
+    Finished bench profile [optimized] target(s)
+'
+  for id in "$@"; do printf 'Testing %s
+Success
+
+' "$id"; done
+}
+rust_baseline() {
+  printf '%s\n' "$@" | jq -Rn '{version: 1, benchmarks: ([inputs | {name: ., lang: "rust"}]
+    + [{name: "BenchmarkSign", lang: "go"}])}' >"$WORK/rust-baseline.json"
+}
+check_rust() {
+  rc=0
+  out="$(BASELINE_FILE="$WORK/rust-baseline.json" "$CHECK" rust "$1" 2>&1)" || rc=$?
+}
+
+echo "▶ the Rust benchmarks run are the ones the CI baseline names"
+rust_baseline frame_encode_control edge_sentinel_sysinfo_sample
+rust_output frame_encode_control edge_sentinel_sampler/edge_sentinel_sysinfo_sample >"$WORK/rust.txt"
+check_rust "$WORK/rust.txt"
+assert_eq "a run naming exactly the baseline's Rust benchmarks passes" 0 "$rc"
+contains "it says how many it compared" "compared 2 Rust benchmarks with the CI baseline" "$out"
+
+rust_baseline frame_encode_control renamed_last_week
+rust_output frame_encode_control >"$WORK/rust.txt"
+check_rust "$WORK/rust.txt"
+assert_eq "a benchmark the baseline names that no suite runs fails" 1 "$rc"
+contains "and is named" "named in the CI baseline, not run: renamed_last_week" "$out"
+
+rust_baseline frame_encode_control
+rust_output frame_encode_control frame_encode_ping >"$WORK/rust.txt"
+check_rust "$WORK/rust.txt"
+assert_eq "a benchmark the suites run that the baseline does not name fails" 1 "$rc"
+contains "and is named" "run, not named in the CI baseline: frame_encode_ping" "$out"
+
+rust_output >"$WORK/rust.txt"
+check_rust "$WORK/rust.txt"
+assert_eq "an output that tested no benchmark is refused" 2 "$rc"
+
 echo "▶ usage"
 rc=0
 "$CHECK" >/dev/null 2>&1 || rc=$?
@@ -108,9 +153,9 @@ nightly_cpus="$(sed -n 's/.*go test .*-cpu \([0-9][0-9]*\).*/\1/p' "$NIGHTLY")"
 if [ -n "$local_cpus" ]; then pass "the local check names its processor count"; else fail "the local check names no processor count"; fi
 assert_eq "the local check and the nightly run at the same processor count" "$nightly_cpus" "$local_cpus"
 
-echo "▶ the local check runs the Rust suites the nightly publishes"
+echo "▶ the local check runs the Rust suites the nightly compares"
 local_crates="$(sed -n 's/^RUST_SUITES=(\(.*\))$/\1/p' "$CHECK" | tr ' ' '\n' | sort)"
-nightly_crates="$(grep -oE "cargo bench( -p [a-z-]+)+ --bench '\\*'" "$NIGHTLY" | grep -oE '\-p [a-z-]+' | awk '{print $2}' | sort)"
+nightly_crates="$(sed -n 's/^RUST_SUITES=(\(.*\))$/\1/p' "$NIGHTLY" | tr ' ' '\n' | sort)"
 if [ -n "$local_crates" ]; then pass "the local check names its Rust crates"; else fail "the local check names no Rust crate"; fi
 assert_eq "the local check and the nightly bench the same Rust crates" "$nightly_crates" "$local_crates"
 

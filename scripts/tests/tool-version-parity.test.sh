@@ -115,6 +115,17 @@ check_tool CERT_MANAGER_CHART cert-manager-chart 'TOOL_VERSION_CERT_MANAGER_CHAR
 check_tool CROSS cross 'cross-rs/cross'
 check_tool LHCI lighthouse-ci '@lhci/cli'
 
+# gremlins installs from the patched copy its source row names, so every install line names it.
+gremlins_module="${TOOL_SOURCE_GREMLINS#Go:}"
+gremlins_installs="$(grep -rhE 'go install [^ ]*/cmd/gremlins@' "$WORKFLOWS" "$ROOT/scripts/require-tool.sh" || true)"
+if [ -z "$gremlins_installs" ]; then
+  fail "gremlins: no install line found"
+elif grep -vqF "go install $gremlins_module/cmd/gremlins@" <<<"$gremlins_installs"; then
+  fail "gremlins: an install line names another module than $gremlins_module"
+else
+  pass "gremlins: all $(wc -l <<<"$gremlins_installs") install lines name $gremlins_module"
+fi
+
 if [[ "$TOOL_VERSION_SONAR_SCANNER_IMAGE" == *_"${TOOL_VERSION_SONAR_SCANNER%.*}" ]]; then
   pass "the scanner image $TOOL_VERSION_SONAR_SCANNER_IMAGE bundles the pinned CLI $TOOL_VERSION_SONAR_SCANNER"
 else

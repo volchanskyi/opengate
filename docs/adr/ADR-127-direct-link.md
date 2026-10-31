@@ -30,7 +30,8 @@ echo behind up to 16 MiB of file data — 13 s at 10 Mbit/s.
 
 **A session tries once to move onto a direct link, and the relay stays open for
 its whole life.** Once its relay connects, the session tab offers a WebRTC peer
-connection carrying one ordered data channel. The offer, the answer and the
+connection carrying an ordered data channel per job — typing, screen, files — or,
+to a host that does not list `DirectChannels`, one shared channel. The offer, the answer and the
 candidates travel on the relay, the session is usable on the relay from the
 first moment, and closing the relay ends the session. A session changes path at
 most twice — relay to Direct, Direct back to the relay — so a spotty network
@@ -88,12 +89,14 @@ switch and drop the link — `DirectOffer`, `DirectAnswer`, `IceCandidate`,
 held. Every `IceCandidate` names the media section of the browser's offer:
 Firefox refuses a candidate naming none, and behind two routers a browser
 reaches the host only through the host's candidates. Every other frame is session data: numbered on the link, kept by its
-sender until confirmed, and re-sent through the relay after a fallback, so in
-each direction every frame arrives exactly once and in order across any change
+sender until confirmed, and re-sent through the relay after a fallback, so on
+each channel every frame arrives exactly once and in order across any change
 of path. A side moves to the link by sending `DirectSwitch` as its last
-session-data frame on the relay; its peer delivers link frames only after that
-notice. After a fallback, a side sends its kept copies above the count the peer
-reported in `DirectFallback`, then everything new. A peer whose fallback notice
+session-data frame on the relay, once every channel of its link is open; its
+peer delivers link frames only after that notice, holding at most the sender's
+windows and one frame ahead of it. After a fallback, a side sends, channel by
+channel, its kept copies above the count the peer reported for that channel in
+`DirectFallback`, then everything new. A peer whose fallback notice
 does not arrive within `PEER_FALLBACK_WAIT_MS` ends the session with "Connection
 lost — reconnect": re-sending without knowing what arrived could repeat an Enter.
 
@@ -106,14 +109,17 @@ and 10 000 random drop points each. A single Rust copy compiled for the browser
 was weighed and rejected: every web job, the image build, the version manifest
 and the daily dependency updates would change with it.
 
-**Confirmations count bytes, inside a 4 MiB window.** A receiver confirms with
-`DirectAck` once a quarter of the window has been delivered, or `ACK_DELAY_MS`
-after the first unconfirmed frame, whichever comes first, so throughput never
-waits on a timer and a background tab downloads at full speed. A sender numbers
-nothing new while more than
-[`WINDOW_BYTES`](../../agent/crates/mesh-protocol/src/direct/handoff.rs) is
-unconfirmed. At 100 Mbit/s and 40 ms the window never binds: the link ran at the
-full shaped rate with under 2 MiB unconfirmed.
+**Confirmations count bytes, inside a window per channel.** A receiver confirms
+with one `DirectAck` on the typing channel, carrying its count for every channel,
+once a quarter of a channel's window has been delivered, or `ACK_DELAY_MS` after
+the first unconfirmed frame, whichever comes first, so throughput never waits on
+a timer and a background tab downloads at full speed. A sender numbers nothing
+new on a channel while more than its window is unconfirmed there:
+[`WINDOW_BYTES`](../../agent/crates/mesh-protocol/src/direct/handoff.rs) for
+screen, files or a shared channel, `TYPING_WINDOW_BYTES` for typing, which its
+lane caps there anyway, so a side keeps at most 8.25 MiB for re-sending. At
+100 Mbit/s and 40 ms the window never binds: the link ran at the full shaped
+rate with under 2 MiB unconfirmed.
 
 **Silence ends a link; slowness does not.** The host checks its peer every
 second and calls the link silent after three unanswered checks
@@ -132,45 +138,75 @@ and rejected: the first fires on a frozen receiver and on the lossy hop both
 paths share, and the others bounce a session on a bad network or reopen a second
 link with its numbering.
 
-**Two lanes at every sending point.** Each side keeps an interactive lane —
-terminal, control messages, notices — and a bulk lane for file data, always takes
-the next interactive frame first, and numbers a frame only once chosen, so the
-numbered sequence stays the one ordered stream. Each lane has a cap enforced
-where a frame is produced
+**A channel per job, each its own ordered stream.** Each side keeps a lane per
+channel — typing for the terminal, control messages and notices; screen for
+desktop frames; files for file data and listing pages — always takes the next typing
+frame first, and takes screen and files by bytes sent, a whole frame at a time,
+a lane that waited for nothing keeping level instead of banking a turn
+([`share.rs`](../../agent/crates/mesh-agent-core/src/session/share.rs)). Each
+channel numbers, confirms, re-sends and reassembles on its own, so pieces of
+frames on different channels never meet, and a typing frame confirmed ahead of
+an earlier file frame frees only its own. Order across channels is not kept; the
+lanes never kept it. The link opens when all three channels are open and falls
+back, all three together, when any one fails: they share one connection, so a
+real failure takes all three anyway. MeshCentral keeps a tunnel per job, RustDesk
+a connection per job, Chrome Remote Desktop separate input and control channels.
+An agent lists `DirectChannels` when it takes them; the browser opens one shared
+channel, carrying everything as before, for an agent that does not, and an agent
+that does still takes a shared channel from a tab opened before it updated. Each
+lane has a cap enforced where a frame is produced
 ([`outbox.rs`](../../agent/crates/mesh-agent-core/src/session/outbox.rs),
-[`session-channel.ts`](../../web/src/lib/transport/session-channel.ts)): an
-interactive frame fits one 16 KiB piece and the lane queues at most 256 KiB; a
-bulk frame is one 256 KiB file piece and the lane holds two. A frame over its
-lane's cap is refused with an error and never sent. A directory listing goes out
+[`session-channel.ts`](../../web/src/lib/transport/session-channel.ts)): a
+typing frame fits one 16 KiB piece and the lane queues at most 256 KiB; a
+screen or file frame is at most one 256 KiB piece and each of those lanes holds
+two. A frame over its lane's cap is refused with an error and never sent. A directory listing goes out
 in pages of at most 16 KiB, each a `FileListResponse` with `more` set until the
 last, and the session tab draws only the rows in view: a 120 000-entry folder had
 stalled the tab for 73 s and cut a running download to 18% of the line, and now
 lists in 2.5 s at 100 Mbit/s with no stall over 110 ms. On the link, a frame is
 cut into pieces of at most 16 KiB (RFC 8831 §6.6) sent back to back, and its own
-length header marks its end. Moving listings to the bulk lane was weighed and
-rejected — browsing would wait behind every download — and so were pausing
-technician input for a transfer, smaller file frames, which multiply the relay's
-messages per byte, and two ordered channels, which split the numbering.
+length header marks its end. Listing pages ride the files channel, so a listing
+during a download pages in behind the download's pieces: on the typing channel a
+120 000-entry listing queued ahead of every keystroke, and at 10 Mbit/s held the
+echo at 330–560 ms for its first three seconds. Pausing technician input for a
+transfer, smaller file frames, which multiply the relay's messages per byte, and
+a connection per job were weighed and rejected: two allowances queue about twice
+the data at the customer's router, a screen burst starts from a small window of
+its own, and setup and router mappings triple (RFC 8843 §1).
 
-**The link's send limit is set per link at run time.** The host library counts
-bytes in flight in its send buffer, and no fixed limit serves both rates: one
+**The link's send limit is set per link at run time, for every channel
+together.** One host task feeds all three channels: typing first, at once while
+its own channel has nothing unconfirmed, else once the three channels'
+unconfirmed bytes together, plus the piece, fit the limit; then whichever of
+screen and files has sent fewer bytes, under the same limit
+([`share.rs`](../../agent/crates/mesh-agent-core/src/session/share.rs)). Typing
+held to the limit keeps a burst of terminal output from queuing at the
+customer's router ahead of the next echo, and a lone keystroke still never waits
+behind file data. The host library counts bytes in flight
+in each channel's send buffer, and no fixed limit serves both rates: one
 sized for 100 Mbit/s gave a 95th-percentile echo of 695 ms at 10 Mbit/s, and one
 sized for 10 Mbit/s held a 100 Mbit/s path to 22%. The host sets the limit from
 [`pacing.rs`](../../agent/crates/mesh-agent-core/src/link/pacing.rs): the delivery
-rate its confirmations show over the last second, times the least round trip
-sampled while the sender was not held at its limit, plus `UNSENT_CUSHION`; raised
-by a quarter while it stays full, between `FLOOR` and the window. A round trip
-sampled while the sender is held carries its own queue, and a rate read per tick
-from 1 MiB confirmation steps comes out in steps, so both estimates are taken
-this way. The browser sends while the channel's `bufferedAmount` is under
-`UNSENT_LIMIT`.
+rate its confirmations show over the last second, times the path's round trip,
+plus `UNSENT_CUSHION`; raised by a quarter while it stays full, between `FLOOR`
+and the window. The round trip is the least that two of the link's checks in a
+row agree on, the longer of their two readings: over the last 10 s while the
+sender was not held at its limit, else over the session, whose first check stands
+until two agree. A check read while the sender is held carries its own queue, and
+one a router reorders past its delay reads short: taking the least single check,
+Direct read 45, 79 and 89 Mbit/s on three runs at 1% reordering, by whether a
+check got reordered. A rate read per tick from 1 MiB confirmation steps comes out
+in steps, so it is read over the last second. The browser sends on a channel while its `bufferedAmount` is under
+`UNSENT_LIMIT`. Inside the link library, the channels share the path by weighted
+fair queueing (RFC 8260 §3.6), as RFC 8831 §6.4 asks of a WebRTC stack, with
+equal weights, so a keystroke waits behind at most one piece per busy channel.
 
 **The relay socket is held the same way.** The host feeds its relay socket only
 while the bytes the peer has not acknowledged are under a limit computed from
 the delivered bytes and least round trip the socket reports, and keeps at most
 `RELAY_UNSENT_LIMIT` unsent
 ([`relay.rs`](../../agent/crates/mesh-agent-core/src/session/relay.rs)). It waits
-after a write, so the next bulk frame stays in the lanes where typing can
+after a write, so the next screen or file frame stays in its lane where typing can
 overtake it. Unheld, the operating system sent until the router's queue was full:
 0.47 s, 1.1 s and 3.3 s of echo at 10 Mbit/s for routers queuing 100, 300 and
 1 000 packets. The hold covers the host's side; the technician's side of the
@@ -181,13 +217,14 @@ terminal echo comes back within 350 ms at 10 Mbit/s and within 100 ms at
 100 Mbit/s, and through the server to the same figures. Idle echo is
 already 50–58 ms on the stack, since the page draws the character after the trip,
 and one 256 KiB piece ahead adds 23 ms at 100 Mbit/s. Smaller pieces over Direct
-alone, to promise 80 ms, were weighed and rejected. Measured over three runs of
-120 samples each, with a 120 000-entry listing paging in beside the download:
+alone, to promise 80 ms, were weighed and rejected. Measured with 120 samples a
+run, three runs at 10 Mbit/s over Direct and one of each other case, with a
+120 000-entry listing paging in beside the download:
 
 | Path | 10 Mbit/s echo, 95th percentile | 100 Mbit/s echo, 95th percentile | Download, share of the line |
 |---|---|---|---|
-| Direct | 275–286 ms | 78–89 ms | 86–92% |
-| Through server | 254–276 ms | 82–83 ms | 96–97% |
+| Direct | 148–165 ms | 63 ms | 89–91% |
+| Through server | 273 ms | 81 ms | 94–96% |
 
 **The speed tests take enough samples to hold the promise as written.** At
 100 Mbit/s the readings sit close to their limits, and over twenty runs of
@@ -212,7 +249,7 @@ leaves them out, held by
 [`e2e-speed-nightly.test.sh`](../../scripts/tests/e2e-speed-nightly.test.sh).
 
 **Downloads stream into the browser's Downloads, one at a time.** The host reads
-a file one 256 KiB piece at a time as the bulk lane drains, and a failed read
+a file one 256 KiB piece at a time as the files lane drains, and a failed read
 ends the download with `FileDownloadError`. The page passes pieces as they arrive
 to the service worker ([`sw.js`](../../web/public/sw.js)), which hands the browser
 an ordinary download; the page holds a few pieces, never the file. The worker
@@ -294,26 +331,48 @@ paths reorder too — Wi-Fi, an office on two internet lines — and Direct's ra
 falls when one does.
 
 **Out-of-order packets are measured, and the promise holds at one in a hundred.**
-The office router reorders a set share of packets on command, and a speed case
+The office router reorders a set share of packets on command. Each direction
+queues for the line's rate first and waits half the round trip after, and a
+reordered packet skips the wait, never the queue
+([`router.sh`](../../deploy/router/router.sh)), so it arrives at most 20 ms early.
+A field path moves a packet a few places. A router sending one ahead of its whole
+queue moves it past 200 at 100 Mbit/s, and Chrome's encryption layer, which
+keeps the last 256 records against replays (BoringSSL), discards every packet it
+overtook by more than 255: with that router, Direct read 49 Mbit/s with no send
+limit at all. Each end keeps the same 256: the host sets its replay window
+([`peer.rs`](../../agent/crates/mesh-agent-core/src/link/peer.rs)) up from the
+library's 64 (RFC 6347 §4.1.2.6), which had discarded a quarter of Chrome's
+packets on that router as replays. A speed case
 reads Direct's share of the line and the bytes it sent beyond the file at 0%, 1%
 and 5% reordering, at 10 and 100 Mbit/s and a 40 ms round trip, held to the 80%
 download promise at 1% and read at 5%
-([`performance.spec.ts`](../../web/e2e/performance.spec.ts)). Over two runs at
-10 Mbit/s and one at 100:
+([`performance.spec.ts`](../../web/e2e/performance.spec.ts)). Over one run of
+each, with the host's copy of the link library below:
 
 | Line | 0% reordered | 1% reordered | 5% reordered |
 |---|---|---|---|
-| 10 Mbit/s | 92% of the line | 87–88% | 52–54% |
-| 100 Mbit/s | 88% | 17% | past the five-minute limit |
+| 10 Mbit/s | 92% of the line | 92% | 91% |
+| 100 Mbit/s | 89% | 89% | 90% |
 
-The 100 Mbit/s case at 1% fails the promise, and the 5% case there runs past
-the test's time limit; the pass mark stays where it is, so the speed nightly
-reports both until the cause is fixed. The host's link library declares a packet lost once three reports show a gap
-behind it, with no allowance for reordering, no setting for one and no counters
-it publishes, and `rtc-sctp` 0.21.1 is its newest release; its pacing takes no
-resend input of its own, so the cut is the library's. Closing it needs a change
-inside that library — a reorder allowance, or loss detection by time as RACK
-does — so the test machines stay held to one processor each until it lands. The stack publishes
+`rtc-sctp` 0.21.1 declares a packet lost once three reports show a gap behind it,
+with no allowance for reordering, and halves its window at each recovery with no
+way back: with 1% displaced, Direct read 17% of a 100 Mbit/s line and 5% did not
+finish inside the five-minute limit. The host takes its link library from a copy
+under the project's own GitHub account, pinned by commit in `agent/Cargo.toml` and
+allowed in `agent/deny.toml`, until a 0.21 release carries the three changes
+offered upstream: the receiver lists repeated pieces in its acknowledgements and
+acknowledges a packet of repeats at once (RFC 9260 §6.2), keeping each
+acknowledgement within one packet; loss is told by time (RFC 8985), the allowance
+growing on reported repeats and a cut undone when every resend proves needless,
+with the safeguards of RFC 3708, and round trips sampled only from pieces that
+arrived in order, since one that overtook the queue reads short; and the channels
+share by bytes. The last two
+are settings, off by default, which the host switches on
+([`peer.rs`](../../agent/crates/mesh-agent-core/src/link/peer.rs)). The speed
+nightly reads the cases with the copy; the test machines stay held to one
+processor each. The 5% case reads its share over the 30 s window and then stops
+the download, and typing echo with a download filling a 2 Mbit/s line is read on
+both paths. The stack publishes
 the console on IPv4 alone: Firefox, with no camera or microphone permission,
 gathers addresses only on the interface it takes as the page's default, and for a
 page reached at `localhost` over IPv6 loopback that is the loopback interface,
@@ -334,9 +393,10 @@ outcome counts are the evidence.
 - In the largest public measurement about 70% of attempts across two routers
   form a direct route; the rest stay on the relay with "no direct route on this
   network".
-- Memory per session on each side stays under 13 MiB: the window of kept copies,
-  both lanes, one frame in reassembly and the window held before a switch notice.
-  A download adds nothing that grows with the file.
+- Memory per session on each side stays under 23 MiB: the windows of kept copies
+  (8.25 MiB), the three lanes, one frame in reassembly per channel, and what is
+  held before a switch notice (the peer's windows and one frame). A download adds
+  nothing that grows with the file.
 - A server rollback stops every attempt, since the browser starts each one and
   the server serves the browser.
 - Staging proves the relay only: it has no route to break and no permission to

@@ -147,8 +147,8 @@ the frame and continue. Malformed frames and oversized payloads remain fatal.
 | `IceCandidate` | Bidirectional, on the relay | `candidate`, `mid` |
 | `DirectRefused` | Agent → Browser, on the relay | `reason` |
 | `DirectSwitch` | Bidirectional, on the relay | _(none)_ |
-| `DirectFallback` | Bidirectional, on the relay | `received` (omitted when 0) |
-| `DirectAck` | Bidirectional, on the link | `received` (omitted when 0) |
+| `DirectFallback` | Bidirectional, on the relay | `received`, `received_screen`, `received_files` (each omitted when 0) |
+| `DirectAck` | Bidirectional, on the link's typing channel | `received`, `received_screen`, `received_files` (each omitted when 0) |
 | `MouseMove` | Browser → Agent | `x`, `y` |
 | `MouseClick` | Browser → Agent | `button`, `pressed`, `x`, `y` |
 | `KeyPress` | Browser → Agent | `key`, `pressed` |
@@ -433,10 +433,14 @@ capability. Current additive gates:
 | `Backfill` | `GrantBackfill`, `DeferBackfill`, `MetricBackfillAck`, `RequestLocalHistory` |
 | `ThresholdAlerts` | `PushAlertRules` |
 | `Alerts` | _(no server-to-agent message)_ |
+| `DirectChannels` | _(no server-to-agent message)_ |
 
 `Discovery` and `Alerts` gate no server-to-agent message; the agent advertises
 each to signal what it emits — `DiscoveryReport` inventory and self-contained
 `AgentAlert`s respectively — so the server knows to ingest them.
+`DirectChannels` reaches the browser on the device record: the session tab opens
+the direct link's `typing`, `screen` and `files` channels only for a host that
+lists it, and one `session` channel otherwise.
 
 Tolerant unknown-message decoding is a backstop for mixed fleets; capability
 gating is the primary safety mechanism.
@@ -460,9 +464,9 @@ The agent parses daily-rotated log files written by `tracing-subscriber` and ret
 
 **TerminalFrame**: `data` (raw bytes)
 
-**FileFrame**: `offset`, `total_size`, `data` (raw bytes, 256 KiB pieces). The browser sends a `FileDownloadRequest` control message, then the agent reads and sends one piece at a time as its bulk lane drains, and ends a failed or refused download with `FileDownloadError`. A session runs one download at a time. The browser hands each piece to its service worker, which saves it as an ordinary browser download, or, for View, keeps a file of up to 1 MiB for the in-browser viewer. Empty files produce a single frame with `total_size: 0` and empty `data`.
+**FileFrame**: `offset`, `total_size`, `data` (raw bytes, 256 KiB pieces). The browser sends a `FileDownloadRequest` control message, then the agent reads and sends one piece at a time as its files lane drains, and ends a failed or refused download with `FileDownloadError`. A session runs one download at a time. The browser hands each piece to its service worker, which saves it as an ordinary browser download, or, for View, keeps a file of up to 1 MiB for the in-browser viewer. Empty files produce a single frame with `total_size: 0` and empty `data`.
 
-The six `Direct*`/`IceCandidate` relay messages set up, switch and drop the direct link, and are never numbered; an `IceCandidate`'s `mid` names the media section of the browser's offer; every other frame is session data, which the link numbers and `DirectAck` confirms. On the link, a frame is cut into pieces of at most 16 KiB, and its own length header marks its end ([ADR-127](../adr/ADR-127-direct-link.md)).
+The six `Direct*`/`IceCandidate` relay messages set up, switch and drop the direct link, and are never numbered; an `IceCandidate`'s `mid` names the media section of the browser's offer; every other frame is session data, which each channel of the link numbers on its own and `DirectAck` confirms, a count per channel. The link's channels are labelled `typing` (control, terminal and every other frame), `screen` (desktop frames) and `files` (file frames); a host without the `DirectChannels` capability gets one channel labelled `session` carrying them all, counted in `received`. On the link, a frame is cut into pieces of at most 16 KiB, and its own length header marks its end ([ADR-127](../adr/ADR-127-direct-link.md)).
 
 ## Rust and Go compatibility
 

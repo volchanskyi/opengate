@@ -1,6 +1,7 @@
 {
   "version": 1,
   "generated_at": "2026-10-14T22:01:04Z",
+  "anchor": "23e44072779ae33c988d1ecae1f936210ccfcad7",
   "default_tolerances": {
     "allocs_op": 0.02,
     "bytes_op": 0.02
@@ -122,11 +123,43 @@
       "history_from": "2026-10-23"
     },
     {
+      "name": "alert_evidence_compose_and_pack",
+      "lang": "rust"
+    },
+    {
+      "name": "alert_finding_evidence_pack",
+      "lang": "rust"
+    },
+    {
       "name": "decode_server_hello",
       "lang": "rust",
       "ns_op": 10.592223787414875,
       "bytes_op": null,
       "allocs_op": null
+    },
+    {
+      "name": "direct_link_file_piece",
+      "lang": "rust"
+    },
+    {
+      "name": "direct_link_terminal_echo",
+      "lang": "rust"
+    },
+    {
+      "name": "edge_sentinel_detection_vote_window",
+      "lang": "rust"
+    },
+    {
+      "name": "edge_sentinel_log_line_redaction",
+      "lang": "rust"
+    },
+    {
+      "name": "edge_sentinel_rss_probe",
+      "lang": "rust"
+    },
+    {
+      "name": "edge_sentinel_sysinfo_sample",
+      "lang": "rust"
     },
     {
       "name": "encode_server_hello",
@@ -155,6 +188,22 @@
       "ns_op": 20.066994094375598,
       "bytes_op": null,
       "allocs_op": null
+    },
+    {
+      "name": "send_limit_interval",
+      "lang": "rust"
+    },
+    {
+      "name": "tsdb_commit_window",
+      "lang": "rust"
+    },
+    {
+      "name": "tsdb_range_raw_hour",
+      "lang": "rust"
+    },
+    {
+      "name": "tsdb_reopen",
+      "lang": "rust"
     }
   ]
 }

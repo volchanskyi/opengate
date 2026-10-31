@@ -78,6 +78,35 @@ describe('FileManagerView', () => {
         Element.prototype.getBoundingClientRect = originalRect;
       }
     });
+
+    it('pads the rows in view so the list keeps the height of every entry, scrolled or not', () => {
+      const originalRect = Element.prototype.getBoundingClientRect;
+      try {
+        Element.prototype.getBoundingClientRect = () =>
+          ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+        useFileStore.setState({ currentPath: '/tmp/big', entries: many });
+        render(<FileManagerView />);
+        const list = screen.getByRole('region', { name: 'Folder contents' });
+        const rows = () => Array.from(list.querySelectorAll('tbody > tr')) as HTMLElement[];
+        const spacer = (row: HTMLElement | undefined) => row?.getAttribute('aria-hidden') === 'true';
+        const height = () =>
+          rows().reduce((sum, row) => sum + (spacer(row) ? Number.parseFloat(row.style.height) : 37), 0);
+
+        expect(spacer(rows()[0])).toBe(false);
+        expect(spacer(rows().at(-1))).toBe(true);
+        expect(height()).toBe(many.length * 37);
+
+        act(() => {
+          list.scrollTop = list.scrollHeight || 10_000_000;
+          fireEvent.scroll(list);
+        });
+        expect(spacer(rows()[0])).toBe(true);
+        expect(spacer(rows().at(-1))).toBe(false);
+        expect(height()).toBe(many.length * 37);
+      } finally {
+        Element.prototype.getBoundingClientRect = originalRect;
+      }
+    });
   });
 
   it('renders breadcrumb with current path', () => {
@@ -109,6 +138,18 @@ describe('FileManagerView', () => {
     useFileStore.setState({ downloads: { 'backup.tar': 0.1 }, waiting: ['a.log', 'b.log'] });
     render(<FileManagerView />);
     expect(screen.getByRole('status', { name: 'Transfers' })).toHaveTextContent('Waiting: a.log, b.log');
+  });
+
+  it('lists a file waiting for a download that has not started yet', () => {
+    useFileStore.setState({ waiting: ['a.log'] });
+    render(<FileManagerView />);
+    expect(screen.getByRole('status', { name: 'Transfers' })).toHaveTextContent('Waiting: a.log');
+  });
+
+  it('names nothing waiting while only a download runs', () => {
+    useFileStore.setState({ downloads: { 'backup.tar': 0.5 } });
+    render(<FileManagerView />);
+    expect(screen.getByRole('status', { name: 'Transfers' })).not.toHaveTextContent('Waiting');
   });
 
   it('shows no transfers when none runs or waits', () => {
@@ -185,7 +226,8 @@ describe('FileManagerView', () => {
   it('shows a file waiting for the download ahead of it, with its buttons off', () => {
     useFileStore.setState({ waiting: ['file.txt'] });
     render(<FileManagerView />);
-    expect(screen.getByText('waiting')).toBeInTheDocument();
+    expect(screen.getByText('file.txt').closest('tr')).toHaveTextContent('waiting');
+    expect(screen.getByText('docs').closest('tr')).not.toHaveTextContent('waiting');
     expect(screen.getByLabelText('View file.txt')).toBeDisabled();
     expect(screen.getByLabelText('Download file.txt')).toBeDisabled();
   });
@@ -224,6 +266,17 @@ describe('FileManagerView', () => {
 
     rerender(<FileManagerView />);
     expect(mockSendControl).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends the first FileListRequest once a session that opened disconnected connects', () => {
+    const mockSendControl = vi.fn();
+    useConnectionStore.setState({
+      state: 'disconnected',
+      transport: { sendControl: mockSendControl } as never,
+    });
+    render(<FileManagerView />);
+    act(() => useConnectionStore.setState({ state: 'connected' }));
+    expect(mockSendControl).toHaveBeenCalledWith({ type: 'FileListRequest', path: '/' });
   });
 
   it('does not send an initial FileListRequest while disconnected', () => {

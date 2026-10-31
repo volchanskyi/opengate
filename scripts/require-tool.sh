@@ -91,7 +91,7 @@ install_command() {
       printf 'go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v%s' "$TOOL_VERSION_OAPI_CODEGEN"
       ;;
     gremlins)
-      printf 'go install github.com/go-gremlins/gremlins/cmd/gremlins@v%s' "$TOOL_VERSION_GREMLINS"
+      printf 'go install github.com/volchanskyi/gremlins/cmd/gremlins@v%s' "$TOOL_VERSION_GREMLINS"
       ;;
     benchstat)
       printf 'scripts/install-benchstat.sh'

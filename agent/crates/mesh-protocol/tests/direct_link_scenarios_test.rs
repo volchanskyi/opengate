@@ -1,11 +1,13 @@
 //! Replays the shared direct-link scenarios in `testdata/direct-link/` against two hand-offs joined
-//! by a scripted relay and link, and holds random link failures to exactly-once, in-order delivery.
+//! by a relay and a three-channel link, holding random link failures to exactly-once delivery.
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
 
-use mesh_protocol::direct::{Config, Handoff, Instruction, LeaveReason, Outcome, Path};
-use mesh_protocol::{FileFrame, Frame, TerminalFrame};
+use mesh_protocol::direct::{
+    Channel, Config, Handoff, Instruction, Layout, LeaveReason, Outcome, Path,
+};
+use mesh_protocol::{DesktopFrame, FileFrame, Frame, FrameEncoding, TerminalFrame};
 use proptest::prelude::*;
 use serde_json::Value;
 
@@ -15,7 +17,10 @@ const HOST: usize = 1;
 struct Side {
     machine: Handoff,
     interactive: VecDeque<Vec<u8>>,
-    bulk: VecDeque<Vec<u8>>,
+    screen: VecDeque<Vec<u8>>,
+    files: VecDeque<Vec<u8>>,
+    /// Bytes taken from the screen and files lanes, which share the bulk turn by bytes.
+    bulk_taken: [usize; 2],
     taken: Vec<String>,
     delivered: Vec<String>,
     outcomes: Vec<String>,
@@ -23,12 +28,14 @@ struct Side {
     link_closed: bool,
 }
 
-/// Two sides, a relay that never loses anything, and a link that can be cut.
+type Channels = [VecDeque<Vec<u8>>; 3];
+
+/// Two sides, a relay that never loses anything, and a link of three channels that can be cut.
 struct World {
     now: u64,
     sides: [Side; 2],
     relay: [VecDeque<Vec<u8>>; 2],
-    link: [VecDeque<Vec<u8>>; 2],
+    link: [Channels; 2],
     cut: bool,
 }
 
@@ -37,7 +44,9 @@ impl World {
         let side = || Side {
             machine: Handoff::new(config),
             interactive: VecDeque::new(),
-            bulk: VecDeque::new(),
+            screen: VecDeque::new(),
+            files: VecDeque::new(),
+            bulk_taken: [0, 0],
             taken: Vec::new(),
             delivered: Vec::new(),
             outcomes: Vec::new(),
@@ -48,9 +57,14 @@ impl World {
             now: 0,
             sides: [side(), side()],
             relay: [VecDeque::new(), VecDeque::new()],
-            link: [VecDeque::new(), VecDeque::new()],
+            link: [Channels::default(), Channels::default()],
             cut: false,
         }
+    }
+
+    fn cut_link(&mut self) {
+        self.cut = true;
+        self.link = [Channels::default(), Channels::default()];
     }
 
     fn apply(&mut self, from: usize, instructions: Vec<Instruction>) {
@@ -58,9 +72,9 @@ impl World {
         for instruction in instructions {
             match instruction {
                 Instruction::Relay(frame) => self.relay[to].push_back(frame),
-                Instruction::Link(piece) => {
+                Instruction::Link { channel, piece } => {
                     if !self.cut && !self.sides[from].link_closed {
-                        self.link[to].push_back(piece);
+                        self.link[to][channel.index()].push_back(piece);
                     }
                 }
                 Instruction::Deliver(frame) => self.sides[from].delivered.push(label(&frame)),
@@ -74,13 +88,34 @@ impl World {
         }
     }
 
+    /// Takes frames as the sending point does: typing first, then whichever of screen and files
+    /// has had fewer bytes taken, each only while its channel's window has room.
     fn take(&mut self, side: usize, count: usize) -> usize {
         let mut taken = 0;
-        while taken < count && !self.sides[side].ended && self.sides[side].machine.can_take() {
+        while taken < count && !self.sides[side].ended {
             let s = &mut self.sides[side];
-            let Some(frame) = s.interactive.pop_front().or_else(|| s.bulk.pop_front()) else {
-                break;
+            let open = |channel| s.machine.can_take(channel);
+            let lane = if !s.interactive.is_empty() && open(Channel::Typing) {
+                Channel::Typing
+            } else {
+                let screen = !s.screen.is_empty() && open(Channel::Screen);
+                let files = !s.files.is_empty() && open(Channel::Files);
+                match (screen, files) {
+                    (true, true) if s.bulk_taken[1] < s.bulk_taken[0] => Channel::Files,
+                    (true, _) => Channel::Screen,
+                    (false, true) => Channel::Files,
+                    (false, false) => break,
+                }
             };
+            let frame = match lane {
+                Channel::Typing => s.interactive.pop_front(),
+                Channel::Screen => s.screen.pop_front(),
+                _ => s.files.pop_front(),
+            }
+            .expect("the chosen lane holds a frame");
+            if lane != Channel::Typing {
+                s.bulk_taken[lane.index() - 1] += frame.len();
+            }
             s.taken.push(label(&frame));
             let out = s.machine.send(frame, self.now);
             self.apply(side, out);
@@ -89,23 +124,31 @@ impl World {
         taken
     }
 
-    fn carry(&mut self, on_link: bool, to: usize, count: usize) -> usize {
+    fn carry_relay(&mut self, to: usize, count: usize) -> usize {
         let mut carried = 0;
         while carried < count {
-            let queue = if on_link {
-                &mut self.link[to]
-            } else {
-                &mut self.relay[to]
+            let Some(frame) = self.relay[to].pop_front() else {
+                break;
             };
-            let Some(item) = queue.pop_front() else { break };
-            let now = self.now;
-            let out = if on_link {
-                self.sides[to].machine.from_link(&item, now)
-            } else {
-                self.sides[to].machine.from_relay(item, now)
-            };
+            let out = self.sides[to].machine.from_relay(frame, self.now);
             self.apply(to, out);
             carried += 1;
+        }
+        carried
+    }
+
+    /// Carries pieces on the named channels, each channel drained in turn.
+    fn carry_link(&mut self, to: usize, channels: &[Channel], count: usize) -> usize {
+        let mut carried = 0;
+        for &channel in channels {
+            while carried < count {
+                let Some(piece) = self.link[to][channel.index()].pop_front() else {
+                    break;
+                };
+                let out = self.sides[to].machine.from_link(channel, &piece, self.now);
+                self.apply(to, out);
+                carried += 1;
+            }
         }
         carried
     }
@@ -114,8 +157,8 @@ impl World {
         loop {
             let mut moved = 0;
             for to in [BROWSER, HOST] {
-                moved += self.carry(false, to, usize::MAX);
-                moved += self.carry(true, to, usize::MAX);
+                moved += self.carry_relay(to, usize::MAX);
+                moved += self.carry_link(to, &Channel::ALL, usize::MAX);
             }
             moved += self.take(BROWSER, usize::MAX);
             moved += self.take(HOST, usize::MAX);
@@ -138,6 +181,7 @@ fn label(frame: &[u8]) -> String {
     let data = match Frame::decode(frame) {
         Ok((Frame::Terminal(t), _)) => t.data,
         Ok((Frame::FileTransfer(f), _)) => f.data,
+        Ok((Frame::Desktop(d), _)) => d.data,
         other => panic!("a scenario delivers only its own frames, got {other:?}"),
     };
     let end = data.iter().position(|b| *b == 0).unwrap_or(data.len());
@@ -152,6 +196,15 @@ fn frame(lane: &str, name: &str, size: usize) -> Vec<u8> {
         "bulk" => Frame::FileTransfer(FileFrame {
             offset: 0,
             total_size: 0,
+            data,
+        }),
+        "screen" => Frame::Desktop(DesktopFrame {
+            sequence: 0,
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+            encoding: FrameEncoding::Raw,
             data,
         }),
         other => panic!("unknown lane {other}"),
@@ -185,6 +238,23 @@ fn reason(name: &str) -> LeaveReason {
         "closed" => LeaveReason::Closed,
         "channel_error" => LeaveReason::ChannelError,
         other => panic!("unknown leave reason {other}"),
+    }
+}
+
+fn channel(name: &str) -> Channel {
+    match name {
+        "typing" => Channel::Typing,
+        "screen" => Channel::Screen,
+        "files" => Channel::Files,
+        other => panic!("unknown channel {other}"),
+    }
+}
+
+fn layout(step: &Value) -> Layout {
+    match step.get("channels").and_then(Value::as_str) {
+        None | Some("shared") => Layout::Shared,
+        Some("separate") => Layout::Separate,
+        Some(other) => panic!("unknown channel layout {other}"),
     }
 }
 
@@ -256,7 +326,7 @@ fn run(name: &str, scenario: &Value) {
                 .for_each(|s| world.sides[s].machine.begin_attempt(world.now)),
             "open" => {
                 for s in side() {
-                    let out = world.sides[s].machine.link_open(world.now);
+                    let out = world.sides[s].machine.link_open(world.now, layout(step));
                     world.apply(s, out);
                 }
             }
@@ -267,10 +337,10 @@ fn run(name: &str, scenario: &Value) {
                         let size = f.get("size").map_or(0, |v| v.as_u64().unwrap() as usize);
                         let bytes = frame(lane, f["label"].as_str().unwrap(), size);
                         let target = &mut world.sides[s];
-                        if lane == "interactive" {
-                            target.interactive.push_back(bytes);
-                        } else {
-                            target.bulk.push_back(bytes);
+                        match lane {
+                            "interactive" => target.interactive.push_back(bytes),
+                            "screen" => target.screen.push_back(bytes),
+                            _ => target.files.push_back(bytes),
                         }
                     }
                 }
@@ -282,12 +352,17 @@ fn run(name: &str, scenario: &Value) {
             }
             "carry" => {
                 let to = sides(step["to"].as_str().unwrap())[0];
-                world.carry(step["path"] == "link", to, count(step));
+                if step["path"] == "link" {
+                    let channels = match step.get("channel").and_then(Value::as_str) {
+                        Some(name) => vec![channel(name)],
+                        None => Channel::ALL.to_vec(),
+                    };
+                    world.carry_link(to, &channels, count(step));
+                } else {
+                    world.carry_relay(to, count(step));
+                }
             }
-            "cut" => {
-                world.cut = true;
-                world.link = [VecDeque::new(), VecDeque::new()];
-            }
+            "cut" => world.cut_link(),
             "lose" => {
                 for s in side() {
                     let out = world.sides[s]
@@ -306,7 +381,11 @@ fn run(name: &str, scenario: &Value) {
                     .iter()
                     .map(|b| b.as_u64().unwrap() as u8)
                     .collect();
-                world.link[to].push_back(bytes);
+                let on = step
+                    .get("channel")
+                    .and_then(Value::as_str)
+                    .map_or(Channel::Typing, channel);
+                world.link[to][on.index()].push_back(bytes);
             }
             "expect" => {
                 for s in side() {
@@ -345,7 +424,7 @@ fn every_shared_scenario_gives_its_exact_deliveries() {
         .collect();
     names.sort();
     assert!(
-        names.len() >= 19,
+        names.len() >= 22,
         "the scenario set is read, found {}",
         names.len()
     );
@@ -357,28 +436,34 @@ fn every_shared_scenario_gives_its_exact_deliveries() {
     }
 }
 
-/// One random run: what each side sends, when the link opens, and where it dies.
+const LANES: [&str; 3] = ["interactive", "screen", "bulk"];
+
+/// One random run: what each side sends on which lane, when the link opens with which channels,
+/// which channel each carry drains, and where the link dies.
 #[derive(Debug, Clone)]
 struct Run {
-    frames: [Vec<(bool, usize)>; 2],
+    frames: [Vec<(usize, usize)>; 2],
+    separate: bool,
     open_after: [usize; 2],
-    carries: Vec<(bool, usize, usize)>,
+    carries: Vec<(Option<usize>, usize, usize)>,
     cut_at: Option<usize>,
     losers: [bool; 2],
 }
 
 fn arb_run() -> impl Strategy<Value = Run> {
-    let frames = || prop::collection::vec((any::<bool>(), 1usize..40_000), 0..10);
+    let frames = || prop::collection::vec((0usize..3, 1usize..40_000), 0..10);
     (
         frames(),
         frames(),
+        any::<bool>(),
         (0usize..12, 0usize..12),
-        prop::collection::vec((any::<bool>(), 0usize..2, 1usize..6), 0..40),
+        prop::collection::vec((prop::option::of(0usize..4), 0usize..2, 1usize..6), 0..40),
         prop::option::of(0usize..40),
         (any::<bool>(), any::<bool>()),
     )
-        .prop_map(|(a, b, open, carries, cut_at, losers)| Run {
+        .prop_map(|(a, b, separate, open, carries, cut_at, losers)| Run {
             frames: [a, b],
+            separate,
             open_after: [open.0, open.1],
             carries,
             cut_at,
@@ -389,32 +474,36 @@ fn arb_run() -> impl Strategy<Value = Run> {
 fn play(run: &Run) -> World {
     let mut world = World::new(Config {
         window: 64 * 1024,
+        typing_window: 32 * 1024,
         ..Config::default()
     });
+    let layout = if run.separate {
+        Layout::Separate
+    } else {
+        Layout::Shared
+    };
     for side in [BROWSER, HOST] {
         world.sides[side].machine.begin_attempt(0);
-        for (n, (interactive, size)) in run.frames[side].iter().enumerate() {
-            let lane = if *interactive { "interactive" } else { "bulk" };
-            let bytes = frame(lane, &format!("{side}-{n}"), *size);
+        for (n, (lane, size)) in run.frames[side].iter().enumerate() {
+            let bytes = frame(LANES[*lane], &format!("{side}-{n}-{lane}"), *size);
             let s = &mut world.sides[side];
-            if *interactive {
-                s.interactive.push_back(bytes);
-            } else {
-                s.bulk.push_back(bytes);
+            match lane {
+                0 => s.interactive.push_back(bytes),
+                1 => s.screen.push_back(bytes),
+                _ => s.files.push_back(bytes),
             }
         }
     }
-    for (step, (on_link, to, count)) in run.carries.iter().enumerate() {
+    for (step, (on, to, count)) in run.carries.iter().enumerate() {
         for side in [BROWSER, HOST] {
             if step == run.open_after[side] {
-                let out = world.sides[side].machine.link_open(world.now);
+                let out = world.sides[side].machine.link_open(world.now, layout);
                 world.apply(side, out);
             }
             world.take(side, 1);
         }
         if run.cut_at == Some(step) {
-            world.cut = true;
-            world.link = [VecDeque::new(), VecDeque::new()];
+            world.cut_link();
             for side in [BROWSER, HOST] {
                 if run.losers[side] {
                     let out = world.sides[side]
@@ -424,7 +513,10 @@ fn play(run: &Run) -> World {
                 }
             }
         }
-        world.carry(*on_link, *to, *count);
+        match on {
+            Some(3) | None => world.carry_relay(*to, *count),
+            Some(c) => world.carry_link(*to, &[Channel::ALL[*c]], *count),
+        };
     }
     if run.cut_at.is_some() && !run.losers.iter().any(|l| *l) {
         let out = world.sides[HOST]
@@ -438,17 +530,34 @@ fn play(run: &Run) -> World {
     world
 }
 
+/// The frames of one lane, in the order they appear.
+fn of_lane(labels: &[String], lane: usize) -> Vec<String> {
+    labels
+        .iter()
+        .filter(|l| l.ends_with(&format!("-{lane}")))
+        .cloned()
+        .collect()
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(10_000))]
 
     #[test]
-    fn any_drop_moment_keeps_both_directions_exactly_once_and_in_order(run in arb_run()) {
+    fn any_drop_moment_keeps_every_channel_exactly_once_and_in_order(run in arb_run()) {
         let world = play(&run);
         for side in [BROWSER, HOST] {
             let peer = 1 - side;
+            let (delivered, taken) = (&world.sides[side].delivered, &world.sides[peer].taken);
             prop_assert!(!world.sides[side].ended, "a reachable peer never leaves a side waiting");
-            prop_assert_eq!(&world.sides[side].delivered, &world.sides[peer].taken);
-            prop_assert_eq!(world.sides[peer].taken.len(), run.frames[peer].len(),
+            if run.separate {
+                for lane in 0..3 {
+                    prop_assert_eq!(of_lane(delivered, lane), of_lane(taken, lane));
+                }
+                prop_assert_eq!(delivered.len(), taken.len());
+            } else {
+                prop_assert_eq!(delivered, taken);
+            }
+            prop_assert_eq!(taken.len(), run.frames[peer].len(),
                 "every frame a side queued was sent");
         }
     }

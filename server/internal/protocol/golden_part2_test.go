@@ -31,6 +31,8 @@ func TestGoldenFrameWireFormat(t *testing.T) {
 		{"DirectFallback", "control_direct_fallback.bin", FrameControl},
 		{"DirectFallbackMin", "control_direct_fallback_min.bin", FrameControl},
 		{"DirectAck", "control_direct_ack.bin", FrameControl},
+		{"DirectAckPerChannel", "control_direct_ack_channels.bin", FrameControl},
+		{"DirectFallbackPerChannel", "control_direct_fallback_channels.bin", FrameControl},
 		{"AgentUpdateAck", "control_agent_update_ack.bin", FrameControl},
 		{"AgentDeregistered", "control_agent_deregistered.bin", FrameControl},
 		{"RestartAgent", "control_restart_agent.bin", FrameControl},

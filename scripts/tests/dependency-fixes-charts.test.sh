@@ -168,7 +168,7 @@ export TOOL_SOURCE_OTHER_CHART="chart:https://charts.example.test#other"
 MANIFEST
 status=0
 run || status=$?
-if [ "$status" -eq 2 ] && out_has 'the chart other installs a program charts.PROGRAMS does not name'; then
+if [ "$status" -eq 2 ] && out_has 'the chart other installs a program chartsource.PROGRAMS does not name'; then
   pass "a chart whose program the reader has no source for fails the check as unreadable"
 else
   fail "an unknown chart must exit 2 (status=$status out=[$(cat "$WORK/out")])"

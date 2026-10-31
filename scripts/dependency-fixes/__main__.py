@@ -21,9 +21,11 @@ import sys
 
 import actions
 import charts
+import chartsource
 import declarations
 import fetch
 import golang
+import imagerefs
 import images
 import npm
 import registry
@@ -49,9 +51,9 @@ DEPLOYED = ("deploy/helm/", "deploy/scripts/")
 
 def declared_images(root):
     """Every image the repository declares, the charts' renders included, without digests."""
-    named = set(images.references(root))
-    for _, version, url, name in charts.charts(root):
-        named |= set(charts.rendered(root, url, name, version))
+    named = set(imagerefs.references(root))
+    for _, version, url, name in chartsource.charts(root):
+        named |= set(chartsource.rendered(root, url, name, version))
     return sorted({str(registry.parse(reference).at(registry.parse(reference).tag)) for reference in named})
 
 
@@ -62,7 +64,7 @@ def undeclared_images(root, lines):
     if not running:
         raise fetch.Unreadable("no running image was handed to the comparison")
     declared = set(declared_images(root))
-    owned = [entry["image"] for entry in images.scope().get("images", [])]
+    owned = [entry["image"] for entry in imagerefs.scope().get("images", [])]
     return [reference for reference in running
             if str(registry.parse(reference).at(registry.parse(reference).tag)) not in declared
             and not any(reference.startswith(prefix) for prefix in owned)]
@@ -71,10 +73,10 @@ def undeclared_images(root, lines):
 def deployed_images(root):
     """Every image the cluster deploy installs: those its charts and pod scripts name, and those the
     cluster's own chart releases render."""
-    named = {reference for reference, paths in images.references(root).items()
+    named = {reference for reference, paths in imagerefs.references(root).items()
              if any(path.startswith(DEPLOYED) for path in paths)}
-    for _, version, url, name in charts.charts(root):
-        named |= set(charts.rendered(root, url, name, version))
+    for _, version, url, name in chartsource.charts(root):
+        named |= set(chartsource.rendered(root, url, name, version))
     if not named:
         raise fetch.Unreadable("no image the cluster deploy installs was found")
     return sorted(named)

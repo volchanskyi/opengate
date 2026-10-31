@@ -41,6 +41,22 @@ func TestGoldenControlDirectLinkNotices(t *testing.T) {
 	ack := decodeControlFrame(t, "control_direct_ack.bin")
 	assert.Equal(t, MsgDirectAck, ack.Type)
 	assert.Equal(t, uint64(4_294_967_296), ack.Received)
+	assert.Zero(t, ack.ReceivedScreen)
+	assert.Zero(t, ack.ReceivedFiles)
+}
+
+func TestGoldenControlDirectLinkNoticesPerChannel(t *testing.T) {
+	ack := decodeControlFrame(t, "control_direct_ack_channels.bin")
+	assert.Equal(t, MsgDirectAck, ack.Type)
+	assert.Equal(t, uint64(12), ack.Received)
+	assert.Equal(t, uint64(4_294_967_296), ack.ReceivedScreen)
+	assert.Equal(t, uint64(70_000), ack.ReceivedFiles)
+
+	fallback := decodeControlFrame(t, "control_direct_fallback_channels.bin")
+	assert.Equal(t, MsgDirectFallback, fallback.Type)
+	assert.Equal(t, uint64(3), fallback.Received)
+	assert.Zero(t, fallback.ReceivedScreen)
+	assert.Equal(t, uint64(9), fallback.ReceivedFiles)
 }
 
 func TestGoldenControlFileDownloadErrorAndListingPage(t *testing.T) {

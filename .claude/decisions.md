@@ -60,7 +60,7 @@
 | 082 | A load run is valid, failed or invalid; every number is a reading, and the fleet is a roster the run gives back | [ADR-082](../docs/adr/ADR-082-load-run-validity.md) |
 | 084 | Staging carries two real machines it builds and enrols, and one holder at a time through a Lease | [ADR-084](../docs/adr/ADR-084-staging-environment.md) |
 | 086 | The deploy reads the cluster for what is running, declares no cache its token cannot write, and reads back what it does | [ADR-086](../docs/adr/ADR-086-deploy-reads-the-cluster.md) |
-| 088 | A benchmark measures the code rather than its harness, the baseline holds only CI's readings, and each lazy bundle carries its own budget | [ADR-088](../docs/adr/ADR-088-benchmarks-measure-the-code.md) |
+| 088 | A benchmark measures the code rather than its harness, time is judged against an anchor commit on one machine, and each lazy bundle carries its own budget | [ADR-088](../docs/adr/ADR-088-benchmarks-measure-the-code.md) |
 | 091 | A coverage report is rewritten into its reader's coordinates and read back; exclusions agree in all four places | [ADR-091](../docs/adr/ADR-091-coverage-reports.md) |
 | 093 | The relay owns a session's lifetime, never a hijacked request context, and a slope proves the resource came back | [ADR-093](../docs/adr/ADR-093-relay-session-lifetime.md) |
 | 095 | Two listeners — the API in public, the exposition and profiler cluster-only, with every consumer read back | [ADR-095](../docs/adr/ADR-095-two-listeners.md) |
@@ -71,7 +71,7 @@
 | 116 | A forwarded address is believed only from a named proxy; a request counts per account or console session; a machine dials a set relay address; the console signs in by cookie | [ADR-116](../docs/adr/ADR-116-forwarded-addresses.md) |
 | 119 | A long run keeps the target's profiles and names the line that grew; a core says what still holds it | [ADR-119](../docs/adr/ADR-119-finding-a-leak.md) |
 | 121 | Signed over-the-air agent updates, pushed by the server, verified and rolled back by the agent | [ADR-121](../docs/adr/ADR-121-agent-auto-update.md) |
-| 122 | A mutation shard walks the narrowest path holding its own units; a leg publishes its score alone | [ADR-122](../docs/adr/ADR-122-mutation-walk-and-legs.md) |
+| 122 | A mutation shard walks the narrowest path holding its own units; a leg publishes its score alone, held to a committed floor | [ADR-122](../docs/adr/ADR-122-mutation-walk-and-legs.md) |
 | 123 | An alert channel is proven by a delivered message, sent from a job of its own; the cluster's monitoring configuration is rendered, applied and read back | [ADR-123](../docs/adr/ADR-123-alert-delivery.md) |
 | 124 | An alert a machine raises reaches the queue: drained on the heartbeat, re-offered after a failed send, and a rule change reaching machines already connected | [ADR-124](../docs/adr/ADR-124-an-alert-reaches-the-queue.md) |
 | 125 | A comment is a short positive statement about its code, checked at write time and on every commit; repeated code is read from the scanner's report for every file | [ADR-125](../docs/adr/ADR-125-comments-and-repeated-code.md) |

@@ -237,6 +237,32 @@ for family in volume scaling shapes; do
   fi
 done
 
+# A failed leg keeps the machine it ran on: the record is summed on every outcome once the stack
+# came up, the walk's own failure included.
+unrecorded="$(
+  python3 - "$WORKFLOW" <<'PY'
+import sys
+
+import yaml
+
+jobs = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))["jobs"]
+for family in ("volume", "scaling", "shapes"):
+    steps = jobs[family].get("steps") or []
+    record = [s for s in steps if "perf-runner-record.sh delta" in str(s.get("run", ""))]
+    if not record:
+        print(f"{family}: no step sums the runner's record")
+        continue
+    condition = str(record[0].get("if", ""))
+    if "always()" not in condition or "steps.stack.outcome == 'success'" not in condition:
+        print(f"{family}: the record runs only on a leg that passed ({condition or 'no if'})")
+PY
+)"
+if [ -z "$unrecorded" ]; then
+  pass "every family records its runner on every outcome once the stack is up"
+else
+  fail "runner record: $unrecorded"
+fi
+
 if grep -q -- '-fixture-account=' <<<"$(job_block scaling)"; then
   pass "the scaling family builds the fleet its profile declares"
 else

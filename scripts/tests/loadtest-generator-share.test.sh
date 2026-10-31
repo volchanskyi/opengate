@@ -126,6 +126,18 @@ else
   fail "the harness runs as the invoking user, so its bundle is readable"
 fi
 
+# A generator named a slice of its own takes an allowance no other generator shares.
+rm -f "$WORK/calls.txt"
+STATUS=0
+LOADTEST_GENERATOR_SLICE=opengate-generator-machines.slice \
+  PATH="$WORK/caller-bin:$WORK/bin:$WORK/sbin:$PATH" "$SHARE" 1 8G -- true >"$WORK/out.txt" 2>&1 || STATUS=$?
+if grep -qF 'systemctl set-property --runtime opengate-generator-machines.slice CPUQuota=100% MemoryMax=8G' "$WORK/calls.txt" \
+  && grep -qF 'systemd-run --scope --quiet --slice=opengate-generator-machines.slice' "$WORK/calls.txt"; then
+  pass "a slice named for one generator holds that generator's allowance alone"
+else
+  fail "a slice named for one generator holds that generator's allowance alone ($(cat "$WORK/calls.txt"))"
+fi
+
 run_share 0.5 4G -- true
 if grep -qF 'CPUQuota=50%' "$WORK/calls.txt"; then
   pass "half a processor is asked for as half a processor's worth of quota"

@@ -1,8 +1,6 @@
 import { encodeFrame } from '../protocol/codec';
 import {
   FRAME_CONTROL,
-  FRAME_DESKTOP,
-  FRAME_FILE,
   FRAME_PONG,
   FRAME_TERMINAL,
   type ControlMessage,
@@ -11,7 +9,16 @@ import {
   type TerminalFrame,
 } from '../protocol/types';
 import { MAX_PIECE } from '../direct/pieces';
-import { Handoff, type Instruction, type LeaveReason, type Outcome } from '../direct/handoff';
+import {
+  CHANNELS,
+  Handoff,
+  channelOf,
+  type Channel,
+  type Instruction,
+  type Layout,
+  type LeaveReason,
+  type Outcome,
+} from '../direct/handoff';
 import { frameDispatch } from './frame-dispatch';
 
 /** Relay socket lifecycle state. */
@@ -54,8 +61,11 @@ const CONNECTION_LOST = 'Connection lost — reconnect';
 /** How long the link may stay disconnected before the session falls back. */
 export const DISCONNECTED_LIMIT_MS = 3_000;
 
-/** Label of the one ordered channel the host answers. */
-export const CHANNEL_LABEL = 'session';
+/** Label of the one ordered channel a host without a channel per job answers. */
+export const SHARED_LABEL = 'session';
+
+/** Labels of the typing, screen and files channels a host with a channel per job answers. */
+export const CHANNEL_LABELS: ReadonlyMap<Channel, string> = new Map(CHANNELS.map((c) => [c, c]));
 
 // Terminal bytes per frame, leaving room for the frame's header and fields inside one piece.
 const TERMINAL_CHUNK = INTERACTIVE_FRAME_CAP - 64;
@@ -70,28 +80,31 @@ const REASONS: Record<Outcome, SessionPath> = {
 };
 
 /**
- * One session's sending point and path chooser: the relay socket for the whole session, a direct
- * link when one forms, an interactive lane taken before a bulk lane, and the hand-off between them.
+ * One session's sending point and path chooser: the relay for the whole session, a direct link
+ * when one forms, a lane per link channel with typing first, and the hand-off between them.
  */
 export class SessionChannel {
   private readonly events: SessionChannelEvents;
   private readonly helpers: string[];
+  private readonly layout: Layout;
   private readonly handoff = new Handoff();
-  private readonly start = Date.now();
   private ws: WebSocket | null = null;
   private peer: RTCPeerConnection | null = null;
-  private link: RTCDataChannel | null = null;
-  private readonly interactive: Uint8Array[] = [];
-  private readonly bulk: Uint8Array[] = [];
+  private readonly links = new Map<Channel, RTCDataChannel>();
+  private readonly opened = new Set<Channel>();
+  private readonly lanes = new Map<Channel, Uint8Array[]>(CHANNELS.map((c) => [c, []]));
+  /** Bytes taken from the screen and files lanes, which share the bulk turn by bytes. */
+  private readonly bulkTaken = new Map<Channel, number>();
   private tickTimer: ReturnType<typeof setTimeout> | null = null;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private disconnectedTimer: ReturnType<typeof setTimeout> | null = null;
   private ended = false;
   private currentState: ConnectionState = 'disconnected';
 
-  constructor(events: SessionChannelEvents, helpers: string[]) {
+  constructor(events: SessionChannelEvents, helpers: string[], layout: Layout = 'shared') {
     this.events = events;
     this.helpers = helpers;
+    this.layout = layout;
   }
 
   get state(): ConnectionState {
@@ -111,7 +124,7 @@ export class SessionChannel {
       this.pump();
     };
     ws.onmessage = (event: MessageEvent) => {
-      this.run(this.handoff.fromRelay(new Uint8Array(event.data as ArrayBuffer), this.now()));
+      this.run(this.handoff.fromRelay(new Uint8Array(event.data as ArrayBuffer), Date.now()));
     };
     ws.onerror = () => {
       this.events.onError(new Error('WebSocket connection error'));
@@ -140,15 +153,10 @@ export class SessionChannel {
 
   /** Ends the session: the link and the relay close and nothing more is sent. */
   disconnect(): void {
-    this.ended = true;
     this.teardown();
     this.ws?.close();
     this.ws = null;
     this.setState('disconnected');
-  }
-
-  private now(): number {
-    return Date.now() - this.start;
   }
 
   private setState(state: ConnectionState): void {
@@ -165,15 +173,13 @@ export class SessionChannel {
       return;
     }
     this.events.onPath({ direct: false, reason: 'looking for a direct route' });
-    this.handoff.beginAttempt(this.now());
+    this.handoff.beginAttempt(Date.now());
     this.rearm();
 
     const peer = new RTCPeerConnection({ iceServers: this.helpers.map((urls) => ({ urls })) });
-    const link = peer.createDataChannel(CHANNEL_LABEL, { ordered: true });
-    link.binaryType = 'arraybuffer';
-    link.bufferedAmountLowThreshold = UNSENT_LIMIT;
     this.peer = peer;
-    this.link = link;
+    const opening = this.layout === 'separate' ? CHANNEL_LABELS : new Map([['typing' as const, SHARED_LABEL]]);
+    for (const [which, label] of opening) this.links.set(which, this.openChannel(peer, which, label));
 
     peer.onicecandidate = (event) => {
       if (!event.candidate) return;
@@ -181,13 +187,6 @@ export class SessionChannel {
       this.relayControl({ type: 'IceCandidate', candidate: event.candidate.candidate, mid: event.candidate.sdpMid ?? '' });
     };
     peer.oniceconnectionstatechange = () => this.onIceState(peer.iceConnectionState);
-    link.onopen = () => this.run(this.handoff.linkOpen());
-    link.onmessage = (event: MessageEvent) => {
-      this.run(this.handoff.fromLink(new Uint8Array(event.data as ArrayBuffer), this.now()));
-    };
-    link.onclose = () => this.lose('closed');
-    link.onerror = () => this.lose('channel_error');
-    link.onbufferedamountlow = () => this.pump();
 
     peer
       .createOffer()
@@ -196,6 +195,24 @@ export class SessionChannel {
         this.relayControl({ type: 'DirectOffer', sdp: offer.sdp ?? '' });
       })
       .catch(() => this.lose('closed'));
+  }
+
+  /** Opens one ordered channel; the link counts as open once every channel of the layout is. */
+  private openChannel(peer: RTCPeerConnection, which: Channel, label: string): RTCDataChannel {
+    const link = peer.createDataChannel(label, { ordered: true });
+    link.binaryType = 'arraybuffer';
+    link.bufferedAmountLowThreshold = UNSENT_LIMIT;
+    link.onopen = () => {
+      this.opened.add(which);
+      if (this.opened.size === this.links.size) this.run(this.handoff.linkOpen(this.layout));
+    };
+    link.onmessage = (event: MessageEvent) => {
+      this.run(this.handoff.fromLink(which, new Uint8Array(event.data as ArrayBuffer), Date.now()));
+    };
+    link.onclose = () => this.lose('closed');
+    link.onerror = () => this.lose('channel_error');
+    link.onbufferedamountlow = () => this.pump();
+    return link;
   }
 
   /** A disconnected link is passing; it falls back once it has not reconnected within the limit. */
@@ -218,32 +235,59 @@ export class SessionChannel {
   }
 
   private lose(reason: LeaveReason): void {
-    this.run(this.handoff.linkLost(reason, this.now()));
+    this.run(this.handoff.linkLost(reason, Date.now()));
   }
 
   private enqueue(frame: Uint8Array): void {
-    const bulk = frame[0] === FRAME_FILE || frame[0] === FRAME_DESKTOP;
-    const cap = bulk ? BULK_FRAME_CAP : INTERACTIVE_FRAME_CAP;
+    const lane = channelOf(frame);
+    const cap = lane === 'typing' ? INTERACTIVE_FRAME_CAP : BULK_FRAME_CAP;
     if (frame.length > cap) {
-      throw new Error(`a ${bulk ? 'bulk' : 'interactive'} frame of ${frame.length} bytes is past the lane's ${cap}-byte cap`);
+      throw new Error(`a ${lane} frame of ${frame.length} bytes is past the lane's ${cap}-byte cap`);
     }
-    (bulk ? this.bulk : this.interactive).push(frame);
+    this.laneQueue(lane).push(frame);
     this.pump();
   }
 
-  /** Hands the hand-off the next frame, interactive before bulk, while the path takes more. */
+  /** Hands the hand-off the next frame, typing first, while its channel and path take more. */
   private pump(): void {
-    while (!this.ended && this.handoff.canTake() && (this.interactive.length > 0 || this.bulk.length > 0)) {
-      if (!this.writerReady()) return;
-      const frame = (this.interactive.shift() ?? this.bulk.shift())!;
+    while (!this.ended) {
+      const lane = this.nextLane();
+      if (lane === null) return;
+      const frame = this.laneQueue(lane).shift()!;
+      if (lane !== 'typing') this.bulkTaken.set(lane, this.taken(lane) + frame.length);
       this.run(this.handoff.send(frame));
     }
   }
 
-  /** Whether the path holds less than the unsent limit; a full relay is asked again shortly. */
-  private writerReady(): boolean {
+  private laneQueue(lane: Channel): Uint8Array[] {
+    return this.lanes.get(lane)!;
+  }
+
+  private taken(lane: Channel): number {
+    return this.bulkTaken.get(lane) ?? 0;
+  }
+
+  /** The lane to take from now: typing, then whichever of screen and files has taken fewer bytes. */
+  private nextLane(): Channel | null {
+    const ready = (lane: Channel) =>
+      this.laneQueue(lane).length > 0 && this.handoff.canTake(lane) && this.writerReady(lane);
+    if (ready('typing')) return 'typing';
+    const [screen, files] = [ready('screen'), ready('files')];
+    if (screen && files) return this.taken('files') < this.taken('screen') ? 'files' : 'screen';
+    if (screen) return 'screen';
+    return files ? 'files' : null;
+  }
+
+  /** The link channel a lane's frames ride: its own, or the one shared channel. */
+  private linkFor(lane: Channel): RTCDataChannel | undefined {
+    return this.links.get(this.handoff.layout() === 'separate' ? lane : 'typing');
+  }
+
+  /** Whether a lane's path holds less than the unsent limit; a full relay is asked again shortly. */
+  private writerReady(lane: Channel): boolean {
     if (this.handoff.path() === 'link') {
-      return this.link !== null && this.link.bufferedAmount < UNSENT_LIMIT;
+      const link = this.linkFor(lane);
+      return link !== undefined && link.bufferedAmount < UNSENT_LIMIT;
     }
     const ws = this.ws;
     if (ws?.readyState === WebSocket.OPEN && ws.bufferedAmount < UNSENT_LIMIT) return true;
@@ -262,14 +306,16 @@ export class SessionChannel {
         case 'relay':
           this.sendRelay(next.frame);
           break;
-        case 'link':
-          if (!this.link) break;
+        case 'link': {
+          const link = this.links.get(next.channel);
+          if (!link) break;
           try {
-            this.link.send(next.piece as Uint8Array<ArrayBuffer>);
+            link.send(next.piece as Uint8Array<ArrayBuffer>);
           } catch {
-            queue.push(...this.handoff.linkLost('channel_error', this.now()));
+            queue.push(...this.handoff.linkLost('channel_error', Date.now()));
           }
           break;
+        }
         case 'deliver':
           this.deliver(next.frame);
           break;
@@ -332,7 +378,6 @@ export class SessionChannel {
 
   /** The host's notice never came: re-sending without it could repeat a keystroke. */
   private endLost(): void {
-    this.ended = true;
     this.teardown();
     this.ws?.close();
     this.setState('disconnected');
@@ -347,8 +392,8 @@ export class SessionChannel {
     if (due === null || this.ended) return;
     this.tickTimer = setTimeout(() => {
       this.tickTimer = null;
-      this.run(this.handoff.tick(this.now()));
-    }, Math.max(0, due - this.now()));
+      this.run(this.handoff.tick(Date.now()));
+    }, Math.max(0, due - Date.now()));
   }
 
   private clearDisconnected(): void {
@@ -358,9 +403,9 @@ export class SessionChannel {
 
   private closeLink(): void {
     this.clearDisconnected();
-    this.link?.close();
+    for (const link of this.links.values()) link.close();
     this.peer?.close();
-    this.link = null;
+    this.links.clear();
     this.peer = null;
   }
 
@@ -376,7 +421,5 @@ export class SessionChannel {
 
 /** The kind of address a candidate names — host, srflx, prflx or relay — never the address. */
 function candidateKind(candidate: string): string {
-  const fields = candidate.split(/\s+/);
-  const at = fields.indexOf('typ');
-  return at >= 0 && fields[at + 1] ? fields[at + 1]! : 'unknown';
+  return / typ (\S+)/.exec(candidate)?.[1] ?? 'unknown';
 }

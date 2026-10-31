@@ -2,16 +2,18 @@
 //! webrtc-rs peer standing in for the browser, driven by the same hand-off the browser runs.
 
 use std::collections::HashSet;
-use std::sync::Arc;
+use std::net::{Ipv4Addr, SocketAddr};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use bytes::BytesMut;
 use futures_util::{SinkExt, StreamExt};
-use mesh_agent_core::link::{CHANNEL_LABEL, CHECK_EVERY, SILENCE_LIMIT};
+use mesh_agent_core::link::{CHANNEL_LABELS, CHECK_EVERY, SHARED_LABEL, SILENCE_LIMIT};
 use mesh_agent_core::{NullCapture, NullInput, SessionError, SessionHandler};
-use mesh_protocol::direct::{Config, Handoff, Instruction, Outcome, Path};
+use mesh_protocol::direct::{Channel, Config, Handoff, Instruction, Layout, Outcome, Path};
 use mesh_protocol::{ControlMessage, Frame, Permissions, SessionToken};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_tungstenite::tungstenite::Message;
@@ -38,6 +40,162 @@ const DESCRIPTOR_SLOPE_TOLERANCE: f64 = 0.25;
 /// session and a session that closes its link reads 0.
 const TASK_SLOPE_TOLERANCE: f64 = 0.25;
 
+/// Browser packets this size and up carry a long typed message; acknowledgements stay below it.
+const LARGE_PACKET: usize = 300;
+
+/// Browser packets let past a held one: past RFC 6347's default window of 64, inside Chrome's 256.
+const OVERTAKING: usize = 100;
+
+/// Where each side of a relayed link listens, and what the relay does with the browser's packets.
+struct ShimState {
+    /// The address the machine leaves by: each side has a host candidate on it, and it takes the
+    /// relay's packets, which an idle bridge's address may refuse.
+    primary: Ipv4Addr,
+    host_side: SocketAddr,
+    browser_side: SocketAddr,
+    host: Mutex<Option<SocketAddr>>,
+    browser: Mutex<Option<SocketAddr>>,
+    armed: AtomicBool,
+    released: AtomicBool,
+}
+
+/// A UDP relay between the browser's peer and the host, each side's only candidate. Armed, it
+/// holds the browser's next large packet behind `OVERTAKING` later ones and drops the rest.
+struct Shim {
+    state: Arc<ShimState>,
+    task: JoinHandle<()>,
+}
+
+impl Shim {
+    async fn start() -> Self {
+        let host_socket = UdpSocket::bind("127.0.0.1:0")
+            .await
+            .expect("bind host side");
+        let browser_socket = UdpSocket::bind("127.0.0.1:0")
+            .await
+            .expect("bind browser side");
+        // Connecting a UDP socket picks its source address and sends nothing.
+        let probe = std::net::UdpSocket::bind("0.0.0.0:0").expect("bind probe");
+        probe
+            .connect("192.0.2.1:9")
+            .expect("a route off the machine");
+        let SocketAddr::V4(leaves_by) = probe.local_addr().expect("probe address") else {
+            panic!("an IPv4 route off the machine");
+        };
+        let state = Arc::new(ShimState {
+            primary: *leaves_by.ip(),
+            host_side: host_socket.local_addr().expect("host side"),
+            browser_side: browser_socket.local_addr().expect("browser side"),
+            host: Mutex::new(None),
+            browser: Mutex::new(None),
+            armed: AtomicBool::new(false),
+            released: AtomicBool::new(false),
+        });
+        let task = tokio::spawn(forward(Arc::clone(&state), host_socket, browser_socket));
+        Self { state, task }
+    }
+
+    fn arm(&self) {
+        self.state.armed.store(true, Ordering::SeqCst);
+    }
+
+    fn released(&self) -> bool {
+        self.state.released.load(Ordering::SeqCst)
+    }
+
+    /// The browser's candidate as the host sees it, naming the relay's host side.
+    fn browser_candidate(&self, candidate: &str) -> Option<String> {
+        rewrite(
+            candidate,
+            self.state.primary,
+            self.state.host_side,
+            &self.state.browser,
+        )
+    }
+
+    /// The host's candidate as the browser sees it, naming the relay's browser side.
+    fn host_candidate(&self, candidate: &str) -> Option<String> {
+        rewrite(
+            candidate,
+            self.state.primary,
+            self.state.browser_side,
+            &self.state.host,
+        )
+    }
+}
+
+impl Drop for Shim {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+async fn forward(state: Arc<ShimState>, host_socket: UdpSocket, browser_socket: UdpSocket) {
+    let mut from_host = vec![0u8; 65_536];
+    let mut from_browser = vec![0u8; 65_536];
+    let mut held: Option<Vec<u8>> = None;
+    let mut overtaken = 0;
+    loop {
+        tokio::select! {
+            Ok((n, _)) = host_socket.recv_from(&mut from_host) => {
+                let to = *state.browser.lock().expect("browser address");
+                if let Some(to) = to {
+                    browser_socket.send_to(&from_host[..n], to).await.ok();
+                }
+            }
+            Ok((n, _)) = browser_socket.recv_from(&mut from_browser) => {
+                let to = *state.host.lock().expect("host address");
+                let Some(to) = to else { continue };
+                if state.armed.load(Ordering::SeqCst) && n >= LARGE_PACKET {
+                    if held.is_none() && !state.released.load(Ordering::SeqCst) {
+                        held = Some(from_browser[..n].to_vec());
+                    }
+                    continue;
+                }
+                host_socket.send_to(&from_browser[..n], to).await.ok();
+                if held.is_some() {
+                    overtaken += 1;
+                    if overtaken == OVERTAKING {
+                        let late = held.take().expect("the held packet");
+                        host_socket.send_to(&late, to).await.ok();
+                        state.released.store(true, Ordering::SeqCst);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// `candidate` naming `via` in place of its own address, which `real` keeps as where its side
+/// listens; none for a candidate past the side's first IPv4 UDP host one on `primary`.
+fn rewrite(
+    candidate: &str,
+    primary: Ipv4Addr,
+    via: SocketAddr,
+    real: &Mutex<Option<SocketAddr>>,
+) -> Option<String> {
+    let mut fields: Vec<String> = candidate.split(' ').map(str::to_owned).collect();
+    let host = fields.len() >= 8 && fields[2].eq_ignore_ascii_case("udp") && fields[7] == "host";
+    let ip: Ipv4Addr = fields.get(4)?.parse().ok()?;
+    let port: u16 = fields.get(5)?.parse().ok()?;
+    let mut real = real.lock().expect("candidate address");
+    if !host || ip != primary || real.is_some() {
+        return None;
+    }
+    *real = Some(SocketAddr::from((ip, port)));
+    fields[4] = via.ip().to_string();
+    fields[5] = via.port().to_string();
+    Some(fields.join(" "))
+}
+
+/// `sdp` with its candidate lines left out, so the candidates the relay rewrites are the only ones.
+fn without_candidates(sdp: &str) -> String {
+    sdp.lines()
+        .filter(|line| !line.starts_with("a=candidate"))
+        .map(|line| format!("{line}\r\n"))
+        .collect()
+}
+
 /// What the test asks of the browser's peer, which runs on a runtime of its own.
 enum PeerCommand {
     Answer(String),
@@ -45,7 +203,7 @@ enum PeerCommand {
         candidate: String,
         mid: String,
     },
-    Send(Vec<u8>),
+    Send(Channel, Vec<u8>),
     /// Blocks the peer's only thread until the sender is dropped: no packet leaves or is read.
     Freeze(std::sync::mpsc::Receiver<()>),
     Close,
@@ -56,8 +214,8 @@ enum PeerCommand {
 enum PeerEvent {
     Offer(String),
     Candidate { candidate: String, mid: String },
-    Open,
-    Message(Vec<u8>),
+    Open(Channel),
+    Message(Channel, Vec<u8>),
     Closed,
     Ice(RTCIceConnectionState),
 }
@@ -94,7 +252,7 @@ struct BrowserPeer {
 }
 
 impl BrowserPeer {
-    fn start() -> Self {
+    fn start(layout: Layout) -> Self {
         let (commands, command_rx) = mpsc::unbounded_channel();
         let (event_tx, events) = mpsc::unbounded_channel();
         let thread = std::thread::spawn(move || {
@@ -102,7 +260,7 @@ impl BrowserPeer {
                 .enable_all()
                 .build()
                 .expect("peer runtime")
-                .block_on(run_peer(command_rx, event_tx));
+                .block_on(run_peer(layout, command_rx, event_tx));
         });
         Self {
             commands,
@@ -138,6 +296,7 @@ impl Drop for BrowserPeer {
 }
 
 async fn run_peer(
+    layout: Layout,
     mut commands: mpsc::UnboundedReceiver<PeerCommand>,
     events: mpsc::UnboundedSender<PeerEvent>,
 ) {
@@ -149,17 +308,28 @@ async fn run_peer(
         .build()
         .await
         .expect("browser peer connection");
-    let channel = pc
-        .create_data_channel(CHANNEL_LABEL, None)
-        .await
-        .expect("browser channel");
+    let labels: Vec<(Channel, &str)> = match layout {
+        Layout::Separate => Channel::ALL.into_iter().zip(CHANNEL_LABELS).collect(),
+        _ => vec![(Channel::Typing, SHARED_LABEL)],
+    };
+    let mut channels = Vec::new();
+    for (which, label) in labels {
+        let channel = pc
+            .create_data_channel(label, None)
+            .await
+            .expect("browser channel");
+        channels.push((which, channel));
+    }
     let offer = pc.create_offer(None).await.expect("offer");
     pc.set_local_description(offer)
         .await
         .expect("local description");
     let sdp = pc.local_description().await.expect("offer sdp").sdp;
     events.send(PeerEvent::Offer(sdp)).ok();
-    let pump = tokio::spawn(pump_channel(channel.clone(), events.clone()));
+    let pumps: Vec<_> = channels
+        .iter()
+        .map(|(which, channel)| tokio::spawn(pump_channel(*which, channel.clone(), events.clone())))
+        .collect();
 
     while let Some(command) = commands.recv().await {
         match command {
@@ -177,7 +347,11 @@ async fn run_peer(
                 };
                 pc.add_ice_candidate(init).await.ok();
             }
-            PeerCommand::Send(piece) => {
+            PeerCommand::Send(on, piece) => {
+                let channel = channels
+                    .iter()
+                    .find(|(which, _)| *which == on)
+                    .map_or(&channels[0].1, |(_, channel)| channel);
                 channel.send(BytesMut::from(&piece[..])).await.ok();
             }
             PeerCommand::Freeze(frozen) => {
@@ -187,15 +361,23 @@ async fn run_peer(
         }
     }
     pc.close().await.ok();
-    pump.abort();
-    pump.await.ok();
+    for pump in pumps {
+        pump.abort();
+        pump.await.ok();
+    }
 }
 
-async fn pump_channel(channel: Arc<dyn DataChannel>, events: mpsc::UnboundedSender<PeerEvent>) {
+async fn pump_channel(
+    which: Channel,
+    channel: Arc<dyn DataChannel>,
+    events: mpsc::UnboundedSender<PeerEvent>,
+) {
     while let Some(event) = channel.poll().await {
         let event = match event {
-            DataChannelEvent::OnOpen => PeerEvent::Open,
-            DataChannelEvent::OnMessage(message) => PeerEvent::Message(message.data.to_vec()),
+            DataChannelEvent::OnOpen => PeerEvent::Open(which),
+            DataChannelEvent::OnMessage(message) => {
+                PeerEvent::Message(which, message.data.to_vec())
+            }
             DataChannelEvent::OnClose => PeerEvent::Closed,
             _ => continue,
         };
@@ -207,6 +389,8 @@ async fn pump_channel(channel: Arc<dyn DataChannel>, events: mpsc::UnboundedSend
 struct Browser {
     ws: Relay,
     peer: BrowserPeer,
+    layout: Layout,
+    opened: HashSet<Channel>,
     handoff: Handoff,
     start: Instant,
     frozen: bool,
@@ -219,13 +403,16 @@ struct Browser {
     relay_open: bool,
     offer_mid: Option<String>,
     host_mids: Vec<String>,
+    shim: Option<Shim>,
 }
 
 impl Browser {
-    fn new(ws: Relay) -> Self {
+    fn new(ws: Relay, layout: Layout, shim: Option<Shim>) -> Self {
         Self {
             ws,
-            peer: BrowserPeer::start(),
+            peer: BrowserPeer::start(layout),
+            layout,
+            opened: HashSet::new(),
             handoff: Handoff::new(Config::default()),
             start: Instant::now(),
             frozen: false,
@@ -238,6 +425,7 @@ impl Browser {
             relay_open: true,
             offer_mid: None,
             host_mids: Vec::new(),
+            shim,
         }
     }
 
@@ -311,12 +499,25 @@ impl Browser {
                 return;
             }
             PeerEvent::Candidate { candidate, mid } => {
-                self.relay(ControlMessage::IceCandidate { candidate, mid })
-                    .await;
+                if let Some(candidate) = self.through_shim(candidate, Shim::browser_candidate) {
+                    self.relay(ControlMessage::IceCandidate { candidate, mid })
+                        .await;
+                }
                 return;
             }
-            PeerEvent::Open => self.handoff.link_open(now),
-            PeerEvent::Message(piece) => self.handoff.from_link(&piece, now),
+            PeerEvent::Open(which) => {
+                self.opened.insert(which);
+                let needed = if self.layout == Layout::Separate {
+                    3
+                } else {
+                    1
+                };
+                if self.opened.len() < needed {
+                    return;
+                }
+                self.handoff.link_open(now, self.layout)
+            }
+            PeerEvent::Message(which, piece) => self.handoff.from_link(which, &piece, now),
             PeerEvent::Closed => {
                 self.peer_closed = true;
                 return;
@@ -353,17 +554,23 @@ impl Browser {
                     .await
                     .expect("relay send"),
                 // A frozen peer sends nothing: what goes to it is lost on the way.
-                Instruction::Link(piece) if !self.frozen => {
-                    self.peer.command(PeerCommand::Send(piece));
+                Instruction::Link { channel, piece } if !self.frozen => {
+                    self.peer.command(PeerCommand::Send(channel, piece));
                 }
                 Instruction::Deliver(frame) => self
                     .delivered
                     .push(Frame::decode(&frame).expect("a whole frame").0),
                 Instruction::Signal(ControlMessage::DirectAnswer { sdp }) => {
+                    let sdp = match self.shim {
+                        Some(_) => without_candidates(&sdp),
+                        None => sdp,
+                    };
                     self.peer.command(PeerCommand::Answer(sdp));
                 }
                 Instruction::Signal(ControlMessage::IceCandidate { candidate, mid }) => {
-                    self.peer.command(PeerCommand::Candidate { candidate, mid });
+                    if let Some(candidate) = self.through_shim(candidate, Shim::host_candidate) {
+                        self.peer.command(PeerCommand::Candidate { candidate, mid });
+                    }
                 }
                 Instruction::CloseLink => {
                     self.frozen = true;
@@ -374,6 +581,22 @@ impl Browser {
                 _ => {}
             }
         }
+    }
+
+    /// `candidate` as the far side sees it: through the relay when one stands between the sides.
+    fn through_shim(
+        &self,
+        candidate: String,
+        rewrite: fn(&Shim, &str) -> Option<String>,
+    ) -> Option<String> {
+        match &self.shim {
+            Some(shim) => rewrite(shim, &candidate),
+            None => Some(candidate),
+        }
+    }
+
+    fn shim(&self) -> &Shim {
+        self.shim.as_ref().expect("a relayed link")
     }
 
     fn direct(&self) -> bool {
@@ -440,8 +663,17 @@ async fn sleep_until(deadline: Option<tokio::time::Instant>) {
     }
 }
 
-/// Starts a session that may read files against a relay stub, and returns the browser's end.
-async fn open_session() -> (Browser, JoinHandle<Result<(), SessionError>>) {
+/// Starts a session that may read files against a relay stub, and returns the browser's end,
+/// whose link has the channels `layout` names.
+async fn open_session(layout: Layout) -> (Browser, JoinHandle<Result<(), SessionError>>) {
+    open_session_with(layout, None).await
+}
+
+/// [`open_session`], with the link's packets passing through `shim` when one is given.
+async fn open_session_with(
+    layout: Layout,
+    shim: Option<Shim>,
+) -> (Browser, JoinHandle<Result<(), SessionError>>) {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind relay stub");
@@ -465,7 +697,7 @@ async fn open_session() -> (Browser, JoinHandle<Result<(), SessionError>>) {
     let ws = tokio_tungstenite::accept_async(stream)
         .await
         .expect("relay stub handshake");
-    (Browser::new(ws), session)
+    (Browser::new(ws, layout, shim), session)
 }
 
 fn folder(entries: usize) -> tempfile::TempDir {
@@ -531,7 +763,7 @@ fn slope(xs: &[f64], ys: &[f64]) -> f64 {
 
 /// One session that forms its link, starts a download and ends while the download runs.
 async fn session_ended_mid_download(file: &std::path::Path, size: u64) {
-    let (mut browser, session) = open_session().await;
+    let (mut browser, session) = open_session(Layout::Separate).await;
     browser
         .until(
             Duration::from_secs(15),
@@ -563,11 +795,11 @@ async fn end(mut browser: Browser, session: JoinHandle<Result<(), SessionError>>
     browser
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_link_forms_and_carries_the_session_with_no_session_data_on_the_relay() {
-    let _shared = PROCESS.read().await;
+/// Forms a link with `layout`'s channels and checks it carries the session with no session data
+/// left on the relay.
+async fn link_carries_the_session(layout: Layout) {
     let dir = folder(3_000);
-    let (mut browser, session) = open_session().await;
+    let (mut browser, session) = open_session(layout).await;
 
     browser
         .until(
@@ -619,10 +851,96 @@ async fn a_link_forms_and_carries_the_session_with_no_session_data_on_the_relay(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_link_forms_and_carries_the_session_with_no_session_data_on_the_relay() {
+    let _shared = PROCESS.read().await;
+    link_carries_the_session(Layout::Separate).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_browser_opening_one_shared_channel_still_gets_the_whole_session_on_it() {
+    let _shared = PROCESS.read().await;
+    link_carries_the_session(Layout::Shared).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn typing_echoes_on_its_own_channel_while_a_download_fills_the_files_channel() {
+    let _shared = PROCESS.read().await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = dir.path().join("crash-dump.dmp");
+    let size = 256u64 << 20;
+    std::fs::File::create(&file)
+        .and_then(|f| f.set_len(size))
+        .expect("a sparse file");
+    let (mut browser, session) = open_session(Layout::Separate).await;
+    browser
+        .until(
+            Duration::from_secs(15),
+            "both sides on the link",
+            Browser::direct,
+        )
+        .await;
+    browser.send(download(&file)).await;
+    browser
+        .until(Duration::from_secs(15), "the first pieces", |b| {
+            b.pieces() >= 2
+        })
+        .await;
+    for text in ["one", "two", "three"] {
+        browser.send(chat(text)).await;
+    }
+    browser
+        .until(Duration::from_secs(15), "the echoes", |b| {
+            b.chats().len() == 3
+        })
+        .await;
+
+    let piece = mesh_agent_core::session::outbox::FILE_PIECE as u64;
+    assert!(
+        (browser.pieces() as u64) < size / piece,
+        "every echo arrived while the download still ran"
+    );
+    assert_eq!(browser.chats(), ["one", "two", "three"]);
+    end(browser, session).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_typed_message_overtaken_by_a_hundred_later_packets_still_arrives() {
+    let _shared = PROCESS.read().await;
+    let (mut browser, session) =
+        open_session_with(Layout::Separate, Some(Shim::start().await)).await;
+    browser
+        .until(
+            Duration::from_secs(15),
+            "both sides on the link",
+            Browser::direct,
+        )
+        .await;
+
+    let late = "late ".repeat(100);
+    browser.shim().arm();
+    browser.send(chat(&late)).await;
+    for _ in 0..OVERTAKING {
+        browser.send(chat(".")).await;
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+    browser
+        .until(Duration::from_secs(15), "the held message's echo", |b| {
+            b.chats().contains(&late.as_str())
+        })
+        .await;
+
+    assert!(
+        browser.shim().released(),
+        "the copy held behind the others is the one that arrived"
+    );
+    end(browser, session).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_silent_browser_moves_the_session_back_to_the_relay_with_nothing_lost() {
     let _shared = PROCESS.read().await;
     let dir = folder(20_000);
-    let (mut browser, session) = open_session().await;
+    let (mut browser, session) = open_session(Layout::Separate).await;
 
     browser
         .until(

@@ -21,6 +21,13 @@ into a helper put 1.5 KB on the heap per signature and was reported by the
 nightly eight nights running. Two agent suites, Edge Sentinel and the local
 metrics store, were run by no workflow, and the sampler's figure was its sleep.
 
+A night compared with nights on other machines measured the machine. The hosted
+runners come from at least six processor models, and one model is not steady:
+the handshake read 3 512, 3 727 and 10 311 ns on three nights of one model. One
+commit's `decode_server_hello` read 8.36 to 17.15 ns on different nights, and
+the nightly stayed red six nights on unchanged code; on one machine the two
+commits it compared read 7.94 and 7.99 ns.
+
 ## Decision
 
 **The measured region is the code under test**, with setup and transport
@@ -54,26 +61,40 @@ cost would read as a 7% rise. Its benchmark reads the process CPU clock.
 **The baseline holds CI's readings and no other.** Each row is the median of the
 nightly runs that measured the code the row describes. A workstation's numbers
 come from different hardware and are never written into it. A benchmark CI has
-not yet measured has no row: it is reported without a limit until a baseline run
-includes it, and a row naming no benchmark is refused.
+not yet measured carries its name alone, held to no allocation count until a
+baseline run includes it, and a row naming no benchmark is refused.
 
-**A benchmark is re-baselined by date, not by a second commit.** A row may carry
-a `history_from` date in place of numbers. The nights before it are ignored; the
-row is reported without a limit until three CI nights exist after it, and from
-then on its time and its allocations are held to those nights' median. A
+**An allocation count is re-baselined by date, not by a second commit.** A row
+may carry a `history_from` date in place of numbers. The nights before it are
+ignored; the row is reported without a limit until three CI nights exist after
+it, and from then on its allocations are held to those nights' median. A
 benchmark changed on purpose, or a new one, lands with its date set to the day
-after the commit, and starts gating on its own with numbers that are still only
-CI's.
+after the commit. Allocation counts are one-shot, because they are deterministic,
+and a baseline run that finds a regression still uploads its candidate.
 
-**A slow Go timing is measured again before it fails a night.** The nightly
-re-runs each Go benchmark past its line ten times and compares the runs with the
-window's nights through `benchstat`, Go's documented method
-([`benchmark-confirm.sh`](../../scripts/benchmark-confirm.sh)); it fails only when
-the change is significant and the new median is past the line, and the summary
-quotes benchstat's verdict. A Rust timing is judged on its one reading, because
-Criterion already samples within the run, and allocation counts stay one-shot,
-because they are deterministic. A baseline run that finds a regression still
-uploads its candidate.
+**Time is judged against an anchor commit on the same machine.** Each night
+builds the commit `benchmarks/baseline.json` names as its `anchor` beside
+tonight's, runs each language's whole suite at the two in turns, ten turns a
+side, and compares the turns through `benchstat`, Go's documented method
+([`benchmark-anchor.sh`](../../scripts/benchmark-anchor.sh)). A Rust turn reads
+each benchmark's Criterion mean, compared the same way. A slowdown fails the
+night when benchstat finds it significant and it is past 10%; the machine cancels
+out, since both sides ran on it. The anchor moves only by a commit accepting a
+change, the same commit on both sides is recorded and not judged, and a benchmark
+absent at the anchor is reported until the anchor moves. This is the method Go's
+own performance dashboard uses, and the relative one continuous-benchmarking
+tools prescribe for shared runners. Comparing only nights on the same processor
+model was weighed and rejected: over 29 Go nights it left 248 of 497 readings
+unjudged and still raised one alarm on unchanged code. The Rust turns take about
+50 minutes a night.
+
+**The baseline names every benchmark the suites run.** A benchmark it names that
+tonight did not run fails the night, so a deleted or renamed benchmark never
+leaves judgement silently; removing or renaming one edits the baseline in the
+same commit. The gauntlet compares the names its Rust test-mode run prints with
+the baseline's Rust rows both ways
+([`benchmark-local-check.sh`](../../scripts/benchmark-local-check.sh)), and refuses
+a Go row naming no benchmark.
 
 **Allocations are held at commit time; time is held nightly.** Allocation counts
 and bytes depend on the code and the processor count, not the machine's speed. At
@@ -90,9 +111,9 @@ stops compiling or panics fails the commit.
 Guards refuse a clock toggled inside a measured loop and a bundle subtracted
 from a budget without a budget of its own, so the shapes cannot come back.
 
-A new benchmark is gated on allocations and on the nightly's time band once a
-baseline run from the workflow has measured it, or three CI nights after its
-`history_from` date.
+A new benchmark is gated on allocations once a baseline run from the workflow
+has measured it, or three CI nights after its `history_from` date, and on time
+once the anchor moves past the commit that added it.
 
-A one-night outlier no longer fails the nightly, at the cost of ten more runs of
-each flagged benchmark.
+A slow machine no longer fails the nightly, at the cost of every suite running
+twenty times a night.

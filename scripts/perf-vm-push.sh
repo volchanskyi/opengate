@@ -21,7 +21,7 @@ main() {
     return 2
   fi
 
-  local bundle leg workload verdict rows metrics="" flagged='[]'
+  local bundle leg workload processor verdict rows metrics="" flagged='[]'
   if [ -n "${PERF_FLAGGED_FILE:-}" ] && [ -s "$PERF_FLAGGED_FILE" ]; then
     flagged="$(jq -Rnc '[inputs | split("\t") | select(length == 3)
       | {leg: .[0], phase: .[1], measurement: .[2]}]' <"$PERF_FLAGGED_FILE")"
@@ -40,16 +40,20 @@ main() {
       continue
     fi
     workload="$(jq -r '"\(.run.profile_name)/\(.run.profile_version)/\(.run.profile_digest)"' "$bundle")"
+    processor="$(jq -r '.runner.processor_model // empty' "$bundle")"
     "$HERE/loadtest-bundle-rows.sh" "$bundle" "$rows" >/dev/null
     metrics+="$(
-      jq -r --arg leg "$leg" --arg workload "$workload" --argjson flagged "$flagged" '
+      jq -r --arg leg "$leg" --arg workload "$workload" --arg processor "$processor" \
+        --argjson flagged "$flagged" '
         def label_escape: tostring | gsub("\\\\"; "\\\\") | gsub("\""; "\\\"");
+        # The processor a leg ran on, where it recorded one, so nights compare like with like.
+        def cpu: if $processor == "" then "" else "processor=\"\($processor | label_escape)\"," end;
         def sample($measurement; $value):
           select($value != null)
           | . as $row
           | (if any($flagged[]; .leg == $leg and .phase == $row.phase and .measurement == $measurement)
               then "flagged=\"1\"," else "" end) as $flag
-          | "perf_\($measurement){env=\"ci\",\($flag)leg=\"\($leg | label_escape)\",phase=\"\(.phase | label_escape)\",workload=\"\($workload | label_escape)\"} \($value)";
+          | "perf_\($measurement){env=\"ci\",\($flag)leg=\"\($leg | label_escape)\",phase=\"\(.phase | label_escape)\",\(cpu)workload=\"\($workload | label_escape)\"} \($value)";
         .[]
         | sample("latency_p95_ms"; .latency_p95_ms),
           sample("latency_p50_ms"; .latency_p50_ms),

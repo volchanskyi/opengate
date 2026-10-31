@@ -517,7 +517,7 @@ mod tests {
 }
 
 #[cfg(test)]
-mod test_support {
+pub(crate) mod test_support {
     use super::SharedSink;
     use mesh_agent_core::ml::sampler::{MetricSample, ProcessSample};
     use mesh_agent_core::ml::store_sink::LocalStoreSink;
@@ -545,7 +545,7 @@ mod test_support {
         }
     }
 
-    pub(super) fn cpu_rule() -> ThresholdRule {
+    pub(crate) fn cpu_rule() -> ThresholdRule {
         ThresholdRule {
             id: "cpu-saturated".to_string(),
             version: 3,

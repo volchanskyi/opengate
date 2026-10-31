@@ -1,0 +1,95 @@
+{
+  "description": "With a channel per job, a full file window stops further file frames while typing still goes out on its own channel.",
+  "window": 100000,
+  "steps": [
+    {
+      "step": "begin",
+      "side": "both"
+    },
+    {
+      "step": "open",
+      "side": "both",
+      "channels": "separate"
+    },
+    {
+      "step": "settle"
+    },
+    {
+      "step": "queue",
+      "side": "host",
+      "lane": "bulk",
+      "frames": [
+        {
+          "label": "f1",
+          "size": 40000
+        },
+        {
+          "label": "f2",
+          "size": 40000
+        },
+        {
+          "label": "f3",
+          "size": 40000
+        },
+        {
+          "label": "f4",
+          "size": 40000
+        }
+      ]
+    },
+    {
+      "step": "take",
+      "side": "host"
+    },
+    {
+      "step": "expect",
+      "side": "host",
+      "kept": 3
+    },
+    {
+      "step": "queue",
+      "side": "host",
+      "lane": "interactive",
+      "frames": [
+        {
+          "label": "t1"
+        }
+      ]
+    },
+    {
+      "step": "take",
+      "side": "host"
+    },
+    {
+      "step": "expect",
+      "side": "host",
+      "kept": 4
+    },
+    {
+      "step": "settle"
+    }
+  ],
+  "expect": {
+    "browser": {
+      "delivered": [
+        "t1",
+        "f1",
+        "f2",
+        "f3",
+        "f4"
+      ],
+      "path": "link",
+      "outcomes": [
+        "direct"
+      ]
+    },
+    "host": {
+      "delivered": [],
+      "path": "link",
+      "outcomes": [
+        "direct"
+      ],
+      "kept": 0
+    }
+  }
+}

@@ -4,11 +4,14 @@
 #
 # Usage:
 #   loadtest-generator-share.sh <processors> <memory> -- <command...>
+#
+# Environment:
+#   LOADTEST_GENERATOR_SLICE  the slice the allowance sits on (default opengate-generator.slice)
 set -euo pipefail
 
 # Every generator given the allowance runs in this slice, so the harness and the technician
-# scenarios share one processor quota and one memory cap.
-GENERATOR_SLICE="opengate-generator.slice"
+# scenarios share one processor quota and one memory cap; a slice named for one is its alone.
+GENERATOR_SLICE="${LOADTEST_GENERATOR_SLICE:-opengate-generator.slice}"
 
 usage() {
   echo "usage: $0 <processors> <memory> -- <command...>" >&2

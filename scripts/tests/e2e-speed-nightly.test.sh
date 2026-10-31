@@ -92,6 +92,39 @@ else
   done
 fi
 
+# The runner's record brackets the specs: read before they start, and summed after them on every
+# outcome, so a red night still says which machine it ran on.
+record="$(
+  python3 - "$NIGHTLY" <<'PY'
+import sys
+
+import yaml
+
+steps = (yaml.safe_load(open(sys.argv[1], encoding="utf-8"))["jobs"]["e2e"].get("steps") or [])
+runs = [str(step.get("run", "") or "") for step in steps]
+specs = next((i for i, run in enumerate(runs) if "npx playwright test" in run), None)
+before = [i for i, run in enumerate(runs) if "perf-runner-record.sh snapshot" in run and "delta" not in run]
+after = [i for i, run in enumerate(runs) if "perf-runner-record.sh delta" in run]
+if specs is None:
+    print("no step runs the specs")
+elif not before or before[0] > specs:
+    print("no snapshot is taken before the specs")
+elif not after or after[0] < specs:
+    print("no record is summed after the specs")
+elif "always()" not in str(steps[after[0]].get("if", "")):
+    print("the record after the specs runs only on a green run")
+elif "GITHUB_STEP_SUMMARY" not in runs[after[0]]:
+    print("the record reaches no run summary")
+else:
+    print("ok")
+PY
+)"
+if [ "$record" = "ok" ]; then
+  pass "the runner's record brackets the specs and reaches the summary on every outcome"
+else
+  fail "runner record: $record"
+fi
+
 for entry in "${OTHER_RUNS[@]}"; do
   if grep -qF 'PLAYWRIGHT_PERFORMANCE' "$entry"; then
     fail "$(basename "$entry") switches the speed run on"

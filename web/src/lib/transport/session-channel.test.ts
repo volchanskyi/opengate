@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { decodeFrame, encodeFrame } from '../protocol/codec';
-import { FRAME_CONTROL, FRAME_PING, FRAME_PONG, FRAME_TERMINAL, type ControlMessage, type Frame } from '../protocol/types';
+import {
+  FRAME_CONTROL,
+  FRAME_FILE,
+  FRAME_PING,
+  FRAME_PONG,
+  FRAME_TERMINAL,
+  type ControlMessage,
+  type Frame,
+} from '../protocol/types';
 import { split } from '../direct/pieces';
 import { INTERACTIVE_FRAME_CAP, SessionChannel, type SessionChannelEvents } from './session-channel';
 
@@ -59,6 +67,12 @@ class FakeSocket {
     this.onmessage?.({ data });
   }
 
+  /** The server or the network closes the socket, which the browser reports closed. */
+  drop(code: number, reason: string) {
+    this.readyState = 3;
+    this.onclose?.({ code, reason });
+  }
+
   frames(): Frame[] {
     return this.sent.map((s) => decoded(s));
   }
@@ -70,6 +84,7 @@ class FakeSocket {
 
 class FakeChannel {
   readonly label: string;
+  readonly ordered: boolean;
   binaryType = 'blob';
   bufferedAmount = 0;
   bufferedAmountLowThreshold = 0;
@@ -82,8 +97,9 @@ class FakeChannel {
   onbufferedamountlow: (() => void) | null = null;
   closed = false;
 
-  constructor(label: string) {
+  constructor(label: string, init?: RTCDataChannelInit) {
     this.label = label;
+    this.ordered = init?.ordered ?? true;
   }
 
   send(data: Uint8Array) {
@@ -99,7 +115,7 @@ class FakeChannel {
 class FakePeer {
   static last: FakePeer | null = null;
   readonly config: RTCConfiguration;
-  channel: FakeChannel | null = null;
+  channels: FakeChannel[] = [];
   iceConnectionState = 'new';
   remote: RTCSessionDescriptionInit | null = null;
   candidates: RTCIceCandidateInit[] = [];
@@ -112,9 +128,19 @@ class FakePeer {
     FakePeer.last = this;
   }
 
-  createDataChannel(label: string) {
-    this.channel = new FakeChannel(label);
-    return this.channel;
+  /** The first channel the browser opened: the shared one, or typing. */
+  get channel(): FakeChannel | null {
+    return this.channels[0] ?? null;
+  }
+
+  createDataChannel(label: string, init?: RTCDataChannelInit) {
+    const channel = new FakeChannel(label, init);
+    this.channels.push(channel);
+    return channel;
+  }
+
+  labelled(label: string): FakeChannel {
+    return this.channels.find((c) => c.label === label)!;
   }
 
   createOffer() {
@@ -163,14 +189,23 @@ function events(): MockedEvents {
 
 const terminal = (text: string) => new TextEncoder().encode(text);
 
-/** Puts the session on the link: the browser's channel opens, then the host's notice arrives. */
+/** A chat message whose frame encodes to exactly length bytes. */
+function chatOfLength(length: number): ControlMessage {
+  for (let size = length - 64; size <= length; size++) {
+    const message: ControlMessage = { type: 'ChatMessage', text: 'x'.repeat(size), sender: 'tech' };
+    if (encodeFrame({ type: FRAME_CONTROL, message }).length === length) return message;
+  }
+  throw new Error(`no chat message encodes to ${length} bytes`);
+}
+
+/** Puts the session on the link: the browser's channels open, then the host's notice arrives. */
 async function goDirect(channel: SessionChannel) {
   await vi.advanceTimersByTimeAsync(1);
   const peer = FakePeer.last!;
   FakeSocket.last.receive(control({ type: 'DirectAnswer', sdp: 'v=0 host answer' }));
   await Promise.resolve();
   peer.ice('connected');
-  peer.channel!.onopen?.();
+  for (const c of peer.channels) c.onopen?.();
   FakeSocket.last.receive(control({ type: 'DirectSwitch' }));
   return { peer, link: peer.channel!, channel };
 }
@@ -218,14 +253,27 @@ describe('SessionChannel', () => {
       expect(texts(FakeSocket.last.sent)).toEqual([`type ${FRAME_PONG}`]);
     });
 
-    it('refuses an interactive frame past one piece and sends nothing', () => {
+    it('takes an interactive frame of exactly one piece and refuses one a byte longer', () => {
       const channel = new SessionChannel(events(), []);
       channel.connect('wss://edge.test/ws/relay/tok');
       FakeSocket.last.open();
-      expect(() =>
-        channel.sendControl({ type: 'ChatMessage', text: 'x'.repeat(INTERACTIVE_FRAME_CAP), sender: 'tech' }),
-      ).toThrow(/past the lane's/);
+      channel.sendControl(chatOfLength(INTERACTIVE_FRAME_CAP));
+      expect(() => channel.sendControl(chatOfLength(INTERACTIVE_FRAME_CAP + 1))).toThrow(/past the lane's/);
+      expect(FakeSocket.last.sent.map((frame) => frame.length)).toEqual([INTERACTIVE_FRAME_CAP]);
+    });
+
+    it('sends what was typed before the relay opened the moment it opens', () => {
+      const channel = new SessionChannel(events(), []);
+      channel.connect('wss://edge.test/ws/relay/tok');
+      channel.sendTerminalData(terminal('ls\n'));
       expect(FakeSocket.last.sent).toHaveLength(0);
+      FakeSocket.last.open();
+      expect(texts(FakeSocket.last.sent)).toEqual(['ls\n']);
+    });
+
+    it('keeps a query the relay address already carries', () => {
+      new SessionChannel(events(), []).connect('wss://edge.test/ws/relay/tok?region=eu');
+      expect(FakeSocket.last.url).toBe('wss://edge.test/ws/relay/tok?region=eu&side=browser');
     });
 
     it('fits the largest encoding of every message the browser sends into one piece', () => {
@@ -260,6 +308,17 @@ describe('SessionChannel', () => {
       expect(texts(sent).join('')).toBe(new TextDecoder().decode(paste));
     });
 
+    it('sends a paste that fills whole frames as exactly those frames', () => {
+      const channel = new SessionChannel(events(), []);
+      channel.connect('wss://edge.test/ws/relay/tok');
+      FakeSocket.last.open();
+      channel.sendTerminalData(new Uint8Array(40_000).fill(0x61));
+      const chunk = texts(FakeSocket.last.sent)[0]!.length;
+      FakeSocket.last.sent = [];
+      channel.sendTerminalData(new Uint8Array(2 * chunk).fill(0x61));
+      expect(texts(FakeSocket.last.sent).map((text) => text.length)).toEqual([chunk, chunk]);
+    });
+
     it('holds frames while the relay socket has 64 KiB unsent', async () => {
       const channel = new SessionChannel(events(), []);
       channel.connect('wss://edge.test/ws/relay/tok');
@@ -283,6 +342,39 @@ describe('SessionChannel', () => {
       expect(ev.onStateChange).toHaveBeenLastCalledWith('disconnected');
     });
 
+    it('reports a relay error and keeps showing it once the relay closes', () => {
+      const ev = events();
+      const channel = new SessionChannel(ev, []);
+      channel.connect('wss://edge.test/ws/relay/tok');
+      FakeSocket.last.open();
+      FakeSocket.last.onerror?.();
+      expect(ev.onError).toHaveBeenCalledWith(new Error('WebSocket connection error'));
+      FakeSocket.last.drop(1006, '');
+      expect(ev.onStateChange).toHaveBeenLastCalledWith('error');
+      expect(ev.onClosed).toHaveBeenCalledWith('Connection lost — reconnect');
+    });
+
+    it('reports nothing when the relay closes after the technician ended the session', () => {
+      const ev = events();
+      const channel = new SessionChannel(ev, []);
+      channel.connect('wss://edge.test/ws/relay/tok');
+      FakeSocket.last.open();
+      channel.disconnect();
+      FakeSocket.last.drop(1000, '');
+      expect(ev.onClosed).not.toHaveBeenCalled();
+    });
+
+    it('sends nothing and leaves no timer once the relay has closed, even when a feature sends', async () => {
+      const channel = new SessionChannel(events(), []);
+      channel.connect('wss://edge.test/ws/relay/tok');
+      FakeSocket.last.open();
+      FakeSocket.last.drop(1006, '');
+      channel.sendTerminalData(terminal('late'));
+      expect(vi.getTimerCount()).toBe(0);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(FakeSocket.last.sent).toHaveLength(0);
+    });
+
     it.each([
       ['a relay that never opened', false],
       ['a relay dropped without a reason', true],
@@ -302,9 +394,11 @@ describe('SessionChannel', () => {
     });
 
     it('offers a link with the helpers the server named and trades candidates on the relay', async () => {
-      const channel = new SessionChannel(events(), ['stun:quic.example.test:9090']);
+      const ev = events();
+      const channel = new SessionChannel(ev, ['stun:quic.example.test:9090']);
       channel.connect('wss://edge.test/ws/relay/tok');
       FakeSocket.last.open();
+      expect(ev.onPath).toHaveBeenLastCalledWith({ direct: false, reason: 'looking for a direct route' });
       await vi.advanceTimersByTimeAsync(1);
 
       const peer = FakePeer.last!;
@@ -324,6 +418,81 @@ describe('SessionChannel', () => {
       await Promise.resolve();
       expect(peer.remote).toEqual({ type: 'answer', sdp: 'v=0 host answer' });
       expect(peer.candidates).toEqual([{ candidate: 'candidate:2 1 udp 1 10.0.0.2 6000 typ host', sdpMid: '0' }]);
+    });
+
+    it('logs each candidate by its kind and never its address', async () => {
+      const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+      const refused = vi.spyOn(FakePeer.prototype, 'addIceCandidate').mockRejectedValue(new Error('bad candidate'));
+      try {
+        const channel = new SessionChannel(events(), []);
+        channel.connect('wss://edge.test/ws/relay/tok');
+        FakeSocket.last.open();
+        await vi.advanceTimersByTimeAsync(1);
+        const local = 'candidate:1 1 udp 2122260223 192.0.2.7 5000 typ srflx raddr 10.0.0.2 rport 6000';
+        FakePeer.last!.onicecandidate?.({ candidate: { candidate: local, sdpMid: '0' } });
+        for (const candidate of [
+          'candidate:2 1 udp 1 192.0.2.8 6000 typ host',
+          'candidate:3 1 udp 1 192.0.2.9 7000 typ',
+          'candidate:4 1 udp 1 192.0.2.10 8000',
+        ]) {
+          FakeSocket.last.receive(control({ type: 'IceCandidate', candidate, mid: '0' }));
+        }
+        await vi.advanceTimersByTimeAsync(1);
+        const lines = info.mock.calls.map(([line]) => String(line));
+        expect(lines).toEqual(
+          expect.arrayContaining([
+            'direct link: local candidate, srflx',
+            'direct link: a host candidate was refused',
+          ]),
+        );
+        expect(lines.filter((line) => line === 'direct link: a unknown candidate was refused')).toHaveLength(2);
+        expect(lines.join('\n')).not.toMatch(/192\.0\.2|10\.0\.0/);
+      } finally {
+        refused.mockRestore();
+        info.mockRestore();
+      }
+    });
+
+    it('stays on the relay when the browser cannot make an offer', async () => {
+      const failing = vi.spyOn(FakePeer.prototype, 'createOffer').mockRejectedValue(new Error('offer failed'));
+      try {
+        const ev = events();
+        const channel = new SessionChannel(ev, []);
+        channel.connect('wss://edge.test/ws/relay/tok');
+        FakeSocket.last.open();
+        await vi.advanceTimersByTimeAsync(1);
+        expect(ev.onOutcome).toHaveBeenCalledWith('no_route');
+        expect(FakePeer.last!.closed).toBe(true);
+      } finally {
+        failing.mockRestore();
+      }
+    });
+
+    it('stays on the relay when the host\'s answer does not take', async () => {
+      const failing = vi.spyOn(FakePeer.prototype, 'setRemoteDescription').mockRejectedValue(new Error('bad answer'));
+      try {
+        const ev = events();
+        const channel = new SessionChannel(ev, []);
+        channel.connect('wss://edge.test/ws/relay/tok');
+        FakeSocket.last.open();
+        await vi.advanceTimersByTimeAsync(1);
+        FakeSocket.last.receive(control({ type: 'DirectAnswer', sdp: 'v=0 host answer' }));
+        await vi.advanceTimersByTimeAsync(1);
+        expect(ev.onOutcome).toHaveBeenCalledWith('no_route');
+      } finally {
+        failing.mockRestore();
+      }
+    });
+
+    it('stays on the relay when the host refuses a direct link', async () => {
+      const ev = events();
+      const channel = new SessionChannel(ev, []);
+      channel.connect('wss://edge.test/ws/relay/tok');
+      FakeSocket.last.open();
+      await vi.advanceTimersByTimeAsync(1);
+      FakeSocket.last.receive(control({ type: 'DirectRefused', reason: 'direct links are off on this host' }));
+      expect(ev.onOutcome).toHaveBeenCalledWith('no_route');
+      expect(FakePeer.last!.closed).toBe(true);
     });
 
     it('moves the session onto the link once both sides have switched', async () => {
@@ -362,6 +531,20 @@ describe('SessionChannel', () => {
       expect(link.sent).toHaveLength(1);
     });
 
+    it('sends the typing its window held back once the host confirms what arrived', async () => {
+      const channel = new SessionChannel(events(), []);
+      channel.connect('wss://edge.test/ws/relay/tok');
+      FakeSocket.last.open();
+      const { link } = await goDirect(channel);
+      const paste = 5 * 1024 * 1024;
+      channel.sendTerminalData(new Uint8Array(paste).fill(0x61));
+      const held = link.sent.length;
+      const frames = Math.ceil(paste / texts(link.sent.slice(0, 1))[0]!.length);
+      expect(held).toBeLessThan(frames);
+      link.onmessage?.({ data: control({ type: 'DirectAck', received: held }) });
+      expect(link.sent).toHaveLength(frames);
+    });
+
     it('treats a short disconnection as passing and falls back after three seconds of it', async () => {
       const ev = events();
       const channel = new SessionChannel(ev, []);
@@ -379,7 +562,7 @@ describe('SessionChannel', () => {
       await vi.advanceTimersByTimeAsync(3_000);
       expect(ev.onOutcome).toHaveBeenCalledWith('dropped');
       expect(ev.onPath).toHaveBeenLastCalledWith({ direct: false, reason: 'the direct link dropped' });
-      expect(FakeSocket.last.messages()).toContainEqual({ type: 'DirectFallback', received: 0 });
+      expect(FakeSocket.last.messages()).toContainEqual({ type: 'DirectFallback' });
       expect(peer.closed).toBe(true);
     });
 
@@ -412,6 +595,27 @@ describe('SessionChannel', () => {
       expect(ev.onOutcome).toHaveBeenCalledWith('dropped');
     });
 
+    it('falls back when a channel reports an error', async () => {
+      const ev = events();
+      const channel = new SessionChannel(ev, []);
+      channel.connect('wss://edge.test/ws/relay/tok');
+      FakeSocket.last.open();
+      const { link } = await goDirect(channel);
+      link.onerror?.();
+      expect(ev.onOutcome).toHaveBeenCalledWith('dropped');
+      expect(link.closed).toBe(true);
+    });
+
+    it('closes its link when the relay closes', async () => {
+      const channel = new SessionChannel(events(), []);
+      channel.connect('wss://edge.test/ws/relay/tok');
+      FakeSocket.last.open();
+      const { peer, link } = await goDirect(channel);
+      FakeSocket.last.drop(1006, '');
+      expect(peer.closed).toBe(true);
+      expect(link.closed).toBe(true);
+    });
+
     it('stays on the relay when no route forms within the attempt budget', async () => {
       const ev = events();
       const channel = new SessionChannel(ev, []);
@@ -433,17 +637,79 @@ describe('SessionChannel', () => {
       peer.ice('failed');
       await vi.advanceTimersByTimeAsync(10_000);
       expect(ev.onClosed).toHaveBeenCalledWith('Connection lost — reconnect');
+      FakeSocket.last.drop(1000, '');
+      expect(ev.onClosed).toHaveBeenCalledTimes(1);
     });
 
-    it('closes its link when the session ends', async () => {
+    it('opens a channel per job for a host that takes them, and switches once all three are open', async () => {
+      const channel = new SessionChannel(events(), [], 'separate');
+      channel.connect('wss://edge.test/ws/relay/tok');
+      FakeSocket.last.open();
+      await vi.advanceTimersByTimeAsync(1);
+      const peer = FakePeer.last!;
+      expect(peer.channels.map((c) => c.label)).toEqual(['typing', 'screen', 'files']);
+      expect(peer.channels.every((c) => c.ordered)).toBe(true);
+
+      peer.labelled('typing').onopen?.();
+      peer.labelled('screen').onopen?.();
+      expect(FakeSocket.last.messages()).not.toContainEqual({ type: 'DirectSwitch' });
+      peer.labelled('files').onopen?.();
+      expect(FakeSocket.last.messages()).toContainEqual({ type: 'DirectSwitch' });
+    });
+
+    it('types on the typing channel and takes file pieces from the files channel', async () => {
+      const ev = events();
+      const channel = new SessionChannel(ev, [], 'separate');
+      channel.connect('wss://edge.test/ws/relay/tok');
+      FakeSocket.last.open();
+      const { peer } = await goDirect(channel);
+      const [typing, files] = [peer.labelled('typing'), peer.labelled('files')];
+
+      channel.sendTerminalData(terminal('whoami\n'));
+      expect(texts(typing.sent)).toEqual(['whoami\n']);
+
+      const piece = encodeFrame({ type: FRAME_FILE, frame: { offset: 0, total_size: 3, data: new Uint8Array([1, 2, 3]) } });
+      files.onmessage?.({ data: buffer(piece) });
+      expect(ev.onFileFrame.mock.calls[0]![0].data).toEqual(new Uint8Array([1, 2, 3]));
+      await vi.advanceTimersByTimeAsync(250);
+      expect(decoded(typing.sent.at(-1))).toEqual({
+        type: FRAME_CONTROL,
+        message: { type: 'DirectAck', received_files: 1 },
+      });
+    });
+
+    it('keeps typing flowing while the files channel holds 64 KiB unsent', async () => {
+      const channel = new SessionChannel(events(), [], 'separate');
+      channel.connect('wss://edge.test/ws/relay/tok');
+      FakeSocket.last.open();
+      const { peer } = await goDirect(channel);
+      peer.labelled('files').bufferedAmount = 64 * 1024;
+      channel.sendTerminalData(terminal('ls'));
+      expect(texts(peer.labelled('typing').sent)).toEqual(['ls']);
+    });
+
+    it('falls back when any one of the three channels closes', async () => {
+      const ev = events();
+      const channel = new SessionChannel(ev, [], 'separate');
+      channel.connect('wss://edge.test/ws/relay/tok');
+      FakeSocket.last.open();
+      const { peer } = await goDirect(channel);
+      peer.labelled('screen').onclose?.();
+      expect(ev.onOutcome).toHaveBeenCalledWith('dropped');
+      expect(peer.channels.every((c) => c.closed)).toBe(true);
+    });
+
+    it('closes its link and leaves no timer running when the session ends mid-disconnection', async () => {
       const channel = new SessionChannel(events(), []);
       channel.connect('wss://edge.test/ws/relay/tok');
       FakeSocket.last.open();
       const { peer, link } = await goDirect(channel);
+      peer.ice('disconnected');
       channel.disconnect();
       expect(peer.closed).toBe(true);
       expect(link.closed).toBe(true);
       expect(FakeSocket.last.readyState).toBe(3);
+      expect(vi.getTimerCount()).toBe(0);
     });
   });
 });

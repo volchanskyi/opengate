@@ -57,6 +57,7 @@ crate mesh_agent_core
 │   ├── mod outbox: pub
 │   ├── mod outlet: pub(crate)
 │   ├── mod relay: pub(crate)
+│   ├── mod share: pub(crate)
 │   └── mod terminal_handle: pub(crate)
 ├── mod session_error: pub
 ├── mod terminal: pub

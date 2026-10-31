@@ -1,9 +1,9 @@
 """The advisory database the check asks about every ecosystem: OSV, through its batch query for
 which advisories touch a release and its record of each advisory's ranges."""
 
+import affected
 import cache
 import fetch
-import versions
 
 QUERY = "https://api.osv.dev/v1/querybatch"
 RECORD = "https://api.osv.dev/v1/vulns/{}"
@@ -75,7 +75,7 @@ def fixes(ecosystem, name, version, advisory):
     listed = any(plain == v.lstrip("vV") for affected in entries for v in affected.get("versions") or [])
     plain = plain if ecosystem in ("Go", "GitHub Actions") else str(version)
     try:
-        fix = versions.fix_for(plain, ranges)
+        fix = affected.fix_for(plain, ranges)
     except ValueError as error:
         raise fetch.Unreadable(f"{advisory.get('id')}: a range of {name} does not read: {error}") from error
     if fix is None:

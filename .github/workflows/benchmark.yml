@@ -15,10 +15,12 @@ permissions:
   contents: read
 
 jobs:
+  # Each language runs its whole suite at the anchor commit and at tonight's, in turns on one
+  # runner, so the comparison cancels the machine out.
   run:
-    name: Run ${{ matrix.lang }} benchmarks
+    name: Run ${{ matrix.lang }} benchmarks against the anchor
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: ${{ matrix.lang == 'rust' && 70 || 40 }}
     strategy:
       fail-fast: false
       matrix:
@@ -33,7 +35,28 @@ jobs:
         id: started
         run: echo "at=$(date -u +%s)" >>"$GITHUB_OUTPUT"
 
+      # The anchor is an earlier commit, so the whole history is fetched.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-pinned-tools
+
+      - name: Check out the anchor beside tonight's commit
+        run: |
+          set -euo pipefail
+          ANCHOR="$(jq -r '.anchor // empty' benchmarks/baseline.json)"
+          if [ -z "$ANCHOR" ]; then
+            echo "::error::benchmarks/baseline.json names no anchor commit to compare tonight with." >&2
+            exit 1
+          fi
+          git worktree add --detach "$RUNNER_TEMP/anchor" "$ANCHOR"
+
+      # Read beside the comparison, so a noisy night says what the machine was doing.
+      - name: Note what the runner did before the benchmarks
+        run: |
+          scripts/perf-runner-record.sh snapshot \
+            "/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)" /tmp/runner-before.json
 
       - uses: ./.github/actions/docker-hub-mirror
         if: matrix.lang == 'go'
@@ -65,21 +88,22 @@ jobs:
           go-version: '1.27'
           cache-dependency-path: server/go.sum
 
-      - name: Run Go benchmarks
+      # Tonight's first run is the trend row and the allocation reading.
+      - name: Run the Go benchmarks in turns with the anchor's
         if: matrix.lang == 'go'
         env:
           POSTGRES_TEST_URL: postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable
         run: |
           set -euo pipefail
-          cd server
-          # Pinned to the runner's four processors, which the gauntlet's local check runs at too.
-          go test -bench=. -benchmem -count=1 -cpu 4 -run='^$' ./internal/... | tee "$GITHUB_WORKSPACE/bench-go.txt"
+          scripts/benchmark-anchor.sh rounds go "$RUNNER_TEMP/anchor" "$GITHUB_WORKSPACE" bench-compare
+          cp bench-compare/tonight-first.txt bench-go.txt
 
       - uses: actions/upload-artifact@v7
         if: matrix.lang == 'go'
         with:
           name: bench-go
           path: bench-go.txt
+          if-no-files-found: error
           retention-days: 30
 
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
@@ -90,16 +114,16 @@ jobs:
         with:
           workspaces: agent
 
-      - name: Run Rust benchmarks
+      # The last run's estimates are tonight's trend rows.
+      - name: Run the Rust benchmarks in turns with the anchor's
         if: matrix.lang == 'rust'
         run: |
           set -euo pipefail
-          cd agent
-          cargo bench -p mesh-protocol -p mesh-agent-core -p edge-tsdb --bench '*'
+          scripts/benchmark-anchor.sh rounds rust "$RUNNER_TEMP/anchor" "$GITHUB_WORKSPACE" bench-compare
           DEST="$GITHUB_WORKSPACE/bench-rust-estimates"
           mkdir -p "$DEST"
           # Copies only new/estimates.json, keeping the <bench>/new layout the summarizer globs.
-          ( cd target/criterion && find . -path '*/new/estimates.json' -exec cp --parents {} "$DEST/" \; )
+          ( cd agent/target/criterion && find . -path '*/new/estimates.json' -exec cp --parents {} "$DEST/" \; )
 
       - uses: actions/upload-artifact@v7
         if: matrix.lang == 'rust'
@@ -108,6 +132,26 @@ jobs:
           path: bench-rust-estimates
           if-no-files-found: error
           retention-days: 30
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bench-compare-${{ matrix.lang }}
+          path: |
+            bench-compare/anchor.txt
+            bench-compare/tonight.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Record what the runner did
+        # Runs on a red run too, so a failed night keeps the machine it ran on.
+        if: always()
+        run: |
+          set -euo pipefail
+          scripts/perf-runner-record.sh snapshot \
+            "/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)" /tmp/runner-after.json
+          scripts/perf-runner-record.sh delta /tmp/runner-before.json /tmp/runner-after.json >/tmp/runner.json
+          jq -r '"Runner: \(.processor_model), steal \(.steal_percent)%; the job throttled in \(.server_throttled_periods) of \(.server_periods) periods (\(.server_throttled_ms) ms)"' \
+            /tmp/runner.json | tee -a "$GITHUB_STEP_SUMMARY"
 
   publish:
     name: Publish benchmark trend
@@ -122,7 +166,6 @@ jobs:
     outputs:
       alert_text: ${{ steps.summarize.outputs.alert_text }}
       regression: ${{ steps.summarize.outputs.regression }}
-      flagged: ${{ steps.summarize.outputs.flagged }}
     env:
       VM_RUN_STARTED_AT: ${{ needs.run.outputs.started_at }}
     steps:
@@ -141,7 +184,7 @@ jobs:
           name: bench-rust-estimates
           path: artifacts/rust
 
-      # Precedes Summarize, whose ns/op gate reads a VictoriaMetrics baseline through the
+      # Precedes Summarize, which reads allocation nights from VictoriaMetrics through the
       # in-cluster Service.
       - name: OCI + kubeconfig setup
         uses: ./.github/actions/oci-kube-setup
@@ -194,13 +237,6 @@ jobs:
               ;;
           esac
 
-          # A Go timing past its line is measured again in the confirm job before it can fail.
-          if [ -s benchmark-flagged.tsv ]; then
-            echo "flagged=1" >> "$GITHUB_OUTPUT"
-          else
-            echo "flagged=0" >> "$GITHUB_OUTPUT"
-          fi
-
           cat benchmark-summary.out
           ROWS="$(grep -E '^\[' benchmark-summary.out | tail -n 1 || true)"
           if [ -z "$ROWS" ]; then
@@ -221,17 +257,6 @@ jobs:
             echo "$ALERT_TEXT"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
-
-      - name: Upload the flagged benchmarks and their nights
-        if: steps.summarize.outputs.flagged == '1'
-        uses: actions/upload-artifact@v7
-        with:
-          name: benchmark-flagged
-          path: |
-            benchmark-flagged.tsv
-            benchmark-window.txt
-          if-no-files-found: error
-          retention-days: 30
 
       - name: Upload canonical rows as artifact
         uses: actions/upload-artifact@v7
@@ -278,14 +303,14 @@ jobs:
         if: always()
         uses: ./.github/actions/oci-kube-teardown
 
-  # Measures each flagged Go benchmark ten times and fails only on a slowdown benchstat finds
-  # significant whose median is past its line.
-  confirm:
-    name: Measure flagged benchmarks again
-    needs: [publish]
-    if: success() && needs.publish.outputs.flagged == '1'
+  # Judges each language's turns with benchstat: a slowdown fails when it is significant and past
+  # the limit, and a benchmark the baseline names that tonight did not run fails.
+  compare:
+    name: Compare tonight with the anchor
+    needs: [run]
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 10
     permissions:
       contents: read
     outputs:
@@ -294,70 +319,49 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: ./.github/actions/docker-hub-mirror
-        with:
-          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
-          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Start Postgres with max_connections=400
-        run: |
-          set -euo pipefail
-          docker run -d --rm --name pg-ci \
-            -e POSTGRES_USER=opengate -e POSTGRES_PASSWORD=opengate -e POSTGRES_DB=opengate_test \
-            --shm-size=1g -p 5432:5432 postgres:17-alpine -c max_connections=400 -c max_locks_per_transaction=256
-          for i in {1..30}; do
-            if docker exec pg-ci pg_isready -U opengate -d opengate_test >/dev/null 2>&1; then
-              echo "postgres ready after ${i} attempt(s)"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "::error::postgres never became ready"
-          docker logs pg-ci
-          exit 1
-
-      - uses: actions/setup-go@v7
-        with:
-          go-version: '1.27'
-          cache-dependency-path: server/go.sum
-
       - uses: ./.github/actions/setup-pinned-tools
         with:
           with-benchstat: 'true'
 
-      - name: Download the flagged benchmarks
+      - name: Download the Go turns
         uses: actions/download-artifact@v8
         with:
-          name: benchmark-flagged
-          path: flagged
+          name: bench-compare-go
+          path: compare/go
 
-      - name: Measure the flagged benchmarks again
-        env:
-          POSTGRES_TEST_URL: postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable
-        run: scripts/benchmark-confirm.sh rerun flagged/benchmark-flagged.tsv benchmark-rerun.txt
+      - name: Download the Rust turns
+        uses: actions/download-artifact@v8
+        with:
+          name: bench-compare-rust
+          path: compare/rust
 
-      - name: Judge the re-run with benchstat
+      - name: Judge both languages against the anchor
         id: judge
         run: |
           set -euo pipefail
-          set +e
-          scripts/benchmark-confirm.sh judge flagged/benchmark-flagged.tsv flagged/benchmark-window.txt \
-            benchmark-rerun.txt > benchmark-confirm.out 2>&1
-          status=$?
-          set -e
-          cat benchmark-confirm.out
-          if [ -s benchmark-confirm.md ]; then
-            cat benchmark-confirm.md >> "$GITHUB_STEP_SUMMARY"
+          ANCHOR="$(jq -r '.anchor // empty' benchmarks/baseline.json)"
+          worst=0
+          for lang in go rust; do
+            set +e
+            scripts/benchmark-anchor.sh judge "$lang" "compare/$lang" benchmarks/baseline.json \
+              "$ANCHOR" "$GITHUB_SHA" >>benchmark-anchor.out 2>&1
+            status=$?
+            set -e
+            [ "$status" -le "$worst" ] || worst="$status"
+          done
+          cat benchmark-anchor.out
+          if [ -s benchmark-anchor.md ]; then
+            cat benchmark-anchor.md >> "$GITHUB_STEP_SUMMARY"
           fi
-          case "$status" in
+          case "$worst" in
             0) echo "regression=0" >> "$GITHUB_OUTPUT" ;;
             1) echo "regression=1" >> "$GITHUB_OUTPUT" ;;
             *)
-              echo "::error::benchmark-confirm.sh judge exited ${status}; the flagged benchmarks were not judged."
-              exit "$status"
+              echo "::error::benchmark-anchor.sh judge exited ${worst}; the turns were not judged."
+              exit "$worst"
               ;;
           esac
-          ALERT_TEXT="$(grep '^REGRESSION_ALERT:' benchmark-confirm.out | sed 's/^REGRESSION_ALERT://' || true)"
+          ALERT_TEXT="$(grep '^REGRESSION_ALERT:' benchmark-anchor.out | sed 's/^REGRESSION_ALERT://' || true)"
           {
             echo "alert_text<<EOF"
             echo "$ALERT_TEXT"
@@ -366,7 +370,7 @@ jobs:
 
   gate:
     name: Benchmark regression gate
-    needs: [publish, confirm]
+    needs: [publish, compare]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -374,31 +378,34 @@ jobs:
       contents: read
     steps:
       - name: Fail workflow red on regression
+        env:
+          PUBLISH_STATUS: ${{ needs.publish.result }}
+          ALLOCATIONS: ${{ needs.publish.outputs.regression }}
+          COMPARE_STATUS: ${{ needs.compare.result }}
+          TIMINGS: ${{ needs.compare.outputs.regression }}
         run: |
-          if [ "${{ needs.publish.result }}" != "success" ]; then
+          if [ "$PUBLISH_STATUS" != "success" ]; then
             echo "::error::Benchmark trend publishing did not succeed; see the publish job."
             exit 1
           fi
-          if [ "${{ needs.publish.outputs.regression }}" = "1" ]; then
-            echo "::error::Benchmark regression detected (allocations against their limit, or a Rust timing past its line) — see workflow summary and Telegram alert (if delivered)."
+          if [ "$ALLOCATIONS" = "1" ]; then
+            echo "::error::An allocation count is past its limit — see the workflow summary and the Telegram alert (if delivered)."
             exit 1
           fi
-          if [ "${{ needs.publish.outputs.flagged }}" = "1" ]; then
-            if [ "${{ needs.confirm.result }}" != "success" ]; then
-              echo "::error::The flagged benchmarks were not measured again; see the confirm job."
-              exit 1
-            fi
-            if [ "${{ needs.confirm.outputs.regression }}" = "1" ]; then
-              echo "::error::A slowdown benchstat finds significant is past its line — see the confirm job's summary."
-              exit 1
-            fi
+          if [ "$COMPARE_STATUS" != "success" ]; then
+            echo "::error::Tonight was not compared with the anchor; see the compare job."
+            exit 1
+          fi
+          if [ "$TIMINGS" = "1" ]; then
+            echo "::error::A slowdown against the anchor is significant and past the limit, or a named benchmark is missing — see the compare job's summary."
+            exit 1
           fi
           echo "No benchmark regression."
 
   # Sends the run's alert from a job of its own, which holds the Telegram secrets and nothing else.
   alert:
     name: Alert if the run did not finish
-    needs: [publish, confirm]
+    needs: [publish, compare]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -417,28 +424,27 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
           FINDING: ${{ needs.publish.outputs.regression }}
-          CONFIRMED: ${{ needs.confirm.outputs.regression }}
+          COMPARED: ${{ needs.compare.outputs.regression }}
           ALERT_TEXT: ${{ needs.publish.outputs.alert_text }}
-          CONFIRMED_TEXT: ${{ needs.confirm.outputs.alert_text }}
+          COMPARED_TEXT: ${{ needs.compare.outputs.alert_text }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           JOB_STATUS: ${{ needs.publish.result }}
-          FLAGGED: ${{ needs.publish.outputs.flagged }}
-          CONFIRM_STATUS: ${{ needs.confirm.result }}
+          COMPARE_STATUS: ${{ needs.compare.result }}
         run: |
           set -euo pipefail
           # A cancel is what skips the publish job once the run it reads has finished.
           if [ "$JOB_STATUS" = "skipped" ]; then JOB_STATUS="cancelled before publishing"; fi
-          # A flagged night is finished only once its re-run is.
-          if [ "$JOB_STATUS" = "success" ] && [ "${FLAGGED:-0}" = "1" ] && [ "$CONFIRM_STATUS" != "success" ]; then
-            JOB_STATUS="re-run $CONFIRM_STATUS"
+          # A night is finished only once its comparison with the anchor is.
+          if [ "$JOB_STATUS" = "success" ] && [ "$COMPARE_STATUS" != "success" ]; then
+            JOB_STATUS="comparison $COMPARE_STATUS"
           fi
-          if [ "$JOB_STATUS" = "success" ] && [ "${FINDING:-0}" != "1" ] && [ "${CONFIRMED:-0}" != "1" ]; then
+          if [ "$JOB_STATUS" = "success" ] && [ "${FINDING:-0}" != "1" ] && [ "${COMPARED:-0}" != "1" ]; then
             echo "No alert sent: the run finished and found nothing."
             exit 0
           fi
-          if [ "${FINDING:-0}" = "1" ] || [ "${CONFIRMED:-0}" = "1" ]; then
+          if [ "${FINDING:-0}" = "1" ] || [ "${COMPARED:-0}" = "1" ]; then
             MSG="$(printf '%s\n%s\n\nRun: %s\nTrend: Grafana dashboard "Benchmark Trends" (opengate-benchmark-trend)' \
-              "$ALERT_TEXT" "$CONFIRMED_TEXT" "$RUN_URL")"
+              "$ALERT_TEXT" "$COMPARED_TEXT" "$RUN_URL")"
           else
             MSG="$(printf 'Benchmark trend: the night did not finish (%s), so nothing was measured.\n\nRun: %s' \
               "$JOB_STATUS" "$RUN_URL")"

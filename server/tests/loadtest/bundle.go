@@ -126,6 +126,15 @@ type PhaseResult struct {
 	GeneratorCPUHeadroomPercent *float64 `json:"generator_cpu_headroom_percent,omitempty"`
 	GeneratorCPURefusedPercent  *float64 `json:"generator_cpu_refused_percent,omitempty"`
 
+	// GeneratorLateShare is the share of the phase's dials the generator began past their turn,
+	// watched beside the arrival share and judging nothing.
+	GeneratorLateShare *float64 `json:"generator_late_share,omitempty"`
+
+	// OperatorCompletedShare is the share of offered technician arrivals that completed and
+	// OperatorJourneyP95Ms their 95th-percentile time, merged from the export and watched.
+	OperatorCompletedShare *float64 `json:"operator_completed_share,omitempty"`
+	OperatorJourneyP95Ms   *float64 `json:"operator_journey_p95_ms,omitempty"`
+
 	// GeneratorUDPReceiveErrors and TargetUDPReceiveErrors are the datagrams each end's kernel
 	// dropped over this phase on a full receive buffer; absent where the counters are unreadable.
 	GeneratorUDPReceiveErrors *int64 `json:"generator_udp_receive_errors,omitempty"`

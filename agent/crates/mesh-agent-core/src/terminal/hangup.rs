@@ -193,7 +193,7 @@ mod tests {
                 .run(outbox, Arc::new(AtomicBool::new(true)))
                 .await
                 .unwrap();
-            tokio::spawn(async move { while lanes.next().await.is_some() {} });
+            tokio::spawn(async move { while lanes.next([true; 3]).await.is_some() {} });
             Self {
                 dir: tempfile::tempdir().unwrap(),
                 terminal,
@@ -301,6 +301,102 @@ mod tests {
         let _dir = scene.hang_up().await;
         assert!(ended(pid).await);
         assert_eq!(std::fs::read_to_string(&saved).unwrap().trim(), "saved");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_program_that_takes_its_time_to_save_on_hang_up_gets_the_grace() {
+        let scene = Scene::open().await;
+        let saved = scene.path("saved");
+        let script = scene.script(&format!(
+            "trap 'sleep 0.5; echo saved > {}; exit' HUP\nsleep 300",
+            quoted(&saved)
+        ));
+        scene.type_line(&format!("sh {}", quoted(&script)));
+        let pid = scene.pid().await;
+
+        let _dir = scene.hang_up().await;
+        assert!(ended(pid).await);
+        assert_eq!(std::fs::read_to_string(&saved).unwrap().trim(), "saved");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_job_that_ends_on_the_hang_up_is_not_waited_for_the_whole_grace() {
+        let scene = Scene::open().await;
+        let script = scene.script("exec tail -f /dev/null");
+        scene.type_line(&format!("sh {}", quoted(&script)));
+        scene.pid().await;
+
+        let started = Instant::now();
+        scene.hang_up().await;
+        assert!(started.elapsed() < Duration::from_millis(1500));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_shell_that_ignores_the_hang_up_and_runs_on_is_ended_after_the_grace() {
+        let scene = Scene::open().await;
+        let shell = scene.path("pid");
+        // The loop keeps the shell off its closed terminal for ten seconds; a shell reading it exits.
+        scene.type_line(&format!(
+            "trap '' HUP; echo $$ > {}; i=0; while [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done",
+            quoted(&shell)
+        ));
+        let pid = scene.pid().await;
+
+        let _dir = scene.hang_up().await;
+        assert!(ended(pid).await, "a shell ignoring the hang-up survived");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn every_process_of_a_job_is_ended_when_its_first_obeys_the_hang_up() {
+        let scene = Scene::open().await;
+        let (first, second) = (scene.path("pid"), scene.path("second"));
+        scene.type_line(&format!(
+            "sh -c 'echo $$ > {}; exec sleep 300' | sh -c 'trap \"\" HUP; echo $$ > {}; exec sleep 300'",
+            quoted(&first),
+            quoted(&second)
+        ));
+        scene.pid().await;
+        let deadline = Instant::now() + START_LIMIT;
+        let last = loop {
+            if let Some(pid) = std::fs::read_to_string(&second)
+                .ok()
+                .and_then(|s| s.trim().parse::<i32>().ok())
+            {
+                break pid;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the job's second process never started"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        };
+
+        let _dir = scene.hang_up().await;
+        assert!(
+            ended(last).await,
+            "a process of the job ignoring the hang-up survived"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_resize_reaches_the_programs_in_the_terminal() {
+        let scene = Scene::open().await;
+        scene.terminal.resize(100, 30);
+        let size = scene.path("size");
+        scene.type_line(&format!(
+            "stty size > {}.tmp && mv {0}.tmp {0}",
+            quoted(&size)
+        ));
+        let deadline = Instant::now() + START_LIMIT;
+        let read = loop {
+            if let Ok(text) = std::fs::read_to_string(&size) {
+                break text;
+            }
+            assert!(Instant::now() < deadline, "stty never answered");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        };
+        assert_eq!(read.trim(), "30 100");
+        scene.hang_up().await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

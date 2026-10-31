@@ -277,6 +277,22 @@ machine rather than enrolling one, and says so in its own header.
 **Pay-down trigger:** a Windows or macOS machine in the browser stack, for any
 reason. Point the spec at it and delete the description.
 
+### Screen and file traffic are never tested together on a real direct link
+
+One host task feeds the typing, screen and files channels under one send limit,
+typing first and then whichever of screen and files has sent fewer bytes
+([`peer.rs`](../agent/crates/mesh-agent-core/src/link/peer.rs)), and fake-clock
+tests hold the channels to the limit and screen and files to their byte share
+([`share.rs`](../agent/crates/mesh-agent-core/src/session/share.rs)). No real
+agent and browser run the two together: every session gets the null screen
+source, so the screen channel carries nothing on the stack. A fault in how the
+real link releases or adds up the two channels' bytes would reach production
+unseen.
+
+**Pay-down trigger:** a Windows agent with screen capture. The speed spec then
+keeps the screen busy during a download, reading the router's queued bytes
+against one allowance and each channel's share.
+
 ### OpenAPI request constraints are documentation, not runtime validation
 
 [`api/openapi.yaml`](../api/openapi.yaml) carries `maxLength` on some request

@@ -110,6 +110,15 @@ check "a series the check flagged is pushed as flagged" \
 check "and the leg's other series as they are" \
   'perf_latency_p50_ms{env="ci",leg="volume-500",phase="register",workload="volume-500/1/d1"} 3.1 1790689000000'
 
+bundle "$WORK/perf-bundles/scaling-0.5" scaling valid 900 400 20 0
+jq '.runner = {processor_model: "AMD EPYC 7763 64-Core Processor", steal_percent: 0.4}' \
+  "$WORK/perf-bundles/scaling-0.5/bundle.json" >"$WORK/runner.json"
+mv "$WORK/runner.json" "$WORK/perf-bundles/scaling-0.5/bundle.json"
+run_push "$WORK/perf-bundles/scaling-0.5/bundle.json" >/dev/null 2>&1
+pushed="$(cat "$WORK/pushed")"
+check "a leg that recorded its runner names the processor it ran on, so nights compare like with like" \
+  'perf_latency_p95_ms{env="ci",leg="scaling-0.5",phase="register",processor="AMD EPYC 7763 64-Core Processor",workload="scaling/1/d1"} 900 1790689000000'
+
 if out="$(run_push "$WORK/perf-bundles/spike/bundle.json" 2>&1)"; then
   fail "a night with nothing measured is refused (out=[$out])"
 else

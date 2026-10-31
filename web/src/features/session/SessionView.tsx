@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams } from 'react-router';
 import { api } from '../../lib/api';
 import { useConnectionStore } from './state/connection-store';
@@ -13,6 +13,7 @@ import { MessengerView } from '../messenger';
 import { fireAndForget } from '../../lib/fire-and-forget';
 import { announceSessionTab, sessionTabName, watchSignIn } from './session-tab';
 import { identityOf, noteRequest } from '../../lib/console-session';
+import type { Layout } from '../../lib/direct/handoff';
 
 /** How often an open live session counts as activity, matching the server's renewal. */
 const LIVE_SESSION_ACTIVITY_MS = 60_000;
@@ -41,6 +42,11 @@ interface HostRecord {
   hostname: string;
   customer: string;
   capabilities: string[];
+}
+
+/** A channel per job for a host that takes them, else the one shared channel. */
+function layoutFor(host: HostRecord | null): Layout {
+  return host?.capabilities.includes('DirectChannels') ? 'separate' : 'shared';
 }
 
 /** The host's name, its customer's name and its capabilities, read from the device record alone. */
@@ -82,22 +88,19 @@ export function SessionView() {
     document.title = title;
   }, [title]);
 
+  // The console's session cookie opens the relay, so only a signed-in console connects; the host's
+  // record, read alongside, says which channels its link takes.
   useEffect(() => {
     let current = true;
-    fireAndForget(readHost(id).then((record) => current && setHost(record)));
-    return () => {
-      current = false;
-    };
-  }, [id]);
-
-  // The console's session cookie opens the relay, so only a signed-in console connects.
-  useEffect(() => {
-    let current = true;
+    const hostRead = readHost(id).then((record) => {
+      if (current) setHost(record);
+      return record;
+    });
     fireAndForget(
-      startSession(id).then((result) => {
+      Promise.all([startSession(id), hostRead]).then(([result, record]) => {
         if (!current || !useAuthStore.getState().user) return;
         if (result.kind === 'opened') {
-          connect(result.token, result.relayUrl, result.helpers);
+          connect(result.token, result.relayUrl, result.helpers, layoutFor(record));
           setPhase({ kind: 'open' });
         } else {
           setPhase(result);
@@ -170,7 +173,7 @@ function Notice({ text }: Readonly<{ text: string }>) {
 }
 
 function SessionTabs({ capabilities }: Readonly<{ capabilities?: string[] }>) {
-  const tabs = useMemo(() => availableTabs(capabilities), [capabilities]);
+  const tabs = availableTabs(capabilities);
   const [activeTab, setActiveTab] = useState<Tab>('Terminal');
 
   return (

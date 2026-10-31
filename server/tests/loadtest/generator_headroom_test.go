@@ -36,6 +36,41 @@ func TestAGeneratorWithItsOwnAllowanceIsMeasuredAgainstIt(t *testing.T) {
 	assert.EqualValues(t, 536870912, allowance.MemoryBytes)
 }
 
+func TestAGeneratorInsideASliceHoldingTheAllowanceIsMeasuredAgainstTheSlice(t *testing.T) {
+	mount := t.TempDir()
+	slice := filepath.Join(mount, "opengate-loadgen.slice")
+	scope := filepath.Join(slice, "run-1.scope")
+	require.NoError(t, os.MkdirAll(scope, 0o700))
+	for dir, accounts := range map[string]map[string]string{
+		slice: {"cpu.max": "50000 100000\n", "cpu.stat": "usage_usec 7000000\nthrottled_usec 0\n"},
+		scope: {"cpu.max": "max 100000\n", "cpu.stat": "usage_usec 3000000\nthrottled_usec 0\n"},
+	} {
+		for name, content := range accounts {
+			require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600))
+		}
+	}
+
+	files, ok := allowanceCgroup(mount, []string{"opengate-loadgen.slice/run-1.scope", "."})
+	require.True(t, ok, "the slice above the generator holds an allowance")
+	t.Cleanup(files.close)
+	allowance, granted := readGeneratorAllowance(files)
+	require.True(t, granted)
+	assert.InDelta(t, 0.5, allowance.Processors, 0.001, "the slice's quota, which both generators share")
+	cpu, read := readCgroupCPU(files)
+	require.True(t, read)
+	assert.EqualValues(t, 7000000, cpu.UsageMicros, "the usage counted is the slice's, both generators together")
+}
+
+func TestATreeWithNoQuotaAnywhereHoldsNoAllowance(t *testing.T) {
+	mount := t.TempDir()
+	scope := filepath.Join(mount, "user.slice", "run-2.scope")
+	require.NoError(t, os.MkdirAll(scope, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(scope, "cpu.max"), []byte("max 100000\n"), 0o600))
+
+	_, ok := allowanceCgroup(mount, []string{"user.slice/run-2.scope", "."})
+	assert.False(t, ok, "no cgroup on the way up carries a quota")
+}
+
 func TestACgroupWithNoQuotaIsNotAnAllowance(t *testing.T) {
 	_, files := writeCgroup(t, map[string]string{
 		"cpu.max":        "max 100000\n",

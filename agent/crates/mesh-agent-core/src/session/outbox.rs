@@ -1,11 +1,13 @@
-//! The session's sending point: an interactive lane taken before a bulk lane, each capped in
-//! bytes, so typing never waits behind file data on either path.
+//! The session's sending point: an interactive lane taken before the screen and files lanes,
+//! which share their turn by bytes, each capped in bytes, so typing never waits behind file data.
 
 use std::sync::Arc;
 
-use mesh_protocol::direct::MAX_PIECE;
-use mesh_protocol::{Frame, FRAME_DESKTOP, FRAME_FILE};
+use mesh_protocol::direct::{Channel, MAX_PIECE};
+use mesh_protocol::Frame;
 use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
+
+use super::share::Share;
 
 /// Largest interactive frame: one link piece.
 pub const INTERACTIVE_FRAME_CAP: usize = MAX_PIECE;
@@ -19,7 +21,7 @@ pub const FILE_PIECE: usize = 256 * 1024;
 /// Largest bulk frame: one file piece and the frame's header and fields.
 pub const BULK_FRAME_CAP: usize = FILE_PIECE + 64;
 
-/// Most bytes the bulk lane holds: two pieces.
+/// Most bytes each of the screen and files lanes holds: two pieces.
 pub const BULK_LANE_CAP: usize = 2 * BULK_FRAME_CAP;
 
 /// Why a frame was not queued.
@@ -63,14 +65,17 @@ struct Lane {
 #[derive(Debug, Clone)]
 pub struct Outbox {
     interactive: Lane,
-    bulk: Lane,
+    screen: Lane,
+    files: Lane,
 }
 
-/// The sending point's side of the lanes.
+/// The sending point's side of the lanes, holding the next screen and files frames it has read.
 #[derive(Debug)]
 pub(crate) struct Lanes {
     interactive: mpsc::UnboundedReceiver<Queued>,
-    bulk: mpsc::UnboundedReceiver<Queued>,
+    bulk: [mpsc::UnboundedReceiver<Queued>; 2],
+    heads: [Option<Queued>; 2],
+    share: Share,
 }
 
 /// One frame in flight for a paced producer: it waits for the frame before to be taken.
@@ -85,7 +90,14 @@ impl Outbox {
     /// Returns a session's lanes and the outbox that fills them.
     pub(crate) fn new() -> (Self, Lanes) {
         let (itx, irx) = mpsc::unbounded_channel();
-        let (btx, brx) = mpsc::unbounded_channel();
+        let (stx, srx) = mpsc::unbounded_channel();
+        let (ftx, frx) = mpsc::unbounded_channel();
+        let bulk = |name, tx| Lane {
+            name,
+            tx,
+            room: Arc::new(Semaphore::new(BULK_LANE_CAP)),
+            frame_cap: BULK_FRAME_CAP,
+        };
         let outbox = Self {
             interactive: Lane {
                 name: "interactive",
@@ -93,18 +105,16 @@ impl Outbox {
                 room: Arc::new(Semaphore::new(INTERACTIVE_LANE_CAP)),
                 frame_cap: INTERACTIVE_FRAME_CAP,
             },
-            bulk: Lane {
-                name: "bulk",
-                tx: btx,
-                room: Arc::new(Semaphore::new(BULK_LANE_CAP)),
-                frame_cap: BULK_FRAME_CAP,
-            },
+            screen: bulk("screen", stx),
+            files: bulk("files", ftx),
         };
         (
             outbox,
             Lanes {
                 interactive: irx,
-                bulk: brx,
+                bulk: [srx, frx],
+                heads: [None, None],
+                share: Share::default(),
             },
         )
     }
@@ -129,11 +139,11 @@ impl Outbox {
         tokio::runtime::Handle::current().block_on(self.send_encoded(bytes))
     }
 
-    /// Which lane `bytes` belongs to: file data and screen pictures are bulk, all else
-    /// interactive.
+    /// Which lane `bytes` belongs to: the one of the link channel it rides.
     fn lane(&self, bytes: &[u8]) -> &Lane {
-        match bytes.first() {
-            Some(&FRAME_FILE) | Some(&FRAME_DESKTOP) => &self.bulk,
+        match Channel::of(bytes) {
+            Channel::Screen => &self.screen,
+            Channel::Files => &self.files,
             _ => &self.interactive,
         }
     }
@@ -175,29 +185,60 @@ impl Outbox {
 }
 
 impl Lanes {
-    /// The next frame: the interactive lane first, then the bulk lane; `None` once both are
-    /// closed and empty. Safe to cancel.
-    pub(crate) async fn next(&mut self) -> Option<Queued> {
-        tokio::select! {
-            biased;
-            Some(queued) = self.interactive.recv() => Some(queued),
-            Some(queued) = self.bulk.recv() => Some(queued),
-            else => None,
+    /// The next frame from the lanes `open` names in [`Channel::ALL`] order: interactive first, then
+    /// screen or files by [`Share`]; `None` once every open lane is closed and empty.
+    pub(crate) async fn next(&mut self, open: [bool; 3]) -> Option<Queued> {
+        loop {
+            if open[0] {
+                if let Ok(queued) = self.interactive.try_recv() {
+                    return Some(queued);
+                }
+            }
+            for slot in 0..2 {
+                if self.heads[slot].is_none() {
+                    self.heads[slot] = self.bulk[slot].try_recv().ok();
+                }
+            }
+            let waiting = [0, 1].map(|slot| open[slot + 1] && self.heads[slot].is_some());
+            if let Some(slot) = self.share.pick(waiting) {
+                let queued = self.heads[slot].take()?;
+                self.share.sent(slot, queued.bytes.len());
+                return Some(queued);
+            }
+            let [screen, files] = &mut self.bulk;
+            let (screen_empty, files_empty) = (self.heads[0].is_none(), self.heads[1].is_none());
+            tokio::select! {
+                biased;
+                Some(queued) = self.interactive.recv(), if open[0] => return Some(queued),
+                Some(queued) = screen.recv(), if open[1] && screen_empty => {
+                    self.heads[0] = Some(queued);
+                }
+                Some(queued) = files.recv(), if open[2] && files_empty => {
+                    self.heads[1] = Some(queued);
+                }
+                else => return None,
+            }
         }
     }
 
-    /// The next frame if one is queued now.
+    /// The next frame from every lane, if one is queued now.
     #[cfg(test)]
     pub(crate) fn try_next(&mut self) -> Option<Vec<u8>> {
+        self.try_next_from([true; 3])
+    }
+
+    /// The next frame from the lanes whose channel is `open`, if one is queued now.
+    #[cfg(test)]
+    pub(crate) fn try_next_from(&mut self, open: [bool; 3]) -> Option<Vec<u8>> {
         use futures_util::FutureExt;
-        self.next().now_or_never().flatten().map(|q| q.bytes)
+        self.next(open).now_or_never().flatten().map(|q| q.bytes)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mesh_protocol::{ControlMessage, FileFrame, TerminalFrame};
+    use mesh_protocol::{ControlMessage, DesktopFrame, FileFrame, FrameEncoding, TerminalFrame};
     use std::time::Duration;
 
     fn terminal(len: usize) -> Frame {
@@ -228,6 +269,74 @@ mod tests {
             Frame::decode(&lanes.try_next().unwrap()).unwrap().0,
             Frame::FileTransfer(_)
         ));
+    }
+
+    fn picture(len: usize) -> Frame {
+        Frame::Desktop(DesktopFrame {
+            sequence: 0,
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+            encoding: FrameEncoding::Raw,
+            data: vec![3; len],
+        })
+    }
+
+    fn kind(bytes: &[u8]) -> &'static str {
+        match Frame::decode(bytes).unwrap().0 {
+            Frame::Desktop(_) => "screen",
+            Frame::FileTransfer(_) => "files",
+            _ => "interactive",
+        }
+    }
+
+    #[tokio::test]
+    async fn screen_pictures_and_file_pieces_each_take_a_lane_of_their_own() {
+        let (outbox, mut lanes) = Outbox::new();
+        outbox.send(&file(1000)).await.unwrap();
+        outbox.send(&picture(1000)).await.unwrap();
+        outbox.send(&terminal(5)).await.unwrap();
+
+        assert_eq!(
+            lanes.try_next_from([false, false, true]).map(|b| kind(&b)),
+            Some("files")
+        );
+        assert!(
+            lanes.try_next_from([false, false, true]).is_none(),
+            "a closed lane's frames wait"
+        );
+        assert_eq!(
+            lanes.try_next_from([false, true, false]).map(|b| kind(&b)),
+            Some("screen")
+        );
+        assert_eq!(lanes.try_next().map(|b| kind(&b)), Some("interactive"));
+    }
+
+    #[tokio::test]
+    async fn the_screen_and_files_lanes_take_turns_by_bytes() {
+        let (outbox, mut lanes) = Outbox::new();
+        for _ in 0..8 {
+            outbox.send(&picture(50_000)).await.unwrap();
+        }
+        for _ in 0..4 {
+            outbox.send(&file(100_000)).await.unwrap();
+        }
+        let (mut screen_bytes, mut file_bytes) = (0usize, 0usize);
+        let mut order = Vec::new();
+        while let Some(bytes) = lanes.try_next() {
+            match kind(&bytes) {
+                "screen" => screen_bytes += bytes.len(),
+                _ => file_bytes += bytes.len(),
+            }
+            order.push(kind(&bytes));
+            assert!(
+                screen_bytes.abs_diff(file_bytes) <= 100_100,
+                "after {order:?}: screen {screen_bytes} against files {file_bytes}"
+            );
+        }
+        assert_eq!(order.len(), 12);
+        assert_eq!(&order[..3], ["screen", "files", "screen"]);
     }
 
     #[tokio::test]
@@ -263,7 +372,7 @@ mod tests {
             }
         ));
         let err = outbox.send(&file(FILE_PIECE + 100)).await.unwrap_err();
-        assert!(matches!(err, OutboxError::TooLarge { lane: "bulk", .. }));
+        assert!(matches!(err, OutboxError::TooLarge { lane: "files", .. }));
         assert!(
             lanes.try_next().is_none(),
             "a refused frame never reaches the path"
@@ -341,19 +450,22 @@ mod tests {
         );
         outbox.send(&terminal(3)).await.unwrap();
 
-        lanes.try_next().unwrap();
-        tokio::time::timeout(Duration::from_secs(1), second)
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap();
         assert!(
             matches!(
                 Frame::decode(&lanes.try_next().unwrap()).unwrap().0,
                 Frame::Terminal(_)
             ),
-            "an echo produced while a page waited goes ahead of the next page"
+            "an echo goes ahead of a page queued before it"
         );
+        assert!(matches!(
+            Frame::decode(&lanes.try_next().unwrap()).unwrap().0,
+            Frame::Control(ControlMessage::FileListResponse { .. })
+        ));
+        tokio::time::timeout(Duration::from_secs(1), second)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
     }
 
     #[test]

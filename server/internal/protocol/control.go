@@ -234,7 +234,8 @@ type ControlMessage struct {
 	Candidate string `msgpack:"candidate,omitempty"`
 	Mid       string `msgpack:"mid,omitempty"`
 
-	// DirectFallback / DirectAck: how many of the peer's link frames the sender delivered.
+	// DirectFallback / DirectAck: how many of the peer's link frames the sender delivered on the
+	// typing channel, or the only one; ReceivedScreen and ReceivedFiles count the other two.
 	Received uint64 `msgpack:"received,omitempty"`
 
 	// MouseMove / MouseClick
@@ -333,6 +334,10 @@ type ControlMessage struct {
 	CSR      []byte `msgpack:"csr,omitempty"`
 	Cert     []byte `msgpack:"cert,omitempty"`
 	CABundle string `msgpack:"ca_bundle,omitempty"`
+
+	// DirectFallback / DirectAck: the screen and files channels' counts beside Received.
+	ReceivedScreen uint64 `msgpack:"received_screen,omitempty"`
+	ReceivedFiles  uint64 `msgpack:"received_files,omitempty"`
 }
 
 // RankedDim is one dimension the device's own correlation engine ranked at the

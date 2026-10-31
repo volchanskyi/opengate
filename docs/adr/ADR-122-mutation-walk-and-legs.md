@@ -94,6 +94,17 @@ The per-mutant cost and the leash are unchanged, and deliberately so. The
 coverage-elapsed ceiling the leash derives from describes the slowest survey any
 shard runs, and that is still the harness shard's module-wide one.
 
+**A language is held to a committed floor as well as to the night before.** Compared
+only with the previous night, the Rust leg's fall from 91.9 to 88.7% alerted once
+and passed the next night at 88.7. Each language's bar is the higher of 85% and
+its floor in
+[`benchmarks/mutation-floors.json`](../../benchmarks/mutation-floors.json), which
+sits half a point under the score it was set from, since on unchanged code a score
+moved at most 0.2 points a night over 24 runs. A floor is set by a commit, from the
+raised floor the nightly offers when a score rises past its bar
+([`mutation-summarize.sh`](../../scripts/mutation-summarize.sh)); an unset floor
+leaves the 85% minimum alone.
+
 ## Consequences
 
 - The harness packages run once a night in a survey instead of twenty-seven

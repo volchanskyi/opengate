@@ -109,8 +109,16 @@ fn test_control_message_roundtrip_msgpack() {
             reason: "one link per session".to_string(),
         },
         ControlMessage::DirectSwitch,
-        ControlMessage::DirectFallback { received: 12 },
-        ControlMessage::DirectAck { received: 1 << 40 },
+        ControlMessage::DirectFallback {
+            received: 12,
+            received_screen: 0,
+            received_files: 3,
+        },
+        ControlMessage::DirectAck {
+            received: 1 << 40,
+            received_screen: 7,
+            received_files: 0,
+        },
         ControlMessage::FileDownloadError {
             path: "/var/log/app.log".to_string(),
             error: "permission denied".to_string(),
@@ -540,11 +548,19 @@ fn link_counts_tolerate_go_omitempty_zero_fields() {
 
     assert_eq!(
         decode_type_only("DirectFallback"),
-        ControlMessage::DirectFallback { received: 0 }
+        ControlMessage::DirectFallback {
+            received: 0,
+            received_screen: 0,
+            received_files: 0,
+        }
     );
     assert_eq!(
         decode_type_only("DirectAck"),
-        ControlMessage::DirectAck { received: 0 }
+        ControlMessage::DirectAck {
+            received: 0,
+            received_screen: 0,
+            received_files: 0,
+        }
     );
 }
 
