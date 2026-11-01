@@ -16,6 +16,9 @@ fail() {
   printf '  FAIL %s\n' "$1"
   failed=$((failed + 1))
 }
+assert_rows() {
+  if [ "$2" = "$3" ]; then pass "$1"; else fail "$1 (want=[$2] got=[$3])"; fi
+}
 
 # A counter that answers with a fixed count for every shard, so a case states one
 # number and reads one verdict.
@@ -207,13 +210,37 @@ listing_of() {
 api_night="$(listing_of internal/api/api.go 25 internal/api/middleware.go 10 \
   internal/api/proxytrust.go 28 internal/api/ratelimit.go 16)"
 out="$(MUTATION_GO_DRYRUN_FILE="$api_night" MUTATION_SHARD_COUNTER="$(stub_counter 1)" "$GUARD" 2>&1)"
-runtime_row="$(awk '$1 == "go-api-runtime" { print $2, $4 }' <<<"$out")"
-limits_row="$(awk '$1 == "go-api-limits" { print $2, $4 }' <<<"$out")"
-if [ "$runtime_row" = "35 ok" ] && [ "$limits_row" = "44 ok" ]; then
-  pass "the API runtime files fit as two groups on the 4 Oct counts"
-else
-  fail "go-api-runtime must hold 35 and go-api-limits 44, both inside the budget (got runtime '$runtime_row', limits '$limits_row')"
-fi
+got="$(awk '$1 ~ /^go-api-(runtime|limits|proxytrust)$/ { print $1, $2, $4 }' <<<"$out")"
+assert_rows "the API runtime files fit as three groups on the 4 Oct counts" \
+  "go-api-runtime 35 ok
+go-api-limits 16 ok
+go-api-proxytrust 28 ok" "$got"
+
+# The 1 Nov dry run's runnable mutants in the three API groups that ran out their 90 minutes.
+api_nov="$(listing_of internal/api/metrics_grid.go 38 internal/api/metrics_assemble.go 20 \
+  internal/api/handlers_client_errors.go 9 internal/api/handlers_health.go 3 \
+  internal/api/handlers_auth.go 31 internal/api/handlers_users.go 10 \
+  internal/api/handlers_security_groups.go 8 internal/api/handlers_security_group_members.go 4 \
+  internal/api/handlers_audit.go 7 internal/api/proxytrust.go 31 internal/api/ratelimit.go 18)"
+out="$(MUTATION_GO_DRYRUN_FILE="$api_nov" MUTATION_SHARD_COUNTER="$(stub_counter 1)" "$GUARD" 2>&1)"
+got="$(awk '$1 ~ /^go-api-(status|metrics-grid|identity|accounts|limits|proxytrust)$/ { print $1, $2, $4 }' <<<"$out")"
+assert_rows "the 1 Nov counts fit six groups at each group's slowest measured cost" \
+  "go-api-limits 18 ok
+go-api-proxytrust 31 ok
+go-api-status 32 ok
+go-api-metrics-grid 38 ok
+go-api-identity 31 ok
+go-api-accounts 29 ok" "$got"
+
+for group in "go-api-status 70" "go-api-identity 60"; do
+  read -r shard count <<<"$group"
+  whole=$(((count * $(mutation_go_shard_seconds_per_mutant "$shard") + 59) / 60))
+  if [ "$whole" -gt "$(mutation_go_shard_budget_minutes)" ]; then
+    pass "$shard's $count mutants in one group project past the budget (${whole}min)"
+  else
+    fail "$count mutants at $shard's measured cost must not fit one group (projected ${whole}min)"
+  fi
+done
 
 whole=$(((79 * $(mutation_go_shard_seconds_per_mutant go-api-runtime) + 59) / 60))
 if [ "$whole" -gt "$(mutation_go_shard_budget_minutes)" ]; then

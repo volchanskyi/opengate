@@ -28,7 +28,13 @@ one mutant's time limit across every one of them.
 in [`mutation-shards.sh`](../../scripts/lib/mutation-shards.sh) and added to the
 projection.
 
-**Cost per mutant is measured over the mutants that finish.**
+**Cost per mutant is measured over the mutants that finish.** It follows the
+suite, not only the code mutated: gremlins runs each mutant with `-failfast`, so
+a mutant costs the wait for the first test that fails, and a parallel test waits
+its turn behind the package's other parallel tests. Making 22 API tests parallel
+raised the status shard from 35 to 87 s a mutant on unchanged code, so the API
+shards are costed at the slowest recent night and split until each fits, a file
+whose mutants alone overrun the budget split by concern.
 
 **The coefficient is a bound, not a tuning knob.** It is held by
 [`mutation-workflow.test.sh`](../../scripts/tests/mutation-workflow.test.sh) to

@@ -193,7 +193,7 @@ a device window, read tenant-scoped from VictoriaMetrics
 The time axis is derived from the request, not from what the store happens to
 hold. `chooseStep` picks the smallest whole-second bucket that keeps the point
 count within `max_points`, and
-[`buildMetricGrid`](../../server/internal/api/metrics_assemble.go) lays out exactly
+[`buildMetricGrid`](../../server/internal/api/metrics_grid.go) lays out exactly
 `(to - from) / bucket_s` evenly spaced buckets from it. So the window selector
 means something: a seven-day request over a device with twenty minutes of
 telemetry returns seven days of buckets with one short run of values and `null`

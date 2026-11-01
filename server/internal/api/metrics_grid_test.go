@@ -10,6 +10,8 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/telemetry"
 )
 
+// covers metrics_grid.go: the grid's layout and slots, and how assembly projects onto them.
+
 // gridWindow is the fixture window shared by the grid tests: seven days from a
 // step-aligned instant, bucketed at 600 s into 1008 buckets.
 var (
