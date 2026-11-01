@@ -312,7 +312,7 @@ mutation_web_shard_budget_minutes() {
 }
 
 mutation_go_shards() {
-  echo "go-api-runtime go-api-limits go-api-intake go-api-status go-api-converters go-api-identity go-api-console-session go-api-tenancy-admin go-api-device-control go-api-device-sessions go-api-device-reads go-api-incidents go-api-rules go-api-enrollment go-api-updates-purge go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-rules go-domain-alerts-room go-domain-alerts-record go-domain-persistence go-amt go-updates-certificates go-protocol-wire go-relay-signaling go-observability-harness go-composition-root"
+  echo "go-api-runtime go-api-limits go-api-proxytrust go-api-intake go-api-status go-api-metrics-grid go-api-converters go-api-identity go-api-accounts go-api-console-session go-api-tenancy-admin go-api-device-control go-api-device-sessions go-api-device-reads go-api-incidents go-api-rules go-api-enrollment go-api-updates-purge go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-rules go-domain-alerts-room go-domain-alerts-record go-domain-persistence go-amt go-updates-certificates go-protocol-wire go-relay-signaling go-observability-harness go-composition-root"
 }
 
 mutation_all_shards() {
@@ -358,7 +358,10 @@ mutation_go_shard_units() {
       echo "file:internal/api/api.go file:internal/api/middleware.go file:internal/api/wsconn.go"
       ;;
     go-api-limits)
-      echo "file:internal/api/ratelimit.go file:internal/api/proxytrust.go"
+      echo "file:internal/api/ratelimit.go"
+      ;;
+    go-api-proxytrust)
+      echo "file:internal/api/proxytrust.go"
       ;;
     go-api-intake)
       echo "file:internal/api/validate.go file:internal/api/log_redact.go"
@@ -366,11 +369,17 @@ mutation_go_shard_units() {
     go-api-status)
       echo "file:internal/api/handlers_client_errors.go file:internal/api/handlers_health.go file:internal/api/metrics_assemble.go"
       ;;
+    go-api-metrics-grid)
+      echo "file:internal/api/metrics_grid.go"
+      ;;
     go-api-converters)
       echo "file:internal/api/converters.go file:internal/api/converters_incidents.go file:internal/api/converters_rules.go"
       ;;
     go-api-identity)
-      echo "file:internal/api/handlers_auth.go file:internal/api/handlers_users.go file:internal/api/handlers_security_groups.go file:internal/api/handlers_security_group_members.go file:internal/api/handlers_audit.go"
+      echo "file:internal/api/handlers_auth.go"
+      ;;
+    go-api-accounts)
+      echo "file:internal/api/handlers_users.go file:internal/api/handlers_security_groups.go file:internal/api/handlers_security_group_members.go file:internal/api/handlers_audit.go"
       ;;
     go-api-console-session)
       echo "file:internal/api/session_cookie.go file:internal/api/handlers_console_session.go"
@@ -455,21 +464,23 @@ mutation_go_shard_units() {
 # that finish, since a blocked one holds a worker for its whole leash and is counted separately.
 mutation_go_shard_seconds_per_mutant() {
   case "$1" in
-    # The slowest night measured across both: 50 to 67 s per mutant on identical code.
-    go-api-runtime | go-api-limits) echo 67 ;;
-    go-api-intake) echo 42 ;;
-    go-api-status) echo 46 ;;
-    go-api-converters) echo 68 ;;
-    go-api-incidents) echo 63 ;;
+    # The API shards are costed at the slowest of the 27 Oct, 31 Oct and 1 Nov nights: each mutant
+    # waits for its killing test in the package's queue of parallel tests.
+    go-api-runtime) echo 67 ;;
+    go-api-limits | go-api-proxytrust) echo 89 ;;
+    go-api-intake) echo 52 ;;
+    go-api-status | go-api-metrics-grid) echo 87 ;;
+    go-api-converters) echo 87 ;;
+    go-api-incidents) echo 84 ;;
     go-api-rules) echo 67 ;;
-    # The console session runs the identity shard's suite, so it is costed as that shard.
-    go-api-identity | go-api-console-session) echo 57 ;;
-    go-api-tenancy-admin) echo 72 ;;
+    go-api-identity | go-api-accounts) echo 98 ;;
+    go-api-console-session) echo 60 ;;
+    go-api-tenancy-admin) echo 87 ;;
     go-api-enrollment) echo 53 ;;
-    go-api-updates-purge) echo 64 ;;
-    go-api-device-control) echo 69 ;;
-    go-api-device-sessions) echo 66 ;;
-    go-api-device-reads) echo 54 ;;
+    go-api-updates-purge) echo 88 ;;
+    go-api-device-control) echo 83 ;;
+    go-api-device-sessions) echo 76 ;;
+    go-api-device-reads) echo 68 ;;
     go-agentapi-connection) echo 10 ;;
     go-agentapi-handshake) echo 8 ;;
     go-agentapi-edge-telemetry) echo 7 ;;
@@ -485,7 +496,7 @@ mutation_go_shard_seconds_per_mutant() {
     go-protocol-wire | go-relay-signaling) echo 1 ;;
     go-observability-harness) echo 1 ;;
     # Postgres-backed like the API shards: each mutant re-pays a schema migration and full assembly.
-    go-composition-root) echo 5 ;;
+    go-composition-root) echo 6 ;;
     *)
       echo "unknown mutation shard: $1" >&2
       return 1

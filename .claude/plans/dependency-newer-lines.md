@@ -682,6 +682,27 @@ a test gap".
 4. The register's Go entry is edited to what remains (step 2, the survivors), with the numbers of
    the night after commit 2.
 
+## Also in this plan: the Go mutation leg past its cap (Ivan, 2026-11-01)
+
+- Since 10-28 the Go leg has not completed: `go-api-identity` and `go-api-status` run out their 90
+  minutes, `go-api-limits` takes 83. dcb3fd8c made 22 API tests parallel; gremlins runs each mutant
+  with `-failfast`, and a parallel test waits its turn in a queue of about 270. Proved on 4 cores:
+  `metrics_assemble.go:21`'s negation is caught in 13.5–13.8 s with those tests serial and 51.8–64 s
+  parallel (32 s at `-parallel 16`); on the night, status went from 35 s a mutant (10-27) to 85 s
+  (10-31). **Ivan's pick:** split those three shards in two each, sized from the per-mutant times,
+  no change to how tests run. Re-costed from the last three nights: status ~104 min, identity ~101,
+  limits ~70 against the 69-minute budget; `metrics_assemble.go` alone holds ~58 mutants at ~87 s.
+  **Ivan (2026-11-01):** its grid half (the grid, the step, the point cap) moves to
+  `metrics_grid.go`, no change in behaviour, and gets a shard of its own; every API shard's cost is
+  raised to the slowest of those nights where it read higher. **Built (session 13):** six shards in
+  place of three (`go-api-limits`/`-proxytrust`, `-status`/`-metrics-grid`, `-identity`/`-accounts`),
+  sized from the 1 Nov dry run's counts; the console session costed apart from identity.
+- The by-hand run 41284625309 ended two shards on "the runner has received a shutdown signal"
+  (`web-session` at 37 min, `rust-core-session-sending` at 15). Ivan stopped them by hand, most
+  likely, and the line reads the same either way, so the real losses stay one each (10-16, 10-24).
+  **Ivan (2026-11-01):** no re-run of a lost shard; item 5's "only if the runner loss recurs" holds.
+- The split lands in a commit of its own before commit 3, so commit 3's night has a complete Go leg.
+
 ## Also in this plan: two shell-check gaps (Ivan, 2026-11-01)
 
 - The shell-test runner (`run_tests` in [`shell-quality.sh`](../../scripts/shell-quality.sh))

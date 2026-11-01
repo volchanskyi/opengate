@@ -167,10 +167,13 @@ jobs:
           # Postgres-backed API suite.
           - { language: go, shard: go-api-runtime }
           - { language: go, shard: go-api-limits }
+          - { language: go, shard: go-api-proxytrust }
           - { language: go, shard: go-api-intake }
           - { language: go, shard: go-api-status }
+          - { language: go, shard: go-api-metrics-grid }
           - { language: go, shard: go-api-converters }
           - { language: go, shard: go-api-identity }
+          - { language: go, shard: go-api-accounts }
           - { language: go, shard: go-api-console-session }
           - { language: go, shard: go-api-tenancy-admin }
           - { language: go, shard: go-api-device-control }
