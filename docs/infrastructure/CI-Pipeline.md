@@ -400,7 +400,9 @@ Each language's job checks out the anchor commit
 [`benchmarks/baseline.json`](../../benchmarks/baseline.json) names beside tonight's and runs
 the whole suite at the two in turns on its one runner
 ([`benchmark-anchor.sh`](../../scripts/benchmark-anchor.sh)), and records the runner's
-processor model and the time the host took back in its summary. The gauntlet holds every
+processor model and the time the host took back in its summary. A run by hand may name
+another anchor commit through its `anchor` input, which checks unchanged code against itself
+for noise. The gauntlet holds every
 commit's Go allocations to the same baseline at the same processor count, and its Rust
 benchmark names to the baseline's both ways
 ([`benchmark-local-check.sh`](../../scripts/benchmark-local-check.sh)), so an allocation
@@ -476,7 +478,9 @@ beside its reading ([ADR-101](../adr/ADR-101-load-profiles-and-limits.md)).
 A dispatch of [`perf-one-runner.yml`](../../.github/workflows/perf-one-runner.yml)
 runs the scaling family at one processor allowance once per leg, the legs in turn on
 one runner, each leg naming the commit its server is built from and whether the two
-generators share one allowance; it publishes nothing and uploads every leg's bundle.
+generators share one allowance; it publishes nothing and uploads every leg's bundle. One
+harness, built from the dispatched commit, drives every leg's server: each signing request names
+a fresh device number, which a server that picks its own overwrites and an older one copies.
 
 ## Frontend performance
 

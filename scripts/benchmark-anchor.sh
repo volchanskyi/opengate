@@ -5,9 +5,11 @@
 # Usage:
 #   benchmark-anchor.sh rounds go|rust <anchor-tree> <tonight-tree> <out-dir>
 #   benchmark-anchor.sh judge go|rust <out-dir> <baseline.json> <anchor-commit> <tonight-commit>
+#   benchmark-anchor.sh anchor <baseline.json>
 #
 # Environment:
 #   BENCHMARK_ANCHOR_SUMMARY  where the verdict table is appended (default benchmark-anchor.md)
+#   BENCHMARK_ANCHOR          a run by hand's commit to compare with, in place of the baseline's
 #
 # Exit codes:
 #   0  the rounds ran, or no slowdown past the limit
@@ -30,7 +32,7 @@ SUMMARY="${BENCHMARK_ANCHOR_SUMMARY:-benchmark-anchor.md}"
 FENCE='~~~'
 
 usage() {
-  sed -n '5,7p' "${BASH_SOURCE[0]}" | sed 's/^# *//' >&2
+  sed -n '5,8p' "${BASH_SOURCE[0]}" | sed 's/^# *//' >&2
   exit 2
 }
 
@@ -187,6 +189,29 @@ judge() {
   return 0
 }
 
+# anchor prints the commit tonight is compared with: a run by hand's own, else the baseline's.
+anchor() {
+  local baseline="$1" commit
+  [ -f "$baseline" ] || {
+    echo "missing: $baseline" >&2
+    return 2
+  }
+  commit="${BENCHMARK_ANCHOR:-}"
+  if [ -n "$commit" ]; then
+    [[ "$commit" =~ ^[0-9a-f]{7,40}$ ]] || {
+      echo "::error::the anchor given is no commit hash: $commit" >&2
+      return 2
+    }
+  else
+    commit="$(jq -r '.anchor // empty' "$baseline")"
+    [ -n "$commit" ] || {
+      echo "::error::$baseline names no anchor commit to compare tonight with." >&2
+      return 2
+    }
+  fi
+  printf '%s\n' "$commit"
+}
+
 main() {
   case "${1:-}" in
     rounds)
@@ -196,6 +221,10 @@ main() {
     judge)
       [ "$#" -eq 6 ] || usage
       judge "$2" "$3" "$4" "$5" "$6"
+      ;;
+    anchor)
+      [ "$#" -eq 2 ] || usage
+      anchor "$2"
       ;;
     *) usage ;;
   esac

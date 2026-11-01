@@ -271,6 +271,56 @@ else
   fail "a benchstat at another version exits 2 with the install command (rc=$rc: $(cat "$WORK/out"))"
 fi
 
+echo "benchmark-anchor anchor:"
+
+baseline go BenchmarkSteady
+got="$(env -u BENCHMARK_ANCHOR "$ANCHOR" anchor "$WORK/baseline.json" 2>&1)" || true
+assert_eq "the night compares with the anchor the baseline names" "a1" "$got"
+
+COMMIT=23e44072779ae33c988d1ecae1f936210ccfcad7
+got="$(BENCHMARK_ANCHOR="$COMMIT" "$ANCHOR" anchor "$WORK/baseline.json" 2>&1)" || true
+assert_eq "a run by hand compares with the commit it is given" "$COMMIT" "$got"
+
+for value in main --orphan "$COMMIT;id" 123456; do
+  rc=0
+  BENCHMARK_ANCHOR="$value" "$ANCHOR" anchor "$WORK/baseline.json" >"$WORK/out" 2>&1 || rc=$?
+  assert_eq "a given anchor that is no commit hash exits 2 ($value)" "2" "$rc"
+done
+
+jq -n '{version: 1, benchmarks: []}' >"$WORK/no-anchor.json"
+rc=0
+env -u BENCHMARK_ANCHOR "$ANCHOR" anchor "$WORK/no-anchor.json" >"$WORK/out" 2>&1 || rc=$?
+if [ "$rc" -eq 2 ] && grep -qF 'names no anchor' "$WORK/out"; then
+  pass "a baseline naming no anchor exits 2 and says so"
+else
+  fail "a baseline naming no anchor exits 2 and says so (rc=$rc: $(cat "$WORK/out"))"
+fi
+
+# The workflow is read as structure: every step that picks the anchor asks the script, and hands
+# it the dispatch input through its own env.
+WORKFLOW="$SCRIPT_DIR/../../.github/workflows/benchmark.yml"
+got="$(
+  python3 - "$WORKFLOW" <<'PY'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1]))
+dispatch = (doc.get(True) or doc.get("on"))["workflow_dispatch"]["inputs"]
+anchor = dispatch.get("anchor") or {}
+print("input", anchor.get("type"), anchor.get("required"))
+for job in doc["jobs"].values():
+    for step in job.get("steps", []):
+        run = step.get("run", "")
+        if ".anchor" not in run and "benchmark-anchor.sh anchor" not in run:
+            continue
+        env = (step.get("env") or {}).get("BENCHMARK_ANCHOR")
+        asks = "benchmark-anchor.sh anchor benchmarks/baseline.json" in run
+        print("step", step.get("name"), asks, env)
+PY
+)"
+assert_eq "the run by hand takes an optional anchor and both steps ask the script with it" \
+  "input string False
+step Check out the anchor beside tonight's commit True \${{ inputs.anchor }}
+step Judge both languages against the anchor True \${{ inputs.anchor }}" "$got"
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

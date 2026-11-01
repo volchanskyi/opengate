@@ -81,7 +81,9 @@ each benchmark's Criterion mean, compared the same way. A slowdown fails the
 night when benchstat finds it significant and it is past 10%; the machine cancels
 out, since both sides ran on it. The anchor moves only by a commit accepting a
 change, the same commit on both sides is recorded and not judged, and a benchmark
-absent at the anchor is reported until the anchor moves. This is the method Go's
+absent at the anchor is reported until the anchor moves. A run by hand may name
+another anchor, so two commits carrying the same benchmarked code are judged
+against each other, which measures the comparison's own false alarms. This is the method Go's
 own performance dashboard uses, and the relative one continuous-benchmarking
 tools prescribe for shared runners. Comparing only nights on the same processor
 model was weighed and rejected: over 29 Go nights it left 248 of 497 readings

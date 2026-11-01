@@ -94,6 +94,57 @@ func TestEnrollmentRefusesAResponseWithNoCertificate(t *testing.T) {
 	assert.Contains(t, err.Error(), "certificate")
 }
 
+func TestEnrollmentNamesAFreshDeviceInEachRequest(t *testing.T) {
+	var asked []string
+	server := enrollmentServerWithInspect(t, func(raw string) {
+		asked = append(asked, parseRequest(t, raw).Subject.CommonName)
+	})
+
+	for range 2 {
+		_, err := EnrollAgent(context.Background(), EnrollOptions{BaseURL: server.URL, EnrollmentToken: "enroll-token"})
+		require.NoError(t, err)
+	}
+
+	require.Len(t, asked, 2)
+	for _, name := range asked {
+		_, err := uuid.Parse(name)
+		require.NoError(t, err, "the request names a device number, so a server that copies it issues one")
+	}
+	assert.NotEqual(t, asked[0], asked[1])
+}
+
+func TestEnrollmentTakesTheCertificatesDeviceWhenTheReplyNamesNone(t *testing.T) {
+	var asked string
+	server := copyingEnrollmentServer(t, func(name string) string { asked = name; return name })
+
+	issued, err := EnrollAgent(context.Background(), EnrollOptions{BaseURL: server.URL, EnrollmentToken: "enroll-token"})
+	require.NoError(t, err)
+
+	require.NotEmpty(t, asked)
+	assert.Equal(t, asked, issued.DeviceID)
+	assert.Equal(t, asked, issued.Certificate.Leaf.Subject.CommonName)
+}
+
+func TestEnrollmentRefusesACertificateForAnotherDeviceThanAsked(t *testing.T) {
+	server := copyingEnrollmentServer(t, func(string) string { return uuid.NewString() })
+
+	_, err := EnrollAgent(context.Background(), EnrollOptions{BaseURL: server.URL, EnrollmentToken: "enroll-token"})
+	require.ErrorIs(t, err, ErrEnrollmentFailed)
+}
+
+func TestEnrollmentRefusesAReplyNamingADeviceItsCertificateDoesNotCarry(t *testing.T) {
+	authority := newFakeAuthority(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		answer := authority.sign(t, r, nil, func(string) string { return uuid.NewString() })
+		answer["device_id"] = uuid.NewString()
+		_ = json.NewEncoder(w).Encode(answer)
+	}))
+	t.Cleanup(server.Close)
+
+	_, err := EnrollAgent(context.Background(), EnrollOptions{BaseURL: server.URL, EnrollmentToken: "enroll-token"})
+	require.ErrorIs(t, err, ErrEnrollmentFailed)
+}
+
 func TestEnrollmentRefusesAnEmptyToken(t *testing.T) {
 	_, err := EnrollAgent(context.Background(), EnrollOptions{
 		BaseURL: "http://localhost:8080",
@@ -110,10 +161,45 @@ func enrollmentServer(t *testing.T) *httptest.Server {
 
 func enrollmentServerWithInspect(t *testing.T, inspect func(string)) *httptest.Server {
 	t.Helper()
+	authority := newFakeAuthority(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var deviceID string
+		answer := authority.sign(t, r, inspect, func(string) string {
+			// The server chooses the number, as the product does, whatever the request names.
+			deviceID = uuid.NewString()
+			return deviceID
+		})
+		answer["device_id"] = deviceID
+		_ = json.NewEncoder(w).Encode(answer)
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
 
-	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+// copyingEnrollmentServer signs the way a server built before the certificate record does: the
+// certificate carries the name issuedName returns for the request's, and the reply names no device.
+func copyingEnrollmentServer(t *testing.T, issuedName func(asked string) string) *httptest.Server {
+	t.Helper()
+	authority := newFakeAuthority(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(authority.sign(t, r, nil, issuedName))
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+// fakeAuthority is a throwaway certificate authority that signs enrollment requests.
+type fakeAuthority struct {
+	key  *ecdsa.PrivateKey
+	cert *x509.Certificate
+	der  []byte
+}
+
+func newFakeAuthority(t *testing.T) *fakeAuthority {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
-	caTemplate := &x509.Certificate{
+	template := &x509.Certificate{
 		SerialNumber:          big.NewInt(1),
 		Subject:               pkix.Name{CommonName: "loadtest-ca"},
 		NotBefore:             time.Now().Add(-time.Hour),
@@ -122,47 +208,52 @@ func enrollmentServerWithInspect(t *testing.T, inspect func(string)) *httptest.S
 		KeyUsage:              x509.KeyUsageCertSign,
 		BasicConstraintsValid: true,
 	}
-	caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
 	require.NoError(t, err)
-	caCert, err := x509.ParseCertificate(caDER)
+	cert, err := x509.ParseCertificate(der)
 	require.NoError(t, err)
+	return &fakeAuthority{key: key, cert: cert, der: der}
+}
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			CSRPEM string `json:"csr_pem"`
-		}
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
-		if inspect != nil {
-			inspect(req.CSRPEM)
-		}
+// sign answers one enrollment request, handed to inspect when set, with a certificate naming
+// issuedName's answer for the request's own name, in the reply's shape minus its device number.
+func (a *fakeAuthority) sign(
+	t *testing.T, r *http.Request, inspect func(string), issuedName func(asked string) string,
+) map[string]string {
+	t.Helper()
+	var req struct {
+		CSRPEM string `json:"csr_pem"`
+	}
+	require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+	if inspect != nil {
+		inspect(req.CSRPEM)
+	}
+	csr := parseRequest(t, req.CSRPEM)
 
-		block, _ := pem.Decode([]byte(req.CSRPEM))
-		require.NotNil(t, block)
-		csr, err := x509.ParseCertificateRequest(block.Bytes)
-		require.NoError(t, err)
-		require.NoError(t, csr.CheckSignature())
+	leaf := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject:      pkix.Name{CommonName: issuedName(csr.Subject.CommonName)},
+		NotBefore:    time.Now().Add(-time.Minute),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+	leafDER, err := x509.CreateCertificate(rand.Reader, leaf, a.cert, csr.PublicKey, a.key)
+	require.NoError(t, err)
+	return map[string]string{
+		"cert_pem":      string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leafDER})),
+		"ca_pem":        string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: a.der})),
+		"server_addr":   "opengate-staging-server:9090",
+		"server_domain": "opengate-staging-server",
+	}
+}
 
-		// The server chooses the number, as the product does, whatever the request names.
-		deviceID := uuid.NewString()
-		leaf := &x509.Certificate{
-			SerialNumber: big.NewInt(2),
-			Subject:      pkix.Name{CommonName: deviceID},
-			NotBefore:    time.Now().Add(-time.Minute),
-			NotAfter:     time.Now().Add(time.Hour),
-			KeyUsage:     x509.KeyUsageDigitalSignature,
-			ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-		}
-		leafDER, err := x509.CreateCertificate(rand.Reader, leaf, caCert, csr.PublicKey, caKey)
-		require.NoError(t, err)
-
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"cert_pem":      string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leafDER})),
-			"ca_pem":        string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})),
-			"server_addr":   "opengate-staging-server:9090",
-			"server_domain": "opengate-staging-server",
-			"device_id":     deviceID,
-		})
-	}))
-	t.Cleanup(server.Close)
-	return server
+func parseRequest(t *testing.T, csrPEM string) *x509.CertificateRequest {
+	t.Helper()
+	block, _ := pem.Decode([]byte(csrPEM))
+	require.NotNil(t, block)
+	csr, err := x509.ParseCertificateRequest(block.Bytes)
+	require.NoError(t, err)
+	require.NoError(t, csr.CheckSignature())
+	return csr
 }

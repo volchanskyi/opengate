@@ -10,6 +10,11 @@ on:
         required: false
         default: false
         type: boolean
+      anchor:
+        description: 'A commit to compare with in place of the baseline anchor, for a noise check'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -43,13 +48,11 @@ jobs:
       - uses: ./.github/actions/setup-pinned-tools
 
       - name: Check out the anchor beside tonight's commit
+        env:
+          BENCHMARK_ANCHOR: ${{ inputs.anchor }}
         run: |
           set -euo pipefail
-          ANCHOR="$(jq -r '.anchor // empty' benchmarks/baseline.json)"
-          if [ -z "$ANCHOR" ]; then
-            echo "::error::benchmarks/baseline.json names no anchor commit to compare tonight with." >&2
-            exit 1
-          fi
+          ANCHOR="$(scripts/benchmark-anchor.sh anchor benchmarks/baseline.json)"
           git worktree add --detach "$RUNNER_TEMP/anchor" "$ANCHOR"
 
       # Read beside the comparison, so a noisy night says what the machine was doing.
@@ -337,9 +340,11 @@ jobs:
 
       - name: Judge both languages against the anchor
         id: judge
+        env:
+          BENCHMARK_ANCHOR: ${{ inputs.anchor }}
         run: |
           set -euo pipefail
-          ANCHOR="$(jq -r '.anchor // empty' benchmarks/baseline.json)"
+          ANCHOR="$(scripts/benchmark-anchor.sh anchor benchmarks/baseline.json)"
           worst=0
           for lang in go rust; do
             set +e
