@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -15,6 +16,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // EnrollOptions is one enrollment.
@@ -30,7 +33,7 @@ type EnrollOptions struct {
 }
 
 // IssuedCertificate is what an enrolled machine holds: its signed certificate and private key,
-// the device number the server chose, and the authority to verify the server with.
+// the device number that certificate carries, and the authority to verify the server with.
 type IssuedCertificate struct {
 	Certificate tls.Certificate
 	DeviceID    string
@@ -51,7 +54,8 @@ func EnrollAgent(ctx context.Context, opts EnrollOptions) (*IssuedCertificate, e
 		return nil, errors.New("enrollment needs a token; mint one through the admin API before the run")
 	}
 
-	key, csrPEM, err := signingRequest(opts)
+	asked := uuid.NewString()
+	key, csrPEM, err := signingRequest(opts, asked)
 	if err != nil {
 		return nil, err
 	}
@@ -68,15 +72,32 @@ func EnrollAgent(ctx context.Context, opts EnrollOptions) (*IssuedCertificate, e
 	if err != nil {
 		return nil, fmt.Errorf("enrollment returned a certificate that does not match the key sent for it: %w", err)
 	}
-	if cert.Leaf == nil || cert.Leaf.Subject.CommonName != response.DeviceID {
-		return nil, fmt.Errorf("%w: the reply names device %q but its certificate carries another", ErrEnrollmentFailed, response.DeviceID)
+	deviceID, err := issuedDevice(cert.Leaf, response.DeviceID, asked)
+	if err != nil {
+		return nil, err
 	}
 	return &IssuedCertificate{
 		Certificate: cert,
-		DeviceID:    response.DeviceID,
+		DeviceID:    deviceID,
 		CAPEM:       response.CAPEM,
 		ServerAddr:  response.ServerAddr,
 	}, nil
+}
+
+// issuedDevice is the device number the certificate carries. A reply naming one must match it; one
+// naming none comes from a server that copies the request's name, so it must be the one asked.
+func issuedDevice(leaf *x509.Certificate, answered, asked string) (string, error) {
+	if leaf == nil {
+		return "", fmt.Errorf("%w: the reply carries no certificate to read", ErrEnrollmentFailed)
+	}
+	carried := leaf.Subject.CommonName
+	if answered != "" && carried != answered {
+		return "", fmt.Errorf("%w: the reply names device %q but its certificate carries another", ErrEnrollmentFailed, answered)
+	}
+	if answered == "" && carried != asked {
+		return "", fmt.Errorf("%w: the certificate carries device %q, not the %q asked for", ErrEnrollmentFailed, carried, asked)
+	}
+	return carried, nil
 }
 
 // enrollResponse is the shape the endpoint answers with.
@@ -88,15 +109,15 @@ type enrollResponse struct {
 }
 
 // signingRequest builds a fresh key and the request that asks for it to be
-// signed. The key stays here.
-func signingRequest(opts EnrollOptions) (*ecdsa.PrivateKey, []byte, error) {
+// signed under deviceID. The key stays here.
+func signingRequest(opts EnrollOptions, deviceID string) (*ecdsa.PrivateKey, []byte, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generate agent key: %w", err)
 	}
 
-	// The server chooses the device number, so the request names none.
-	template := &x509.CertificateRequest{}
+	// A server that chooses the device number overwrites this one; one that copies it keeps it.
+	template := &x509.CertificateRequest{Subject: pkix.Name{CommonName: deviceID}}
 	if opts.Hostname != "" {
 		template.DNSNames = []string{opts.Hostname}
 	}

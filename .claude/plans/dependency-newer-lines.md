@@ -1,63 +1,10 @@
-# Dependency holes only a newer minor or major fixes
+# Five red nightlies, the staging-drill fix and the CI/CD rule split
 
-Ivan's decision (2026-10-23): the advisories the dependency check lists as fixed only in a newer
-minor or major release are gathered here, grouped by dependency, instead of being raised one at a
-time. They never fail the check. Nothing below moves without Ivan's explicit approval of that one
-move ([`tool-versions.md`](../rules/tool-versions.md)): each row is a question to bring to him, with
-what the move changes and what it risks, researched before it is asked.
-
-Measured by the full check on 2026-10-23 (458 advisories), after every patch move was taken. A fresh
-list comes from `python3 scripts/dependency-fixes`, under "fixed only in a newer minor or major".
-
-"Major" follows the rule's definition: the first non-zero number changes, so `0.72` → `0.76` is one.
-
-## What customers' traffic runs through
-
-| Dependency | In use | Release that drops the holes | Move | Holes | Examples | Declared in |
-|---|---|---|---|---|---|---|
-| alpine (the server image's base) | 3.20, read at its newest build | 3.24 | minor | 2 | CVE-2026-107891 | `Dockerfile` |
-| grafana/grafana | 11.6.16 | 13.2.4 | major | 125 | CVE-2025-64751 | `deploy/helm/monitoring/values.yaml` |
-| victoriametrics/victoria-metrics | v1.114.0 | v1.154.1 | minor | 126 | CVE-2024-58251 | monitoring values, compose files, CI, Makefile, `testvm.go`, `test-go.sh` |
-| grafana/loki | 3.5.12 | 3.7.9 | minor | 81 | CVE-2026-111943 | monitoring values |
-| prom/node-exporter | v1.9.1 | v1.12.1 | minor | 74 | CVE-2025-0913 | monitoring values |
-| curlimages/curl | 8.11.1 | 8.23.0 | minor | 64 | CVE-2024-12797 | `deploy/helm/opengate/values.yaml`, `network-drill.yml`, `vm-push.sh`, `vm-query.sh` |
-| cert-manager (chart, program and its four images) | v1.20.5 | v1.21.3 | minor | 88 | GHSA-8wmf-6v46-5gfg, GO-2026-6354, CVE-2026-111943 | `TOOL_VERSION_CERT_MANAGER_CHART` |
-| grafana/promtail | 3.5.12 | 3.6.11 | minor | 19 | CVE-2026-21726 | monitoring values |
-
-## What builds, tests and deploys the product
-
-| Dependency | In use | Release that drops the holes | Move | Holes | Examples |
-|---|---|---|---|---|---|
-| node (the server image's web build stage; found 2026-10-27) | 24-alpine, read at its newest build | 25-alpine | major | 6 | CVE-2026-101910 |
-| Playwright browser image | v1.63.0-noble | v1.64.1-noble (follows `@playwright/test` in the web lockfile) | minor | 130 | CVE-2024-2236 |
-| Terraform CLI | 1.9.8 | v1.17.0 | minor | 71 | GHSA-65xw-vw82-r86x, GHSA-xmrv-pmrh-hhx2 |
-| Helm | 3.20.2 | v3.22.1 | minor | 69 | GHSA-7jxh-36q5-gcqv, GHSA-fqw6-gf59-qr4w |
-| conftest | 0.55.0 | v0.71.1 | major | 64 | GHSA-92mm-2pjq-r785, GHSA-wjrx-6529-hcj3 |
-| sonar-scanner-cli image | 12.2.0.4256_8.1.0 | 12.3.0.4285_8.1.0 | minor | 51 | CVE-2025-8869 |
-| Trivy | 0.72.0 | v0.76.1 | major | 48 | GHSA-p7v4-vr35-mj6f, GHSA-pg57-6jwg-q645 |
-| k6 | v1.6.1 | v1.8.2 | minor | 47 | GHSA-mh2q-q3fh-2475, GHSA-w8rr-5gcm-pp58 |
-| Terraform provider oracle/oci | 6.37.0 | 9.11.0 | major | 42 | GHSA-2x5j-vhc8-9cwm, GHSA-q9hv-hpm4-hj6x |
-| jq | 1.7.1 | 1.8.2 | minor | 29 | CVE-2024-23337, CVE-2025-48060 |
-| pmat | 3.17.0 | 3.42.0 | minor | 21 | RUSTSEC-2026-0190, RUSTSEC-2026-0204 |
-| tflint | 0.64.0 | v0.65.0 | major | 17 | GO-2026-6303 |
-| semgrep (what its environment holds) | 1.108.0 | a newer semgrep that admits setuptools 84.1.0, urllib3 2.8.0, protobuf 5.29.6, certifi 2026.10.19, opentelemetry-api 1.45.1 | to research | 11 | GHSA-6q48-6c7w-9gw2, GHSA-xcq7-p3pf-p88h |
-| cargo-deny | 0.19.6 | 0.20.2 | major | 3 | RUSTSEC-2026-0186 |
-| cargo-modules | 0.26.0 | 0.28.0 | major | 3 | RUSTSEC-2026-0308 |
-| oapi-codegen | 2.7.2 | v2.8.1 | minor | 3 | GHSA-mmfr-pmjx-hw9w, GO-2026-5970 |
-| cargo-llvm-cov | 0.8.5 | 0.9.1 | major | 2 | GHSA-3pv8-6f4r-ffg2 |
-| gitleaks | 8.21.4 | v8.30.1 | minor | 2 | GHSA-hcg3-q754-cr77 |
-| Lighthouse CI | 0.14.0 | 0.15.1 | major | 1 | GHSA-pxg6-pf52-xh8x |
-| oci-cli (what its environment holds) | 3.94.1 | a newer oci-cli that admits certifi 2026.10.19 | to research | 1 | GHSA-6q48-6c7w-9gw2 |
-| shfmt | 3.13.1 | v3.14.1 | minor | 1 | GO-2026-5024 |
-
-## How to work it
-
-1. Order by what customers' traffic runs through first, then by holes per move.
-2. For each row: read the advisories, the release notes between the two versions, and how
-   comparable products took the same move; then bring Ivan one question with options (take it,
-   keep the version in use), saying what changes and what it risks, with an RMM example.
-3. A move Ivan approves rides in the next commit of [Commits](#commits-ivan-2026-10-25), at the
-   latest commit 3; every row is asked before commit 3. The check then shows the row gone.
+This plan began with the dependency holes only a newer minor or major fixes (Ivan, 2026-10-23); those
+moves now live in [`dependency-version-upgrades.md`](dependency-version-upgrades.md), which lands
+after commit 3 below (Ivan, 2026-11-01). What stays here: the staging-drill fix and the CI/CD rule
+split (commit 1), the five nightly workflows, the Go mutants the survey skips, the two shell-check
+gaps, and the commits that carry them.
 
 ## Also in this plan: staging drills skipped ahead of production
 
@@ -480,12 +427,13 @@ Options:
   slower than offered a reading judged by the spike's limits, and a generator that fell behind its
   own schedule invalidates the run in place of the 80% floor. Today the spike reached 85% of
   offered arrivals on EPYC 7763, five points above the floor, so server-limited nights would keep
-  going red as "not measured". The 78% was technician arrivals (`AchievedFraction` reads them
-  first when a phase offers them), and the spike profile gates only the machines' side (error
-  rate, connect time), so the split needs a technician judge (Ivan, 2026-10-25): commit 2 records
-  the share of technician arrivals the server completed and their 95th-percentile time in the
-  spike, watched; commit 3 gates whichever the watched nights bracket, with values from those
-  nights.
+  going red as "not measured". The 78% was the machines' arrival share: nothing writes the
+  technicians' achieved rate, so `AchievedFraction` reads machines. Commit 2 records the share of
+  technician arrivals the server completed and their 95th-percentile time in the spike, watched.
+  Ivan (2026-11-01): commit 3 judges the machines' side — a machine generator behind its own
+  schedule voids the run; otherwise the machines' arrival share is a reading held to a spike limit
+  set from the watched nights, beside the error-rate and connect-time limits. The technician
+  readings stay watched, and the never-written technician field and its branch go.
 - **Item 5:** options 1 (tests for the survivors, after checking that the mutation run drives the
   agent's separate-process tests against the mutated build; the survivors in `session-channel.ts`
   and `direct/handoff.ts` are counted again and tested after item 1's per-channel rewrite, which
@@ -588,7 +536,8 @@ Options:
   there whatever the agent's scheduler does (derived, not measured; nothing runs below 10 Mbit/s).
   Chrome's SCTP lets its window fall to 4 packets. The speed spec gains typing echo with a
   download at 2 Mbit/s and 40 ms on both paths, marked "read", in commit 2; the numbers go to Ivan
-  before the floor or the 64 KiB cushion changes.
+  before the floor or the 64 KiB cushion changes. Read (session 10, local rig): Direct 896 ms,
+  through the server 919 ms at the 95th percentile. Ivan (2026-11-01): both stay as they are.
 - **Item 1, older agents:** the agent states whether it accepts the separate channels; when it does
   not, the browser keeps everything on the one shared channel, as today (the way Chrome Remote
   Desktop lists capabilities on both sides and kept a fallback until every host had updated). The
@@ -646,6 +595,10 @@ Options:
   (`pacing_bench.rs`) (Ivan, 2026-10-26, after the second outside review). Commit 2 keeps those
   names and measures the same work under them, since a renamed benchmark is absent at the anchor
   and goes unjudged. Commit 2 against itself runs once by hand as a noise check, not as the anchor.
+  How (Ivan, 2026-11-01): `benchmark.yml` gains an optional `anchor` input for a run by hand,
+  reaching the script through the step's `env:` as a value; test first in the workflow sweeps. It
+  rides the harness commit, then one run compares `main` with itself on one runner. A benchmark it
+  reads as a significant slowdown past 10% is a false alarm and goes to Ivan before commit 3.
 - **Item 1, the patched `rtc-sctp`:** a copy under Ivan's GitHub account (`volchanskyi/rtc`), used
   through Cargo's `[patch.crates-io]` and pinned by commit, removed once released. In the same
   change: `agent/deny.toml` allows that one git source, and the dependency check, whose crate
@@ -663,14 +616,26 @@ Options:
   reaches the agent as a 0.21 patch. The scheduler touches the send queue that #253 and #259
   rewrote and open #279 changes, so it stands apart from the loss fix. Ivan sees each text before
   it is sent.
-- **Item 4:** after the one-runner measurement, the numbers go to Ivan before 3a or 3b is touched,
-  whichever change they point at.
+- **Item 4, one harness for both servers** (Ivan, 2026-11-01): the first dispatch (41284299818)
+  connected 0 of 2000 on c09372bf's leg, and legs 2–3 never ran. The harness built from `main`
+  sends a signing request naming no device, since today's server picks it; c09372bf's server copies
+  the request's name into the certificate (`cert_sign.go`), answers with no `device_id`, and its
+  handshake refuses the empty device. Fix: the request names a fresh device number, today's server
+  overwrites it (`IssueDevice`), and a reply naming no device takes the certificate's, which must be
+  the one asked for; a reply naming one keeps today's check. Test first in `enroll_test.go`: a fake
+  server of each kind. Then the dispatch again with the default legs.
+- **Item 4, the rule that picks the fix** (Ivan, 2026-11-01), so no question waits on the numbers:
+  count machines cut off when the walk ended plus enrolments that gave up (4–20 a night before
+  2026-10-22). Leg 2 worse than leg 1 by more than 20 → 3a (cheaper certificate record); leg 3
+  better than leg 2 by more than 20 → 3b (an allowance per generator again); both → both; neither →
+  no fix, and the plan and ADR-101 record that the drop is the runner's. The numbers and the pick
+  are written into the plan and ADR-101 in commit 3.
 - **Item 5, floors:** each language's bar is the higher of 85% and its committed floor; the floor
   sits 0.5 point under its score (on unchanged code a score moved at most 0.2 points a night over
   24 runs) and is first set from the night after that language's survivor tests land.
 - **Item 3:** the repo-score floor is exactly 64.0 (the score read 64.0 on 20 nights over six
-  commits). The alert names the branch it graded, `main`, in the same change. If Ivan approves the
-  pmat move, the floor follows the new version's reading of the same tree, set in that commit.
+  commits). The alert names the branch it graded, `main`, in the same change. pmat's move, and the
+  floor following its reading, live in [`dependency-version-upgrades.md`](dependency-version-upgrades.md).
 
 ## Also in this plan: the Go mutants the survey skips (low-hanging techdebt)
 
@@ -716,6 +681,19 @@ a test gap".
    `0.6.1-0.20261029003107-e308edc98a35`; both commits Ivan's, made by hand (Ivan, 2026-10-28).
 4. The register's Go entry is edited to what remains (step 2, the survivors), with the numbers of
    the night after commit 2.
+
+## Also in this plan: two shell-check gaps (Ivan, 2026-11-01)
+
+- The shell-test runner (`run_tests` in [`shell-quality.sh`](../../scripts/shell-quality.sh))
+  holds each test to the CI step files only; a test that writes into the repository passes
+  (`mutation-workflow.test.sh` left `mutation-floors-candidate.json` in the root, session 11).
+  Fix: the runner reads the repository's state before and after each test and fails a test that
+  changed it, naming the path — the dirty-tree check Kubernetes' and Go's verify scripts make.
+- The checker's full mode (`tracked_scripts`) lists a tracked script deleted from disk but not yet
+  staged, and `bash -n` then fails on the missing file. Fix: skip a listed path missing from disk,
+  as `run_tests` and the changed mode already do.
+- Test first, in a shell test of the runner and the checker: a fake test writing a file into a
+  scratch repository fails naming it; a deleted unstaged script is skipped.
 
 ## Commits (Ivan, 2026-10-25)
 
@@ -847,22 +825,33 @@ As few as the waits allow, whatever their size.
      meters for the B+ grade, and the module-graph snapshot carrying `share`.
    - **Found:** the spike's 78% (run 40192556668) was the machines' arrival share (38.7 of 49.4 a
      second); nothing writes `achieved_operator_arrivals_per_second`, so `AchievedFraction` always
-     reads machines. Commit 3's technician-judge reasoning rests on the opposite; bring it to Ivan
-     before commit 3.
+     reads machines. Ivan (2026-11-01): commit 3 judges the machines' side (below).
    - **Left for commit 2:** the library investigation; item 4's technician readings in the spike
      (completed share and 95th-percentile time, from the k6 exports, in new watched fields so no
      verdict changes) and the one-runner measurement's inputs; item 2 whole; item 5 whole; the
      upload reading moved to [`file-uploads.md`](file-uploads.md) (Ivan, 2026-10-29).
 3. **Commit 3, after a night of commit 2:**
    - the committed mutation floors, 0.5 point under each language's score that night;
-   - item 4's fix, as Ivan chooses from the numbers the one-runner measurement brings back, and
-     the spike's verdict split (a server's shortfall judged by the technician gate the watched
-     nights bracket, a lagging generator invalid);
-   - the remaining approved dependency moves;
+   - item 4's fix, as the rule above picks from the numbers the one-runner measurement brings back, and
+     the spike's verdict split (the machines' arrival share held to a limit from the watched
+     nights, a lagging machine generator invalid, the unwritten technician branch removed);
+   - the two shell-check gaps;
+   - the register's Go entry edited to what remains (step 4 of the Go mutants fix), with that
+     night's numbers;
    - a Low register entry for the patched copies of `rtc-sctp` and gremlins, triggered by each
      maintainer release that carries the fix (Ivan approved the entry, 2026-10-25);
    - this plan's deletion and its `phases.md` row.
 
-Between commits 2 and 3: the 2 Mbit/s echo numbers go to Ivan, the one-runner measurement is dispatched, the four pull requests (three to
-`webrtc-rs/rtc`, one to `go-gremlins/gremlins`) go to the maintainers once Ivan has read them, and the dependency rows are brought to Ivan one at a time, the
-rows customers' traffic runs through first.
+Between commits 2 and 3: the harness that takes both servers lands in a commit of its own, with
+the benchmark workflow's `anchor` input beside it, since the measurement it enables decides item
+4's fix in commit 3; the one-runner measurement is then dispatched again, and the benchmark noise
+check run once with `main` on both sides. **Built (session 13, 2026-11-01):** each signing request
+names a fresh device number and a reply naming none takes the certificate's, which must be the one
+asked (`enroll_test.go`, a fake of each server); `benchmark-anchor.sh anchor` picks the dispatch's
+`anchor` (a commit hash only) over the baseline's, called by both workflow steps. The noise check
+names `3343f64e` (commit 2's code) as its anchor, so the harness commit on `main`, carrying the
+same benchmarked code, is judged against it: a run with one commit on both sides is recorded, not
+judged. The four pull requests are open (`webrtc-rs/rtc` #301–303,
+`go-gremlins/gremlins` #325). #325 took `tc := tc` in its test, the repository's own form (Ivan,
+2026-11-01): built in a clone of the branch, upstream's lint (v2.15.0, nothing new), `make cover`
+and gremlins v0.6.0's self-run passed, and Ivan pushed it by hand as `fd809ef`; DeepSource passes.
