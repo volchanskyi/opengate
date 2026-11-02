@@ -532,7 +532,9 @@ The browser speed specs — typing echo and download rate over the stack's shape
 routers, and the page's memory through a long download — run nightly and on
 dispatch in [`e2e-performance.yml`](../../.github/workflows/e2e-performance.yml),
 in Chromium alone, and alert when the run does not pass. Each spec records its
-readings beside their limits, and
+readings beside their limits; each download over Direct also records the
+processor its agent's container and its browser used while the rate was read,
+so a slow night says which side was busy. And
 [`e2e-summarize.sh`](../../scripts/e2e-summarize.sh) writes them into the run's
 summary from Playwright's JSON report; the cross-browser nightly writes its
 per-browser counts, failures and retries the same way.

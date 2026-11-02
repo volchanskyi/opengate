@@ -4,7 +4,7 @@ import { openFolder, openWithWorker, savedChecksum, sourceFile, startDownload } 
 import { enrolledMachine, MACHINE_A, MACHINE_B } from "./helpers/enrolled-machine";
 import { recordMeasurement } from "./helpers/measurement";
 import { endHostSession, msUntilPath, noteRelayOpen, openSessionTab, sessionPath } from "./helpers/session-tab";
-import { echoTimes, onMachine, percentile, resetRouters, router, sentThrough, watchEcho } from "./helpers/stack";
+import { echoTimes, onMachine, percentile, processorUse, resetRouters, router, sentThrough, watchEcho } from "./helpers/stack";
 
 // The budgets R5 promises, measured on the stack: the office router holds agent-a's line to a rate
 // and a 40 ms round trip, and a 120 000-entry folder pages in while a download runs.
@@ -81,6 +81,13 @@ async function overWindow(tab: Page, seconds: number): Promise<{ seconds: number
   );
 }
 
+/** Records under `prefix` the processor the agent and the browser used while the rate was read. */
+function recordProcessor(prefix: string, { agent, browser }: { agent: number; browser: number }): void {
+  console.log(`${prefix}: agent ${agent.toFixed(2)} cores, browser ${browser.toFixed(2)} cores`);
+  recordMeasurement(`${prefix}, the agent's processor`, "read", `${agent.toFixed(2)} cores`, true);
+  recordMeasurement(`${prefix}, the browser's processor`, "read", `${browser.toFixed(2)} cores`, true);
+}
+
 /** The running download's share received, from the transfers strip, between 0 and 1. */
 async function progressOf(tab: Page): Promise<number> {
   const bar = tab.getByRole("progressbar", { name: /^Downloading /, includeHidden: true });
@@ -132,7 +139,9 @@ test.describe("Performance", () => {
 
         // The rate is the line's: read in the page from here until it holds every piece, before the
         // browser's own saving of the file, which the line does not carry.
+        const used = path === "Direct" ? processorUse(MACHINE_A) : null;
         const { seconds, share } = await untilDownloaded(tab);
+        const processor = used?.();
         const checksum = await savedChecksum(saved);
         const mbits = ((1 - share) * mib * 8 * 1.048576) / seconds;
         const p95 = percentile(times, 0.95);
@@ -148,6 +157,7 @@ test.describe("Performance", () => {
           lineShare >= RATE_FLOOR,
         );
         recordMeasurement("download, time the rate is read over", `≥ ${RATE_WINDOW_S} s`, `${seconds.toFixed(1)} s`, seconds >= RATE_WINDOW_S);
+        if (processor) recordProcessor("download", processor);
         expect(p95, `echo times ${times.map(Math.round).join(" ")}`).toBeLessThanOrEqual(budget);
         expect(checksum).toBe(source);
         expect(seconds, "the rate's window").toBeGreaterThanOrEqual(RATE_WINDOW_S);
@@ -178,9 +188,11 @@ test.describe("Performance", () => {
         const held = pct <= REORDER_HELD_PCT;
         // A share only read is read over the fixed window and the download then stopped, so a slow
         // line measures in about a minute.
+        const used = processorUse(MACHINE_A);
         const { seconds, from, to } = held
           ? await untilDownloaded(tab).then(({ seconds, share }) => ({ seconds, from: share, to: 1 }))
           : await overWindow(tab, RATE_WINDOW_S);
+        const processor = used();
         const sentBytes = sentThrough("office");
         const checksum = held ? await savedChecksum(saved) : null;
         if (!held) await tab.close();
@@ -205,6 +217,7 @@ test.describe("Performance", () => {
           `${(beyond * 100).toFixed(1)}%`,
           true,
         );
+        recordProcessor(`download over Direct at ${mbit} Mbit/s, ${pct}% reordered`, processor);
         if (held) {
           expect(checksum).toBe(source);
           expect(lineShare, `${mbits.toFixed(1)} Mbit/s over ${seconds.toFixed(1)} s`).toBeGreaterThanOrEqual(

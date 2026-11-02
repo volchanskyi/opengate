@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use bytes::BytesMut;
 use mesh_protocol::direct::{CandidateFilter, Channel, Layout, LeaveReason, MAX_PIECE};
 use rtc::peer_connection::configuration::setting_engine::SctpMaxMessageSize;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Notify};
 use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 use webrtc::data_channel::{DataChannel, DataChannelEvent, RTCDataChannelState};
@@ -37,7 +37,8 @@ pub const CHANNEL_LABELS: [&str; 3] = ["typing", "screen", "files"];
 /// reorders under load lets a packet fall behind more than RFC 6347's default 64.
 const DTLS_REPLAY_WINDOW: usize = 256;
 
-/// How often the writer re-reads the channel's outstanding bytes while it waits at the limit.
+/// The longest the writer waits at the limit for a channel's low signal before it reads the
+/// channel's outstanding bytes again; the signal is edge-triggered, so one crossed early is missed.
 const LIMIT_POLL: Duration = Duration::from_millis(2);
 
 /// What the session core asks of the link.
@@ -271,6 +272,8 @@ async fn run(
     };
 
     let limit = Arc::new(Mutex::new(SendLimit::new(Instant::now())));
+    // Every channel's low signal wakes the one writer that holds them under the limit.
+    let wake = Arc::new(Notify::new());
     let mut filter = CandidateFilter::new();
     let mut remote_set = false;
     let mut early: Vec<RTCIceCandidateInit> = Vec::new();
@@ -335,12 +338,13 @@ async fn run(
                     Channel::ALL[slot],
                     events.clone(),
                     opened_tx.clone(),
+                    wake.clone(),
                 )));
-                start_writers(&channels, &mut readers, &limit, &events, &mut tasks).await;
+                start_writers(&channels, &mut readers, (&limit, &wake), &events, &mut tasks).await;
             }
             Some(slot) = opened_rx.recv() => {
                 channels.open[slot] = true;
-                start_writers(&channels, &mut readers, &limit, &events, &mut tasks).await;
+                start_writers(&channels, &mut readers, (&limit, &wake), &events, &mut tasks).await;
             }
             _ = stats.tick() => {
                 let check = latest_check(&pc).await;
@@ -417,7 +421,7 @@ fn new_check(answered: &mut Option<u64>, (count, rtt): (u64, Duration)) -> Optio
 async fn start_writers(
     channels: &Channels,
     readers: &mut Option<[OutletReader; 3]>,
-    limit: &Arc<Mutex<SendLimit>>,
+    (limit, wake): (&Arc<Mutex<SendLimit>>, &Arc<Notify>),
     events: &mpsc::Sender<LinkEvent>,
     tasks: &mut Vec<JoinHandle<()>>,
 ) {
@@ -433,30 +437,36 @@ async fn start_writers(
             tasks.push(tokio::spawn(write_separate(
                 [t, s, f],
                 [typing, screen, files],
-                limit.clone(),
+                (limit.clone(), wake.clone()),
                 events.clone(),
             )));
         }
         _ => tasks.push(tokio::spawn(write(
             t,
             typing,
-            limit.clone(),
+            (limit.clone(), wake.clone()),
             events.clone(),
         ))),
     }
 }
 
-/// Turns one channel's events into link events until it closes; its opening goes to `opened`.
+/// Turns one channel's events into link events until it closes; its opening goes to `opened`,
+/// and its low signal wakes the writer.
 async fn pump(
     channel: Arc<dyn DataChannel>,
     which: Channel,
     events: mpsc::Sender<LinkEvent>,
     opened: mpsc::Sender<usize>,
+    wake: Arc<Notify>,
 ) {
     while let Some(event) = channel.poll().await {
         let event = match event {
             DataChannelEvent::OnOpen => {
                 opened.send(which.index()).await.ok();
+                continue;
+            }
+            DataChannelEvent::OnBufferedAmountLow => {
+                wake.notify_one();
                 continue;
             }
             DataChannelEvent::OnMessage(message) => LinkEvent::Piece {
@@ -478,38 +488,114 @@ async fn pump(
 async fn write(
     channel: Arc<dyn DataChannel>,
     mut reader: OutletReader,
-    limit: Arc<Mutex<SendLimit>>,
+    (limit, wake): (Arc<Mutex<SendLimit>>, Arc<Notify>),
     events: mpsc::Sender<LinkEvent>,
 ) {
+    let mut releases = Releases::default();
     while let Some(piece) = reader.next().await {
         loop {
             let allowed = limit.lock().map_or(pacing::FLOOR, |l| l.current());
-            match channel.outstanding_bytes().await {
-                Ok(0) => break,
-                Ok(out) if out + piece.len() <= allowed => break,
-                Ok(_) => {
-                    tokio::time::sleep(LIMIT_POLL).await;
-                    if let Ok(mut limit) = limit.lock() {
-                        limit.blocked(LIMIT_POLL);
-                    }
-                }
-                Err(_) => {
-                    events
-                        .send(LinkEvent::Lost(LeaveReason::ChannelError))
-                        .await
-                        .ok();
-                    return;
-                }
+            let Ok(out) = outstanding([&channel], &mut releases, &limit).await else {
+                channel_lost(&events).await;
+                return;
+            };
+            if out[0] == 0 || out[0] + piece.len() <= allowed {
+                break;
+            }
+            let thresholds = drain_to(out, piece.len(), allowed);
+            if wait_for_release([&channel], thresholds, &wake, &limit)
+                .await
+                .is_err()
+            {
+                channel_lost(&events).await;
+                return;
             }
         }
         if channel.send(BytesMut::from(&piece[..])).await.is_err() {
-            events
-                .send(LinkEvent::Lost(LeaveReason::ChannelError))
-                .await
-                .ok();
+            channel_lost(&events).await;
             return;
         }
+        releases.sent(piece.len());
         reader.written();
+    }
+}
+
+/// Tells the link a channel failed under its writer.
+async fn channel_lost(events: &mpsc::Sender<LinkEvent>) {
+    events
+        .send(LinkEvent::Lost(LeaveReason::ChannelError))
+        .await
+        .ok();
+}
+
+/// Every channel's outstanding bytes, each release since the last reading handed to the limit.
+async fn outstanding<const N: usize>(
+    channels: [&Arc<dyn DataChannel>; N],
+    releases: &mut Releases,
+    limit: &Mutex<SendLimit>,
+) -> Result<[usize; N], webrtc::error::Error> {
+    let mut each = [0; N];
+    for (bytes, channel) in each.iter_mut().zip(channels) {
+        *bytes = channel.outstanding_bytes().await?;
+    }
+    if let Some(released) = releases.observe(each.iter().sum()) {
+        if let Ok(mut limit) = limit.lock() {
+            limit.released(released, Instant::now());
+        }
+    }
+    Ok(each)
+}
+
+/// Sets each busy channel's low signal to the level it must drain to, then waits for a signal or
+/// [`LIMIT_POLL`], counting the wait as time held at the limit.
+async fn wait_for_release<const N: usize>(
+    channels: [&Arc<dyn DataChannel>; N],
+    thresholds: [Option<usize>; N],
+    wake: &Notify,
+    limit: &Mutex<SendLimit>,
+) -> Result<(), webrtc::error::Error> {
+    for (channel, threshold) in channels.into_iter().zip(thresholds) {
+        if let Some(threshold) = threshold {
+            let threshold = u32::try_from(threshold).unwrap_or(u32::MAX);
+            channel.set_buffered_amount_low_threshold(threshold).await?;
+        }
+    }
+    let started = Instant::now();
+    // A release before the signal was set arrives as a stored wake or ends at the backstop.
+    tokio::time::timeout(LIMIT_POLL, wake.notified()).await.ok();
+    if let Ok(mut limit) = limit.lock() {
+        limit.blocked(started.elapsed());
+    }
+    Ok(())
+}
+
+/// The level each busy channel must drain to for `piece` to fit `allowed`, were it the one
+/// draining; an empty channel has none.
+fn drain_to<const N: usize>(
+    outstanding: [usize; N],
+    piece: usize,
+    allowed: usize,
+) -> [Option<usize>; N] {
+    let short = (outstanding.iter().sum::<usize>() + piece).saturating_sub(allowed);
+    outstanding.map(|bytes| (bytes > 0).then(|| bytes.saturating_sub(short)))
+}
+
+/// The writer's tally of what it sent, so a fall in the outstanding count reads as a release.
+#[derive(Debug, Default)]
+struct Releases {
+    held: usize,
+}
+
+impl Releases {
+    fn sent(&mut self, bytes: usize) {
+        self.held += bytes;
+    }
+
+    /// The bytes released since the last reading, when any were.
+    fn observe(&mut self, outstanding: usize) -> Option<usize> {
+        let released = self.held.saturating_sub(outstanding);
+        self.held = outstanding;
+        (released > 0).then_some(released)
     }
 }
 
@@ -518,11 +604,14 @@ async fn write(
 async fn write_separate(
     channels: [Arc<dyn DataChannel>; 3],
     mut readers: [OutletReader; 3],
-    limit: Arc<Mutex<SendLimit>>,
+    (limit, wake): (Arc<Mutex<SendLimit>>, Arc<Notify>),
     events: mpsc::Sender<LinkEvent>,
 ) {
     let mut heads: [Option<Vec<u8>>; 3] = [None, None, None];
     let mut share = Share::default();
+    let mut releases = Releases::default();
+    let [typing_channel, screen_channel, files_channel] = &channels;
+    let each_channel = [typing_channel, screen_channel, files_channel];
     loop {
         for (head, reader) in heads.iter_mut().zip(readers.iter_mut()) {
             if head.is_none() {
@@ -544,25 +633,25 @@ async fn write_separate(
             continue;
         }
         let allowed = limit.lock().map_or(pacing::FLOOR, |l| l.current());
-        let mut each = [0; 3];
-        for (bytes, channel) in each.iter_mut().zip(&channels) {
-            match channel.outstanding_bytes().await {
-                Ok(outstanding) => *bytes = outstanding,
-                Err(_) => {
-                    events
-                        .send(LinkEvent::Lost(LeaveReason::ChannelError))
-                        .await
-                        .ok();
-                    return;
-                }
-            }
-        }
+        let Ok(each) = outstanding(each_channel, &mut releases, &limit).await else {
+            channel_lost(&events).await;
+            return;
+        };
         let [typing, screen, files] = heads.each_ref().map(|head| head.as_ref().map(Vec::len));
         let next = share.link_next(typing, each[0], [screen, files], each.iter().sum(), allowed);
         let Some(next) = next else {
-            tokio::time::sleep(LIMIT_POLL).await;
-            if let Ok(mut limit) = limit.lock() {
-                limit.blocked(LIMIT_POLL);
+            let shortest = [typing, screen, files]
+                .into_iter()
+                .flatten()
+                .min()
+                .unwrap_or(0);
+            let thresholds = drain_to(each, shortest, allowed);
+            if wait_for_release(each_channel, thresholds, &wake, &limit)
+                .await
+                .is_err()
+            {
+                channel_lost(&events).await;
+                return;
             }
             continue;
         };
@@ -578,12 +667,10 @@ async fn write_separate(
             .await
             .is_err()
         {
-            events
-                .send(LinkEvent::Lost(LeaveReason::ChannelError))
-                .await
-                .ok();
+            channel_lost(&events).await;
             return;
         }
+        releases.sent(piece.len());
         readers[slot].written();
     }
 }
@@ -612,6 +699,35 @@ mod tests {
             "v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\na=mid:0\r\na=mid:1\r\n";
         assert_eq!(media_id(offer), Some("0"));
         assert_eq!(media_id("v=0\r\nm=application 9 UDP/DTLS/SCTP\r\n"), None);
+    }
+
+    #[test]
+    fn what_the_peer_released_is_what_left_the_outstanding_count() {
+        let mut releases = Releases::default();
+        releases.sent(48 * 1024);
+        assert_eq!(
+            releases.observe(48 * 1024),
+            None,
+            "nothing acknowledged yet"
+        );
+        assert_eq!(releases.observe(16 * 1024), Some(32 * 1024));
+        releases.sent(16 * 1024);
+        assert_eq!(releases.observe(8 * 1024), Some(24 * 1024));
+        assert_eq!(
+            releases.observe(8 * 1024),
+            None,
+            "a reading twice releases once"
+        );
+    }
+
+    #[test]
+    fn the_writer_waits_for_the_bytes_the_next_piece_needs() {
+        // Two channels busy, a 16 KiB piece and a 300 KiB limit: 32 KiB more must leave.
+        let thresholds = drain_to([0, 200 * 1024, 116 * 1024], 16 * 1024, 300 * 1024);
+        assert_eq!(thresholds, [None, Some(168 * 1024), Some(84 * 1024)]);
+        // A channel holding less than the shortfall wakes the writer once it is empty.
+        let thresholds = drain_to([0, 8 * 1024, 300 * 1024], 16 * 1024, 300 * 1024);
+        assert_eq!(thresholds, [None, Some(0), Some(276 * 1024)]);
     }
 
     #[test]

@@ -1,5 +1,5 @@
 //! The host's send limit on the link and on the relay socket, set at run time: what the path
-//! delivers in one round trip, plus a cushion of unsent bytes.
+//! delivers in one round trip, plus a cushion of unsent bytes, plus how bunched releases come back.
 
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
@@ -28,8 +28,15 @@ const RTT_MEMORY: Duration = Duration::from_secs(10);
 /// four a second when the path is slow.
 const RATE_SPAN: Duration = Duration::from_secs(1);
 
-/// The path's bandwidth-delay product plus [`UNSENT_CUSHION`]; the delay is the least round trip
-/// two checks in a row agree on, since one check alone may carry a queue or skip a router's delay.
+/// Round trips the bunching of releases is remembered for, as Linux's BBR remembers its
+/// acknowledgement aggregation.
+const BUNCHING_ROUND_TRIPS: u32 = 5;
+
+/// The bunching allowance covers at most this much of the measured rate, Linux BBR's cap.
+const BUNCHING_CAP: Duration = Duration::from_millis(100);
+
+/// The path's bandwidth-delay product, [`UNSENT_CUSHION`] and the largest recent bunch of releases;
+/// the delay is the least round trip two checks in a row agree on, against a queued or skipped one.
 #[derive(Debug)]
 pub struct SendLimit {
     limit: usize,
@@ -40,6 +47,9 @@ pub struct SendLimit {
     interval_start: Instant,
     last_rate: Option<f64>,
     blocked_for: Duration,
+    round: Option<Duration>,
+    epoch: Option<(Instant, usize)>,
+    bunching: VecDeque<(Instant, usize)>,
 }
 
 impl SendLimit {
@@ -54,6 +64,9 @@ impl SendLimit {
             interval_start: now,
             last_rate: None,
             blocked_for: Duration::ZERO,
+            round: None,
+            epoch: None,
+            bunching: VecDeque::new(),
         }
     }
 
@@ -65,6 +78,31 @@ impl SendLimit {
     /// The peer confirmed `bytes` of link frames at `now`.
     pub fn confirmed(&mut self, bytes: usize, now: Instant) {
         self.confirmations.push_back((now, bytes));
+    }
+
+    /// Records `bytes` the peer acknowledged at `now`; a run of releases ahead of the rate is a bunch,
+    /// and a run ends once releases fall behind the rate or a round trip passes, as in QUIC's BBR.
+    pub fn released(&mut self, bytes: usize, now: Instant) {
+        let Some(rate) = self.last_rate.filter(|rate| *rate > 0.0) else {
+            return;
+        };
+        let (mut start, mut so_far) = self.epoch.unwrap_or((now, 0));
+        let mut expected = (rate * now.duration_since(start).as_secs_f64()) as usize;
+        let round_over = self
+            .round
+            .is_some_and(|round| now.duration_since(start) >= round);
+        if so_far <= expected || round_over {
+            (start, so_far, expected) = (now, 0, 0);
+        }
+        so_far += bytes;
+        self.epoch = Some((start, so_far));
+        let extra = (so_far - expected).min(self.limit);
+        // The front holds the largest bunch remembered; an older bunch no larger than this one is
+        // never the largest again.
+        while self.bunching.back().is_some_and(|(_, held)| *held <= extra) {
+            self.bunching.pop_back();
+        }
+        self.bunching.push_back((now, extra));
     }
 
     /// The round trip one new check read: the first sets the session's least, and each later one
@@ -100,8 +138,15 @@ impl SendLimit {
             .map(|(_, rtt)| *rtt)
             .min()
             .or(self.least);
+        self.round = path_delay;
+        let remembered = path_delay.map_or(RATE_SPAN, |rtt| rtt * BUNCHING_ROUND_TRIPS);
+        forget_before(&mut self.bunching, now, remembered);
         let mut next = match (self.rate(), path_delay) {
-            (Some(rate), Some(rtt)) => (rate * rtt.as_secs_f64()) as usize + UNSENT_CUSHION,
+            (Some(rate), Some(rtt)) => {
+                let bunch = self.bunching.front().map_or(0, |(_, held)| *held);
+                let cap = (rate * BUNCHING_CAP.as_secs_f64()) as usize;
+                (rate * rtt.as_secs_f64()) as usize + UNSENT_CUSHION + bunch.min(cap)
+            }
             _ => self.limit,
         };
         // Held at the limit the whole interval while delivery grew: a faster path may be there.
@@ -167,6 +212,73 @@ mod tests {
             limit.confirmed(bytes_per_sec / 20, *now);
         }
         assert!(limit.recompute(*now));
+    }
+
+    /// Intervals of a 100 Mbit/s path with a 40 ms round trip whose releases come back `every`
+    /// apart, each holding what the path delivered since the last.
+    fn released_every(limit: &mut SendLimit, now: &mut Instant, every: Duration, intervals: u32) {
+        let rate = 12_500_000.0;
+        for _ in 0..intervals {
+            limit.round_trip(Duration::from_millis(40), *now);
+            let end = *now + INTERVAL;
+            while *now + every <= end {
+                *now += every;
+                let bytes = (rate * every.as_secs_f64()) as usize;
+                limit.released(bytes, *now);
+                limit.confirmed(bytes, *now);
+            }
+            *now = end;
+            assert!(limit.recompute(*now));
+        }
+    }
+
+    #[test]
+    fn releases_on_time_add_nothing_past_a_piece() {
+        let mut now = Instant::now();
+        let mut limit = SendLimit::new(now);
+        released_every(&mut limit, &mut now, Duration::from_millis(1), 8);
+        let base = 500_000 + UNSENT_CUSHION;
+        let got = limit.current();
+        assert!(
+            got >= base && got <= base + 16 * 1024,
+            "limit {got} against {base}"
+        );
+    }
+
+    #[test]
+    fn releases_bunched_ten_milliseconds_apart_raise_the_limit_by_the_bunch() {
+        let mut now = Instant::now();
+        let mut limit = SendLimit::new(now);
+        released_every(&mut limit, &mut now, Duration::from_millis(10), 8);
+        let base = 500_000 + UNSENT_CUSHION;
+        // A bunch holds 10 ms of the path's rate.
+        let got = limit.current();
+        assert!(
+            got >= base + 125_000 && got <= base + 2 * 125_000,
+            "limit {got} against {base} and a 125 000 byte bunch"
+        );
+    }
+
+    #[test]
+    fn the_bunching_allowance_never_passes_a_tenth_of_a_second_of_the_rate() {
+        let mut now = Instant::now();
+        let mut limit = SendLimit::new(now);
+        released_every(&mut limit, &mut now, Duration::from_millis(250), 8);
+        assert!(limit.current() <= 500_000 + UNSENT_CUSHION + 1_250_000);
+    }
+
+    #[test]
+    fn bunching_older_than_five_round_trips_is_forgotten() {
+        let mut now = Instant::now();
+        let mut limit = SendLimit::new(now);
+        released_every(&mut limit, &mut now, Duration::from_millis(10), 8);
+        released_every(&mut limit, &mut now, Duration::from_millis(1), 2);
+        let base = 500_000 + UNSENT_CUSHION;
+        assert!(
+            limit.current() <= base + 16 * 1024,
+            "limit {}",
+            limit.current()
+        );
     }
 
     #[test]
