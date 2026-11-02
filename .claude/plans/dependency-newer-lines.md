@@ -963,6 +963,15 @@ As few as the waits allow, whatever their size.
    (`discovery/command.rs`); a sweep cut short by a stop is never reported. In this commit.
    The third attempt failed a load-test test whose machines counted themselves started before
    arriving (1 in 500 under the race detector); counted after arriving, 0 in 3000.
+   **Landed** as 97cca4f5 (main v0.113.3); mutation run 41395101452 dispatched on b81a63cb.
+   It lost `rust-core-session-sending` at 17 min to "the runner has received a shutdown signal",
+   as 41284625309 did at 15 (so that was no hand cancel). Reproduced locally under a 6 GiB user
+   scope: the four mutants in flight (`share.rs` `send_now` → `Some(0)`/`Some(1)`, line 69
+   `>` → `<`/`==`) each had the lib test process killed for memory (oom_kill 4, all caught); four at
+   once with no cap exhaust the 16 GB runner. **Ivan (2026-11-02):** the same 12 GB ceiling for
+   every Rust shard's cargo-mutants, then dispatch again. Also seen: the unit test "the relay
+   writer holds the socket to what a slow peer takes" failed once inside a local mutation
+   baseline (167 328 against 147 520 bytes); 10 of 10 alone, CI baseline passed. **Ivan:** watch it.
 2. Direct-speed investigation (section above): local stack, agent then browser held to a smaller
    processor share, profile, fix; the speed nightly records agent and browser processor use.
 3. Commit 3: the spike split as decided (every machine of the wave counted to its finish; >1%

@@ -430,13 +430,14 @@ coefficient is bounded so that leash stays inside what a fully-spent shard has
 left of the ninety minutes, which is what keeps one of them from taking the job
 past the cap on its own.
 
-A web mutant can run away in memory instead: one that copies frames without end
-fills buffers outside the JavaScript heap, where Stryker's loop counter never
-looks, until the runner itself runs out. Each web shard's Stryker runs under a
-memory ceiling below the runner's, set in the
+A mutant can run away in memory instead. A web one that copies frames without
+end fills buffers outside the JavaScript heap, where Stryker's loop counter
+never looks; a Rust one that switches off the sender's hold on queued data has a
+unit test queue without end. Either fills the runner itself. Each web and Rust
+shard's tool runs under a memory ceiling below the runner's, set in the
 [workflow](../../.github/workflows/mutation.yml). The ceiling kills the
-runaway's worker, Stryker records that mutant as crashed, and the shard carries
-on, since the ceiling's scope continues past a kill.
+runaway's test process, the tool counts that mutant as crashed or caught, and
+the shard carries on, since the ceiling's scope continues past a kill.
 
 ### Mutation trend
 
