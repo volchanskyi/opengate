@@ -295,7 +295,12 @@ jobs:
           printf ' %s' "${shard_args[@]}"
           echo
           cd agent
-          cargo mutants "${shard_args[@]}" --no-shuffle --jobs 4 --annotations none || EXIT=$?
+          # A mutant that switches off the sender's hold has a test queue without end; the ceiling
+          # kills that test, which cargo-mutants counts as caught, and the scope carries on.
+          sudo -n --preserve-env systemd-run --scope --quiet -p MemoryMax=12G -p MemorySwapMax=0 \
+            -p OOMPolicy=continue \
+            -- setpriv --reuid="$(id -u)" --regid="$(id -g)" --init-groups env PATH="$PATH" \
+            cargo mutants "${shard_args[@]}" --no-shuffle --jobs 4 --annotations none || EXIT=$?
           # cargo-mutants exits non-zero when any mutant survives, which the run captures.
           echo "cargo-mutants exit: ${EXIT:-0}"
           # The outcome file says this shard did work; reading it back fails a refused run here.
