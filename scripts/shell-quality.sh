@@ -43,8 +43,9 @@ read_files() {
       [ -f "$ROOT/$relative" ] && FILES+=("$ROOT/$relative")
     done < <(changed_scripts "$base")
   else
+    # A script deleted from disk stays listed until the deletion is staged.
     while IFS= read -r -d '' relative; do
-      FILES+=("$ROOT/$relative")
+      [ -f "$ROOT/$relative" ] && FILES+=("$ROOT/$relative")
     done < <(tracked_scripts)
   fi
 }
@@ -76,9 +77,35 @@ format_files() {
 # The files a CI step hands every command it runs; a test writing to one writes into the job.
 STEP_FILES=(GITHUB_STEP_SUMMARY GITHUB_OUTPUT GITHUB_ENV GITHUB_PATH)
 
-# run_tests runs every shell test, untracked ones included, each with fresh empty step files.
+# tree_state prints each path git lists as changed or untracked beside its content's hash, so an
+# edit to a file already changed before the test still moves it.
+tree_state() {
+  local entry path i
+  local present=() hashes=()
+  while IFS= read -r -d '' entry; do
+    path="${entry:3}"
+    case "$entry" in
+      # A rename or copy names its source in the next field, which is skipped.
+      R* | C*) IFS= read -r -d '' _ ;;
+    esac
+    if [ -f "$ROOT/$path" ]; then
+      present+=("$path")
+    else
+      printf 'deleted %s\n' "$path"
+    fi
+  done < <(git -C "$ROOT" status --porcelain=v1 -z --untracked-files=all)
+  [ "${#present[@]}" -gt 0 ] || return 0
+  # One hash-object call reads every present file, printing one hash per path in order.
+  mapfile -t hashes < <(git -C "$ROOT" hash-object -- "${present[@]}")
+  for i in "${!present[@]}"; do
+    printf '%s %s\n' "${hashes[$i]}" "${present[$i]}"
+  done
+}
+
+# run_tests runs every shell test, untracked ones included, each with fresh empty step files, and
+# fails one that leaves the repository otherwise than it found it.
 run_tests() {
-  local test_file rel var step_dir
+  local test_file rel var step_dir before after path
   local tests=() failed=()
 
   while IFS= read -r -d '' rel; do
@@ -100,12 +127,20 @@ run_tests() {
     fi
     for var in "${STEP_FILES[@]}"; do : >"$step_dir/$var"; done
     printf '▶ %s\n' "$rel"
+    before="$(tree_state)"
     if ! GITHUB_STEP_SUMMARY="$step_dir/GITHUB_STEP_SUMMARY" \
       GITHUB_OUTPUT="$step_dir/GITHUB_OUTPUT" \
       GITHUB_ENV="$step_dir/GITHUB_ENV" \
       GITHUB_PATH="$step_dir/GITHUB_PATH" \
       "$test_file"; then
       failed+=("$rel")
+    fi
+    after="$(tree_state)"
+    if [ "$before" != "$after" ]; then
+      while IFS= read -r path; do
+        printf 'shell-quality: %s changed the repository: %s\n' "$rel" "$path" >&2
+      done < <(comm -3 <(sort <<<"$before") <(sort <<<"$after") | sed -E 's/^[[:space:]]*[^ ]+ //' | sort -u)
+      failed+=("$rel (the repository)")
     fi
     for var in "${STEP_FILES[@]}"; do
       if [ -s "$step_dir/$var" ]; then

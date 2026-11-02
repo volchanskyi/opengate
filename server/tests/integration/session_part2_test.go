@@ -62,7 +62,7 @@ func newSessionTestEnvWithAPITimeout(t *testing.T, apiTimeout time.Duration) *se
 	deviceUpdates := testutil.NewTestDeviceUpdates(t, store)
 	cm, err := cert.NewManager(t.TempDir())
 	require.NoError(t, err)
-	issuer := machinecert.NewIssuer(t, store, cm, testutil.NewTestDevices(t, store))
+	issuer := machinecert.NewIssuer(t, store, cm)
 
 	r := relay.NewRelay(slog.Default())
 	logger := testLogger()

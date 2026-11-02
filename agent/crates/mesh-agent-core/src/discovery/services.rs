@@ -2,6 +2,10 @@
 
 use mesh_protocol::DiscoveredService;
 
+use super::command::StopSignal;
+#[cfg(target_os = "linux")]
+use super::command::{stdout_within, COMMAND_LIMIT};
+
 /// Parses `systemctl list-units` rows (`UNIT LOAD ACTIVE SUB DESCRIPTION`) into name and SUB state.
 pub(crate) fn parse_systemctl(content: &str) -> Vec<DiscoveredService> {
     let mut out = Vec::new();
@@ -24,42 +28,40 @@ pub(crate) fn parse_systemctl(content: &str) -> Vec<DiscoveredService> {
 
 /// Reads the host's services, bounded and normalized. Empty on any platform
 /// where the source is absent.
-pub fn collect_services() -> Vec<DiscoveredService> {
+pub fn collect_services(stop: &dyn StopSignal) -> Vec<DiscoveredService> {
     #[cfg(target_os = "linux")]
     {
-        collect_services_linux()
+        collect_services_linux(stop)
     }
     #[cfg(not(target_os = "linux"))]
     {
+        let _ = stop;
         Vec::new()
     }
 }
 
 /// Runs `systemctl list-units` for all service units. Empty on any failure path
-/// (missing binary, non-zero exit).
+/// (missing binary, non-zero exit, a run past the command limit, a stop request).
 #[cfg(target_os = "linux")]
-fn collect_services_linux() -> Vec<DiscoveredService> {
-    let output = std::process::Command::new("systemctl")
-        .args([
-            "list-units",
-            "--type=service",
-            "--all",
-            "--no-legend",
-            "--no-pager",
-            "--plain",
-        ])
-        .output();
-    match output {
-        Ok(output) if output.status.success() => {
-            parse_systemctl(&String::from_utf8_lossy(&output.stdout))
-        }
-        _ => Vec::new(),
-    }
+fn collect_services_linux(stop: &dyn StopSignal) -> Vec<DiscoveredService> {
+    let mut command = std::process::Command::new("systemctl");
+    command.args([
+        "list-units",
+        "--type=service",
+        "--all",
+        "--no-legend",
+        "--no-pager",
+        "--plain",
+    ]);
+    stdout_within(&mut command, COMMAND_LIMIT, stop)
+        .map(|stdout| parse_systemctl(&stdout))
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::discovery::command::NeverStops;
 
     #[test]
     fn parse_systemctl_extracts_name_and_state() {
@@ -92,7 +94,7 @@ mod tests {
 
     #[test]
     fn collect_services_reads_the_platform_or_reports_nothing() {
-        let services = collect_services();
+        let services = collect_services(&NeverStops);
         #[cfg(not(target_os = "linux"))]
         assert!(services.is_empty(), "no service manager to read");
         for service in &services {

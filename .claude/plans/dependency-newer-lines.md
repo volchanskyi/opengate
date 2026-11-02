@@ -433,7 +433,14 @@ Options:
   Ivan (2026-11-01): commit 3 judges the machines' side — a machine generator behind its own
   schedule voids the run; otherwise the machines' arrival share is a reading held to a spike limit
   set from the watched nights, beside the error-rate and connect-time limits. The technician
-  readings stay watched, and the never-written technician field and its branch go.
+  readings stay watched, and the never-written technician field and its branch go. **Ivan (2026-11-01),
+  after research** (a limit is the product's promise, fixed before the test, never lowered until
+  runs pass; k6 asks a budget for starts it could not make on time): the spike holds **every**
+  machine of the wave, each within the profile's 5-second connect limit, a machine begun in the
+  last seconds counted when it finishes; a phase where **more than 1%** of starts began over
+  0.1 s late is thrown out, in **every** profile, and the 80% floor goes everywhere, arrival share
+  becoming a recorded reading held to a limit where a profile sets one. First watched night
+  (41313974213, EPYC 9V45): spike 99.3%, 0 late in every phase.
 - **Item 5:** options 1 (tests for the survivors, after checking that the mutation run drives the
   agent's separate-process tests against the mutated build; the survivors in `session-channel.ts`
   and `direct/handoff.ts` are counted again and tested after item 1's per-channel rewrite, which
@@ -630,6 +637,20 @@ Options:
   better than leg 2 by more than 20 → 3b (an allowance per generator again); both → both; neither →
   no fix, and the plan and ADR-101 record that the drop is the runner's. The numbers and the pick
   are written into the plan and ADR-101 in commit 3.
+  **Read (2026-11-01):** run 41298255753 (EPYC 7763): leg 1, c09372bf's server, 20 cut off + 4 gave
+  up = 24; leg 2, today's server with one shared allowance, 95 + 56 = 151 and thrown out at 3.5%
+  errors, which stopped the run before leg 3. Run 41299543815 (EPYC 9V74), today's server: separate
+  allowances 59 + 2 = 61, shared 68 + 1 = 69. Leg 2 is 127 worse than leg 1 and leg 3 only 8 better
+  than leg 2, so the rule picks **3a alone**. Profiled (`Issuer.Enroll`, 4 cores, real Postgres): ~0.74 ms of server
+  processor time per enrolment against ~0.1 ms at c09372bf; the free-number checks take 51% (the
+  device lookup's own scoped transaction most), signing 19%, the record 13%. A record written after
+  the answer is ruled out, since admission refuses a certificate the ledger does not hold. **Ivan
+  (2026-11-01):** the checks and the record become one insert refusing a taken number, inside the
+  one scoped transaction the device lookup needs; a clash signs again under a fresh number.
+  Prototype: 0.74 → 0.47 ms (−36%), 2.45 → 1.90 ms wall. **Built (session 13, for commit 3):** `certledger.Store.Claim`
+  (one insert under the administrator's scope, the devices check carrying the tenant clause),
+  `Issuer.Enroll` signs then claims, the two lookups and `IsDeviceNumberDeleted` removed: 0.74 →
+  0.45 ms (−39%), 2.45 → 1.79 ms wall; ADR-128 and the two enrolment docs say so.
 - **Item 5, floors:** each language's bar is the higher of 85% and its committed floor; the floor
   sits 0.5 point under its score (on unchanged code a score moved at most 0.2 points a night over
   24 runs) and is first set from the night after that language's survivor tests land.
@@ -702,6 +723,30 @@ a test gap".
   likely, and the line reads the same either way, so the real losses stay one each (10-16, 10-24).
   **Ivan (2026-11-01):** no re-run of a lost shard; item 5's "only if the runner loss recurs" holds.
 - The split lands in a commit of its own before commit 3, so commit 3's night has a complete Go leg.
+- Mutation run 41303807611 (ed84da0e, the split in place): rust 92.1%, go 88.7% complete; but
+  `go-api-rules` ran 89 s a mutant (78 min of mutant time, its job 87 of 90 min) and
+  `tenancy-admin` projects 65 of 69. **Ivan (2026-11-01):** split both: rules + admin + tuning
+  and read + rollout; organizations + sites and tags + alert limits + push; costs raised to that
+  night's where higher.
+- `web-session` died at the same point both times (92%, ~2456 of 2701): the mutant at
+  `pieces.ts:47` (`this.buf.slice(len)` → `this.buf`) loops forever copying frames into buffers
+  outside the JavaScript heap, so the runner's memory fills before Stryker's loop counter fires.
+  Reproduced in a 6 GB container: two workers killed, the mutant marked crashed, the shard done in
+  26 min. **Ivan (2026-11-01):** each web shard's Stryker runs in a systemd scope under a memory
+  ceiling below the runner's, as the load generator already runs.
+- Both land in a commit of their own before commit 3, then a mutation run by hand.
+
+## Also in this plan: the Direct link's speed on slower processors (Ivan, 2026-11-02)
+
+- Run 41370156389 (EPYC 7763): every 100 Mbit/s Direct download under 80% of the line, the
+  clean 0% case included (65.4; 72.2 at 1%, 73.0 at 5%, 63.0 with typing), against 83–88 on
+  night 1 (Xeon 8370C); through the server 97.1%. On unchanged code before commit 2 the clean case
+  read 65.6–88.2 across nights, hidden then behind the 1% case's collapse: the spread follows the
+  runner's processor, not commit 2. Likely the Direct path runs out of processor time in the agent
+  or in Chrome (both encrypt and pack every piece in software); no run records either side.
+- **Ivan (2026-11-02): investigate now**, its own commit: reproduce locally with the agent, then
+  the browser, held to a smaller processor share; profile the side that runs out per piece; fix
+  what it shows; the nightly summary gains the agent's and the browser's processor use.
 
 ## Also in this plan: two shell-check gaps (Ivan, 2026-11-01)
 
@@ -851,7 +896,10 @@ As few as the waits allow, whatever their size.
      (completed share and 95th-percentile time, from the k6 exports, in new watched fields so no
      verdict changes) and the one-runner measurement's inputs; item 2 whole; item 5 whole; the
      upload reading moved to [`file-uploads.md`](file-uploads.md) (Ivan, 2026-10-29).
-3. **Commit 3, after a night of commit 2:**
+3. **Commit 3, after a night of commit 2** (built so far, session 13, uncommitted: the two
+   shell-check gaps, 207 tests through the new check with none touching the repository; item 4's
+   3a; waiting: a complete mutation night (41303807611 dispatched), the spike's watched nights,
+   tonight's E2E Performance for the 75% case):
    - the committed mutation floors, 0.5 point under each language's score that night;
    - item 4's fix, as the rule above picks from the numbers the one-runner measurement brings back, and
      the spike's verdict split (the machines' arrival share held to a limit from the watched
@@ -863,6 +911,38 @@ As few as the waits allow, whatever their size.
      maintainer release that carries the fix (Ivan approved the entry, 2026-10-25);
    - this plan's deletion and its `phases.md` row.
 
+**Order from session 14 (written 2026-11-02):**
+1. Mutation-night commit, test first: each web shard's Stryker in `sudo -n --preserve-env
+   systemd-run --scope --quiet -p MemoryMax=12G -p MemorySwapMax=0 -- setpriv --reuid … env
+   PATH="$PATH"` (the shape of `loadtest-generator-share.sh`), held by `mutation-workflow.test.sh`;
+   `go-api-rules` split into rules + admin + tuning (28) and read + rollout (25),
+   `go-api-tenancy-admin` into organizations + sites (27) and tags + alert limits + push (19), the
+   1 Nov budget test gaining those rows; costs raised to run 41303807611's where higher (rules 89,
+   proxytrust 94, device-control 89, device-reads 83, updates-purge 90, intake 53, incidents 85).
+   Commit 3's built pieces sit uncommitted beside it: stage only this commit's files, or ask Ivan
+   whether to fold them in. Then dispatch `mutation.yml` on `main`; a complete night gives the web
+   score and all three floors.
+   **Built (session 14):** as above, new shards `go-api-tags-limits-push` and
+   `go-api-rules-rollout`. The scope also takes `-p OOMPolicy=continue`: proved in an Ubuntu 24.04
+   container (systemd 255, the runner's), a capped scope whose child is killed for memory is
+   stopped whole by default (exit 143, the parent gone), and continues with the policy (the parent
+   runs its next child). Commit 3's built pieces (the shell-check gaps, item 4's 3a) fold into
+   this commit (Ivan left it to me): the gauntlet tests the whole work tree either way, and the
+   night then measures the code the floors are set for. The first attempt's gauntlet found two
+   more: `certledger` now opens a scoped transaction, so it names its tenant-refusal proof; and
+   the agent's shutdown tests failed under load (1 run in 2), proved deterministic with a `docker`
+   taking 5 s: the inventory sweep waited on each command with no limit and heard a stop only
+   after it. **Ivan (2026-11-02):** each inventory command gets a 30 s limit, past which it is
+   ended and its part reported empty, and a stop request ends a running command at once
+   (`discovery/command.rs`); a sweep cut short by a stop is never reported. In this commit.
+   The third attempt failed a load-test test whose machines counted themselves started before
+   arriving (1 in 500 under the race detector); counted after arriving, 0 in 3000.
+2. Direct-speed investigation (section above): local stack, agent then browser held to a smaller
+   processor share, profile, fix; the speed nightly records agent and browser processor use.
+3. Commit 3: the spike split as decided (every machine of the wave counted to its finish; >1%
+   late starts void a phase in every profile; the 80% floor gone), floors from the complete night,
+   the Go register entry, the Low entry for the patched copies, plan deletion and phases row.
+
 Between commits 2 and 3: the harness that takes both servers lands in a commit of its own, with
 the benchmark workflow's `anchor` input beside it, since the measurement it enables decides item
 4's fix in commit 3; the one-runner measurement is then dispatched again, and the benchmark noise
@@ -872,7 +952,8 @@ asked (`enroll_test.go`, a fake of each server); `benchmark-anchor.sh anchor` pi
 `anchor` (a commit hash only) over the baseline's, called by both workflow steps. The noise check
 names `3343f64e` (commit 2's code) as its anchor, so the harness commit on `main`, carrying the
 same benchmarked code, is judged against it: a run with one commit on both sides is recorded, not
-judged. The four pull requests are open (`webrtc-rs/rtc` #301–303,
+judged. **Read:** run 41298257773, all 37 benchmarks "~" (p 0.054–0.97, each within ±2%), no
+false alarm; the Rust half measured 59 of its 70 minutes. The four pull requests are open (`webrtc-rs/rtc` #301–303,
 `go-gremlins/gremlins` #325). #325 took `tc := tc` in its test, the repository's own form (Ivan,
 2026-11-01): built in a clone of the branch, upstream's lint (v2.15.0, nothing new), `make cover`
 and gremlins v0.6.0's self-run passed, and Ivan pushed it by hand as `fd809ef`; DeepSource passes.

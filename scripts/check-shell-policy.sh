@@ -50,6 +50,8 @@ fi
 
 while IFS= read -r -d '' path; do
   file="$ROOT/$path"
+  # A script deleted from disk stays listed until the deletion is staged.
+  [ -f "$file" ] || continue
   class="${CLASS_BY_PATH[$path]:-standalone}"
   allowed_disables="${ALLOWED_DISABLES_BY_PATH[$path]:--}"
   first_line="$(head -n 1 "$file")"

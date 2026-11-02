@@ -18,16 +18,14 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/cert"
 	"github.com/volchanskyi/opengate/server/internal/certledger"
 	"github.com/volchanskyi/opengate/server/internal/db"
-	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/devicecert"
-	"github.com/volchanskyi/opengate/server/internal/lifecycle"
 )
 
 // NewIssuer builds the issuer the product wires, over the store's own schema.
-func NewIssuer(tb testing.TB, store *db.PostgresStore, cm *cert.Manager, devices device.Repository) *devicecert.Issuer {
+func NewIssuer(tb testing.TB, store *db.PostgresStore, cm *cert.Manager) *devicecert.Issuer {
 	tb.Helper()
 	ledger := certledger.New(store.DB(), slog.New(slog.NewTextHandler(io.Discard, nil)))
-	return devicecert.NewIssuer(cm, ledger, devices, lifecycle.NewTombstoneStore(store.DB()))
+	return devicecert.NewIssuer(cm, ledger)
 }
 
 // Issue records a certificate for deviceID under a fresh P-256 key, as a renewal does.

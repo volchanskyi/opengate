@@ -16,7 +16,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/cert"
 	"github.com/volchanskyi/opengate/server/internal/certledger"
 	"github.com/volchanskyi/opengate/server/internal/db"
-	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/devicecert"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 	"github.com/volchanskyi/opengate/server/internal/testutil/machinecert"
@@ -28,7 +27,7 @@ func issuerOver(t *testing.T) (*devicecert.Issuer, *db.PostgresStore) {
 	store := testutil.NewTestStore(t)
 	cm, err := cert.NewManager(t.TempDir())
 	require.NoError(t, err)
-	return machinecert.NewIssuer(t, store, cm, device.NewPostgresDevices(store.DB())), store
+	return machinecert.NewIssuer(t, store, cm), store
 }
 
 // requestNaming is a P-256 certificate request whose subject names cn.

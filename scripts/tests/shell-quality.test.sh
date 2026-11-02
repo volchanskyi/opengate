@@ -118,6 +118,18 @@ EOF
     pass "format drift exits non-zero"
   fi
 
+  # A script deleted from disk and not yet staged is still listed by git, and has nothing to read.
+  git -C "$REPO" checkout -q -- other.sh
+  rm "$REPO/clean.sh"
+  : >"$TRACE"
+  if out="$(TRACE="$TRACE" PATH="$BIN:$PATH" SHELL_QUALITY_ROOT="$REPO" "$RUNNER" check 2>&1)" \
+    && ! grep -qF "$REPO/clean.sh" "$TRACE" && grep -qF "$REPO/other.sh" "$TRACE"; then
+    pass "check skips a tracked script deleted from disk but not yet staged"
+  else
+    fail "check skips a tracked script deleted from disk but not yet staged (out=[$out])"
+  fi
+  git -C "$REPO" checkout -q -- clean.sh
+
   # A linter off its pin judges the scripts by rules CI does not apply.
   if out="$(STUB_SHELLCHECK_VERSION=0.0.1 TRACE="$TRACE" PATH="$BIN:$PATH" SHELL_QUALITY_ROOT="$REPO" "$RUNNER" check 2>&1)"; then
     fail "a ShellCheck off its pin is refused"
@@ -199,6 +211,57 @@ if GITHUB_STEP_SUMMARY="$JOB_SUMMARY" SHELL_QUALITY_ROOT="$STEP_REPO" "$RUNNER" 
 else
   fail "tests that write nothing into the job pass"
 fi
+
+# A test that leaves a file in the repository, or edits one, fails naming the path.
+git -C "$STEP_REPO" config user.name test
+git -C "$STEP_REPO" config user.email test@example.com
+printf 'kept\n' >"$STEP_REPO/notes.txt"
+git -C "$STEP_REPO" add notes.txt scripts/tests/quiet.test.sh
+git -C "$STEP_REPO" commit -qm baseline
+printf 'edited before the run\n' >>"$STEP_REPO/notes.txt"
+cat >"$STEP_REPO/scripts/tests/litter.test.sh" <<'EOF'
+#!/usr/bin/env bash
+echo '{}' >"$(dirname "$0")/../../floors-candidate.json"
+EOF
+cat >"$STEP_REPO/scripts/tests/edit.test.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "a line a test adds" >>"$(dirname "$0")/../../notes.txt"
+EOF
+chmod +x "$STEP_REPO/scripts/tests/litter.test.sh" "$STEP_REPO/scripts/tests/edit.test.sh"
+if out="$(SHELL_QUALITY_ROOT="$STEP_REPO" "$RUNNER" test 2>&1)"; then
+  fail "a test that changes the repository fails the run"
+elif grep -qF 'litter.test.sh changed the repository: floors-candidate.json' <<<"$out" \
+  && grep -qF 'edit.test.sh changed the repository: notes.txt' <<<"$out" \
+  && ! grep -qF 'quiet.test.sh changed' <<<"$out"; then
+  pass "a test that adds or edits a file in the repository fails, naming the test and the path"
+else
+  fail "a test that adds or edits a file in the repository fails, naming the test and the path (out=[$out])"
+fi
+rm -f "$STEP_REPO/scripts/tests/litter.test.sh" "$STEP_REPO/scripts/tests/edit.test.sh" \
+  "$STEP_REPO/floors-candidate.json"
+if SHELL_QUALITY_ROOT="$STEP_REPO" "$RUNNER" test >/dev/null 2>&1; then
+  pass "a tree already dirty before the run passes when no test touches it"
+else
+  fail "a tree already dirty before the run passes when no test touches it"
+fi
+
+# A test that deletes a tracked file fails naming it.
+printf 'kept\n' >"$STEP_REPO/tracked.txt"
+git -C "$STEP_REPO" add tracked.txt
+git -C "$STEP_REPO" commit -qm tracked
+cat >"$STEP_REPO/scripts/tests/remove.test.sh" <<'EOF'
+#!/usr/bin/env bash
+rm "$(dirname "$0")/../../tracked.txt"
+EOF
+chmod +x "$STEP_REPO/scripts/tests/remove.test.sh"
+if out="$(SHELL_QUALITY_ROOT="$STEP_REPO" "$RUNNER" test 2>&1)"; then
+  fail "a test that deletes a tracked file fails the run"
+elif grep -qF 'remove.test.sh changed the repository: tracked.txt' <<<"$out"; then
+  pass "a test that deletes a tracked file fails, naming the test and the path"
+else
+  fail "a test that deletes a tracked file fails, naming the test and the path (out=[$out])"
+fi
+rm -f "$STEP_REPO/scripts/tests/remove.test.sh"
 
 if grep -qF 'scripts/shell-quality.sh test' "$REPO_ROOT/scripts/precommit-gauntlet.sh"; then
   pass "the gauntlet's shell-tests step is this runner"

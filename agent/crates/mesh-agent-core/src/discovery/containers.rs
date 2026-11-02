@@ -2,6 +2,8 @@
 
 use mesh_protocol::DiscoveredContainer;
 
+use super::command::{stdout_within, StopSignal, COMMAND_LIMIT};
+
 /// Collapses decorated statuses like `Up 3 hours` to a lowercase state label.
 fn normalize_state(raw: &str) -> String {
     let lower = raw.trim().to_ascii_lowercase();
@@ -82,26 +84,29 @@ pub(crate) fn parse_podman_ps(stdout: &str) -> Vec<DiscoveredContainer> {
 }
 
 /// Lists containers from whichever of docker and podman is present.
-pub fn collect_containers() -> Vec<DiscoveredContainer> {
-    let mut out = run_ps("docker", parse_docker_ps);
-    out.extend(run_ps("podman", parse_podman_ps));
+pub fn collect_containers(stop: &dyn StopSignal) -> Vec<DiscoveredContainer> {
+    let mut out = run_ps("docker", parse_docker_ps, stop);
+    out.extend(run_ps("podman", parse_podman_ps, stop));
     out
 }
 
-/// Runs `<runtime> ps -a` and parses stdout; a missing binary or non-zero exit yields none.
-fn run_ps(runtime: &str, parser: fn(&str) -> Vec<DiscoveredContainer>) -> Vec<DiscoveredContainer> {
+/// Runs `<runtime> ps -a` and parses stdout; a missing binary, non-zero exit, a run past the
+/// command limit or a stop request yields none.
+fn run_ps(
+    runtime: &str,
+    parser: fn(&str) -> Vec<DiscoveredContainer>,
+    stop: &dyn StopSignal,
+) -> Vec<DiscoveredContainer> {
     let format = if runtime == "docker" {
         "{{json .}}"
     } else {
         "json"
     };
-    let output = std::process::Command::new(runtime)
-        .args(["ps", "-a", "--format", format])
-        .output();
-    match output {
-        Ok(output) if output.status.success() => parser(&String::from_utf8_lossy(&output.stdout)),
-        _ => Vec::new(),
-    }
+    let mut command = std::process::Command::new(runtime);
+    command.args(["ps", "-a", "--format", format]);
+    stdout_within(&mut command, COMMAND_LIMIT, stop)
+        .map(|stdout| parser(&stdout))
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

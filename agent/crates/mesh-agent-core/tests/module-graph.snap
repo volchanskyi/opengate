@@ -17,6 +17,7 @@ crate mesh_agent_core
 │   ├── mod rank: pub(self)
 │   └── mod window: pub(self)
 ├── mod discovery: pub
+│   ├── mod command: pub
 │   ├── mod containers: pub
 │   ├── mod db_engines: pub
 │   ├── mod packages: pub

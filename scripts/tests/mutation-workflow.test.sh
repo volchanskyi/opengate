@@ -359,7 +359,24 @@ if [ -f "$SHARDS_LIB" ]; then
     fail "the stryker step must pass --mutate from mutation_web_shard_mutate"
   fi
 
-  meaningful_go="go-api-runtime go-api-limits go-api-proxytrust go-api-intake go-api-status go-api-metrics-grid go-api-converters go-api-identity go-api-accounts go-api-console-session go-api-tenancy-admin go-api-device-control go-api-device-sessions go-api-device-reads go-api-incidents go-api-rules go-api-enrollment go-api-updates-purge go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-rules go-domain-alerts-room go-domain-alerts-record go-domain-persistence go-amt go-updates-certificates go-protocol-wire go-relay-signaling go-observability-harness go-composition-root"
+  # A mutant that copies frames without end fills memory outside the JavaScript heap, so the cap
+  # sits on the process tree; systemd stops the whole scope on a kill unless told to continue.
+  stryker_joined="$(sed -e ':a' -e '/\\$/N; s/\\\n[[:space:]]*/ /; ta' <<<"$stryker_step")"
+  stryker_scoped="$(grep -E 'systemd-run --scope' <<<"$stryker_joined" || true)"
+  ceiling_gb="$(grep -oE 'MemoryMax=[0-9]+G' <<<"$stryker_scoped" | grep -oE '[0-9]+' || true)"
+  as_invoker="setpriv --reuid=\"\$(id -u)\" --regid=\"\$(id -g)\" --init-groups env PATH=\"\$PATH\""
+  if grep -q 'sudo -n --preserve-env systemd-run --scope' <<<"$stryker_scoped" \
+    && grep -q -- '-p MemorySwapMax=0' <<<"$stryker_scoped" \
+    && grep -q -- '-p OOMPolicy=continue' <<<"$stryker_scoped" \
+    && grep -qF -- "$as_invoker" <<<"$stryker_scoped" \
+    && grep -q 'stryker run --mutate' <<<"$stryker_scoped" \
+    && [ -n "$ceiling_gb" ] && [ "$ceiling_gb" -lt 16 ]; then
+    pass "each web shard's Stryker runs under a memory ceiling below the runner's 16 GB, past a kill"
+  else
+    fail "the stryker step must run stryker in a scope with MemoryMax under 16G, no swap, OOMPolicy=continue, as the invoking user"
+  fi
+
+  meaningful_go="go-api-runtime go-api-limits go-api-proxytrust go-api-intake go-api-status go-api-metrics-grid go-api-converters go-api-identity go-api-accounts go-api-console-session go-api-tenancy-admin go-api-tags-limits-push go-api-device-control go-api-device-sessions go-api-device-reads go-api-incidents go-api-rules go-api-rules-rollout go-api-enrollment go-api-updates-purge go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-rules go-domain-alerts-room go-domain-alerts-record go-domain-persistence go-amt go-updates-certificates go-protocol-wire go-relay-signaling go-observability-harness go-composition-root"
   if [ "$(mutation_go_shards)" = "$meaningful_go" ]; then
     pass "Go shard ids describe their owned behavior"
   else

@@ -312,7 +312,7 @@ mutation_web_shard_budget_minutes() {
 }
 
 mutation_go_shards() {
-  echo "go-api-runtime go-api-limits go-api-proxytrust go-api-intake go-api-status go-api-metrics-grid go-api-converters go-api-identity go-api-accounts go-api-console-session go-api-tenancy-admin go-api-device-control go-api-device-sessions go-api-device-reads go-api-incidents go-api-rules go-api-enrollment go-api-updates-purge go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-rules go-domain-alerts-room go-domain-alerts-record go-domain-persistence go-amt go-updates-certificates go-protocol-wire go-relay-signaling go-observability-harness go-composition-root"
+  echo "go-api-runtime go-api-limits go-api-proxytrust go-api-intake go-api-status go-api-metrics-grid go-api-converters go-api-identity go-api-accounts go-api-console-session go-api-tenancy-admin go-api-tags-limits-push go-api-device-control go-api-device-sessions go-api-device-reads go-api-incidents go-api-rules go-api-rules-rollout go-api-enrollment go-api-updates-purge go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-rules go-domain-alerts-room go-domain-alerts-record go-domain-persistence go-amt go-updates-certificates go-protocol-wire go-relay-signaling go-observability-harness go-composition-root"
 }
 
 mutation_all_shards() {
@@ -385,7 +385,10 @@ mutation_go_shard_units() {
       echo "file:internal/api/session_cookie.go file:internal/api/handlers_console_session.go"
       ;;
     go-api-tenancy-admin)
-      echo "file:internal/api/handlers_organizations.go file:internal/api/handlers_sites.go file:internal/api/handlers_device_tags.go file:internal/api/handlers_alert_limits.go file:internal/api/handlers_push.go"
+      echo "file:internal/api/handlers_organizations.go file:internal/api/handlers_sites.go"
+      ;;
+    go-api-tags-limits-push)
+      echo "file:internal/api/handlers_device_tags.go file:internal/api/handlers_alert_limits.go file:internal/api/handlers_push.go"
       ;;
     # Every mutant here re-pays the Postgres-backed API suite, the most expensive in the module.
     go-api-device-control)
@@ -401,7 +404,10 @@ mutation_go_shard_units() {
       echo "file:internal/api/handlers_incidents.go file:internal/api/handlers_incident_moves.go file:internal/api/handlers_incident_assign.go file:internal/api/handlers_incident_comment.go file:internal/api/handlers_incident_evidence.go"
       ;;
     go-api-rules)
-      echo "file:internal/api/handlers_rules.go file:internal/api/handlers_rules_admin.go file:internal/api/handlers_rules_read.go file:internal/api/handlers_rules_tuning.go file:internal/api/handlers_rules_rollout.go"
+      echo "file:internal/api/handlers_rules.go file:internal/api/handlers_rules_admin.go file:internal/api/handlers_rules_tuning.go"
+      ;;
+    go-api-rules-rollout)
+      echo "file:internal/api/handlers_rules_read.go file:internal/api/handlers_rules_rollout.go"
       ;;
     go-api-enrollment)
       echo "file:internal/api/handlers_enrollment.go file:internal/api/handlers_install.go"
@@ -464,23 +470,24 @@ mutation_go_shard_units() {
 # that finish, since a blocked one holds a worker for its whole leash and is counted separately.
 mutation_go_shard_seconds_per_mutant() {
   case "$1" in
-    # The API shards are costed at the slowest of the 27 Oct, 31 Oct and 1 Nov nights: each mutant
+    # The API shards are costed at the slowest of the 27 Oct, 31 Oct and two 1 Nov runs: each mutant
     # waits for its killing test in the package's queue of parallel tests.
     go-api-runtime) echo 67 ;;
-    go-api-limits | go-api-proxytrust) echo 89 ;;
-    go-api-intake) echo 52 ;;
+    go-api-limits) echo 89 ;;
+    go-api-proxytrust) echo 94 ;;
+    go-api-intake) echo 53 ;;
     go-api-status | go-api-metrics-grid) echo 87 ;;
     go-api-converters) echo 87 ;;
-    go-api-incidents) echo 84 ;;
-    go-api-rules) echo 67 ;;
+    go-api-incidents) echo 85 ;;
+    go-api-rules | go-api-rules-rollout) echo 89 ;;
     go-api-identity | go-api-accounts) echo 98 ;;
     go-api-console-session) echo 60 ;;
-    go-api-tenancy-admin) echo 87 ;;
+    go-api-tenancy-admin | go-api-tags-limits-push) echo 87 ;;
     go-api-enrollment) echo 53 ;;
-    go-api-updates-purge) echo 88 ;;
-    go-api-device-control) echo 83 ;;
+    go-api-updates-purge) echo 90 ;;
+    go-api-device-control) echo 89 ;;
     go-api-device-sessions) echo 76 ;;
-    go-api-device-reads) echo 68 ;;
+    go-api-device-reads) echo 83 ;;
     go-agentapi-connection) echo 10 ;;
     go-agentapi-handshake) echo 8 ;;
     go-agentapi-edge-telemetry) echo 7 ;;

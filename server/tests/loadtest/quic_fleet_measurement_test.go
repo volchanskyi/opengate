@@ -15,8 +15,8 @@ func TestAMachineThatCompletesLeavesTheConnectedCount(t *testing.T) {
 	release := make(chan struct{})
 	var started atomic.Int64
 	fleet := NewQUICFleet(func(ctx context.Context, _ int, presence fleetPresence) agentResult {
-		started.Add(1)
 		presence.Arrived()
+		started.Add(1)
 		select {
 		case <-release:
 		case <-ctx.Done():

@@ -143,6 +143,10 @@ is running; the device page reads it back and sorts it.
 | Containers | Container runtimes and running containers |
 | Packages | Installed software packages |
 
+A group whose tool stops answering on the machine, such as the container list
+behind a stuck Docker service, reads empty until the tool answers again; the
+rest of the inventory keeps updating.
+
 The tables that hold these, their retention and their tenancy rules are in
 [Database](../architecture/Database.md#device-hardware); the endpoints are in
 [API Reference](../architecture/API-Reference.md#device-inventory).

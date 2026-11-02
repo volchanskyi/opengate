@@ -7,12 +7,15 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/volchanskyi/opengate/server/internal/dbtx"
 )
 
 // Source is why a certificate was issued.
@@ -111,18 +114,9 @@ func (s *Store) indexLocked(e *Entry) {
 // Record inserts a certificate issuerHash's master key issued, before it is sent; an insert that
 // fails leaves the index unchanged, so the certificate must not be sent.
 func (s *Store) Record(ctx context.Context, leaf *x509.Certificate, issuerHash [48]byte, source Source, issuedAt time.Time) (Entry, error) {
-	deviceID, err := uuid.Parse(leaf.Subject.CommonName)
+	e, err := entryFor(leaf, issuerHash, source, issuedAt)
 	if err != nil {
-		return Entry{}, fmt.Errorf("record certificate: common name %q: %w", leaf.Subject.CommonName, err)
-	}
-	e := Entry{
-		Fingerprint: FingerprintOf(leaf.Raw),
-		DeviceID:    deviceID,
-		IssuerHash:  issuerHash,
-		NotBefore:   leaf.NotBefore,
-		NotAfter:    leaf.NotAfter,
-		Source:      source,
-		IssuedAt:    issuedAt,
+		return Entry{}, err
 	}
 	if _, err := s.db.ExecContext(ctx,
 		`INSERT INTO device_certificates
@@ -133,13 +127,77 @@ func (s *Store) Record(ctx context.Context, leaf *x509.Certificate, issuerHash [
 		e.NotBefore, e.NotAfter, string(e.Source), e.IssuedAt); err != nil {
 		return Entry{}, fmt.Errorf("record certificate: %w", err)
 	}
+	return s.index(e), nil
+}
+
+// claimStatement records an enrolment's certificate only while its device number is free: no
+// device in any tenant, deleted device or earlier certificate holds it.
+const claimStatement = `INSERT INTO device_certificates
+   (fingerprint, device_id, issuer_hash, serial, not_before, not_after, source, issued_at)
+ SELECT $1, $2, $3, $4, $5, $6, $7, $8
+ WHERE NOT EXISTS (
+         SELECT 1 FROM devices
+         WHERE id = $2
+           AND (tenant_id = current_setting('app.current_tenant')::uuid
+                OR current_setting('app.is_admin', true)::boolean))
+   AND NOT EXISTS (SELECT 1 FROM deleted_ids WHERE device_id = $2)
+   AND NOT EXISTS (SELECT 1 FROM device_certificates WHERE device_id = $2)
+ RETURNING 1`
+
+// Claim records an enrolment's certificate while nothing holds its number, false when something
+// does; ctx's tenant scope reads devices, every tenant's under the administrator's.
+func (s *Store) Claim(ctx context.Context, leaf *x509.Certificate, issuerHash [48]byte, issuedAt time.Time) (Entry, bool, error) {
+	e, err := entryFor(leaf, issuerHash, SourceEnroll, issuedAt)
+	if err != nil {
+		return Entry{}, false, err
+	}
+	claimed := false
+	err = dbtx.Scoped(ctx, s.db, func(tx *sql.Tx) error {
+		var one int
+		err := tx.QueryRowContext(ctx, claimStatement,
+			e.Fingerprint[:], e.DeviceID, e.IssuerHash[:], leaf.SerialNumber.String(),
+			e.NotBefore, e.NotAfter, string(e.Source), e.IssuedAt).Scan(&one)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		claimed = err == nil
+		return err
+	})
+	if err != nil {
+		return Entry{}, false, fmt.Errorf("claim device number: %w", err)
+	}
+	if !claimed {
+		return Entry{}, false, nil
+	}
+	return s.index(e), true, nil
+}
+
+// entryFor is the ledger entry for leaf, whose common name is its device number.
+func entryFor(leaf *x509.Certificate, issuerHash [48]byte, source Source, issuedAt time.Time) (Entry, error) {
+	deviceID, err := uuid.Parse(leaf.Subject.CommonName)
+	if err != nil {
+		return Entry{}, fmt.Errorf("record certificate: common name %q: %w", leaf.Subject.CommonName, err)
+	}
+	return Entry{
+		Fingerprint: FingerprintOf(leaf.Raw),
+		DeviceID:    deviceID,
+		IssuerHash:  issuerHash,
+		NotBefore:   leaf.NotBefore,
+		NotAfter:    leaf.NotAfter,
+		Source:      source,
+		IssuedAt:    issuedAt,
+	}, nil
+}
+
+// index adds a written entry to memory, keeping the one already held for its fingerprint.
+func (s *Store) index(e Entry) Entry {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if existing, ok := s.byPrint[e.Fingerprint]; ok {
-		return *existing, nil
+		return *existing
 	}
 	s.indexLocked(&e)
-	return e, nil
+	return e
 }
 
 // Lookup returns the entry for a fingerprint, from memory.

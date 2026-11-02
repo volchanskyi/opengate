@@ -66,7 +66,11 @@ pub(crate) fn spawn_discovery(
                 stop.sleep_blocking(DISCOVERY_INTERVAL);
                 continue;
             }
-            let profile = mesh_agent_core::discovery::collect_profile();
+            let profile = mesh_agent_core::discovery::collect_profile(&stop);
+            // A sweep a stop request cut short is partial, so it is never reported.
+            if stop.requested() {
+                break;
+            }
             let fingerprint = profile.fingerprint();
             if last_fingerprint != Some(fingerprint) {
                 last_fingerprint = Some(fingerprint);

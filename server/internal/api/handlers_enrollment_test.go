@@ -21,7 +21,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/cert"
 	"github.com/volchanskyi/opengate/server/internal/certledger"
 	"github.com/volchanskyi/opengate/server/internal/devicecert"
-	"github.com/volchanskyi/opengate/server/internal/lifecycle"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
@@ -99,5 +98,5 @@ func newTestIssuer(t *testing.T, srv *Server) *devicecert.Issuer {
 	require.NoError(t, err)
 	db := srv.store.DB()
 	ledger := certledger.New(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	return devicecert.NewIssuer(cm, ledger, srv.devices, lifecycle.NewTombstoneStore(db))
+	return devicecert.NewIssuer(cm, ledger)
 }

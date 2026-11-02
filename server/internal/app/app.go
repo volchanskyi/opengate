@@ -269,7 +269,7 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 	if err := ledger.Warm(ctx); err != nil {
 		return nil, fmt.Errorf("app: %w", err)
 	}
-	deviceIssuer := devicecert.NewIssuer(certMgr, ledger, repos.devices, tombstoneStore)
+	deviceIssuer := devicecert.NewIssuer(certMgr, ledger)
 
 	jwtCfg := &auth.JWTConfig{Secret: cfg.JWTSecret, Issuer: "opengate", Duration: jwtTokenLifetime}
 
