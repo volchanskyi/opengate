@@ -216,23 +216,32 @@ assert_rows "the API runtime files fit as three groups on the 4 Oct counts" \
 go-api-limits 16 ok
 go-api-proxytrust 28 ok" "$got"
 
-# The 1 Nov dry run's runnable mutants in the three API groups that ran out their 90 minutes.
+# The 1 Nov runnable mutants in the API groups that ran out their 90 minutes or came within 5 of it.
 api_nov="$(listing_of internal/api/metrics_grid.go 38 internal/api/metrics_assemble.go 20 \
   internal/api/handlers_client_errors.go 9 internal/api/handlers_health.go 3 \
   internal/api/handlers_auth.go 31 internal/api/handlers_users.go 10 \
   internal/api/handlers_security_groups.go 8 internal/api/handlers_security_group_members.go 4 \
-  internal/api/handlers_audit.go 7 internal/api/proxytrust.go 31 internal/api/ratelimit.go 18)"
+  internal/api/handlers_audit.go 7 internal/api/proxytrust.go 31 internal/api/ratelimit.go 18 \
+  internal/api/handlers_rules.go 17 internal/api/handlers_rules_admin.go 4 \
+  internal/api/handlers_rules_tuning.go 7 internal/api/handlers_rules_read.go 14 \
+  internal/api/handlers_rules_rollout.go 11 internal/api/handlers_organizations.go 18 \
+  internal/api/handlers_sites.go 9 internal/api/handlers_device_tags.go 12 \
+  internal/api/handlers_alert_limits.go 5 internal/api/handlers_push.go 2)"
 out="$(MUTATION_GO_DRYRUN_FILE="$api_nov" MUTATION_SHARD_COUNTER="$(stub_counter 1)" "$GUARD" 2>&1)"
-got="$(awk '$1 ~ /^go-api-(status|metrics-grid|identity|accounts|limits|proxytrust)$/ { print $1, $2, $4 }' <<<"$out")"
-assert_rows "the 1 Nov counts fit six groups at each group's slowest measured cost" \
+got="$(awk '$1 ~ /^go-api-(status|metrics-grid|identity|accounts|limits|proxytrust|tenancy-admin|tags-limits-push|rules|rules-rollout)$/ { print $1, $2, $4 }' <<<"$out")"
+assert_rows "the 1 Nov counts fit ten groups at each group's slowest measured cost" \
   "go-api-limits 18 ok
 go-api-proxytrust 31 ok
 go-api-status 32 ok
 go-api-metrics-grid 38 ok
 go-api-identity 31 ok
-go-api-accounts 29 ok" "$got"
+go-api-accounts 29 ok
+go-api-tenancy-admin 27 ok
+go-api-tags-limits-push 19 ok
+go-api-rules 28 ok
+go-api-rules-rollout 25 ok" "$got"
 
-for group in "go-api-status 70" "go-api-identity 60"; do
+for group in "go-api-status 70" "go-api-identity 60" "go-api-rules 53"; do
   read -r shard count <<<"$group"
   whole=$(((count * $(mutation_go_shard_seconds_per_mutant "$shard") + 59) / 60))
   if [ "$whole" -gt "$(mutation_go_shard_budget_minutes)" ]; then

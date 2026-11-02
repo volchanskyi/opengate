@@ -323,7 +323,7 @@ takes no flag for it.
 1. **Key generation** — Agent generates an ECDSA P-256 key pair in memory
 2. **CSR creation** — Agent creates a PKCS#10 CSR; the server ignores its subject
 3. **Enrollment POST** — Agent sends the PEM-encoded CSR to `POST /api/v1/enroll/{token}` with `{"csr_pem": "..."}`
-4. **Server signing** — Server validates the enrollment token (expiry, usage limits), verifies the CSR's signature and P-256 key, chooses a device number no device, deleted device or certificate has held, issues a certificate for it from a fresh template, and records it in the certificate ledger before sending it ([`issue_device.go`](../../server/internal/cert/issue_device.go), [`issuer.go`](../../server/internal/devicecert/issuer.go))
+4. **Server signing** — Server validates the enrollment token (expiry, usage limits), verifies the CSR's signature and P-256 key, issues a certificate from a fresh template under a fresh device number, and records it in the certificate ledger before sending it, only while no device, deleted device or certificate has held that number ([`issue_device.go`](../../server/internal/cert/issue_device.go), [`issuer.go`](../../server/internal/devicecert/issuer.go))
 5. **Certificate storage** — Agent checks that the certificate carries the returned number and chains to the note's master keys, then saves the identity through its crash-safe store and deletes the note in the same commit
 6. **mTLS connection** — Agent presents the certificate over QUIC; the server classifies it in `VerifyConnection` and admits only certificates its ledger lists
 

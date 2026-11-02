@@ -40,7 +40,7 @@ func newAlertEnv(t *testing.T) *alertEnv {
 
 	cm, err := cert.NewManager(t.TempDir())
 	require.NoError(t, err)
-	issuer := machinecert.NewIssuer(t, base.store, cm, base.devices)
+	issuer := machinecert.NewIssuer(t, base.store, cm)
 	srv := agentapi.NewAgentServer(agentapi.AgentServerConfig{
 		Cert:          cm,
 		Issuer:        issuer,

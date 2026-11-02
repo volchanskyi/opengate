@@ -1,6 +1,7 @@
 //! Read-only host discovery into a bounded [`DiscoveryProfile`] that carries no connection strings,
 //! credentials or bound addresses.
 
+pub mod command;
 pub mod containers;
 pub mod db_engines;
 pub mod packages;
@@ -110,16 +111,17 @@ impl DiscoveryProfile {
     }
 }
 
-/// Runs every collector once into a bounded [`DiscoveryProfile`]; a sourceless collector adds none.
-pub fn collect_profile() -> DiscoveryProfile {
+/// Runs every collector once into a bounded [`DiscoveryProfile`]; a sourceless collector adds none,
+/// and one whose command outruns [`command::COMMAND_LIMIT`] or meets `stop` adds none.
+pub fn collect_profile(stop: &dyn command::StopSignal) -> DiscoveryProfile {
     let ports = ports::collect_ports();
     let db_engines = db_engines::infer_db_engines(&ports);
     let mut profile = DiscoveryProfile {
         ports,
-        services: services::collect_services(),
+        services: services::collect_services(stop),
         db_engines,
-        containers: containers::collect_containers(),
-        packages: packages::collect_packages(),
+        containers: containers::collect_containers(stop),
+        packages: packages::collect_packages(stop),
         truncated: false,
     };
     profile.apply_caps();
@@ -129,6 +131,7 @@ pub fn collect_profile() -> DiscoveryProfile {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::discovery::command::NeverStops;
 
     fn sample_profile() -> DiscoveryProfile {
         DiscoveryProfile {
@@ -350,7 +353,7 @@ mod tests {
 
     #[test]
     fn collect_profile_is_bounded_and_safe() {
-        let profile = collect_profile();
+        let profile = collect_profile(&NeverStops);
         assert!(profile.ports.len() <= MAX_PORTS);
         assert!(profile.services.len() <= MAX_SERVICES);
         assert!(profile.db_engines.len() <= MAX_DB_ENGINES);

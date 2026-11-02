@@ -76,7 +76,7 @@ func newCertEnvLogging(t *testing.T, dir string, logger *slog.Logger, opts ...ce
 	require.NoError(t, err)
 	store := testutil.NewTestStore(t)
 	devices := testutil.NewTestDevices(t, store)
-	issuer := machinecert.NewIssuer(t, store, cm, devices)
+	issuer := machinecert.NewIssuer(t, store, cm)
 	srv := NewAgentServer(AgentServerConfig{
 		Cert:          cm,
 		Issuer:        issuer,

@@ -65,7 +65,7 @@ func startCertServer(t *testing.T, store *db.PostgresStore, dir string, c *clock
 	cm, err := cert.NewManager(dir, append([]cert.Option{cert.WithClock(c.Now)}, opts...)...)
 	require.NoError(t, err)
 	devices := testutil.NewTestDevices(t, store)
-	issuer := machinecert.NewIssuer(t, store, cm, devices)
+	issuer := machinecert.NewIssuer(t, store, cm)
 	require.NoError(t, issuer.Ledger().Warm(context.Background()))
 	srv := agentapi.NewAgentServer(agentapi.AgentServerConfig{
 		Cert:          cm,

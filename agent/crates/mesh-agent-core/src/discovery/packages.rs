@@ -2,6 +2,10 @@
 
 use mesh_protocol::DiscoveredPackage;
 
+use super::command::StopSignal;
+#[cfg(target_os = "linux")]
+use super::command::{stdout_within, COMMAND_LIMIT};
+
 /// Parses `name\tversion` lines, skipping blank lines and rows missing either half.
 fn parse_name_tab_version(stdout: &str) -> Vec<DiscoveredPackage> {
     let mut out = Vec::new();
@@ -31,44 +35,39 @@ pub(crate) fn parse_rpm(stdout: &str) -> Vec<DiscoveredPackage> {
 }
 
 /// Lists installed packages; empty where no recognized package manager is present.
-pub fn collect_packages() -> Vec<DiscoveredPackage> {
+pub fn collect_packages(stop: &dyn StopSignal) -> Vec<DiscoveredPackage> {
     #[cfg(target_os = "linux")]
     {
-        collect_packages_linux()
+        collect_packages_linux(stop)
     }
     #[cfg(not(target_os = "linux"))]
     {
+        let _ = stop;
         Vec::new()
     }
 }
 
 #[cfg(target_os = "linux")]
-fn collect_packages_linux() -> Vec<DiscoveredPackage> {
-    let dpkg = std::process::Command::new("dpkg-query")
-        .args(["-W", "-f=${Package}\t${Version}\n"])
-        .output();
-    if let Ok(output) = dpkg {
-        if output.status.success() {
-            let packages = parse_dpkg(&String::from_utf8_lossy(&output.stdout));
-            if !packages.is_empty() {
-                return packages;
-            }
+fn collect_packages_linux(stop: &dyn StopSignal) -> Vec<DiscoveredPackage> {
+    let mut dpkg = std::process::Command::new("dpkg-query");
+    dpkg.args(["-W", "-f=${Package}\t${Version}\n"]);
+    if let Some(stdout) = stdout_within(&mut dpkg, COMMAND_LIMIT, stop) {
+        let packages = parse_dpkg(&stdout);
+        if !packages.is_empty() {
+            return packages;
         }
     }
-    let rpm = std::process::Command::new("rpm")
-        .args(["-qa", "--qf", "%{NAME}\t%{VERSION}\n"])
-        .output();
-    match rpm {
-        Ok(output) if output.status.success() => {
-            parse_rpm(&String::from_utf8_lossy(&output.stdout))
-        }
-        _ => Vec::new(),
-    }
+    let mut rpm = std::process::Command::new("rpm");
+    rpm.args(["-qa", "--qf", "%{NAME}\t%{VERSION}\n"]);
+    stdout_within(&mut rpm, COMMAND_LIMIT, stop)
+        .map(|stdout| parse_rpm(&stdout))
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::discovery::command::NeverStops;
 
     #[test]
     fn parse_name_tab_version_reads_pairs() {
@@ -109,7 +108,7 @@ mod tests {
 
     #[test]
     fn collect_packages_reads_the_platform_or_reports_nothing() {
-        let packages = collect_packages();
+        let packages = collect_packages(&NeverStops);
         #[cfg(not(target_os = "linux"))]
         assert!(packages.is_empty(), "no package manager to read");
         for package in &packages {

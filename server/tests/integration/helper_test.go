@@ -43,7 +43,7 @@ func newHelperTestEnv(t *testing.T, limits stunhelper.Limits) *helperTestEnv {
 	cm, err := cert.NewManager(t.TempDir())
 	require.NoError(t, err)
 	metrics := appmetrics.NewMetrics(prometheus.NewRegistry())
-	issuer := machinecert.NewIssuer(t, store, cm, testutil.NewTestDevices(t, store))
+	issuer := machinecert.NewIssuer(t, store, cm)
 
 	srv := agentapi.NewAgentServer(agentapi.AgentServerConfig{
 		Cert:          cm,

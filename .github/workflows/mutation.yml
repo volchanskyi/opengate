@@ -176,11 +176,13 @@ jobs:
           - { language: go, shard: go-api-accounts }
           - { language: go, shard: go-api-console-session }
           - { language: go, shard: go-api-tenancy-admin }
+          - { language: go, shard: go-api-tags-limits-push }
           - { language: go, shard: go-api-device-control }
           - { language: go, shard: go-api-device-sessions }
           - { language: go, shard: go-api-device-reads }
           - { language: go, shard: go-api-incidents }
           - { language: go, shard: go-api-rules }
+          - { language: go, shard: go-api-rules-rollout }
           - { language: go, shard: go-api-enrollment }
           - { language: go, shard: go-api-updates-purge }
           # conn_backfill.go's mutants run under the Postgres-backed harness, so it is sized alone.
@@ -355,9 +357,14 @@ jobs:
           mutate="$(mutation_web_shard_mutate '${{ matrix.shard }}' | paste -sd, -)"
           echo "shard ${{ matrix.shard }} mutates: $mutate"
           cd web
+          # A mutant that copies frames without end fills memory outside the JavaScript heap; the
+          # ceiling kills its worker, which Stryker records as crashed, and the scope carries on.
+          sudo -n --preserve-env systemd-run --scope --quiet -p MemoryMax=12G -p MemorySwapMax=0 \
+            -p OOMPolicy=continue \
+            -- setpriv --reuid="$(id -u)" --regid="$(id -g)" --init-groups env PATH="$PATH" \
+            ./node_modules/.bin/stryker run --mutate "$mutate"
           # Stryker exits 0 even with surviving mutants when thresholds.break
           # is null (it is). JSON reporter writes to reports/mutation/mutation.json.
-          ./node_modules/.bin/stryker run --mutate "$mutate"
           "$GITHUB_WORKSPACE/scripts/assert-mutation-report.sh" stryker reports/mutation/mutation.json
 
       - name: Record what the runner did

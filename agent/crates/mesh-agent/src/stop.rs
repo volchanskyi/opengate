@@ -75,6 +75,12 @@ impl Stop {
     }
 }
 
+impl mesh_agent_core::discovery::command::StopSignal for Stop {
+    fn wait(&self, duration: Duration) -> bool {
+        self.sleep_blocking(duration)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Stop;

@@ -112,7 +112,12 @@ and no note, so a `fresh` note can never enrol twice and orphan a device.
 **The server chooses the machine number.** Enrolment ignores the subject of the
 request, generates a number with no device, deleted or certificate row
 ([`issuer.go`](../../server/internal/devicecert/issuer.go)), issues the
-certificate with it and returns it beside the certificate. The agent stores the
+certificate with it and returns it beside the certificate. The check and the
+record are one statement: the certificate is written only while nothing holds
+its number, and a number found taken is signed again under a fresh one. Two
+lookups and a transaction before the record cost enrolment about 0.3 ms of
+server processor time each, enough to cut machines off at the bottom load-test
+rung ([ADR-101](ADR-101-load-profiles-and-limits.md)). The agent stores the
 number its certificate carries, and refuses a reply whose number differs from
 its certificate's. A join code therefore cannot claim an existing machine, by
 construction. Intune, Tailscale and AWS IoT fleet provisioning assign the

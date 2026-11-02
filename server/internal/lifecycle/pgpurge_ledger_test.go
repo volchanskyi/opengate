@@ -59,16 +59,3 @@ func TestPurgeRemovesLedgerRows(t *testing.T) {
 	assert.Zero(t, ledgerRows(t, store, sibling))
 	assert.Equal(t, 2, ledgerRows(t, store, kept), "another tenant's machines keep their certificates")
 }
-
-func TestIsDeviceNumberDeletedAcrossTenants(t *testing.T) {
-	ts, ctx := newTombstoneFixture(t)
-	device := uuid.New()
-	deleted, err := ts.IsDeviceNumberDeleted(ctx, device)
-	require.NoError(t, err)
-	assert.False(t, deleted)
-
-	require.NoError(t, ts.TombstoneDevice(ctx, uuid.New(), device, nil))
-	deleted, err = ts.IsDeviceNumberDeleted(ctx, device)
-	require.NoError(t, err)
-	assert.True(t, deleted, "a number deleted in any tenant is never handed out again")
-}

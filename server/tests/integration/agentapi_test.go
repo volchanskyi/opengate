@@ -81,7 +81,7 @@ func newAgentTestEnv(t *testing.T) *agentTestEnv {
 	store := testutil.NewTestStore(t)
 	cm, err := cert.NewManager(t.TempDir())
 	require.NoError(t, err)
-	issuer := machinecert.NewIssuer(t, store, cm, testutil.NewTestDevices(t, store))
+	issuer := machinecert.NewIssuer(t, store, cm)
 
 	r := relay.NewRelay(slog.Default())
 	logger := testLogger()

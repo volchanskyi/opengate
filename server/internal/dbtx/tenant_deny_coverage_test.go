@@ -18,6 +18,7 @@ var tenantDenyProofs = map[string][]string{
 	"amt":           {"TestPostgresAMTDevices_TenantDeny"},
 	"audit":         {"TestPostgresAudit_TenantDeny"},
 	"auth":          {"TestPostgresUsers_TenantDeny", "TestPostgresSecurityGroups_TenantDeny"},
+	"certledger":    {"TestClaimUnderACustomersScopeReadsOnlyThatCustomersDevices"},
 	"device":        {"TestPostgresDeviceRepos_TenantDeny"},
 	"inventory":     {"TestPostgresInventoryRepositoryTenantDeny"},
 	"lifecycle":     {"TestOrchestratorPurgeTenantLeavesOtherTenantsUntouched"},

@@ -46,7 +46,7 @@ func newAcceptEnvWithMetrics(t *testing.T, m *appmetrics.Metrics) *acceptEnv {
 	devices := testutil.NewTestDevices(t, store)
 	cm, err := cert.NewManager(t.TempDir())
 	require.NoError(t, err)
-	issuer := machinecert.NewIssuer(t, store, cm, devices)
+	issuer := machinecert.NewIssuer(t, store, cm)
 	srv := NewAgentServer(AgentServerConfig{
 		Issuer:        issuer,
 		Cert:          cm,
