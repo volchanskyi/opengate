@@ -747,6 +747,32 @@ a test gap".
 - **Ivan (2026-11-02): investigate now**, its own commit: reproduce locally with the agent, then
   the browser, held to a smaller processor share; profile the side that runs out per piece; fix
   what it shows; the nightly summary gains the agent's and the browser's processor use.
+- **Read (session 14, local rig, i7-12850HX):** 100 Mbit/s clean Direct 74.3 and 82.2; agent at
+  0.5 core 83.1, at 0.3 core 69.2 (agent at its cap); browser on one core 34.6 while it used 0.4
+  of it. Busiest threads at full speed: Chrome's IO thread 0.46 core, the agent's worker 0.37,
+  Chrome's WebRTC thread 0.31; "sent beyond" 8.2–8.3% in every run (header overhead, no resends).
+  No side runs out: the limit is rate × least round trip + 64 KiB, and a sender held at it settles
+  at cushion ÷ lateness, the lateness being what acknowledgements carry beyond the least round trip
+  (5.2 ms covers 100 Mbit/s): Chrome's acknowledgement delay and thread turns, and the writer's
+  2 ms poll. **Ivan (2026-11-02), after research** (Linux BBR's ack-aggregation estimate, from
+  QUIC BBR's max_ack_height; W3C/Pion/webrtc-rs buffered-amount-low wake; dcSCTP delays SACKs up
+  to 200 ms): the limit adds the measured bunching — bytes confirmed beyond the measured rate,
+  largest over 5 round trips, capped at 100 ms of the rate and at the ceiling — and the writer
+  wakes on the channel's buffered-amount-low signal in place of the 2 ms poll. Test first: a fake
+  path acknowledging 10 ms late carries ≥ 90% of its line, one acknowledging on time keeps today's
+  limit; then the rig re-read with the agent at 0.3 core and the browser on one core.
+- **Built and read (session 14):** a measurement run ends once releases fall behind the rate or a
+  round trip has passed (QUIC BBR's full-round epoch). Rig: clean 88.7, 84.0, 90.0, 91.3 (with
+  typing); agent at 0.3 core 64.0 (its cap); browser on one core 37.4 (it used 0.34 of the core,
+  so the limit is not what holds it). Echo p95 67 ms at 100 Mbit/s, 175 ms at 10. Profile at
+  ~90 Mbit/s: agent 0.42 core, 52% its own code (musl malloc and its lock ~7%, memcpy 5.5%), 48%
+  kernel, mostly the rig's bridge firewall and router path on the agent's pinned core. **Ivan
+  (2026-11-02):** commit the fix with each Direct download case in the speed nightly recording the
+  agent's and the browser's processor use beside its speed; no further work on the agent's
+  processor cost (mimalloc and a core of its own declined for now). Later reads with the fix:
+  70.2, 89.7, 87.5, 78.8 (CPU 0 at ~55% busy in fast and slow runs alike, the agent at 0.41–0.46
+  core, the browser at 1.20): eight runs 70–91, mean ~85, against 74–83 over three before; the
+  local spread is not CPU 0 and is left to the nightly's new processor readings.
 
 ## Also in this plan: two shell-check gaps (Ivan, 2026-11-01)
 

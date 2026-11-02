@@ -196,7 +196,23 @@ until two agree. A check read while the sender is held carries its own queue, an
 one a router reorders past its delay reads short: taking the least single check,
 Direct read 45, 79 and 89 Mbit/s on three runs at 1% reordering, by whether a
 check got reordered. A rate read per tick from 1 MiB confirmation steps comes out
-in steps, so it is read over the last second. The browser sends on a channel while its `bufferedAmount` is under
+in steps, so it is read over the last second. Acknowledgements come back bunched:
+Chrome holds a SACK back, and its threads and the host's writer take turns. A
+sender held at one round trip plus the cushion settles at the cushion divided by
+that lateness, which at 100 Mbit/s the cushion covers for about 5 ms: a browser
+held to one processor core cut the download from 82 to 35 Mbit/s with nothing
+resent. So the limit also carries the largest bunch of the last
+`BUNCHING_ROUND_TRIPS` round trips, capped at `BUNCHING_CAP` of the rate: the
+bytes a run of releases holds beyond the measured rate, a run ending once
+releases fall behind the rate or a round trip has passed. Linux's BBR adds its
+acknowledgement aggregation to its window the same way, and QUIC's BBR ends an
+aggregation epoch each round. In a closed-loop model of a 100 Mbit/s path
+([`pacing_test.rs`](../../agent/crates/mesh-agent-core/tests/pacing_test.rs)),
+acknowledgements bunched 10 ms apart carried 55% of the line without it. The
+writer waits at the limit for a channel's low signal, set to the level its next
+piece needs, and reads the channels again after `LIMIT_POLL` when a signal
+crossed before it was set
+([`peer.rs`](../../agent/crates/mesh-agent-core/src/link/peer.rs)). The browser sends on a channel while its `bufferedAmount` is under
 `UNSENT_LIMIT`. Inside the link library, the channels share the path by weighted
 fair queueing (RFC 8260 §3.6), as RFC 8831 §6.4 asks of a WebRTC stack, with
 equal weights, so a keystroke waits behind at most one piece per busy channel.
