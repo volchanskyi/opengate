@@ -54,8 +54,11 @@ to find. A phase may carry one or the other and never both.
 
 **Offered and achieved load are separate.** Collapsing them hides the case the
 validity rule exists for: a generator that could not produce the load reads
-exactly like a system that could not absorb it. The technician side stays absent
-until something on that side measures it.
+exactly like a system that could not absorb it. The generator's own lateness
+tells the two apart: a phase whose dials began late voids the run, and the
+achieved share is a reading of the system
+([ADR-101](ADR-101-load-profiles-and-limits.md)). The technician side travels as
+the profile's offer, and the browser-side generator times it.
 
 **A machine that arrived and a machine that ended cleanly are two facts, and
 every count says which one it is.** The fleet that exists is the machines that

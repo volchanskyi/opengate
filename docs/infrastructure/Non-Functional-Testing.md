@@ -121,16 +121,21 @@ rules fall on the figure: too little processor left, too much memory held, or to
 much of the run spent runnable and refused the processor. A generator that shares
 a box with the system it measures, which is what the throwaway stack is, has no
 allowance to be measured against; its figure is carried as evidence and the
-question of whether it offered the load is answered by attainment, which is a
-reading of the fleet.
+question of whether it offered the load is answered by its own lateness, which is
+a reading of the fleet.
 
 The arrival rate is two pairs, not one, because two processes offer arrivals. The
 machine side is the harness's own and is measured from the fleet; the technician
-side is the profile's declaration, and its achieved half stays absent until a
-browser-side generator fills it. Beside the machine side sits the harness's own
-lateness: the share of the phase's dials it began more than 100 ms past their turn,
-watched and judging nothing, so a generator that fell behind its schedule can be
-told from a server that answered slowly. A phase's latency is a live round trip taken
+side is the profile's declaration, which the browser-side generator times. Beside
+the machine side sits the harness's own lateness: the share of the phase's dials it
+began more than 100 ms past their turn. Past 1% the phase followed the generator's
+schedule and the run is thrown out; below it, arrivals slower than offered are the
+server's answer, and the arrival share judges nothing on its own. A measured phase
+also counts its wave to the finish: it holds still at its end, for at most the 30 s a
+machine has to connect and register, until each machine it asked for has come online
+or given up, and records the share that came online and the 95th percentile of their
+times from dial to online, which a profile can hold to a limit. A phase's latency is
+a live round trip taken
 during the phase — a machine that connects, handshakes, registers and hangs up —
 because the control stream has no reply to a heartbeat.
 

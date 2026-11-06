@@ -36,10 +36,17 @@ func runAgentWithContext(ctx context.Context, credentials agentCredentials, addr
 	// The stay is measured from here, so time spent behind a dark link counts against it.
 	leaveAt := time.Now().Add(opts.holdFor)
 
+	// The machine's first dial starts once its certificate is in hand, so enrolment is outside it.
+	firstDial := time.Now()
+	var noteArrival func()
+	if presence.Arrived != nil {
+		noteArrival = func() { presence.Arrived(firstDial) }
+	}
+
 	return persistThrough(ctx, opts, func(ctx context.Context) agentResult {
 		thisConnection := opts
 		thisConnection.holdFor = time.Until(leaveAt)
-		res := serveOneConnection(ctx, addr, tlsConfig, plan, thisConnection, presence.Arrived)
+		res := serveOneConnection(ctx, addr, tlsConfig, plan, thisConnection, noteArrival)
 		// A connection that never registered was never counted as attached.
 		if !res.arrivedAt.IsZero() && presence.Left != nil {
 			presence.Left()

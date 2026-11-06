@@ -7,87 +7,68 @@
 
 ### Most of the Go mutation gap is not a test gap
 
-The Go leg reads 86.0 against the 88.2 the register has been carrying as its
-target, and the shape of the shortfall is not what the number suggests.
+The Go leg reads 88.8 on the night of 2026-11-05. Of its 4 132 mutants, 3 671 are
+killed, 92 survive a test that reaches them, 8 run out of time and 369 are reached
+by no test.
 
-Of 3 530 Go mutants in the run of 2026-09-23, 3 038 are killed. Of the 492 that
-are not, 396 are marked as reached by no test and 96 are reached by a test that
-fails to catch them. **241 of that 396 cannot be caught by any test that could be
-written**, for two distinct reasons:
+**158 of the 369 cannot be caught by any test that could be written.** They sit on
+package-level `const` and `var` declarations — SQL assembled by concatenation
+(`organizationSelect + "WHERE " + tenantPredicate`), and durations and sizes
+(`5 * time.Second`, `16 * 1024 * 1024`). A declaration of that kind is worked out
+when the package compiles and never appears in a Go coverage profile, so the survey
+marks it unreached whatever the tests do. Most do not compile when mutated at all —
+`"a" - "b"` is not Go.
 
-- **157 sit on package-level `const` and `var` declarations** — SQL assembled by
-  concatenation (`organizationSelect + "WHERE " + tenantPredicate`), and
-  durations and sizes (`5 * time.Second`, `16 * 1024 * 1024`). A declaration of
-  that kind is worked out when the package compiles and never appears in a Go
-  coverage profile, so the survey marks it unreached whatever the tests do. Most
-  do not compile when mutated at all — `"a" - "b"` is not Go.
-- **84 sit on a `switch` statement's `case` expression.** Go's coverage profile
-  opens a block at the case *body*, never at the expression, so the survey finds
-  no block on that line, marks the mutant unreached, and skips it without running
-  it. This is a property of the measurement, not of the tests: in
-  [`alerts/noise.go`](../server/internal/alerts/noise.go),
-  [`rules/clamp.go`](../server/internal/rules/clamp.go) and
-  [`app/app.go`](../server/internal/app/app.go), every branch is exercised and
-  `go test -coverprofile` shows each block hit, while the survey reports their
-  `case` lines unreached.
+A mutant on a `case` expression runs: the pinned copy of gremlins reads a case
+expression as covered once a clause body at or below it ran, and 110 of them ran
+that night. Seven stay unrun, on a switch nothing matched or on a later expression
+of a clause entered through its first.
 
-What is left is 148 genuinely untested statements and the 96 survivors, and not
-all of those move either: **about a fifth of the survivors are equivalent
-mutants**, where the change produces identical behaviour and no test can tell the
-difference. Measured over the whole rules shard: of its 31 survivors 19 are now
-caught, 6 are provably equivalent — a comparator reached only when the values
-differ, so `<` and `<=` agree; an `append` of a slice guarded on that slice's own
-length; a stage population that computes the same number either way — and 6 are
-unassessed. The movable pool is therefore nearer 190 than 244, and 88.2 needs 76
-of it.
-
-Where they are: 92 of the 148 are in the load-test harness under
-`server/tests/loadtest/`, which scores 87.3% against shipped code's 85.5% and is
-therefore not what is holding the leg down. The rest are spread thin, the largest
-single files being
-[`organization/instrumented.go`](../server/internal/organization/instrumented.go)
-(7), [`amt/transport/mps.go`](../server/internal/amt/transport/mps.go) (6) and
-[`dbtx/tx.go`](../server/internal/dbtx/tx.go) (5). The survivors are the
-better-value half; with the rules and wrapper ones taken, the largest clusters
-left are [`app/app.go`](../server/internal/app/app.go) (4),
-[`lifecycle/orchestrator.go`](../server/internal/lifecycle/orchestrator.go) (4),
-and three apiece in
+What is left is 204 untested statements and the 92 survivors. 111 of the 204 are in
+the load-test harness under `server/tests/loadtest/` — `workload.go` 27,
+`leak_trail.go` 14, `agent.go` 14, `fingerprint.go` 12, `soak.go` 10 — and shipped
+code's 93 are spread thin, the largest being
+[`agentapi/renewal_sweep.go`](../server/internal/agentapi/renewal_sweep.go) (14),
+[`api/handlers_sessions.go`](../server/internal/api/handlers_sessions.go) (8) and
+[`amt/transport/mps.go`](../server/internal/amt/transport/mps.go) (6). The survivors
+are the better-value half; the largest clusters are
+[`app/app.go`](../server/internal/app/app.go) (7),
+[`alerts/room.go`](../server/internal/alerts/room.go) (5) and
+[`rules/stage.go`](../server/internal/rules/stage.go) (5), then three apiece in
 [`amt/transport/mps_conn.go`](../server/internal/amt/transport/mps_conn.go),
 [`device/postgres_device.go`](../server/internal/device/postgres_device.go),
-[`relay/relay.go`](../server/internal/relay/relay.go) and
-[`rules/catalogue_lock.go`](../server/internal/rules/catalogue_lock.go).
+[`lifecycle/orchestrator.go`](../server/internal/lifecycle/orchestrator.go),
+[`certledger/upkeep.go`](../server/internal/certledger/upkeep.go),
+[`relay/relay.go`](../server/internal/relay/relay.go),
+[`stunhelper/helper.go`](../server/internal/stunhelper/helper.go),
+[`telemetry/vm.go`](../server/internal/telemetry/vm.go) and three files of
+[`rules/`](../server/internal/rules/). Not all of them move: **about a fifth of the
+survivors are equivalent mutants**, where the change produces identical behaviour
+and no test can tell the difference. Measured over the rules shard once: of its 31
+survivors 19 were caught, 6 were provably equivalent — a comparator reached only
+when the values differ, so `<` and `<=` agree; an `append` of a slice guarded on
+that slice's own length; a stage population that computes the same number either
+way — and 6 were unassessed.
 
-The nightly is green throughout: [`mutation-summarize.sh`](../scripts/mutation-summarize.sh)
-compares each run with the one before and holds an absolute floor of 85.0.
+The nightly holds Go to its committed floor in
+[`mutation-floors.json`](../benchmarks/mutation-floors.json) as well as the 85%
+minimum and the night before ([`mutation-summarize.sh`](../scripts/mutation-summarize.sh)).
+The web leg reads 85.2, just above that minimum, so new web surface lands with its
+survivors covered.
 
-The web leg read 85.3 against that floor on 2026-09-23. Stryker 10's call-removal
-mutator added 55 survivors, which are now covered, and test helpers are not
-scored. The next tranche of web surface needs its survivors covered as it lands
-rather than after the leg reds.
+**Pay-down trigger:** per shard. A file's survivor list names the assertions that
+are missing, and each tranche that lands raises the floor through the commit that
+accepts the nightly's offer.
 
-**Pay-down trigger:** two separable pieces of work, and the first decides how
-much the second is worth.
-
-1. The survey's blindness to a `case` expression is a defect in the gate, not in
-   the tests, and it is 84 mutants — a third of everything that is movable. Fix
-   or replace the coverage matching so a mutant on a case expression is run
-   rather than skipped, and the score moves without a line of test code. Until
-   that is done, a target expressed as a single percentage is measuring the tool
-   as much as the suite.
-2. For the rest, the survivors are worth more per unit of effort than the
-   untested statements, and a file's survivor list names the assertions that are
-   missing. This pays down per shard rather than in one pass.
-
-   **A local run has to cap its workers to be read at all.** Gremlins verifies a
-   mutant by running the whole package's test binary, and defaults its worker
-   count to the machine's cores. On a 24-core workstation, 24 mutants run their
-   package's tests at once against one Postgres, the database-backed tests in
-   that package flake, the run exits non-zero, and the mutant is recorded as
-   killed. The rules shard reads 3 survivors that way against the nightly's 31,
-   on an identical tree with the pinned tool and the same invocation; at
-   `--workers 1` the four `binding.go` mutants the nightly names come back alive.
-   Pass `--workers` at or below the runner's core count, or a local run reports
-   work as already done.
+**A local run has to cap its workers to be read at all.** Gremlins verifies a mutant
+by running the whole package's test binary, and defaults its worker count to the
+machine's cores. On a 24-core workstation, 24 mutants run their package's tests at
+once against one Postgres, the database-backed tests in that package flake, the run
+exits non-zero, and the mutant is recorded as killed. The rules shard reads 3
+survivors that way against the nightly's 31, on an identical tree with the pinned
+tool and the same invocation; at `--workers 1` the four `binding.go` mutants the
+nightly names come back alive. Pass `--workers` at or below the runner's core count,
+or a local run reports work as already done.
 
 ### Load-test identities live in the default tenant
 
@@ -292,6 +273,28 @@ unseen.
 **Pay-down trigger:** a Windows agent with screen capture. The speed spec then
 keeps the screen busy during a download, reading the router's queued bytes
 against one allowance and each channel's share.
+
+### Two tools run from patched copies until their makers release the fix
+
+The agent's WebRTC library and the Go mutation tool each run from a copy under
+Ivan's GitHub account, pinned by commit, because the fix they need is in no release
+yet:
+
+- **The WebRTC library**, all sixteen `rtc` crates at one commit of
+  `volchanskyi/rtc` ([`agent/Cargo.toml`](../agent/Cargo.toml)): the receiver
+  reports repeated pieces and bounds its acknowledgements, a lost piece is found by
+  time with a needless cut undone, and the channels share the link by bytes.
+  Offered as `webrtc-rs/rtc` pull requests 301, 302 and 303, all open on 2026-11-06.
+- **gremlins**, the Go mutation tool, from `volchanskyi/gremlins`
+  ([`tool-versions.sh`](../scripts/lib/tool-versions.sh)): a `case` expression reads
+  as covered once a clause body at or below it ran. Offered as `go-gremlins/gremlins`
+  pull request 325, open on 2026-11-06.
+
+What it costs: a fix or a security patch the makers release reaches either copy only
+when the copy is moved onto it by hand.
+
+**Pay-down trigger:** each maker's release that carries its fix. Move that tool back
+to the release and delete its half of this entry.
 
 ### OpenAPI request constraints are documentation, not runtime validation
 

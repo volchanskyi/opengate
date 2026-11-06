@@ -68,6 +68,50 @@ func (o FleetOutcomes) ErrorRate() float64 {
 	return float64(o.Failed) / float64(o.Attempted())
 }
 
+// Wave is what became of the machines one stretch of the run asked for, each counted when it
+// finishes, so a machine dialled in the stretch's last seconds counts though it arrives later.
+type Wave struct {
+	// Dialled is machines of the stretch whose dial began; a machine wound down first is none.
+	Dialled int
+	// Pending is machines of the stretch still waiting for their turn or still dialling.
+	Pending int
+	// Online is each machine that came online, timed from its first dial to registered.
+	Online []time.Duration
+}
+
+// OnlineShare is the share of the dialled machines that came online, absent with none dialled.
+func (w Wave) OnlineShare() *float64 {
+	if w.Dialled <= 0 {
+		return nil
+	}
+	share := float64(len(w.Online)) / float64(w.Dialled)
+	return &share
+}
+
+// OnlineP95Ms is the 95th percentile of the online machines' times, absent with none online.
+func (w Wave) OnlineP95Ms() *float64 {
+	if len(w.Online) == 0 {
+		return nil
+	}
+	p95 := millis(percentile(w.Online, 95))
+	return &p95
+}
+
+// wavePoll is how often a measured phase looks again at a wave that has not finished.
+const wavePoll = 100 * time.Millisecond
+
+// awaitWave holds the run still until every machine of the stretch has finished, for at most the
+// deadline a machine has to connect and register; a machine still dialling then never came online.
+func awaitWave(fleet Fleet, from, to int, clock Clock) Wave {
+	deadline := clock.Now().Add(agentDeadline)
+	wave := fleet.Wave(from, to)
+	for wave.Pending > 0 && clock.Now().Before(deadline) {
+		clock.Sleep(wavePoll)
+		wave = fleet.Wave(from, to)
+	}
+	return wave
+}
+
 // Fleet is whatever holds machines connected during a run.
 type Fleet interface {
 	// HoldConnected asks for exactly this many machines to be connected. The window is how
@@ -80,6 +124,10 @@ type Fleet interface {
 	ProbeLatency() time.Duration
 	// Outcomes is what the fleet's machines have seen so far.
 	Outcomes() FleetOutcomes
+	// Asked is how many machines the fleet has been asked for so far, the mark a wave starts at.
+	Asked() int
+	// Wave is what became of the machines asked for between two marks.
+	Wave(from, to int) Wave
 }
 
 // Clock is time, so a run can be walked without waiting for one.
@@ -115,6 +163,7 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, readings Phase
 
 	// The outcome tally is cumulative, so the phase's own outcomes are the difference from here.
 	began := fleet.Outcomes()
+	firstAsked := fleet.Asked()
 
 	var samples []time.Duration
 	elapsed := time.Duration(0)
@@ -147,6 +196,12 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, readings Phase
 	targetBusy, busyAbsent := closeBusy(finishedAt.Sub(startedAt))
 	generatorHeadroom, generatorRefused := closeRoom(finishedAt.Sub(startedAt))
 	generatorDrops, targetDrops := closeDrops()
+
+	// A measured phase's wave is counted to its finish, so the next phase's wind-down cancels none.
+	var wave Wave
+	if phase.Measured {
+		wave = awaitWave(fleet, firstAsked, fleet.Asked(), clock)
+	}
 
 	// The run's count, the target's account and the run's count again bracket the target's
 	// answer in time. The census holds still until the target catches up and reports how long.
@@ -192,6 +247,8 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, readings Phase
 		GeneratorCPUHeadroomPercent: generatorHeadroom,
 		GeneratorCPURefusedPercent:  generatorRefused,
 		GeneratorLateShare:          saw.LateShare(),
+		WaveOnlineShare:             wave.OnlineShare(),
+		WaveOnlineP95Ms:             wave.OnlineP95Ms(),
 		GeneratorUDPReceiveErrors:   generatorDrops,
 		TargetUDPReceiveErrors:      targetDrops,
 		ExpectedRejections:          saw.Rejected,

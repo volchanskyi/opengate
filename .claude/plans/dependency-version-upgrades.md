@@ -5,7 +5,7 @@ minor or major release are gathered here, grouped by dependency, instead of bein
 time. They never fail the check. Nothing below moves without Ivan's explicit approval of that one
 move ([`tool-versions.md`](../rules/tool-versions.md)): each row is a question to bring to him, with
 what the move changes and what it risks, researched before it is asked. Every row was asked and
-decided on 2026-11-01 (below). Split out of [`dependency-newer-lines.md`](dependency-newer-lines.md)
+decided on 2026-11-01 (below). Split out of the nightly-repairs plan (landed; `phases.md` row "Nightly repairs")
 the same day (Ivan).
 
 Measured by the full check on 2026-11-01 (459 advisories), after every patch move was taken. A fresh
@@ -121,11 +121,11 @@ entry (Ivan, 2026-11-01), written in this plan's commit, naming the three and wh
 
 ## When it lands, and what it waits on
 
-- After commit 3 of [`dependency-newer-lines.md`](dependency-newer-lines.md). Three moves change
+- After commit 3 of the nightly-repairs plan (landed; `phases.md` row "Nightly repairs"). Three moves change
   what that plan measures: k6 generates the technician load, VictoriaMetrics runs in the performance
   stack (`deploy/docker-compose.perf.yml`), and alpine is the base of the server image that stack
-  builds. The one-runner measurement and the nights that set the spike limit run on today's
-  versions of all three, so the limit is set and enforced on one stack.
+  builds. The spike's limit and the nights it was read against ran on today's versions of all
+  three, so each move is read against those nights.
 - The moves that belong together stay together: the Playwright image and `@playwright/test`;
   Terraform and the oracle/oci provider; Trivy and the dependency check that runs it; pmat and the
   repo-score floor.

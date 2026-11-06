@@ -124,18 +124,6 @@ func TestBundleKeepsOfferedAndAchievedApart(t *testing.T) {
 	require.NoError(t, b.Validate())
 	assert.InDelta(t, 5.0, b.Phases[0].OfferedAgentArrivalsPerSecond, 0)
 	assert.InDelta(t, 2.0, b.Phases[0].AchievedAgentArrivalsPerSecond, 0)
-	assert.Less(t, b.Phases[0].AchievedFraction(), 0.5)
-}
-
-func TestAttainmentReadsWhicheverSideWasMeasured(t *testing.T) {
-	b := completeBundle()
-	assert.InDelta(t, 0.98, b.Phases[0].AchievedFraction(), 0.001,
-		"with no technician reading, the machines the phase drove are the attainment")
-
-	measured := 1.0
-	b.Phases[0].AchievedOperatorArrivalsPerSecond = &measured
-	assert.InDelta(t, 0.2, b.Phases[0].AchievedFraction(), 0.001,
-		"a measured technician rate is what the phase offered and is read first")
 }
 
 func TestExpectedRejectionsAreNotFaults(t *testing.T) {

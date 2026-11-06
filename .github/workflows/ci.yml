@@ -73,7 +73,7 @@ jobs:
         with:
           # Pinned in scripts/lib/tool-versions.sh; a bare name is whatever
           # released this morning.
-          tool: cargo-nextest@0.9.150
+          tool: cargo-nextest@0.9.151
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2 — newer pin requires explicit tool input
         with:

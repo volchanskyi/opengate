@@ -67,13 +67,13 @@ run_rows() {
 
 bundle_observing "$WORK/full.json" \
   aggregate_error_rate 0.004 connect_p95_ms 41 handshake_p95_ms 12 \
-  register_p50_ms 8.1 register_p95_ms 23.45
+  register_p50_ms 8.1 register_p95_ms 23.45 wave_online_share 0.998 wave_online_p95_ms 4200
 run_rows "$WORK/full.json"
 assert_eq "a bundle carrying every series is read" "0" "$STATUS"
 
 EMITTED="$(jq -r '
   .[] | . as $row
-  | ["latency_p50_ms", "latency_p95_ms", "latency_p99_ms", "rps", "error_rate"][]
+  | ["latency_p50_ms", "latency_p95_ms", "latency_p99_ms", "rps", "error_rate", "arrival_share"][]
   | select($row[.] != null)
   | "\($row.source)/\($row.scenario)/\($row.phase)|\(.)"' <<<"$OUT" | sort -u)"
 
@@ -83,6 +83,10 @@ assert_eq "registration is read off the bundle" "23.45" \
   "$(jq -r '.[] | select(.phase == "register") | .latency_p95_ms' <<<"$OUT")"
 assert_eq "so is its middle case" "8.1" \
   "$(jq -r '.[] | select(.phase == "register") | .latency_p50_ms' <<<"$OUT")"
+assert_eq "the measured wave's share is read off the bundle" "0.998" \
+  "$(jq -r '.[] | select(.phase == "wave") | .arrival_share' <<<"$OUT")"
+assert_eq "so is its time from dial to online" "4200" \
+  "$(jq -r '.[] | select(.phase == "wave") | .latency_p95_ms' <<<"$OUT")"
 assert_eq "every row names the machine side" "quic quic-agents" \
   "$(jq -r '[.[] | .source] + [.[] | .scenario] | unique | join(" ")' <<<"$OUT")"
 
@@ -92,6 +96,8 @@ run_rows "$WORK/no-register.json"
 assert_eq "a run the server did not answer still reads" "0" "$STATUS"
 assert_eq "and publishes no registration row" "0" \
   "$(jq '[.[] | select(.phase == "register")] | length' <<<"$OUT")"
+assert_eq "a run that judged no wave publishes no wave row" "0" \
+  "$(jq '[.[] | select(.phase == "wave")] | length' <<<"$OUT")"
 
 run_rows "$WORK/absent.json"
 assert_eq "a bundle that is not there refuses" "2" "$STATUS"

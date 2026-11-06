@@ -39,7 +39,7 @@ func (h *heldStarter) start(ctx context.Context, index int, presence fleetPresen
 		return agentResult{err: ctx.Err()}
 	}
 
-	presence.Arrived()
+	presence.Arrived(time.Now())
 	<-ctx.Done()
 	presence.Left()
 	return agentResult{connectDur: time.Millisecond}
@@ -118,11 +118,11 @@ func TestAMachineAwayFromItsConnectionIsNotOneOfTheConnected(t *testing.T) {
 	away := make(chan struct{})
 	back := make(chan struct{})
 	fleet := NewQUICFleet(func(ctx context.Context, _ int, presence fleetPresence) agentResult {
-		presence.Arrived()
+		presence.Arrived(time.Now())
 		<-away
 		presence.Left()
 		<-back
-		presence.Arrived()
+		presence.Arrived(time.Now())
 		<-ctx.Done()
 		return agentResult{connectDur: time.Millisecond}
 	})

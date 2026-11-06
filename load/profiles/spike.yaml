@@ -43,3 +43,13 @@ gates:
     metric: latency_p95_ms
     max: 5000
     blocking: true
+  # Every machine of the wave comes online, each counted when it finishes, and 95% of them within
+  # five seconds of dialling: the promise to a site whose whole fleet reconnects at once.
+  - series: quic/quic-agents/wave
+    metric: arrival_share
+    min: 1
+    blocking: true
+  - series: quic/quic-agents/wave
+    metric: latency_p95_ms
+    max: 5000
+    blocking: true

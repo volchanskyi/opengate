@@ -10,8 +10,8 @@ import (
 
 // fleetPresence reports attachment per connection, so a machine that reconnects attaches again.
 type fleetPresence struct {
-	// Arrived fires when a connection registers.
-	Arrived func()
+	// Arrived fires when a connection registers, carrying when the machine first dialled.
+	Arrived func(dialledAt time.Time)
 	// Left fires when a registered connection ends.
 	Left func()
 }
@@ -42,6 +42,8 @@ type QUICFleet struct {
 	results   []agentResult
 	// outcomes accumulates what machines saw, since a phase is the difference of two readings.
 	outcomes FleetOutcomes
+	// waves holds each machine's account, by machine index, for the wave it was asked for in.
+	waves []waveEntry
 
 	wg sync.WaitGroup
 }
@@ -115,6 +117,7 @@ func (f *QUICFleet) startOne(after time.Duration) {
 	f.next++
 	f.running[index] = cancel
 	f.order = append(f.order, index)
+	f.waves = append(f.waves, waveEntry{})
 	f.mu.Unlock()
 
 	f.wg.Add(1)
@@ -124,17 +127,20 @@ func (f *QUICFleet) startOne(after time.Duration) {
 		defer f.wg.Done()
 		if !waitOut(ctx, after) {
 			// stopOne already removed the machine from the level.
+			f.noteEnd(index)
 			return
 		}
+		f.noteTurn(index)
 		f.noteDial(turn, time.Now())
 		result := f.start(ctx, index, fleetPresence{
-			Arrived: func() { f.noteArrival(&arrived) },
+			Arrived: func(dialledAt time.Time) { f.noteArrival(index, &arrived, dialledAt) },
 			Left:    f.noteDeparture,
 		})
 
 		f.mu.Lock()
 		f.results = append(f.results, result)
 		f.tallyLocked(result, arrived.Load())
+		f.waves[index].ended = true
 		// An ended machine leaves running but keeps its place in order, so the ramp dials no replacement.
 		delete(f.running, index)
 		f.mu.Unlock()
@@ -152,14 +158,17 @@ func (f *QUICFleet) noteDial(turn, began time.Time) {
 	}
 }
 
-// noteArrival counts every registration as connected and only a machine's first as an arrival.
-func (f *QUICFleet) noteArrival(arrived *atomic.Bool) {
+// noteArrival counts every registration as connected and only a machine's first as an arrival,
+// which also times the machine's wave from its first dial.
+func (f *QUICFleet) noteArrival(index int, arrived *atomic.Bool, dialledAt time.Time) {
 	first := arrived.CompareAndSwap(false, true)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.connected++
 	if first {
 		f.outcomes.Arrived++
+		f.waves[index].arrived = true
+		f.waves[index].online = time.Since(dialledAt)
 	}
 }
 

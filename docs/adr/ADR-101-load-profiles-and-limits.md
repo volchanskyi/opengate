@@ -223,19 +223,51 @@ the whole-run figure says little about the rung that gave. Each phase also
 counts the datagrams each end's kernel dropped at a full receive buffer, which
 is where a machine's packets go missing before either process sees them.
 
-**A generator's lateness and the server's pace are recorded apart, watched.** Each
-phase records the share of its dials the machine generator began past their turn,
-and, for the phase the technician generator times, the share of the technician
-arrivals it offered that completed and their 95th-percentile time
-([`loadtest-bundle-merge.sh`](../../scripts/loadtest-bundle-merge.sh)). None of the
-three judges a run yet: together they tell a generator that fell behind its own
-schedule from a server that took arrivals slower than offered, which the arrival
-share alone reads as one. A generator named a slice of its own holds its allowance
-alone, and
-[`perf-one-runner.yml`](../../.github/workflows/perf-one-runner.yml) runs the
-scaling family's legs in turn on one runner, each naming the commit its server is
-built from and whether the two generators share one allowance, so the two compare
-on one machine.
+**A generator that fell behind voids its phase; a server that took arrivals slower
+is a reading.** Each phase records the share of its dials the machine generator
+began more than 0.1 s past their turn. Past 1% the phase followed the generator's
+schedule and the run is thrown out, in every profile and on every rung, the rungs
+past a breaking point included, since a late generator would set that answer
+([`validity.go`](../../server/tests/loadtest/validity.go)). The share of offered
+arrivals that arrived is recorded beside it and judges nothing on its own: a server
+98% busy that admits a wave slowly is what a spike exists to report, and a floor on
+that share once discarded such a night as "the load was never offered" (78% against
+80%). k6 draws the same line, counting the iterations it could not start on time as
+dropped, apart from slow answers. Over the five nights of 2026-11-01 to 11-05 no
+phase of any profile passed 0.35% late. For the phase the technician generator
+times, the share of the technician arrivals it offered that completed and their
+95th-percentile time are recorded and watched
+([`loadtest-bundle-merge.sh`](../../scripts/loadtest-bundle-merge.sh)).
+
+**A measured phase counts its wave to the finish.** The machines a measured phase
+asks for are its wave. The phase holds still at its end until each has come online
+or given up, for at most the 30 s a machine has to connect and register, so a
+machine dialled in the phase's last seconds is counted when it finishes and the
+next phase's wind-down cancels none of them
+([`sequence.go`](../../server/tests/loadtest/sequence.go)). The bundle records the
+share of the wave that came online and the 95th percentile of each machine's time
+from its dial, certificate in hand, to online; enrolment stays outside that time,
+since a machine returning after a power cut is already enrolled. The spike holds
+both: every machine of the wave online, and 95% of them within 5 s
+([`spike.yaml`](../../load/profiles/spike.yaml)). No remote-management product
+publishes such a number: NinjaOne, Datto, ConnectWise, MeshCentral and Netdata
+show a machine connected or not, over a heartbeat of a minute or more, and spread a
+returning fleet with randomised reconnects, as this agent's 0–30 s full jitter
+does. The limit sits on a percentile because the single slowest machine is noise,
+and the slow tail is what the SRE book names as the danger in a wave: a server that
+answers after its client gave up wastes the work and draws a retry. Before the limit
+the admission time's 95th percentile read 0.7 s on EPYC 9V45, 4.8 s on 9V74, 7.5 s
+on Xeon 8573C and 22–27 s on EPYC 7763, with no machine lost.
+
+**The bottom scaling rung's loss on 2026-10-22 was enrolment's.** Measured on one
+runner, the 0.25-processor rung lost 24 machines (cut off when the walk ended, or
+enrolments that gave up) on the server before enrolment wrote a certificate record,
+151 on the server after it with one generator allowance shared, 69 shared and 61
+with one allowance each, the last two on another runner. The record cost 127, the
+shared allowance 8, so the generators keep sharing one allowance and enrolment's
+free-number checks and its record became one insert inside the scoped transaction
+the device lookup already opens: 0.74 to 0.45 ms of server processor time per
+enrolment ([ADR-128](ADR-128-machine-identity-lifecycle.md)).
 
 **Each step sits below what the rest of the stack leaves free**, so a step is a
 question about the target and not about the node.
