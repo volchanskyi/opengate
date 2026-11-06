@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 )
 
 // estateFiledAnnouncement is the line the run prints once its declared estate is filed,
@@ -129,10 +130,10 @@ func (f *estateFiler) counts() (filed, refused int) {
 
 // arrivalOf composes what happens when a machine arrives: the fleet counts it in its phase and
 // the estate files it. Either half may be nil.
-func arrivalOf(noteArrival func(), filer *estateFiler, machine tenantAgent) func() {
-	return func() {
+func arrivalOf(noteArrival func(time.Time), filer *estateFiler, machine tenantAgent) func(time.Time) {
+	return func(dialledAt time.Time) {
 		if noteArrival != nil {
-			noteArrival()
+			noteArrival(dialledAt)
 		}
 		if filer.file(context.Background(), machine) {
 			fmt.Println(estateFiledAnnouncement)

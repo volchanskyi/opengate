@@ -475,12 +475,6 @@ and the server container's throttling counters
 says whether the machine or the code was slow, and its samples carry the processor
 model as a `processor` label. Each run writes a summary table of every limit
 beside its reading ([ADR-101](../adr/ADR-101-load-profiles-and-limits.md)).
-A dispatch of [`perf-one-runner.yml`](../../.github/workflows/perf-one-runner.yml)
-runs the scaling family at one processor allowance once per leg, the legs in turn on
-one runner, each leg naming the commit its server is built from and whether the two
-generators share one allowance; it publishes nothing and uploads every leg's bundle. One
-harness, built from the dispatched commit, drives every leg's server: each signing request names
-a fresh device number, which a server that picks its own overwrites and an older one copies.
 
 ## Frontend performance
 

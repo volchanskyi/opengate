@@ -30,8 +30,9 @@ const (
 // defaultMaxErrorRate is the ceiling used when a run classifies without a profile.
 const defaultMaxErrorRate = 0.25
 
-// minAchievedFraction is the share of the offered arrival rate that must arrive.
-const minAchievedFraction = 0.8
+// maxGeneratorLateShare is the share of a phase's dials the generator may begin past their turn;
+// past it the phase's arrivals follow the generator's own schedule.
+const maxGeneratorLateShare = 0.01
 
 // maxRetainedGoroutinesPerOperation is the goroutines one completed operation may leave behind.
 // Resident memory is recorded but ungated, because the Go runtime returns freed arena slowly.
@@ -183,6 +184,12 @@ func phaseReasons(in RunInputs) []string {
 
 	var reasons []string
 	for _, phase := range in.Phases {
+		// A late generator voids even a rung past the breaking point, whose answer it would set.
+		if late := phase.GeneratorLateShare; late != nil && *late > maxGeneratorLateShare {
+			reasons = append(reasons, fmt.Sprintf(
+				"phase %q began %.1f%% of its dials more than %s past their turn (ceiling %.0f%%), so its arrivals followed the generator",
+				phase.Name, *late*100, lateAfter, maxGeneratorLateShare*100))
+		}
 		if pastTheBreakingPoint(in.BreakingPoint, phase) {
 			continue
 		}
@@ -191,11 +198,6 @@ func phaseReasons(in RunInputs) []string {
 			reasons = append(reasons, fmt.Sprintf(
 				"phase %q error rate %.3f is past the ceiling %.3f, so its numbers describe the error path",
 				phase.Name, phase.ErrorRate, maxErrorRate))
-		}
-		if fraction := phase.AchievedFraction(); fraction < minAchievedFraction {
-			reasons = append(reasons, fmt.Sprintf(
-				"phase %q reached %.0f%% of the offered arrival rate (floor %.0f%%), so the load was never offered",
-				phase.Name, fraction*100, minAchievedFraction*100))
 		}
 		reasons = append(reasons, censusReasons(phase)...)
 	}

@@ -89,7 +89,7 @@ func fleetOf(t *testing.T, outcomes []agentResult) FleetOutcomes {
 	fleet := NewQUICFleet(func(_ context.Context, _ int, presence fleetPresence) agentResult {
 		result := outcomes[next.Add(1)-1]
 		if !result.arrivedAt.IsZero() {
-			presence.Arrived()
+			presence.Arrived(time.Now())
 		}
 		return result
 	})

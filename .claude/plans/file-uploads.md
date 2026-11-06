@@ -1,7 +1,7 @@
 # File uploads to a machine
 
 Ivan's decision (2026-10-29): uploads get a plan of their own, to approve before any work starts.
-It came out of commit 2 of [`dependency-newer-lines.md`](dependency-newer-lines.md), whose upload
+It came out of commit 2 of the nightly-repairs plan (landed; `phases.md` row "Nightly repairs"), whose upload
 speed reading had nothing to measure.
 
 ## What is missing

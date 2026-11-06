@@ -77,9 +77,8 @@ type PhaseResult struct {
 	OfferedAgentArrivalsPerSecond  float64 `json:"offered_agent_arrivals_per_second"`
 	AchievedAgentArrivalsPerSecond float64 `json:"achieved_agent_arrivals_per_second"`
 
-	// The achieved technician rate stays absent unless a browser-side generator measured it.
-	OfferedOperatorArrivalsPerSecond  float64  `json:"offered_operator_arrivals_per_second"`
-	AchievedOperatorArrivalsPerSecond *float64 `json:"achieved_operator_arrivals_per_second,omitempty"`
+	// The technician rate travels as the profile's offer; the browser-side generator times it.
+	OfferedOperatorArrivalsPerSecond float64 `json:"offered_operator_arrivals_per_second"`
 
 	OfferedConnectedAgents  int `json:"offered_connected_agents"`
 	AchievedConnectedAgents int `json:"achieved_connected_agents"`
@@ -126,9 +125,14 @@ type PhaseResult struct {
 	GeneratorCPUHeadroomPercent *float64 `json:"generator_cpu_headroom_percent,omitempty"`
 	GeneratorCPURefusedPercent  *float64 `json:"generator_cpu_refused_percent,omitempty"`
 
-	// GeneratorLateShare is the share of the phase's dials the generator began past their turn,
-	// watched beside the arrival share and judging nothing.
+	// GeneratorLateShare is the share of the phase's dials the generator began past their turn;
+	// past maxGeneratorLateShare the phase measured the generator.
 	GeneratorLateShare *float64 `json:"generator_late_share,omitempty"`
+
+	// WaveOnlineShare is the share of the machines a measured phase dialled that came online, each
+	// counted when it finished, and WaveOnlineP95Ms their 95th-percentile time from dial to online.
+	WaveOnlineShare *float64 `json:"wave_online_share,omitempty"`
+	WaveOnlineP95Ms *float64 `json:"wave_online_p95_ms,omitempty"`
 
 	// OperatorCompletedShare is the share of offered technician arrivals that completed and
 	// OperatorJourneyP95Ms their 95th-percentile time, merged from the export and watched.
@@ -149,18 +153,6 @@ type PhaseResult struct {
 // phase offers none, and its outcomes belong to machines an earlier phase reached for.
 func (p PhaseResult) OfferedAgentArrivals() bool {
 	return p.OfferedAgentArrivalsPerSecond > 0
-}
-
-// AchievedFraction is the share of the offered arrival rate that arrived, read from the technician
-// side when measured and the machine side otherwise; a phase that offered nothing achieved all.
-func (p PhaseResult) AchievedFraction() float64 {
-	if p.AchievedOperatorArrivalsPerSecond != nil && p.OfferedOperatorArrivalsPerSecond > 0 {
-		return *p.AchievedOperatorArrivalsPerSecond / p.OfferedOperatorArrivalsPerSecond
-	}
-	if p.OfferedAgentArrivalsPerSecond <= 0 {
-		return 1
-	}
-	return p.AchievedAgentArrivalsPerSecond / p.OfferedAgentArrivalsPerSecond
 }
 
 // JourneyResult is one operator journey's account of itself, so a slow run can name the slow

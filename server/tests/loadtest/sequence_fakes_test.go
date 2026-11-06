@@ -23,6 +23,13 @@ type recordingFleet struct {
 	// lateNumerator over lateDenominator is the share of dials the generator began past their turn.
 	lateNumerator   int64
 	lateDenominator int64
+
+	// asked is every machine the fleet was asked for, the mark a wave is read between.
+	asked int
+	// wave is what the fleet reports of any stretch; its machines stay pending until settlesAt.
+	wave      Wave
+	settlesAt time.Time
+	waveAsked [][2]int
 }
 
 type fleetStep struct {
@@ -38,6 +45,7 @@ func (f *recordingFleet) HoldConnected(within time.Duration, target int) error {
 	f.steps = append(f.steps, fleetStep{within: within, target: target})
 	if target > f.connected {
 		asked := int64(target - f.connected)
+		f.asked += target - f.connected
 		f.outcomes.Arrived += f.arrivalsFor(asked)
 		f.outcomes.Begun += asked
 		f.outcomes.Late += asked * f.lateNumerator / max(f.lateDenominator, 1)
@@ -66,6 +74,17 @@ func (f *recordingFleet) ProbeLatency() time.Duration {
 }
 
 func (f *recordingFleet) Outcomes() FleetOutcomes { return f.outcomes }
+
+func (f *recordingFleet) Asked() int { return f.asked }
+
+func (f *recordingFleet) Wave(from, to int) Wave {
+	f.waveAsked = append(f.waveAsked, [2]int{from, to})
+	wave := f.wave
+	if f.clock == nil || !f.clock.now.Before(f.settlesAt) {
+		wave.Pending = 0
+	}
+	return wave
+}
 
 var unreadTarget = PhaseReadings{}
 

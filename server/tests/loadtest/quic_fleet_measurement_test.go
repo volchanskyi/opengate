@@ -15,7 +15,7 @@ func TestAMachineThatCompletesLeavesTheConnectedCount(t *testing.T) {
 	release := make(chan struct{})
 	var started atomic.Int64
 	fleet := NewQUICFleet(func(ctx context.Context, _ int, presence fleetPresence) agentResult {
-		presence.Arrived()
+		presence.Arrived(time.Now())
 		started.Add(1)
 		select {
 		case <-release:
@@ -62,7 +62,7 @@ func TestTheFleetTalliesWhatEachMachineSaw(t *testing.T) {
 	fleet := NewQUICFleet(func(_ context.Context, _ int, presence fleetPresence) agentResult {
 		result := outcomes[next.Add(1)-1]
 		if !result.arrivedAt.IsZero() {
-			presence.Arrived()
+			presence.Arrived(time.Now())
 		}
 		return result
 	})
@@ -122,7 +122,7 @@ func TestAFleetWithNoProberReportsNoLatency(t *testing.T) {
 
 func TestArrivalsAreCountedWhileTheMachinesAreStillHeld(t *testing.T) {
 	fleet := NewQUICFleet(func(ctx context.Context, _ int, presence fleetPresence) agentResult {
-		presence.Arrived()
+		presence.Arrived(time.Now())
 		<-ctx.Done()
 		presence.Left()
 		return agentResult{connectDur: time.Millisecond}
@@ -153,7 +153,7 @@ func TestAMachineThatNeverArrivedIsCountedOnceAsAFailure(t *testing.T) {
 
 func TestAnArrivedMachineThatIsSeveredIsAFaultRatherThanAFailedArrival(t *testing.T) {
 	fleet := NewQUICFleet(func(_ context.Context, _ int, presence fleetPresence) agentResult {
-		presence.Arrived()
+		presence.Arrived(time.Now())
 		return agentResult{err: ErrHeldPeerGone}
 	})
 	defer fleet.Stop()

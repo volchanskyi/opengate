@@ -91,9 +91,22 @@ func TestARunThatDidNotMeasureTheSystemIsInvalid(t *testing.T) {
 			reason: "error rate",
 		},
 		{
-			name:   "the load was never offered",
-			mutate: func(in *RunInputs) { in.Phases[0].AchievedAgentArrivalsPerSecond = 1.0 },
-			reason: "offered",
+			name: "the generator fell behind its own schedule",
+			mutate: func(in *RunInputs) {
+				late := 0.012
+				in.Phases[0].GeneratorLateShare = &late
+			},
+			reason: "past their turn",
+		},
+		{
+			name: "the generator fell behind on a rung past the breaking point",
+			mutate: func(in *RunInputs) {
+				late := 0.05
+				in.Phases[0].GeneratorLateShare = &late
+				in.Phases[0].OfferedConnectedAgents = 4000
+				in.BreakingPoint = &BreakingPoint{GaveAgents: 4000}
+			},
+			reason: "past their turn",
 		},
 		{
 			name: "a missing profile does not read as an unlimited ceiling",
@@ -114,6 +127,24 @@ func TestARunThatDidNotMeasureTheSystemIsInvalid(t *testing.T) {
 			assert.Contains(t, strings.Join(verdict.Reasons, "\n"), tc.reason)
 		})
 	}
+}
+
+func TestAGeneratorAtTheLateLimitStillMeasures(t *testing.T) {
+	verdict := classify(func(in *RunInputs) {
+		late := 0.01
+		in.Phases[0].GeneratorLateShare = &late
+	})
+
+	assert.Equal(t, ResultValid, verdict.Result, "one start in a hundred late is inside the limit")
+}
+
+func TestArrivalsSlowerThanOfferedAreAReadingOfTheServer(t *testing.T) {
+	verdict := classify(func(in *RunInputs) {
+		in.Phases[0].AchievedAgentArrivalsPerSecond = 1.0
+	})
+
+	assert.Equal(t, ResultValid, verdict.Result,
+		"a fifth of the offer arriving is the server's answer, judged by the profile's own limits")
 }
 
 func TestTheVerdictNamesWhatRanAndWhatDidNot(t *testing.T) {

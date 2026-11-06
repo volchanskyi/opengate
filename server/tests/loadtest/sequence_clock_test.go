@@ -35,6 +35,7 @@ func TestAttainmentComparesCountsOverTheSameClock(t *testing.T) {
 	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun, unreadTarget)
 	require.NoError(t, err)
 
-	assert.InDelta(t, 0.8, results[1].AchievedFraction(), 0.01,
+	assert.InDelta(t, 0.8,
+		results[1].AchievedAgentArrivalsPerSecond/results[1].OfferedAgentArrivalsPerSecond, 0.01,
 		"four machines in five is four fifths of the offer, whatever the phase's wall clock did")
 }

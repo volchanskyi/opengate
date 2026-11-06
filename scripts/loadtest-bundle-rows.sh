@@ -33,10 +33,17 @@ rows_from() {
                         latency_p95_ms: $value.register_p95_ms}
                      + (if $value.register_p50_ms == null then {}
                         else {latency_p50_ms: $value.register_p50_ms} end))
+         end),
+        # Only a measured phase counts a wave, so a run that judged none has no wave row.
+        (if $value.wave_online_share == null then empty
+         else ($base + {phase: "wave", arrival_share: $value.wave_online_share}
+                     + (if $value.wave_online_p95_ms == null then {}
+                        else {latency_p95_ms: $value.wave_online_p95_ms} end))
          end)
       ]
     | map(select(
         (.error_rate != null) or (.latency_p50_ms != null) or (.latency_p95_ms != null)
+        or (.arrival_share != null)
       ))
   ' "$1"
 }

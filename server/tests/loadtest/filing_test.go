@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -107,14 +108,17 @@ func TestAnArrivalBothCountsAndFiles(t *testing.T) {
 	machine := aMachine(0)
 
 	counted := 0
-	arrivalOf(func() { counted++ }, filer, machine)()
+	dialled := time.Unix(1_800_000_000, 0)
+	var heard time.Time
+	arrivalOf(func(at time.Time) { counted++; heard = at }, filer, machine)(dialled)
 
 	assert.Equal(t, 1, counted, "the phase still counts the arrival")
+	assert.Equal(t, dialled, heard, "and hears when the machine dialled")
 	assert.Len(t, api.filedToCustomer, 1, "the estate files the machine that arrived")
 }
 
 func TestAnArrivalWithNobodyWatchingIsHarmless(t *testing.T) {
-	assert.NotPanics(t, func() { arrivalOf(nil, nil, aMachine(0))() })
+	assert.NotPanics(t, func() { arrivalOf(nil, nil, aMachine(0))(time.Now()) })
 }
 
 func TestTheAnnouncedLevelIsTheFirstPhasesOwn(t *testing.T) {

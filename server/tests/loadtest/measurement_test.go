@@ -1,7 +1,7 @@
 package main
 
 import (
-	"errors"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -32,6 +32,10 @@ func (f *meteredFleet) ProbeLatency() time.Duration {
 }
 
 func (f *meteredFleet) Outcomes() FleetOutcomes { return f.outcomes }
+
+func (f *meteredFleet) Asked() int { return f.connected }
+
+func (f *meteredFleet) Wave(_, _ int) Wave { return Wave{} }
 
 func onePhaseProfile(connected int, duration time.Duration) *Profile {
 	return &Profile{
@@ -66,11 +70,9 @@ func TestAchievedArrivalRateIsMeasuredRatherThanRestated(t *testing.T) {
 		"the achieved rate is what the fleet actually delivered")
 	assert.NotEqual(t, results[0].OfferedAgentArrivalsPerSecond, results[0].AchievedAgentArrivalsPerSecond,
 		"a restated rate is not a measurement")
-	assert.Less(t, results[0].AchievedFraction(), minAchievedFraction,
-		"a fleet at a fifth of its offered rate is below the attainment floor")
 }
 
-func TestAPhaseBelowItsOfferedRateInvalidatesTheRun(t *testing.T) {
+func TestAPhaseBelowItsOfferedRateIsStillAMeasurement(t *testing.T) {
 	profile := onePhaseProfile(100, 10*time.Second)
 	fleet := &meteredFleet{arrivalsPerStep: 2}
 	clock := &testClock{now: time.Unix(1_800_000_000, 0)}
@@ -86,8 +88,9 @@ func TestAPhaseBelowItsOfferedRateInvalidatesTheRun(t *testing.T) {
 		Phases:            results,
 	})
 
-	assert.Equal(t, ResultInvalid, verdict.Result)
-	assert.Contains(t, errors.Join(asErrors(verdict.Reasons)...).Error(), "of the offered arrival rate")
+	assert.Equal(t, ResultValid, verdict.Result,
+		"a server that takes arrivals slower than offered is the reading the run exists to make")
+	assert.True(t, verdict.EntersTrend())
 }
 
 func TestTheOperatorRateIsCarriedWithoutBeingClaimedAsAchieved(t *testing.T) {
@@ -100,8 +103,10 @@ func TestTheOperatorRateIsCarriedWithoutBeingClaimedAsAchieved(t *testing.T) {
 
 	assert.InDelta(t, 5.0, results[0].OfferedOperatorArrivalsPerSecond, 0.001,
 		"what the profile asked for travels with the run")
-	assert.Nil(t, results[0].AchievedOperatorArrivalsPerSecond,
-		"this process drives machines, so the technician rate it never offered is absent rather than assumed")
+	encoded, err := json.Marshal(results[0])
+	require.NoError(t, err)
+	assert.NotContains(t, string(encoded), "achieved_operator",
+		"this process drives machines, so it states no technician rate it never offered")
 }
 
 func TestTheSessionCountIsCarriedWithoutBeingClaimedAsRun(t *testing.T) {

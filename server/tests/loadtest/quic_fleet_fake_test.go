@@ -28,7 +28,7 @@ func (s *startCounter) start(ctx context.Context, index int, presence fleetPrese
 		return agentResult{err: errors.New("dial refused")}
 	}
 
-	presence.Arrived()
+	presence.Arrived(time.Now())
 	<-ctx.Done()
 	presence.Left()
 
@@ -51,7 +51,7 @@ func (l *liveIndexes) start(ctx context.Context, index int, presence fleetPresen
 	l.live[index] = true
 	l.mu.Unlock()
 
-	presence.Arrived()
+	presence.Arrived(time.Now())
 	<-ctx.Done()
 	presence.Left()
 

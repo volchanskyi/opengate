@@ -36,7 +36,7 @@ func TestAMachineTheServerWouldNotTakeIsStillAFailure(t *testing.T) {
 		if index == 0 {
 			return agentResult{err: fmt.Errorf("enroll: context deadline exceeded")}
 		}
-		presence.Arrived()
+		presence.Arrived(time.Now())
 		return agentResult{}
 	})
 
@@ -50,7 +50,7 @@ func TestAMachineTheServerWouldNotTakeIsStillAFailure(t *testing.T) {
 
 func TestAnArrivedMachineStoodDownIsCountedAsArrived(t *testing.T) {
 	fleet := NewQUICFleet(func(ctx context.Context, _ int, presence fleetPresence) agentResult {
-		presence.Arrived()
+		presence.Arrived(time.Now())
 		<-ctx.Done()
 		presence.Left()
 		return agentResult{err: ctx.Err()}

@@ -153,6 +153,28 @@ func TestABundleReportsTheProfilesOwnPhases(t *testing.T) {
 	assert.Equal(t, "steady", bundle.Phases[1].Name)
 }
 
+func TestABundleCarriesTheMeasuredPhasesWave(t *testing.T) {
+	in := measuredRun()
+	share, p95 := 0.996, 4200.0
+	in.Phases = []PhaseResult{
+		{Name: "baseline", StartedAt: time.Now(), FinishedAt: time.Now().Add(time.Minute)},
+		{Name: "spike", StartedAt: time.Now(), FinishedAt: time.Now().Add(time.Minute),
+			WaveOnlineShare: &share, WaveOnlineP95Ms: &p95},
+	}
+	bundle := buildRunBundle(in)
+
+	assert.InDelta(t, 0.996, observationValue(t, bundle, "wave_online_share"), 1e-9)
+	assert.InDelta(t, 4200.0, observationValue(t, bundle, "wave_online_p95_ms"), 1e-9)
+}
+
+func TestABundleWithNoMeasuredWaveObservesNone(t *testing.T) {
+	bundle := bundleFrom(t, harnessResults(), true)
+
+	observed := observedSeries(bundle)
+	assert.False(t, observed["wave_online_share"], "a run that judged no wave states none")
+	assert.False(t, observed["wave_online_p95_ms"])
+}
+
 func TestABundleCountsTheFixtureTheRunBuilt(t *testing.T) {
 	plan, err := PlanFixture(FixtureLarge, 3)
 	require.NoError(t, err)

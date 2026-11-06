@@ -26,6 +26,7 @@ func latencyObservations(at time.Time, connect, handshake []time.Duration, error
 	observations = append(observations,
 		Observation{At: at, Series: "aggregate_rejected", Value: float64(refusedAgents(in.Results))})
 	observations = append(observations, targetObservations(at, in.Conservation)...)
+	observations = append(observations, waveObservations(at, in.Phases)...)
 
 	// Registration is reported only when the server was asked; the harness clock stops at a buffer.
 	if in.Registration != nil && in.Registration.Measured() {
@@ -85,6 +86,23 @@ func severedMidHold(results []agentResult) int {
 		}
 	}
 	return severed
+}
+
+// waveObservations carries the measured phase's wave, the one phase that counts one, so a profile
+// can hold it to a limit.
+func waveObservations(at time.Time, phases []PhaseResult) []Observation {
+	for _, phase := range phases {
+		if phase.WaveOnlineShare == nil {
+			continue
+		}
+		observations := []Observation{{At: at, Series: "wave_online_share", Value: *phase.WaveOnlineShare}}
+		if phase.WaveOnlineP95Ms != nil {
+			observations = append(observations,
+				Observation{At: at, Series: "wave_online_p95_ms", Value: *phase.WaveOnlineP95Ms})
+		}
+		return observations
+	}
+	return nil
 }
 
 // targetObservations records what the target held either side of the run, as both readings so
