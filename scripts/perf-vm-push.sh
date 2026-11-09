@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Pushes each leg's bundle rows into the trend, leaving out and naming a leg that measured nothing.
-# A series scripts/perf-regression-check.sh flagged is pushed with flagged="1".
+# A store probe always goes in; a series perf-regression-check.sh flagged carries flagged="1".
 #
 # Environment:
 #   VM_RUN_STARTED_AT  the run's start, in seconds since the epoch (required)
@@ -14,6 +14,36 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROWS_FILE=""
 cleanup() { [ -z "$ROWS_FILE" ] || rm -f "$ROWS_FILE"; }
 trap cleanup EXIT
+
+# catch_up_samples prints one part of the catch-up leg's readings: "probe" is the store probe and
+# the runner's benchmark, pushed whatever the fleet's verdict; "fleet" is the fleet's own readings.
+catch_up_samples() { # bundle leg workload processor part
+  jq -r --arg leg "$2" --arg workload "$3" --arg processor "$4" --arg part "$5" '
+    def label_escape: tostring | gsub("\\\\"; "\\\\") | gsub("\""; "\\\"");
+    def cpu: if $processor == "" then "" else "processor=\"\($processor | label_escape)\"," end;
+    def sample($name; $extra; $value):
+      select($value != null)
+      | "perf_\($name){env=\"ci\",leg=\"\($leg | label_escape)\",\(cpu)\($extra)workload=\"\($workload | label_escape)\"} \($value)";
+    def share($part; $whole): if ($whole // 0) > 0 then (($part // 0) / $whole * 1000 | round / 1000) else null end;
+    (.store_probe // {}) as $probe
+    | if $part == "probe" then
+        ([$probe.one_sender, $probe.two_senders] | map(select(. != null))[]
+          | "senders=\"\(.senders)\"," as $s
+          | sample("catchup_readings_per_second"; $s; .catch_up.readings_per_second),
+            sample("catchup_live_within_5s_share"; $s; share(.live.within_five_seconds; .live.requests)),
+            sample("catchup_live_p99_ms"; $s; .live.p99_ms),
+            sample("catchup_store_peak_memory_bytes"; $s; .store.peak_memory_bytes)),
+        sample("catchup_quiet_cpu_share"; ""; $probe.quiet.cpu_share),
+        sample("catchup_quiet_memory_share"; ""; $probe.quiet.memory_share),
+        sample("runner_benchmark_rounds_per_second"; ""; .runner.cpu_benchmark_rounds_per_second)
+      else
+        sample("catchup_fill_seconds"; ""; .catch_up.last_stored_seconds),
+        sample("catchup_machines_caught_up"; ""; .catch_up.complete),
+        sample("catchup_live_visible_p99_ms"; ""; .live_delay.p99_ms),
+        sample("catchup_live_visible_within_5s_share"; ""; share(.live_delay.within_five_seconds; .live_delay.sent))
+      end
+  ' "$1"
+}
 
 main() {
   if [ "$#" -eq 0 ]; then
@@ -35,12 +65,13 @@ main() {
     fi
     leg="$(basename "$(dirname "$bundle")")"
     verdict="$(jq -r '.verdict.result // empty' "$bundle")"
+    workload="$(jq -r '"\(.run.profile_name)/\(.run.profile_version)/\(.run.profile_digest)"' "$bundle")"
+    processor="$(jq -r '.runner.processor_model // empty' "$bundle")"
+    metrics+="$(catch_up_samples "$bundle" "$leg" "$workload" "$processor" probe)"$'\n'
     if [ "$verdict" = "invalid" ] || [ -z "$verdict" ]; then
       echo "::notice::leg $leg did not measure the system (verdict ${verdict:-absent}), so its rows stay out of the trend."
       continue
     fi
-    workload="$(jq -r '"\(.run.profile_name)/\(.run.profile_version)/\(.run.profile_digest)"' "$bundle")"
-    processor="$(jq -r '.runner.processor_model // empty' "$bundle")"
     "$HERE/loadtest-bundle-rows.sh" "$bundle" "$rows" >/dev/null
     metrics+="$(
       jq -r --arg leg "$leg" --arg workload "$workload" --arg processor "$processor" \
@@ -60,6 +91,7 @@ main() {
           sample("error_rate"; .error_rate)
       ' "$rows"
     )"$'\n'
+    metrics+="$(catch_up_samples "$bundle" "$leg" "$workload" "$processor" fleet)"$'\n'
   done
 
   if [ -z "${metrics//$'\n'/}" ]; then

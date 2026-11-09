@@ -26,8 +26,7 @@ func TestBackfillOutOfRetentionIsCounted(t *testing.T) {
 		Type: protocol.MsgMetricBackfillBatch,
 		Tier: protocol.BackfillTierRecent60s,
 		BackfillSamples: []protocol.BackfillSample{
-			// Inside the 90 d retention floor.
-			{Name: testDim, Value: 1, TS: now - 60*24*3600},
+			{Name: testDim, Value: 1, TS: now - 29*24*3600},
 			{Name: testDim, Value: 2, TS: now - backfillRetentionSecs - 1},
 			{Name: testDim, Value: 3, TS: now + backfillFutureSkewSecs + 1},
 		},
@@ -35,8 +34,8 @@ func TestBackfillOutOfRetentionIsCounted(t *testing.T) {
 	require.NoError(t, ac.handleMetricBackfillBatch(tenantCtx(tenant), msg, 512))
 
 	call := receiveTelemetryCall(t, writer.calls)
-	require.Len(t, call.samples, 1, "the 60 d sample is inside the backfill floor")
-	assert.Equal(t, time.Unix(now-60*24*3600, 0).UTC(), call.samples[0].TS)
+	require.Len(t, call.samples, 1, "the 29-day sample is inside the 30-day floor")
+	assert.Equal(t, time.Unix(now-29*24*3600, 0).UTC(), call.samples[0].TS)
 	// One batch is one message on the drop counter however many samples it lost.
 	assert.InDelta(t, 1, promtestutil.ToFloat64(
 		m.EdgeTelemetryDropsTotal.WithLabelValues("backfill_out_of_retention")), 0)
@@ -61,4 +60,25 @@ func TestBackfillInRetentionCountsNoDrop(t *testing.T) {
 	assert.InDelta(t, 0, promtestutil.ToFloat64(
 		m.EdgeTelemetryDropsTotal.WithLabelValues("backfill_out_of_retention")), 0)
 	assert.Zero(t, ac.DroppedTelemetryCount())
+}
+
+func TestTheCatchUpFloorIsTheStoresThirtyDays(t *testing.T) {
+	tenant := uuid.New()
+	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
+	ac, buf := ingestConn(t, tenant, writer, true)
+
+	now := time.Now().Unix()
+	require.NoError(t, ac.handleMetricBackfillBatch(tenantCtx(tenant), &protocol.ControlMessage{
+		Type: protocol.MsgMetricBackfillBatch,
+		Tier: protocol.BackfillTierRollup1m,
+		BackfillSamples: []protocol.BackfillSample{
+			{Name: testDim, Value: 31, TS: now - 31*24*3600},
+			{Name: testDim, Value: 29, TS: now - 29*24*3600},
+		},
+	}, 512))
+
+	call := receiveTelemetryCall(t, writer.calls)
+	require.Len(t, call.samples, 1)
+	assert.InDelta(t, 29, call.samples[0].Value, 0, "history the store would refuse is never written")
+	assert.Equal(t, protocol.MsgMetricBackfillAck, readReply(t, ac, buf).Type)
 }

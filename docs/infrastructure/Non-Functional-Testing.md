@@ -9,6 +9,7 @@
     - [Load comes from the profile](#load-comes-from-the-profile)
     - [One address per technician](#one-address-per-technician)
   - [QUIC harness](#quic-harness)
+  - [The catch-up leg](#the-catch-up-leg)
   - [In CI](#in-ci)
 - [Leak checks](#leak-checks)
 - [Speed checks](#speed-checks)
@@ -227,6 +228,7 @@ package's tests.
 | [Volume 2,000](../../load/profiles/volume-2000.yaml) | GitHub-hosted runner, nightly | [`perf-stack.yml`](../../.github/workflows/perf-stack.yml) | the middle point of the sweep: the legs differ in machines enrolled, because the fixture names do not differ in how much data they hold |
 | [Volume 8,000](../../load/profiles/volume-8000.yaml) | GitHub-hosted runner, nightly | [`perf-stack.yml`](../../.github/workflows/perf-stack.yml) | the far point, four times the largest fixture any name plans |
 | [Scaling](../../load/profiles/scaling.yaml) | GitHub-hosted runner, nightly | [`perf-stack.yml`](../../.github/workflows/perf-stack.yml) | the sweep needs four or five processor points and the cluster offers one |
+| [Catch-up](../../load/profiles/catch-up.yaml) | GitHub's ARM runner, nightly | [`perf-stack.yml`](../../.github/workflows/perf-stack.yml) | a spike of its own: the whole fleet back after an hour away, at production's limits on production's processor family, which the cluster node has no room to host beside production |
 | [Soak](../../load/profiles/soak.yaml) | GitHub-hosted runner, weekly | [`soak.yml`](../../.github/workflows/soak.yml) | the run owns the machine and destroys it, which is what makes following a held object with a debugger possible at all |
 
 Every row names a workflow that runs it, and
@@ -625,15 +627,57 @@ discarded.
 then names which scenarios produced rows and which did not, and returns the
 verdict that decides whether the night enters the trend at all.
 
+### The catch-up leg
+
+The `catch-up` job of
+[`perf-stack.yml`](../../.github/workflows/perf-stack.yml) runs on GitHub's ARM
+runner with the server and the metrics store at production's limits and the
+store at production's settings
+([`docker-compose.perf-catchup.yml`](../../deploy/docker-compose.perf-catchup.yml)),
+while a background writer stands in for the scrape load production's store
+carries. It reads, in order:
+
+- **A quiet minute** — the store's share of its processor and memory under the
+  background load alone.
+- **The store probe** ([`storeprobe`](../../server/tests/storeprobe)) — fifteen
+  minutes of catch-up written by one sender, then by two, in the shared writer's
+  request shape and the server's own encoding, beside a live-shaped writer
+  timing each of its requests, with the store's largest memory and whether it
+  started again.
+- **The fleet** ([`catch-up.yaml`](../../load/profiles/catch-up.yaml)) — a fresh
+  store; every machine installed before the walk, a few at a time
+  (`-enrol-first`): enrolled, connected once so the server writes its row, and
+  filed, so the walk's dial is a return with the certificate it holds, as an
+  installed agent's is; then the harness's machines returning with an hour's
+  gap each
+  (`-backfill-gap`) and sending a live window each minute (`-live-every`) while
+  they drain; the run records when the last gap was stored and how each batch was
+  answered, and a watch on fifty machines times their live minutes from sent to
+  readable in the store (`-live-watch-store`).
+- **The runner's processor** — a fixed minute of hashing and compression at a
+  quarter processor ([`cpu-benchmark.sh`](../../scripts/cpu-benchmark.sh)),
+  beside the processor model the runner reports, so a night on different
+  hardware shows.
+
+The store probe is the go/no-go for the shared writer, judged by
+[`perf-catchup-gate.sh`](../../scripts/perf-catchup-gate.sh), and the only
+reading of the leg that fails the night; the fleet's figures and the two-sender
+probe are published to the Performance Stack Trends dashboard and judge
+nothing. The probe and the runner's benchmark are published whatever the
+fleet's verdict
+([`perf-vm-push.sh`](../../scripts/perf-vm-push.sh)), since they read the store
+and the runner; a fleet run that measured nothing keeps only its own figures
+out.
+
 ### In CI
 
 - **E2E** runs on every push and gates `merge-to-main` (includes Lighthouse CI audits)
 - **Bundle size** runs on every push and gates `merge-to-main` (size-limit gzip check)
 - **Load tests** walk the everyday profile against staging nightly, and on
   `workflow_dispatch` (not on every push)
-- **The performance stack** — the volume, scaling and three shape families, on a
-  throwaway runner — runs nightly, last in the order, after the twenty-job pool
-  the earlier batches hold has drained
+- **The performance stack** — the volume, scaling and three shape families on a
+  throwaway runner, and the catch-up leg on an ARM runner — runs nightly, last in
+  the order, after the twenty-job pool the earlier batches hold has drained
 - **The endurance soak** runs weekly, on a throwaway runner of its own
 
 The hour a cron names is not the hour a run starts: every scheduled run begins

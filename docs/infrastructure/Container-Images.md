@@ -110,10 +110,11 @@ The `build-image.yml` GitHub Actions workflow triggers on pushes to `main`:
 dev push → CI (every gate job) → merge-to-main → pushes to main
   → build-image.yml fires
     → multi-arch build (amd64 + arm64) with SLSA provenance + SBOM
-    → push to GHCR with sha + latest tags
+    → push to GHCR by digest, under no tag
+    → vulnerability scan of that digest, each platform
     → cosign keyless signing (Sigstore OIDC)
     → SBOM attestation (SPDX JSON via anchore/sbom-action)
-    → Trivy vulnerability scan
+    → sha + latest tags added to the scanned digest
 ```
 
 ### Agent binaries for staging
@@ -155,7 +156,17 @@ cosign verify-attestation \
 
 ### Vulnerability scan
 
-After signing, the workflow runs a Trivy container image scan targeting CRITICAL and HIGH severity vulnerabilities. The scan blocks the workflow on any findings. The pinned action and its severity list are the `aquasecurity/trivy-action` step in [`build-image.yml`](../../.github/workflows/build-image.yml).
+The image is scanned before any tag names it. The build pushes it by digest
+alone, [`image-scan.sh`](../../scripts/image-scan.sh) scans that digest for each
+platform with the pinned Trivy, and a high or critical hole a release fixes,
+which no live entry in
+[`vulnerability-exceptions.json`](../../scripts/lib/vulnerability-exceptions.json)
+names, stops the workflow before signing, attestation and tags. A commit that
+changes no image input copies `:latest` to its own tag; that copy is scanned
+first, so a hole published since `:latest` was built stops it too. The same
+script scans the image the gauntlet's browser tests run and the one CI's
+`image-scan` job builds, so the three stages give one verdict
+([Security and Dependencies](Security-and-Dependencies.md#dependency-fixes)).
 
 ### Caching
 

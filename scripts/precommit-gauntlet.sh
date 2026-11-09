@@ -196,8 +196,9 @@ dependency_rc=0
 python3 scripts/dependency-fixes >"$dependency_report" 2>&1 || dependency_rc=$?
 if [ "$dependency_rc" -ne 0 ]; then
   fail "dependency fixes" "$(($(date +%s) - dependency_start))"
-  # The newer-line list is printed as its count; the full report keeps every entry.
-  awk '/^dependency-fixes: .*newer minor or major/ { print; skip = 1; next }
+  # The newer-line list is printed as its count; a refused serious hole is printed in full, and
+  # the full report keeps every entry.
+  awk '/^dependency-fixes: .*newer minor or major release; bring/ { print; skip = 1; next }
     /^dependency-fixes:/ { skip = 0 } !skip' "$dependency_report" >&2
   printf '  (full report: %s, exit code: %s)\n' "$dependency_report" "$dependency_rc" >&2
   exit 1
@@ -319,6 +320,8 @@ if [ "$FAIL_COUNT" -gt 0 ]; then
 else
   banner "E2E"
   run_check "make e2e" -- make e2e
+  # The image the browser tests ran is the one scanned, before any later stage builds another.
+  run_check "server image scan" -- bash scripts/image-scan.sh opengate-e2e-server:local
 
   banner "SonarCloud"
   # The full scan uploads fresh coverage so the gate never evaluates stale numbers.

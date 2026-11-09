@@ -1,0 +1,11 @@
+# The catch-up leg's store scrapes the server and itself at production's fifteen seconds.
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: opengate-server
+    static_configs:
+      - targets: ["server:8081"]
+  - job_name: victoriametrics
+    static_configs:
+      - targets: ["localhost:8428"]

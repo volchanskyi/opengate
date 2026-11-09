@@ -92,6 +92,12 @@ governs everything else, and which version changes any dependency takes.
   dependency and the version in use, the release that fixes it, and what moving to
   that release risks. Its options include taking that release and keeping the
   version in use. Nothing moves until Ivan chooses.
+- A high or critical advisory in what the server image ships is refused at every
+  stage whatever line fixes it — the dependency check, the gauntlet's scan of the
+  image its browser tests run, CI's image scan and the image build — until Ivan
+  takes the release or a dated entry in
+  [`vulnerability-exceptions.json`](../../scripts/lib/vulnerability-exceptions.json)
+  names it.
 - An image takes a newer patch tag of its own line, built for every platform the
   tag in use is built for.
 

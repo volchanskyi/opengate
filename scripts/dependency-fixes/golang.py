@@ -4,7 +4,31 @@ tests included, against the database the gauntlet's own scan fetches."""
 import os
 
 import fetch
-from report import Finding, Reading
+import osv
+import severity
+from report import NEWER_LINE, Finding, Reading
+
+
+def shipped_modules(root):
+    """Every module linked into the server binary, the standard library named stdlib."""
+    out = fetch.run(["go", "list", "-deps", "-f", "{{if .Module}}{{.Module.Path}}{{else}}stdlib{{end}}",
+                     "./cmd/meshserver"], cwd=os.path.join(root, "server"), what="go list the server build")
+    modules = {line.strip() for line in out.splitlines() if line.strip()}
+    if not modules:
+        raise fetch.Unreadable("go list: the server build names no module")
+    return modules
+
+
+def mark_serious(root, findings):
+    """Reads each newer-line finding's record for its aliases, and marks the serious ones."""
+    newer = [finding for finding in findings if finding.answer == NEWER_LINE]
+    if not newer:
+        return
+    records = {}
+    for finding in newer:
+        records[finding.advisory] = osv.alias_record(finding.advisory) or {"id": finding.advisory}
+        finding.aliases = osv.aliases(records[finding.advisory])
+    severity.mark(newer, shipped_modules(root), lambda finding: severity.of(records[finding.advisory]))
 
 
 def read(root):
@@ -31,4 +55,5 @@ def read(root):
             remedy = f"cd server && go get {module}@v{fix} && go mod tidy"
         findings.append(Finding("go", "server", module, version.lstrip("v"), finding["osv"], fix,
                                 remedy=remedy))
+    mark_serious(root, findings)
     return Reading("Go modules", count, findings)

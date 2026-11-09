@@ -53,6 +53,11 @@ def record(advisory):
     return cache.remember("osv", key, lambda: fetch.http_json(RECORD.format(advisory["id"])))
 
 
+def alias_record(advisory_id):
+    """The record OSV holds under ADVISORY_ID, or None when it holds none."""
+    return fetch.http_json_or_absent(RECORD.format(advisory_id))
+
+
 def package_query(ecosystem, name, version):
     return {"package": {"ecosystem": ecosystem, "name": name}, "version": str(version).lstrip("vV")
             if ecosystem in ("Go", "GitHub Actions") else str(version)}

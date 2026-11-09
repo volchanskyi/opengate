@@ -25,6 +25,8 @@ var (
 	// ErrReservedLabel is returned when a sample tries to override labels the
 	// server owns for tenant/device scoping.
 	ErrReservedLabel = errors.New("reserved telemetry label")
+	// ErrInvalidValue is returned for a value the store refuses: not a number, or infinite.
+	ErrInvalidValue = errors.New("invalid telemetry value")
 
 	metricNameRE = regexp.MustCompile(`^[a-zA-Z_:][a-zA-Z0-9_:]*$`)
 	labelNameRE  = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
@@ -177,12 +179,29 @@ func ScopeSelector(selector string, tenantID uuid.UUID) (string, error) {
 	return selector[:open] + fmt.Sprintf(`{tenant_id=%q,`, tenantID.String()) + inner + "}", nil
 }
 
-func writePrometheusSample(b *bytes.Buffer, tenantID uuid.UUID, deviceID uuid.UUID, sample Sample) error {
+// CheckSample reports whether the store accepts sample on its own: a valid metric name, a finite
+// value, and label names that are valid and leave the server's own labels alone.
+func CheckSample(sample Sample) error {
 	if !metricNameRE.MatchString(sample.Name) {
 		return fmt.Errorf("invalid metric name %q", sample.Name)
 	}
 	if math.IsNaN(sample.Value) || math.IsInf(sample.Value, 0) {
-		return fmt.Errorf("invalid metric value for %s", sample.Name)
+		return fmt.Errorf("%w for %s", ErrInvalidValue, sample.Name)
+	}
+	for k := range sample.Labels {
+		if k == "tenant_id" || k == "device_id" || k == environmentLabel {
+			return fmt.Errorf("%w: %s", ErrReservedLabel, k)
+		}
+		if !labelNameRE.MatchString(k) {
+			return fmt.Errorf("invalid label name %q", k)
+		}
+	}
+	return nil
+}
+
+func writePrometheusSample(b *bytes.Buffer, tenantID uuid.UUID, deviceID uuid.UUID, sample Sample) error {
+	if err := CheckSample(sample); err != nil {
+		return err
 	}
 	if sample.TS.IsZero() {
 		sample.TS = time.Now()
@@ -192,12 +211,6 @@ func writePrometheusSample(b *bytes.Buffer, tenantID uuid.UUID, deviceID uuid.UU
 	labels["tenant_id"] = tenantID.String()
 	labels["device_id"] = deviceID.String()
 	for k, v := range sample.Labels {
-		if k == "tenant_id" || k == "device_id" || k == environmentLabel {
-			return fmt.Errorf("%w: %s", ErrReservedLabel, k)
-		}
-		if !labelNameRE.MatchString(k) {
-			return fmt.Errorf("invalid label name %q", k)
-		}
 		labels[k] = v
 	}
 

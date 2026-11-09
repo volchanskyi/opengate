@@ -435,6 +435,14 @@ capability. Current additive gates:
 | `Alerts` | _(no server-to-agent message)_ |
 | `DirectChannels` | _(no server-to-agent message)_ |
 
+Catch-up is one exchange under `Backfill`. A `RequestBackfillSlot` is answered
+`GrantBackfill`, a pace and a deadline. Each `MetricBackfillBatch` is answered
+once: `MetricBackfillAck`, echoing its tier and cursor, when every reading was
+stored or deliberately filtered, and `DeferBackfill` with a `retry_after`
+otherwise, after which the agent asks for permission again and resends from its
+last confirmed position
+([`conn_backfill.go`](../../server/internal/agentapi/conn_backfill.go)).
+
 `Discovery` and `Alerts` gate no server-to-agent message; the agent advertises
 each to signal what it emits — `DiscoveryReport` inventory and self-contained
 `AgentAlert`s respectively — so the server knows to ingest them.

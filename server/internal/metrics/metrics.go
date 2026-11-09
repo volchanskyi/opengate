@@ -64,7 +64,7 @@ type Metrics struct {
 	EdgeTelemetryIngestedTotal     *prometheus.CounterVec
 	EdgeTelemetryDropsTotal        *prometheus.CounterVec
 	EdgeTelemetryClockClampedTotal *prometheus.CounterVec
-	EdgeBackfillDecisionsTotal     *prometheus.CounterVec
+	EdgeBackfillAnswersTotal       *prometheus.CounterVec
 	EdgeBackfillActiveSlots        prometheus.Gauge
 	EdgeBackfillGrantRate          prometheus.Gauge
 
@@ -186,12 +186,12 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			"Total agent-stamped telemetry timestamps pulled inside the accepted clock window, by direction (future, past). A clamped message is still persisted, so this is not a drop.",
 			"direction"),
 
-		EdgeBackfillDecisionsTotal: counterVec("edge_backfill_decisions_total",
-			"Total reconnect-backfill admission decisions, by decision (grant, defer).",
-			"decision"),
+		EdgeBackfillAnswersTotal: counterVec("edge_backfill_answers_total",
+			"Total catch-up answers the server sent, by answer: granted for a request for permission, stored or deferred_* for a batch.",
+			"answer"),
 
 		EdgeBackfillActiveSlots: gauge("edge_backfill_active_slots",
-			"Number of reconnect-backfill drain slots currently granted across all agents."),
+			"Number of catch-up batches being written across all agents."),
 
 		EdgeBackfillGrantRate: gauge("edge_backfill_grant_rate_samples_per_second",
 			"Per-slot ingest rate (samples/sec) of the most recent backfill grant."),
@@ -244,7 +244,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		m.EdgeTelemetryIngestedTotal,
 		m.EdgeTelemetryDropsTotal,
 		m.EdgeTelemetryClockClampedTotal,
-		m.EdgeBackfillDecisionsTotal,
+		m.EdgeBackfillAnswersTotal,
 		m.EdgeBackfillActiveSlots,
 		m.EdgeBackfillGrantRate,
 		m.AlertsSuppressedTotal,
@@ -298,15 +298,15 @@ func (m *Metrics) ObserveEdgeTelemetryClockClamp(direction string) {
 	m.EdgeTelemetryClockClampedTotal.WithLabelValues(direction).Inc()
 }
 
-// ObserveBackfillDecision records one reconnect-backfill admission decision.
-// A grant sets the grant-rate gauge; active is the live-slot count after the decision.
-func (m *Metrics) ObserveBackfillDecision(granted bool, rate uint32, active int) {
-	if granted {
-		m.EdgeBackfillDecisionsTotal.WithLabelValues(backfillGrant).Inc()
-		m.EdgeBackfillGrantRate.Set(float64(rate))
-	} else {
-		m.EdgeBackfillDecisionsTotal.WithLabelValues(backfillDefer).Inc()
-	}
+// ObserveBackfillGrant counts one grant of catch-up permission and records its rate.
+func (m *Metrics) ObserveBackfillGrant(rate uint32) {
+	m.EdgeBackfillAnswersTotal.WithLabelValues(backfillGranted).Inc()
+	m.EdgeBackfillGrantRate.Set(float64(rate))
+}
+
+// ObserveBackfillAnswer counts one answer to a catch-up batch; active is the places still held.
+func (m *Metrics) ObserveBackfillAnswer(answer string, active int) {
+	m.EdgeBackfillAnswersTotal.WithLabelValues(answer).Inc()
 	m.EdgeBackfillActiveSlots.Set(float64(active))
 }
 

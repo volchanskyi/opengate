@@ -69,7 +69,7 @@ type AgentConn struct {
 	settings       settings.Reader
 	metrics        *appmetrics.Metrics
 	logger         *slog.Logger
-	telemetryLast  map[protocol.ControlMessageType]int64
+	telemetryLast  map[telemetryFloor]int64
 	telemetrySlots chan struct{}
 	telemetryDrops atomic.Uint64
 

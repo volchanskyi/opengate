@@ -10,6 +10,11 @@ PATCH = "patch"
 NEWER_LINE = "newer line"
 # No release fixes it: there is nothing to take.
 NO_FIX = "no fix"
+# A high or critical hole in what the server image ships, fixed only on a newer line: refused until
+# Ivan takes the release or a dated exception names it.
+SERIOUS = "serious newer line"
+# A serious hole a live exception names: passed until its review date.
+EXCEPTED = "excepted"
 
 
 @dataclasses.dataclass
@@ -25,6 +30,8 @@ class Finding:
     answer: str = ""
     aliases: tuple = ()
     fix_of: str = ""
+    severity: str = ""
+    excepted_until: str = ""
 
     def __post_init__(self):
         if not self.answer:
@@ -34,6 +41,10 @@ class Finding:
         owner = f"{self.fix_of} " if self.fix_of else ""
         fixed = f"fixed in {owner}{self.fix}" if self.fix else "no fixed release"
         text = f"{self.kind} ({self.where}) {self.name} {self.version}: {self.advisory} {fixed}"
+        if self.severity:
+            text += f" ({self.severity})"
+        if self.excepted_until:
+            text += f", excepted until {self.excepted_until}"
         if self.summary:
             text += f" — {self.summary}"
         if self.remedy and self.answer == PATCH:
@@ -61,22 +72,32 @@ class Reading:
 
 
 def render(readings):
-    """The report's lines and the exit status: 1 when a patch release fixes anything, else 0."""
+    """The report's lines and the exit status: 1 when a patch release fixes anything, or a serious
+    hole has no live exception, else 0."""
     unique = merged([finding for reading in readings for finding in reading.findings])
     by_answer = {answer: [f for f in unique if f.answer == answer]
-                 for answer in (PATCH, NEWER_LINE, NO_FIX)}
+                 for answer in (PATCH, SERIOUS, EXCEPTED, NEWER_LINE, NO_FIX)}
     lines = []
     if by_answer[PATCH]:
         lines.append(f"dependency-fixes: {len(by_answer[PATCH])} advisories a patch release of the line "
                      "in use fixes; take each before the commit:")
         lines += [f"  {f.line()}" for f in sorted(by_answer[PATCH], key=_order)]
+    if by_answer[SERIOUS]:
+        lines.append(f"dependency-fixes: {len(by_answer[SERIOUS])} serious advisories in what the server "
+                     "image ships, fixed only in a newer minor or major release; each is refused until "
+                     "Ivan takes the release or a dated exception names it:")
+        lines += [f"  {f.line()}" for f in sorted(by_answer[SERIOUS], key=_order)]
+    if by_answer[EXCEPTED]:
+        lines.append(f"dependency-fixes: {len(by_answer[EXCEPTED])} serious advisories passed under a live "
+                     "exception:")
+        lines += [f"  {f.line()}" for f in sorted(by_answer[EXCEPTED], key=_order)]
     if by_answer[NEWER_LINE]:
         lines.append(f"dependency-fixes: {len(by_answer[NEWER_LINE])} advisories fixed only in a newer "
                      "minor or major release; bring each to Ivan as a question before anything moves:")
         lines += [f"  {f.line()}" for f in sorted(by_answer[NEWER_LINE], key=_order)]
     read = ", ".join(f"{reading.read} {reading.kind}" for reading in readings)
     lines.append(f"dependency-fixes: read {read}; {len(by_answer[NO_FIX])} advisories have no fixed release")
-    return lines, 1 if by_answer[PATCH] else 0
+    return lines, 1 if by_answer[PATCH] or by_answer[SERIOUS] else 0
 
 
 def named(findings):

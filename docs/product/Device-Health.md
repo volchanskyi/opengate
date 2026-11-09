@@ -201,16 +201,22 @@ restart does not create a hole in what you can see afterwards.
 
 When the agent reconnects:
 
-1. It asks the server for permission to catch up. The server grants a rate, or
-   defers it while live traffic is heavy — a fleet reconnecting at once cannot
-   overwhelm the ingest path.
+1. It asks the server for permission to catch up, and the server grants it a
+   pace.
 2. It sends the most recent window first, on the same one-minute grid the live
    stream uses, then progressively older and coarser history.
-3. Each batch is acknowledged before the next is sent, so an interrupted catch-up
-   resumes where it stopped rather than starting over.
+3. Every batch gets one answer: stored, or wait and send it again. The server
+   writes a few batches at a time and tells the rest when to come back, so a
+   fleet reconnecting at once cannot overwhelm the ingest path, and an
+   interrupted catch-up resumes where it stopped rather than starting over.
 
 Every historical point is written at the time it was actually measured, not at
 the time it arrived, so backfilled history lands in the right place on a chart.
+History reaches back thirty days, the time the server keeps readings; anything
+older is acknowledged and left on the machine.
+
+A reading the machine could not measure — not a number — is dropped on its
+own and counted; the rest of that minute is kept.
 
 For history older than the server keeps, or for full one-second detail, an
 administrator can pull a bounded window directly from a single machine.

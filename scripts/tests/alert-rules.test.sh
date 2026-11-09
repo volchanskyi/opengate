@@ -315,6 +315,47 @@ for uid in disk-usage-critical disk-usage-warning memory-usage-high \
   fi
 done
 
+# The monitoring stack charts what the product reads off machines and alerts on none of it.
+# product_rules <rules-file> prints each rule that reads a product series, and the series.
+product_rules() {
+  python3 - "$1" <<'PY'
+import re, sys, yaml
+
+with open(sys.argv[1], encoding="utf-8") as fh:
+    doc = yaml.safe_load(fh)
+
+product = re.compile(r'\b(opengate_(?:edge|alerts|rule)_[A-Za-z0-9_:]*)')
+for group in doc.get("groups", []):
+    for rule in group.get("rules", []):
+        for item in rule.get("data", []):
+            for name in product.findall(str(item.get("model", {}).get("expr", ""))):
+                print(f"{rule.get('uid', '<no uid>')}: {name}")
+PY
+}
+
+product_demo="$(mktemp)"
+cat >"$product_demo" <<'DEMO'
+groups:
+  - rules:
+      - uid: demo
+        data:
+          - model:
+              expr: sum(rate(opengate_edge_telemetry_drops_total{namespace="opengate"}[10m]))
+DEMO
+if grep -qF 'demo: opengate_edge_telemetry_drops_total' <<<"$(product_rules "$product_demo")"; then
+  pass "a rule reading a product series is caught"
+else
+  fail "the product-series check no longer catches a rule reading one"
+fi
+rm -f "$product_demo"
+
+product_found="$(product_rules "$RULES_FILE")"
+if [ -z "$product_found" ]; then
+  pass "no alert rule reads a product series"
+else
+  fail "alert rules read product series, which dashboards chart and nothing alerts on: $product_found"
+fi
+
 # Every rule states in its own units what it saw and names the first thing to check.
 unexplained="$(
   python3 - "$RULES_FILE" <<'PY'

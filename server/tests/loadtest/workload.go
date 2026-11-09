@@ -160,13 +160,7 @@ func phaseProbe(agentPlan []tenantAgent, credentials agentCredentials, addr stri
 	if len(agentPlan) == 0 {
 		return nil
 	}
-	probeOpts := opts
-	probeOpts.holdFor = 0
-	probeOpts.relaySessions = false
-	probeOpts.defaultTelemetry = false
-	probeOpts.metricWindows = 0
-	probeOpts.backfillBatches = 0
-	probeOpts.answerLogPulls = false
+	probeOpts := probeOptions(opts)
 
 	// One distinct hostname keeps the probe apart from held machines and enrols no device per trip.
 	plan := tenantAgent{
@@ -181,6 +175,21 @@ func phaseProbe(agentPlan []tenantAgent, credentials agentCredentials, addr stri
 		}
 		return result.connectDur + result.handshakeDur + result.registerDur, nil
 	}
+}
+
+// probeOptions is the run's options with all of its traffic taken off, so a probe trip is the
+// connect, handshake and register a returning machine makes, and nothing after it.
+func probeOptions(opts loadOptions) loadOptions {
+	probe := opts
+	probe.holdFor = 0
+	probe.relaySessions = false
+	probe.defaultTelemetry = false
+	probe.metricWindows = 0
+	probe.backfillBatches = 0
+	probe.backfillGap = 0
+	probe.liveEvery = 0
+	probe.answerLogPulls = false
+	return probe
 }
 
 // readJourneys loads the technician-side journeys timed this night; no export gives nil.

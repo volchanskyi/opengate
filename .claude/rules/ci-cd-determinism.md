@@ -40,6 +40,18 @@ A step whose work was refused must not report success. Why each section has its 
 
 **Checks:** `mutation-report`.
 
+### An image is scanned before any tag names it
+
+- An image is pushed by digest alone and scanned by
+  [`image-scan.sh`](../../scripts/image-scan.sh) for each platform it is built for; signing,
+  attestation and its tags follow a pass, in the same job.
+- An image copied to a new tag is scanned first, since a hole published after it was built is in
+  it too.
+- Example: [`build-image.yml`](../../.github/workflows/build-image.yml) `build-and-push` and
+  `tag-forward`.
+
+**Checks:** `scan-before-tag`.
+
 ### A run proves its target is the build it tests
 
 - Every job that takes the staging claim runs

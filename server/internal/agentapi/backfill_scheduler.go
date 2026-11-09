@@ -8,40 +8,37 @@ import (
 	"github.com/google/uuid"
 )
 
-// BackfillScheduler admits reconnect-backfill drains under global and per-tenant caps, a
-// load-adaptive rate budget and backoff aging; all methods are safe for concurrent use.
+// BackfillScheduler grants catch-up permission and admits each catch-up batch under global and
+// per-tenant caps on batches being written; all methods are safe for concurrent use.
 type BackfillScheduler struct {
-	mu          sync.Mutex
-	cfg         BackfillSchedulerConfig
-	now         func() time.Time
-	headroom    func() float64
-	grants      map[uuid.UUID]backfillGrant
-	tenantCount map[uuid.UUID]int
-	// firstReq records when each deferred agent first asked, which drives backoff aging.
-	firstReq map[uuid.UUID]time.Time
+	mu       sync.Mutex
+	cfg      BackfillSchedulerConfig
+	now      func() time.Time
+	headroom func() float64
+	// grants maps each machine holding permission to its deadline; a grant holds no place.
+	grants       map[uuid.UUID]time.Time
+	places       int
+	tenantPlaces map[uuid.UUID]int
+	// firstDefer records when each deferred machine was first told to wait, which drives aging.
+	firstDefer map[uuid.UUID]time.Time
 }
 
 // BackfillSchedulerConfig tunes the admission control.
 type BackfillSchedulerConfig struct {
-	// MaxConcurrent is the global cap on simultaneously-draining agents.
+	// MaxConcurrent caps the catch-up batches being written at once across every machine.
 	MaxConcurrent int
-	// PerTenantMax caps simultaneously-draining agents within one tenant.
+	// PerTenantMax caps the catch-up batches being written at once within one tenant.
 	PerTenantMax int
 	// BaseBudgetSamplesPerSec is the total ingest budget at full headroom.
 	BaseBudgetSamplesPerSec int
 	// MinGrantRate / MaxGrantRate bound a single grant's samples/sec.
 	MinGrantRate uint32
 	MaxGrantRate uint32
-	// GrantTTL is how long a grant stays valid; an expired grant frees its slot.
+	// GrantTTL is how long a grant stays valid unless the machine asks again.
 	GrantTTL time.Duration
-	// DeferBackoff is the base retry interval for a deferred agent;
+	// DeferBackoff is the base retry interval for a deferred batch;
 	// aging shortens it toward minRetryAfter.
 	DeferBackoff time.Duration
-}
-
-type backfillGrant struct {
-	tenant   uuid.UUID
-	deadline time.Time
 }
 
 // SlotRequest carries the agent's backlog hints from RequestBackfillSlot.
@@ -50,14 +47,28 @@ type SlotRequest struct {
 	OldestTS       int64
 }
 
-// BackfillDecision is the scheduler's answer: either a grant (rate + deadline)
-// or a deferral (retry-after seconds).
+// BackfillDecision is the scheduler's grant: the pace a machine sends at and when the grant
+// ends unless renewed.
 type BackfillDecision struct {
-	Grant      bool
-	Rate       uint32
-	Deadline   int64
+	Rate     uint32
+	Deadline int64
+}
+
+// BackfillAdmission is the scheduler's answer to one catch-up batch: a place to write it, or
+// a deferral with the reason and the retry time.
+type BackfillAdmission struct {
+	Admitted   bool
+	Reason     string
 	RetryAfter uint32
 }
+
+// The reasons a catch-up batch is deferred before its write.
+const (
+	// BackfillNoGrant is a batch from a machine holding no live grant.
+	BackfillNoGrant = "no_grant"
+	// BackfillBusy is a batch arriving while the global or the tenant's places are all taken.
+	BackfillBusy = "busy"
+)
 
 // minRetryAfter is the floor a deferred agent is ever asked to wait.
 const minRetryAfter = time.Second
@@ -86,108 +97,112 @@ func NewBackfillScheduler(cfg BackfillSchedulerConfig, now func() time.Time, hea
 		headroom = func() float64 { return 1.0 }
 	}
 	return &BackfillScheduler{
-		cfg:         cfg,
-		now:         now,
-		headroom:    headroom,
-		grants:      make(map[uuid.UUID]backfillGrant),
-		tenantCount: make(map[uuid.UUID]int),
-		firstReq:    make(map[uuid.UUID]time.Time),
+		cfg:          cfg,
+		now:          now,
+		headroom:     headroom,
+		grants:       make(map[uuid.UUID]time.Time),
+		tenantPlaces: make(map[uuid.UUID]int),
+		firstDefer:   make(map[uuid.UUID]time.Time),
 	}
 }
 
-// RequestSlot admits or defers a backfill drain for agentID in tenant, renewing a live grant.
-func (s *BackfillScheduler) RequestSlot(agentID, tenant uuid.UUID, _ SlotRequest) BackfillDecision {
+// RequestSlot grants agentID permission to send catch-up batches, or renews the grant it holds.
+// The grant takes no place: a place is taken per batch, by Admit.
+func (s *BackfillScheduler) RequestSlot(agentID, _ uuid.UUID, _ SlotRequest) BackfillDecision {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	now := s.now()
 	s.reap(now)
-
-	if g, ok := s.grants[agentID]; ok {
-		g.deadline = now.Add(s.cfg.GrantTTL)
-		s.grants[agentID] = g
-		delete(s.firstReq, agentID)
-		return s.grant(now)
-	}
-
-	if len(s.grants) >= s.cfg.MaxConcurrent || s.tenantCount[tenant] >= s.cfg.PerTenantMax {
-		return s.deferSlot(agentID, now)
-	}
-
-	s.grants[agentID] = backfillGrant{tenant: tenant, deadline: now.Add(s.cfg.GrantTTL)}
-	s.tenantCount[tenant]++
-	delete(s.firstReq, agentID)
-	return s.grant(now)
+	deadline := now.Add(s.cfg.GrantTTL)
+	s.grants[agentID] = deadline
+	return BackfillDecision{Rate: s.rate(), Deadline: deadline.Unix()}
 }
 
-// Release frees agentID's slot; an unknown agent or a nil scheduler is a no-op.
+// Admit takes a place for one of agentID's batches in tenant and returns the function that gives
+// it back; a refused batch, or any batch on a nil scheduler, gets none.
+func (s *BackfillScheduler) Admit(agentID, tenant uuid.UUID) (func(), BackfillAdmission) {
+	if s == nil {
+		return nil, BackfillAdmission{Reason: BackfillNoGrant, RetryAfter: uint32(minRetryAfter.Seconds())}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := s.now()
+	s.reap(now)
+	if _, ok := s.grants[agentID]; !ok {
+		return nil, s.deferBatch(agentID, BackfillNoGrant, now)
+	}
+	if s.places >= s.cfg.MaxConcurrent || s.tenantPlaces[tenant] >= s.cfg.PerTenantMax {
+		return nil, s.deferBatch(agentID, BackfillBusy, now)
+	}
+	s.places++
+	s.tenantPlaces[tenant]++
+	delete(s.firstDefer, agentID)
+	var once sync.Once
+	return func() { once.Do(func() { s.leave(tenant) }) }, BackfillAdmission{Admitted: true}
+}
+
+// Release drops agentID's grant; an unknown agent or a nil scheduler is a no-op. A place a batch
+// holds is given back by that batch.
 func (s *BackfillScheduler) Release(agentID uuid.UUID) {
 	if s == nil {
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.release(agentID)
-	delete(s.firstReq, agentID)
+	delete(s.grants, agentID)
+	delete(s.firstDefer, agentID)
 }
 
-// ActiveCount is the number of live (un-expired) grants.
+// ActiveCount is the number of places held by batches being written; a nil scheduler holds none.
 func (s *BackfillScheduler) ActiveCount() int {
+	if s == nil {
+		return 0
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.reap(s.now())
-	return len(s.grants)
+	return s.places
 }
 
-// grant builds a grant decision at the current load-adaptive rate.
-func (s *BackfillScheduler) grant(now time.Time) BackfillDecision {
-	return BackfillDecision{
-		Grant:    true,
-		Rate:     s.rate(),
-		Deadline: now.Add(s.cfg.GrantTTL).Unix(),
+// leave gives back one place in tenant.
+func (s *BackfillScheduler) leave(tenant uuid.UUID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.places--
+	if s.tenantPlaces[tenant] <= 1 {
+		delete(s.tenantPlaces, tenant)
+	} else {
+		s.tenantPlaces[tenant]--
 	}
 }
 
-// deferSlot builds a deferral whose backoff shrinks with how long the agent has waited.
-func (s *BackfillScheduler) deferSlot(agentID uuid.UUID, now time.Time) BackfillDecision {
-	first, ok := s.firstReq[agentID]
+// deferBatch builds a deferral whose backoff shrinks with how long the agent has waited.
+func (s *BackfillScheduler) deferBatch(agentID uuid.UUID, reason string, now time.Time) BackfillAdmission {
+	first, ok := s.firstDefer[agentID]
 	if !ok {
 		first = now
-		s.firstReq[agentID] = now
+		s.firstDefer[agentID] = now
 	}
 	waited := now.Sub(first)
 	retry := max(s.cfg.DeferBackoff-waited, minRetryAfter)
-	return BackfillDecision{RetryAfter: uint32(math.Ceil(retry.Seconds()))}
+	return BackfillAdmission{Reason: reason, RetryAfter: uint32(math.Ceil(retry.Seconds()))}
 }
 
-// rate is the equal per-slot share of the load-adaptive budget, clamped to the configured
+// rate is the equal per-place share of the load-adaptive budget, clamped to the configured
 // bounds; dividing by the global cap keeps the summed grants within the budget.
 func (s *BackfillScheduler) rate() uint32 {
 	h := min(1, max(0, s.headroom()))
 	slots := max(1, s.cfg.MaxConcurrent)
 	per := float64(s.cfg.BaseBudgetSamplesPerSec) * h / float64(slots)
-	r := min(max(uint32(per), s.cfg.MinGrantRate), s.cfg.MaxGrantRate)
-	return r
+	return min(max(uint32(per), s.cfg.MinGrantRate), s.cfg.MaxGrantRate)
 }
 
-// reap drops grants whose deadline has passed, freeing their slots.
+// reap drops grants whose deadline has passed.
 func (s *BackfillScheduler) reap(now time.Time) {
-	for id, g := range s.grants {
-		if !g.deadline.After(now) {
-			s.release(id)
+	for id, deadline := range s.grants {
+		if !deadline.After(now) {
+			delete(s.grants, id)
 		}
-	}
-}
-
-func (s *BackfillScheduler) release(agentID uuid.UUID) {
-	g, ok := s.grants[agentID]
-	if !ok {
-		return
-	}
-	delete(s.grants, agentID)
-	if s.tenantCount[g.tenant] <= 1 {
-		delete(s.tenantCount, g.tenant)
-	} else {
-		s.tenantCount[g.tenant]--
 	}
 }

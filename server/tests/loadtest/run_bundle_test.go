@@ -318,3 +318,13 @@ func observationValue(t *testing.T, bundle *Bundle, series string) float64 {
 	require.FailNowf(t, "series not found", "the bundle carries no %q observation", series)
 	return 0
 }
+
+func TestTheBundleCarriesWhatTheCatchUpBatchesWereAnswered(t *testing.T) {
+	in := measuredRun()
+	in.CatchUp = &CatchUpCount{Stored: 7, Deferred: 2, Unanswered: 1}
+
+	bundle := buildRunBundle(in)
+
+	require.NoError(t, bundle.Validate())
+	assert.Equal(t, &CatchUpCount{Stored: 7, Deferred: 2, Unanswered: 1}, bundle.CatchUp)
+}

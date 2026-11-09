@@ -82,6 +82,15 @@ func TestTargetConservationSeesTheProcessBeingReplaced(t *testing.T) {
 	assert.True(t, replaced.Restarted(), "a start time that moved is a different process")
 }
 
+func TestTargetConservationSeesTheProcessGoAwayBeforeTheEnd(t *testing.T) {
+	t.Parallel()
+
+	answered := TargetHealth{Read: true, StartTimeSeconds: 1756000000}
+	assert.True(t, TargetConservation{Start: answered}.StoppedAnswering())
+	assert.False(t, TargetConservation{Start: answered, End: answered}.StoppedAnswering())
+	assert.False(t, TargetConservation{}.StoppedAnswering(), "a target never read says nothing")
+}
+
 func TestTargetConservationRetentionIsPerCompletedOperation(t *testing.T) {
 	t.Parallel()
 

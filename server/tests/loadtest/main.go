@@ -88,6 +88,11 @@ func run() int {
 	backfillSamples := flag.Int("backfill-samples", 100, "pre-rolled samples per backfill batch")
 	holdFor := flag.Duration("hold", 0, "keep every agent connected for this long after its traffic, so a generator on the other side has machines to open sessions against")
 	reconnect := flag.Bool("reconnect", false, "keep a machine in the run after its connection breaks, so a fleet behind a link that goes dark is still there when the link returns; off measures the server and reports a severance instead of repairing it")
+	backfillGap := flag.Duration("backfill-gap", 0, "size each machine's catch-up from this much lost time, one reading of each vital per closed minute, overriding -backfill-batches")
+	liveEvery := flag.Duration("live-every", 0, "send a live window this often while a machine is held; zero sends none")
+	liveWatchStore := flag.String("live-watch-store", "", "metrics store whose export is read each second to time watched machines' live windows; empty watches none")
+	liveWatchMachines := flag.Int("live-watch-machines", 50, "machines, by index, whose live windows -live-watch-store times")
+	enrolFirstFlag := flag.Bool("enrol-first", false, "install every machine before the walk, a few at a time: enrol, connect once and file it, so the walk's dial is a return with the certificate it holds")
 	retryDeferred := flag.Bool("retry-deferred", false, "ask again when the server tells a machine to wait for a catch-up slot, as a shipped agent does; off sheds the load so the deferral path is measured rather than queued through")
 	hostnamePrefix := flag.String("hostname-prefix", defaultHostnamePrefix, "the name this run's machines carry, so a run can count and remove its own")
 	relaySessions := flag.Bool("relay-sessions", false, "answer SessionRequest by joining the machine side of the relay and echoing, so the browser side can time a real round trip")
@@ -129,10 +134,12 @@ func run() int {
 	// denominator.
 	sessionsJoined := &atomic.Int64{}
 	helpers := &helperTally{}
+	catchUp := &catchUpTally{}
 
 	opts := loadOptions{
 		sessionsJoined:          sessionsJoined,
 		helpers:                 helpers,
+		catchUp:                 catchUp,
 		defaultTelemetry:        *defaultTelemetry,
 		telemetryCycles:         *telemetryCycles,
 		metricWindows:           *metricWindows,
@@ -142,6 +149,8 @@ func run() int {
 		holdFor:                 *holdFor,
 		reconnect:               *reconnect,
 		retryDeferred:           *retryDeferred,
+		backfillGap:             *backfillGap,
+		liveEvery:               *liveEvery,
 		relaySessions:           *relaySessions,
 	}
 
@@ -172,6 +181,13 @@ func run() int {
 	// its identifier.
 	credentials := enrolOnce(source)
 	filer := fleet.filerFor(credentials, *agents, profile)
+	// The install's registrations are read here and taken off the run's, so the figure is the walk's.
+	var installed *ServerRegistration
+	if *enrolFirstFlag {
+		install := firstLifeOf(credentials, *addr)
+		writeEnrolFirst(enrolFirst(context.Background(), agentPlan, install, filer, enrolFirstInFlight), len(agentPlan))
+		installed = readServerRegistration(*metricsURL)
+	}
 
 	fmt.Printf("Starting QUIC load test: %d agents across %d tenant(s) → %s\n", *agents, tenants, *addr)
 
@@ -206,6 +222,8 @@ func run() int {
 	leakWatching := WatchForLeaks(*metricsURL, *bundleDir, *leakSnapshotEvery)
 
 	start := time.Now()
+	catchUp.started = start
+	stopWatch := startLiveWatch(&opts, *liveWatchStore, *liveWatchMachines)
 
 	generatorReading := WatchGenerator()
 
@@ -221,6 +239,7 @@ func run() int {
 			Network:   NewNetworkDrops(*targetNetCounters),
 		}, filer, clock, venue)
 	totalDur := time.Since(start)
+	liveDelay := stopWatch()
 
 	generatorHeadroom := generatorReading()
 
@@ -234,6 +253,10 @@ func run() int {
 
 	// Registration is read from the server before the results block, which publishes it.
 	registration := readServerRegistration(*metricsURL)
+	if registration != nil && installed != nil {
+		walked := registration.Since(*installed)
+		registration = &walked
+	}
 
 	failures := reportResults(results, start, totalDur, *agents, registration)
 
@@ -260,6 +283,8 @@ func run() int {
 		Fixture:              fixture,
 		Leak:                 leakTrail,
 		Helper:               helpers.count(),
+		CatchUp:              catchUp.count(),
+		LiveDelay:            liveDelay,
 		Conservation: TargetConservation{
 			Start: targetAtStart,
 			End:   targetAtEnd,
@@ -276,6 +301,8 @@ func run() int {
 
 	printBreakingPoint(bundle.BreakingPoint)
 	printLeakTrail(bundle.Leak)
+	writeCatchUp(os.Stdout, bundle.CatchUp)
+	writeLiveDelay(os.Stdout, bundle.LiveDelay)
 
 	for _, reason := range bundle.Verdict.Reasons {
 		fmt.Printf("::error::%s\n", reason)

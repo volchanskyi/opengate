@@ -391,6 +391,17 @@ fresh_bundle
 run_merge "$WORK/bundle.json" --runner "$WORK/runner.json"
 assert_eq "an empty runner reading fails" "1" "$STATUS"
 
+# The store probe's readings ride the leg's bundle for its go/no-go and the trend.
+printf '{"quiet": {"cpu_share": 0.1, "memory_share": 0.3}, "one_sender": {"catch_up": {"readings_per_second": 10500}}}' \
+  >"$WORK/probe.json"
+run_merge "$WORK/bundle.json" --probe "$WORK/probe.json"
+assert_eq "the store probe merges" "0" "$STATUS"
+assert_eq "the probe's readings sit under store_probe" "10500 0.1" \
+  "$(jq -r '.store_probe | "\(.one_sender.catch_up.readings_per_second) \(.quiet.cpu_share)"' "$WORK/bundle.json")"
+: >"$WORK/probe.json"
+run_merge "$WORK/bundle.json" --probe "$WORK/probe.json"
+assert_eq "an empty probe reading fails" "1" "$STATUS"
+
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then
   printf 'Failures:\n' >&2

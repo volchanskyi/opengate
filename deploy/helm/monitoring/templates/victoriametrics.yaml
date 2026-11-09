@@ -1,6 +1,5 @@
 {{- $name := include "mon.componentName" (list . "victoriametrics") -}}
 {{- $scrape := .Files.Get "files/vmagent-scrape.yaml" -}}
-{{- $streamAggr := .Files.Get "files/edge-sentinel-stream-aggr.yaml" -}}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -17,8 +16,6 @@ metadata:
 data:
   scrape.yml: |
 {{ $scrape | indent 4 }}
-  stream-aggr.yml: |
-{{ $streamAggr | indent 4 }}
 ---
 apiVersion: v1
 kind: Service
@@ -52,7 +49,7 @@ spec:
         {{- include "mon.selectorLabels" (list . "victoriametrics") | nindent 8 }}
       annotations:
         # A changed configuration restarts the store onto the new file.
-        checksum/config: {{ print $scrape $streamAggr | sha256sum }}
+        checksum/config: {{ $scrape | sha256sum }}
         # The store's own disk and series readings feed the soak dashboard.
         prometheus.io/scrape: "true"
         prometheus.io/port: "8428"
@@ -73,8 +70,6 @@ spec:
             - "-storageDataPath=/storage"
             - "-retentionPeriod={{ .Values.victoriametrics.retention }}"
             - "-promscrape.config=/etc/victoriametrics/scrape.yml"
-            - "-streamAggr.config=/etc/victoriametrics/stream-aggr.yml"
-            - "-streamAggr.keepInput"
             - "-httpListenAddr=:8428"
           ports:
             - name: http

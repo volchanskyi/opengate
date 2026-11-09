@@ -50,7 +50,7 @@ func TestEveryEdgeTelemetryOutcomeStartsAtZero(t *testing.T) {
 	}{
 		{"drop reasons", m.EdgeTelemetryDropsTotal, EdgeTelemetryDropReasons()},
 		{"ingested message types", m.EdgeTelemetryIngestedTotal, EdgeTelemetryIngestTypes()},
-		{"catch-up decisions", m.EdgeBackfillDecisionsTotal, []string{"grant", "defer"}},
+		{"catch-up answers", m.EdgeBackfillAnswersTotal, BackfillAnswers()},
 		{"direct-link outcomes", m.DirectLinkOutcomesTotal, DirectLinkOutcomes()},
 		{"helper results", m.HelperRequestsTotal, HelperRequestResults()},
 	} {
@@ -121,16 +121,18 @@ func TestObserveEdgeTelemetryClockClamp(t *testing.T) {
 	require.InDelta(t, 0, testutil.ToFloat64(m.EdgeTelemetryDropsTotal.WithLabelValues("clock_skew_clamped")), 0)
 }
 
-func TestObserveBackfillDecision(t *testing.T) {
+func TestObserveBackfillGrantAndAnswers(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	m := NewMetrics(reg)
 
-	m.ObserveBackfillDecision(true, 2500, 3)
-	m.ObserveBackfillDecision(false, 0, 3)
-	m.ObserveBackfillDecision(true, 1800, 4)
+	m.ObserveBackfillGrant(2500)
+	m.ObserveBackfillGrant(1800)
+	m.ObserveBackfillAnswer("stored", 3)
+	m.ObserveBackfillAnswer("deferred_busy", 4)
 
-	require.InDelta(t, 2, testutil.ToFloat64(m.EdgeBackfillDecisionsTotal.WithLabelValues("grant")), 0)
-	require.InDelta(t, 1, testutil.ToFloat64(m.EdgeBackfillDecisionsTotal.WithLabelValues("defer")), 0)
+	require.InDelta(t, 2, testutil.ToFloat64(m.EdgeBackfillAnswersTotal.WithLabelValues("granted")), 0)
+	require.InDelta(t, 1, testutil.ToFloat64(m.EdgeBackfillAnswersTotal.WithLabelValues("stored")), 0)
+	require.InDelta(t, 1, testutil.ToFloat64(m.EdgeBackfillAnswersTotal.WithLabelValues("deferred_busy")), 0)
 	require.InDelta(t, 4, testutil.ToFloat64(m.EdgeBackfillActiveSlots), 0)
 	require.InDelta(t, 1800, testutil.ToFloat64(m.EdgeBackfillGrantRate), 0)
 }

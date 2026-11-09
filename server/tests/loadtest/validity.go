@@ -135,6 +135,12 @@ func invalidReasons(in RunInputs, verdict Verdict) []string {
 	}
 	reasons = append(reasons, generatorReasons(in.Headroom)...)
 
+	// A target gone before the end leaves the later readings describing nothing that ran.
+	if in.Target.StoppedAnswering() {
+		reasons = append(reasons,
+			"the target stopped answering before the end of the run, so the readings after it describe a system that was not there")
+	}
+
 	// A restart splits the readings across two processes, so it invalidates the run.
 	if in.Target.Restarted() {
 		reasons = append(reasons, fmt.Sprintf(

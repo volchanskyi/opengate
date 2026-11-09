@@ -119,6 +119,66 @@ pushed="$(cat "$WORK/pushed")"
 check "a leg that recorded its runner names the processor it ran on, so nights compare like with like" \
   'perf_latency_p95_ms{env="ci",leg="scaling-0.5",phase="register",processor="AMD EPYC 7763 64-Core Processor",workload="scaling/1/d1"} 900 1790689000000'
 
+# The catch-up leg carries the store probe, the fleet's catch-up and live delay, and the runner's
+# fixed benchmark; each is pushed under its own name.
+bundle "$WORK/perf-bundles/catch-up" catch-up valid 300 120 40 0
+jq '.runner = {processor_model: "Neoverse-N2", cpu_benchmark_rounds_per_second: 812.5}
+  | .catch_up = {stored: 10000, deferred: 40, unanswered: 0, complete: 5000, last_stored_seconds: 1312.5}
+  | .live_delay = {sent: 600, seen: 600, within_five_seconds: 6, p50_ms: 31000, p99_ms: 59500, max_ms: 61000}
+  | .store_probe = {oom_killed: false, quiet: {seconds: 60, cpu_share: 0.12, memory_share: 0.31},
+      one_sender: {senders: 1, duration_seconds: 900,
+        catch_up: {readings_per_second: 10500}, live: {requests: 900, within_five_seconds: 891, p99_ms: 420},
+        store: {peak_memory_bytes: 400000000}},
+      two_senders: {senders: 2, duration_seconds: 900,
+        catch_up: {readings_per_second: 14000}, live: {requests: 900, within_five_seconds: 855, p99_ms: 6100},
+        store: {peak_memory_bytes: 500000000}}}' \
+  "$WORK/perf-bundles/catch-up/bundle.json" >"$WORK/catch-up.json"
+mv "$WORK/catch-up.json" "$WORK/perf-bundles/catch-up/bundle.json"
+run_push "$WORK/perf-bundles/catch-up/bundle.json" >/dev/null 2>&1
+pushed="$(cat "$WORK/pushed")"
+check "the store's catch-up rate is pushed for each sender count" \
+  'perf_catchup_readings_per_second{env="ci",leg="catch-up",processor="Neoverse-N2",senders="1",workload="catch-up/1/d1"} 10500 1790689000000'
+check "beside the share of live-shaped requests it took within 5 s" \
+  'perf_catchup_live_within_5s_share{env="ci",leg="catch-up",processor="Neoverse-N2",senders="2",workload="catch-up/1/d1"} 0.95 1790689000000'
+check "and the store's largest memory" \
+  'perf_catchup_store_peak_memory_bytes{env="ci",leg="catch-up",processor="Neoverse-N2",senders="1",workload="catch-up/1/d1"} 400000000 1790689000000'
+check "the quiet minute's processor share" \
+  'perf_catchup_quiet_cpu_share{env="ci",leg="catch-up",processor="Neoverse-N2",workload="catch-up/1/d1"} 0.12 1790689000000'
+check "the time the fleet's last gap was filled" \
+  'perf_catchup_fill_seconds{env="ci",leg="catch-up",processor="Neoverse-N2",workload="catch-up/1/d1"} 1312.5 1790689000000'
+check "the watched live minutes' delay to the store" \
+  'perf_catchup_live_visible_p99_ms{env="ci",leg="catch-up",processor="Neoverse-N2",workload="catch-up/1/d1"} 59500 1790689000000'
+check "and the runner's fixed benchmark beside its processor" \
+  'perf_runner_benchmark_rounds_per_second{env="ci",leg="catch-up",processor="Neoverse-N2",workload="catch-up/1/d1"} 812.5 1790689000000'
+
+# The probe and the benchmark measure the store and the runner, so a fleet run that measured
+# nothing still publishes them.
+jq '.verdict.result = "invalid"' "$WORK/perf-bundles/catch-up/bundle.json" >"$WORK/catch-up.json"
+mkdir -p "$WORK/invalid/catch-up"
+mv "$WORK/catch-up.json" "$WORK/invalid/catch-up/bundle.json"
+if out="$(run_push "$WORK/invalid/catch-up/bundle.json" 2>&1)"; then
+  pass "an invalid fleet run with a store probe is pushed"
+else
+  fail "an invalid fleet run with a store probe is pushed (out=[$out])"
+fi
+pushed="$(cat "$WORK/pushed")"
+check "its store probe is pushed whatever the fleet's verdict" \
+  'perf_catchup_readings_per_second{env="ci",leg="catch-up",processor="Neoverse-N2",senders="1",workload="catch-up/1/d1"} 10500 1790689000000'
+check "with the quiet minute" \
+  'perf_catchup_quiet_cpu_share{env="ci",leg="catch-up",processor="Neoverse-N2",workload="catch-up/1/d1"} 0.12 1790689000000'
+check "and the runner's benchmark" \
+  'perf_runner_benchmark_rounds_per_second{env="ci",leg="catch-up",processor="Neoverse-N2",workload="catch-up/1/d1"} 812.5 1790689000000'
+if grep -qE '^perf_(catchup_fill_seconds|catchup_machines_caught_up|catchup_live_visible|latency_|error_rate)' <<<"$pushed"; then
+  fail "the invalid fleet's own readings stay out of the trend (pushed=[$pushed])"
+else
+  pass "the invalid fleet's own readings stay out of the trend"
+fi
+if grep -qi 'did not measure' <<<"$out"; then
+  pass "and the push says the fleet was left out"
+else
+  fail "and the push says the fleet was left out (out=[$out])"
+fi
+
 if out="$(run_push "$WORK/perf-bundles/spike/bundle.json" 2>&1)"; then
   fail "a night with nothing measured is refused (out=[$out])"
 else

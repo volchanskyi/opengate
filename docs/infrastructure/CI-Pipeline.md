@@ -96,7 +96,7 @@ human commits  ──► dev ──► main
         (main push / CI success on dev)
                     │
                     ▼
-              Build multi-arch → Push GHCR → Cosign sign → SBOM attest → Trivy scan
+              Build multi-arch → Push GHCR by digest → Scan → Cosign sign → SBOM attest → Tag
                     │
                     ▼
               CD Workflow (cd.yml)
@@ -121,6 +121,7 @@ The CI workflow jobs are grouped by concern:
 | **IaC gate** | `iac-gate` | Runs `terraform plan` on every commit / PR that touches `deploy/terraform/**`. Posts a sticky PR comment on PRs and writes the plan summary to the GitHub Job Summary on direct pushes. Blocks merge if a destroy targets a protected resource type. Bypass: `iac:approve-destroy` label on PR only — no bypass for direct pushes to `dev`. Wired into `merge-to-main.needs`. See [Infrastructure.md → IaC plan + destroy-blocklist gate](OCI-Terraform.md#plan-and-destroy-gate). |
 | **Golden** | `golden` | Cross-language wire format verification (needs `rust-test` artifact) |
 | **Security** | `security-audit` | govulncheck, cargo audit, npm audit, and the [dependency check](Security-and-Dependencies.md#dependency-fixes), which keeps its image package lists in a cache it reads back |
+| **Image scan** | `image-scan` | Builds the server image and scans it with [`image-scan.sh`](../../scripts/image-scan.sh), the scan the image build runs before any tag; wired into `merge-to-main.needs` |
 | **CodeQL** | `codeql-go`, `codeql-js`, `codeql-rust` | GitHub Code Scanning with `security-and-quality` queries |
 | **SonarCloud** | `sonarcloud` | Static analysis + coverage aggregation via SonarSource scan action |
 | **E2E** | `e2e` | Playwright end-to-end + Lighthouse CI audits via `docker-compose.test.yml` (needs `agent-binary`); the speed specs run nightly in [`e2e-performance.yml`](../../.github/workflows/e2e-performance.yml) |

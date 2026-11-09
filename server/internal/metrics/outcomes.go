@@ -55,7 +55,7 @@ func AlertSuppressionReasons() []string {
 // edgeTelemetryDropReasons are the reasons a connection discards telemetry, spelled where it drops.
 var edgeTelemetryDropReasons = []string{
 	"payload_too_large", "interval_floor", "tenant_missing", "persist_failed", "persist_slots_full",
-	"tombstoned", "unknown_family", "unknown_dim",
+	"tombstoned", "unknown_family", "unknown_dim", "invalid_value",
 	"empty_summary", "empty_summaries", "empty_dims", "empty_discovery",
 	"discovery_payload_too_large", "discovery_interval_floor", "backfill_out_of_retention",
 	"alert_payload_too_large", "alert_severity_unknown", "alert_identity_incomplete",
@@ -83,11 +83,20 @@ func EdgeTelemetryIngestTypes() []string {
 	return append([]string(nil), edgeTelemetryIngestTypes...)
 }
 
-// The two answers the catch-up scheduler gives a reconnecting machine.
-const (
-	backfillGrant = "grant"
-	backfillDefer = "defer"
-)
+// backfillGranted is the answer to a request for catch-up permission.
+const backfillGranted = "granted"
+
+// backfillAnswers are every answer the server sends a machine catching up, spelled where it
+// answers.
+var backfillAnswers = []string{
+	backfillGranted, "stored",
+	"deferred_no_grant", "deferred_busy", "deferred_write_failed", "deferred_refused",
+}
+
+// BackfillAnswers returns the catch-up answers, each published at zero from start-up.
+func BackfillAnswers() []string {
+	return append([]string(nil), backfillAnswers...)
+}
 
 // seedOutcomes publishes every value of every closed set above at zero.
 func (m *Metrics) seedOutcomes() {
@@ -103,8 +112,9 @@ func (m *Metrics) seedOutcomes() {
 	for _, msgType := range edgeTelemetryIngestTypes {
 		m.EdgeTelemetryIngestedTotal.WithLabelValues(msgType)
 	}
-	m.EdgeBackfillDecisionsTotal.WithLabelValues(backfillGrant)
-	m.EdgeBackfillDecisionsTotal.WithLabelValues(backfillDefer)
+	for _, answer := range backfillAnswers {
+		m.EdgeBackfillAnswersTotal.WithLabelValues(answer)
+	}
 	for _, outcome := range directLinkOutcomes {
 		m.DirectLinkOutcomesTotal.WithLabelValues(outcome)
 	}

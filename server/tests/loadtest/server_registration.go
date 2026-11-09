@@ -111,6 +111,27 @@ func (r ServerRegistration) PastTheScale(q float64) bool {
 	return true
 }
 
+// Since is what the server measured after an earlier reading of the same server, with the pool as
+// it stands at this reading.
+func (r ServerRegistration) Since(before ServerRegistration) ServerRegistration {
+	since := r
+	since.Accepted -= before.Accepted
+	since.Rejected -= before.Rejected
+	since.SumSeconds -= before.SumSeconds
+	if len(r.Buckets) == 0 {
+		return since
+	}
+	earlier := make(map[float64]float64, len(before.Buckets))
+	for _, bucket := range before.Buckets {
+		earlier[bucket.le] = bucket.count
+	}
+	since.Buckets = make([]bucketBound, len(r.Buckets))
+	for i, bucket := range r.Buckets {
+		since.Buckets[i] = bucketBound{le: bucket.le, count: bucket.count - earlier[bucket.le]}
+	}
+	return since
+}
+
 // FetchServerRegistration reads the running server's own account of the run.
 func FetchServerRegistration(baseURL string) (ServerRegistration, error) {
 	page, err := fetchExpositionPage(baseURL)

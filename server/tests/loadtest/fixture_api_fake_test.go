@@ -41,6 +41,9 @@ type fakeAPI struct {
 	rowLandsAfter int
 	// filingAttempts counts every attempt at the filing path, refused ones included.
 	filingAttempts int
+	// rows, when set, holds the machines that have registered; the server writes a machine's row
+	// at its first registration, so filing any other answers 404.
+	rows map[string]bool
 }
 
 func (f *fakeAPI) handler() http.Handler {
@@ -123,7 +126,7 @@ func (f *fakeAPI) handler() http.Handler {
 		if f.fail(w, "/api/v1/devices/") {
 			return
 		}
-		if f.rowHasNotLanded(w) {
+		if f.rowHasNotLanded(w) || f.neverRegistered(w, r.URL.Path) {
 			return
 		}
 		var body struct {

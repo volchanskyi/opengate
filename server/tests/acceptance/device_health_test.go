@@ -107,7 +107,7 @@ func TestReadingsThatArriveWithNothingInThemAreAccountedFor(t *testing.T) {
 	machine.settle()
 
 	require.Eventually(t, func() bool {
-		return strings.Contains(admin.platformInstrumentation(), `reason="empty_dims"`)
+		return admin.dropsCounted("empty_dims") >= 1
 	}, eventually, 100*time.Millisecond,
 		"a window with nothing in it must be counted as a drop, with the reason said out loud")
 }
@@ -145,7 +145,7 @@ func TestADimensionTheFleetNeverAgreedToIsRefused(t *testing.T) {
 	machine.settle()
 
 	require.Eventually(t, func() bool {
-		return strings.Contains(admin.platformInstrumentation(), `reason="unknown_dim"`)
+		return admin.dropsCounted("unknown_dim") >= 1
 	}, eventually, 100*time.Millisecond,
 		"a dimension outside the agreed vocabulary is dropped and counted, never stored")
 }
@@ -161,7 +161,6 @@ func (a *Technician) awaitReading(product *Product, deviceID fmt.Stringer, from,
 		"a %s reading the machine sent must become a number on the machine's page", dim)
 }
 
-// platformInstrumentation returns the metrics exposition served by the cluster-only listener.
 func (a *Technician) platformInstrumentation() string {
 	a.t.Helper()
 	req, err := http.NewRequestWithContext(a.t.Context(),

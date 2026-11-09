@@ -69,7 +69,7 @@ already stored, and a machine that could not be written to takes it as it
 reconnects.
 
 **A finding out of history is measured against how long an alert is kept.** It
-was measured against how long a metric sample is kept, which is ninety days —
+was measured against how long a metric sample is kept, which is thirty days —
 and a machine's own store reaches months further, so most of what a first scan
 could answer was refused on arrival and counted as a clock fault. The retention
 sweep already ages a row from the day it arrived, precisely so a legitimately

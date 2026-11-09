@@ -49,8 +49,8 @@ done
 
 doc="$(cat "$TESTING_DOC")"
 
-# A row's label may carry a digit and comma, as in "Volume 8,000".
-table_rows="$(grep -E '^\| \[[A-Z][A-Za-z0-9,. ]*\]\(\.\./\.\./load/profiles/' <<<"$doc" || true)"
+# A row's label may carry a digit, comma or hyphen, as in "Volume 8,000" and "Catch-up".
+table_rows="$(grep -E '^\| \[[A-Z][A-Za-z0-9,. -]*\]\(\.\./\.\./load/profiles/' <<<"$doc" || true)"
 row_count="$(grep -c . <<<"${table_rows:-}" || true)"
 
 if [ "${row_count:-0}" -eq "${#profiles[@]}" ]; then
@@ -61,7 +61,7 @@ fi
 
 while IFS= read -r row; do
   [ -n "$row" ] || continue
-  family="$(sed -n 's/^| \[\([A-Za-z0-9,. ]*\)\].*/\1/p' <<<"$row")"
+  family="$(sed -n 's/^| \[\([A-Za-z0-9,. -]*\)\].*/\1/p' <<<"$row")"
 
   linked_profile="$(sed -n 's|.*(\.\./\.\./load/profiles/\([a-z0-9-]*\)\.yaml).*|\1|p' <<<"$row")"
   if [ -n "$linked_profile" ] && [ -f "$PROFILE_DIR/$linked_profile.yaml" ]; then

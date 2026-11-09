@@ -70,6 +70,8 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
+    # The name the gauntlet scans the built image under; the bring-up builds it once, first.
+    image: opengate-e2e-server:local
     container_name: opengate-test-server
     environment:
       - JWT_SECRET=e2e-test-secret-minimum-32-bytes!

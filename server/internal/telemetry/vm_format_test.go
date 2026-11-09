@@ -105,3 +105,30 @@ func TestWriteSamplesEmptyIsNoop(t *testing.T) {
 	client := NewVMClient("http://127.0.0.1:0", nil)
 	require.NoError(t, client.WriteSamples(context.Background(), uuid.New(), uuid.New(), nil))
 }
+
+func TestCheckSampleRefusesWhatTheStoreWouldAndPassesTheRest(t *testing.T) {
+	t.Parallel()
+	ts := time.Unix(1_700_000_000, 0).UTC()
+	for _, tt := range []struct {
+		name   string
+		sample Sample
+		errIs  error
+	}{
+		{name: "not a number", sample: Sample{Name: "m", Value: math.NaN(), TS: ts}, errIs: ErrInvalidValue},
+		{name: "positive infinity", sample: Sample{Name: "m", Value: math.Inf(1), TS: ts}, errIs: ErrInvalidValue},
+		{name: "negative infinity", sample: Sample{Name: "m", Value: math.Inf(-1), TS: ts}, errIs: ErrInvalidValue},
+		{name: "reserved label", sample: Sample{Name: "m", Value: 1, TS: ts, Labels: map[string]string{"device_id": "x"}}, errIs: ErrReservedLabel},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.ErrorIs(t, CheckSample(tt.sample), tt.errIs)
+		})
+	}
+
+	badName := CheckSample(Sample{Name: "1bad name", Value: 1, TS: ts})
+	require.Error(t, badName)
+	assert.NotErrorIs(t, badName, ErrInvalidValue, "a bad name is not a bad value")
+	require.Error(t, CheckSample(Sample{Name: "m", Value: 1, Labels: map[string]string{"bad-label": "x"}}))
+
+	assert.NoError(t, CheckSample(Sample{Name: "opengate_edge_metric_avg", Value: -0.5, TS: ts,
+		Labels: map[string]string{"dim": "cpu.total"}}))
+}

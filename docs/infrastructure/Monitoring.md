@@ -79,7 +79,6 @@ flowchart LR
 | Grafana dashboards and alerting ConfigMaps | [`deploy/grafana/provisioning`](../../deploy/grafana/provisioning) |
 | Applying that configuration to the cluster | [`monitoring-config-apply.sh`](../../deploy/scripts/monitoring-config-apply.sh) |
 | VictoriaMetrics scrape config | [`vmagent-scrape.yaml`](../../deploy/helm/monitoring/files/vmagent-scrape.yaml) |
-| Edge Sentinel stream aggregation | [`edge-sentinel-stream-aggr.yaml`](../../deploy/helm/monitoring/files/edge-sentinel-stream-aggr.yaml) |
 | Promtail pod-log config | [`promtail-config.yaml`](../../deploy/helm/monitoring/files/promtail-config.yaml) |
 | Loki retention/config | [`loki-config.yml`](../../deploy/helm/monitoring/files/loki-config.yml) |
 | CI trend VM transport | [`scripts/lib/vm-push.sh`](../../scripts/lib/vm-push.sh) |
@@ -225,16 +224,13 @@ broker's pull counters are charted by the Edge-Sentinel Logs dashboard. The pull
 surface, its redaction guards and its audit trail are in
 [Endpoint Logs](../product/Endpoint-Logs.md).
 
-The monitoring chart passes the Edge Sentinel stream-aggregation config to
-single-node VictoriaMetrics through
-[`victoriametrics.yaml`](../../deploy/helm/monitoring/templates/victoriametrics.yaml).
-The [rollup config](../../deploy/helm/monitoring/files/edge-sentinel-stream-aggr.yaml)
-produces coarse `avg`-only rollups for `opengate_edge_*` metrics at two intervals
-while `-streamAggr.keepInput` preserves the raw matched input. Central rollups
-carry `avg` alone because each aggregate is its own series, so emitting
-min/max/last centrally would multiply active series past the budget measured in
-[`spike_test.go`](../../server/tests/vmcardinality/spike_test.go); chart bands are
-computed from min/max over the raw 60 s samples instead.
+Single-node VictoriaMetrics, run by
+[`victoriametrics.yaml`](../../deploy/helm/monitoring/templates/victoriametrics.yaml),
+keeps machine readings raw: one 60 s sample per series, with no store-side
+rollup. Charts downsample at query time, and their bands are computed from
+min/max over the raw samples, so a series costs what
+[`spike_test.go`](../../server/tests/vmcardinality/spike_test.go) measures and
+no more.
 
 ### What a series costs
 
@@ -339,10 +335,10 @@ and what a measured rate obliges is in
 The [Rule Rollout And Triage
 dashboard](../../deploy/grafana/provisioning/dashboards/rule-rollout.json) reads
 them, and its stat panel carries the measured alerts-per-device-per-day rate.
-Two alerts watch a bad rollout
-([`alert-rules.yml`](../../deploy/grafana/provisioning/alerting/alert-rules.yml)) —
-one on the projected per-device alert rate, one on any ceiling suppression at
-all.
+The monitoring stack charts these readings and raises no alert on any product
+reading; its rules in
+[`alert-rules.yml`](../../deploy/grafana/provisioning/alerting/alert-rules.yml)
+watch the platform alone.
 
 ### Telemetry load
 
@@ -358,13 +354,14 @@ The load driver is the QUIC agent load harness
 timing it can drive the **default telemetry shape** per agent (`-default-telemetry`:
 a health summary and a host metric window), spread
 agents across tenant cohorts (`-tenants`), and run a **fleet-wide reconnect storm**
-(`-backfill-batches`) in which a cohort returns at once with offline backlogs and
-drains through the admission scheduler one acked batch at a time. Run it through
+(`-backfill-batches`, or `-backfill-gap` for a gap of a given length) in which a
+cohort returns at once with offline backlogs and drains one answered batch at a
+time, sending a batch the server defers again after a fresh grant. Run it through
 the Docker/e2e stack lifecycle, never bare tooling.
 
 The server instruments the ingest path so it stays observable: accepted
 telemetry, server-side drops by typed reason, agent-clock corrections and the
-reconnect-backfill scheduler's own state. Those series, the closed ledger the
+catch-up answers by kind. Those series, the closed ledger the
 first two form and the full reason vocabulary are in
 [Metrics Reference](../architecture/Metrics-Reference.md#telemetry-ingest); what
 a reading means for a machine is in
@@ -384,11 +381,11 @@ source the Environment selector picks.
 Single-node OSS VictoriaMetrics applies **one global retention window** set by
 `victoriametrics.retention` in
 [`values.yaml`](../../deploy/helm/monitoring/values.yaml) — per-series retention and
-downsampling are Enterprise features, so raw 60 s samples and the `avg` rollups
-share the same window. The rollups exist for query efficiency: a long range reads
-coarse pre-aggregated series instead of scanning raw. Within that window
-VictoriaMetrics is the source of truth for central numeric telemetry, stored with
-its native Gorilla compression.
+downsampling are Enterprise features, so every raw 60 s sample is kept for that
+window. Catch-up reaches back the same window
+([ADR-044](../adr/ADR-044-telemetry-ingest.md)). Within it VictoriaMetrics is the
+source of truth for central numeric telemetry, stored with its native Gorilla
+compression.
 
 Promtail reads Kubernetes pod logs, enriches each stream with Kubernetes labels,
 and pushes to Loki via
@@ -509,7 +506,8 @@ started per minute, by pod), DB performance, PostgreSQL,
 the Edge-Sentinel Logs dashboard (raw-log pull rate/latency and audited reads),
 the Edge-Sentinel Soak dashboard (telemetry ingest/drop rates, VM
 cardinality + disk growth, control-plane query p99,
-reconnect-backfill scheduler state, and threshold-alert breach counts),
+catch-up batches being written and the answers they got, and threshold-alert
+breach counts),
 the Rule Rollout And Triage dashboard (alerts raised per rule, refusals by
 reason, the measured alerts-per-device-per-day rate, the triage queue by status,
 and fleet-wide rule coverage),

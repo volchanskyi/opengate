@@ -242,6 +242,12 @@ type Bundle struct {
 	// Helper is what the run's sessions asked the server's helper and what it answered. Absent
 	// where no session named a helper.
 	Helper *HelperCount `json:"helper,omitempty"`
+	// CatchUp is how the server answered the run's catch-up batches. Absent where no machine sent
+	// one.
+	CatchUp *CatchUpCount `json:"catch_up,omitempty"`
+	// LiveDelay is how long the watched machines' live minutes took to become readable in the
+	// store. Absent where no watch ran.
+	LiveDelay *LiveDelay `json:"live_delay,omitempty"`
 }
 
 // WriteTo validates the bundle and writes it into dir, returning the path. An incomplete bundle

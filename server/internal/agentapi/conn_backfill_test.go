@@ -8,10 +8,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
+	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
+	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/telemetry"
 )
@@ -35,6 +38,7 @@ func backfillConn(t *testing.T, s *BackfillScheduler, tenant uuid.UUID, capable 
 	return ac, &buf
 }
 
+// ingestConn builds a connection whose machine already holds a catch-up grant.
 func ingestConn(t *testing.T, tenant uuid.UUID, writer telemetry.NumericWriter, capable bool) (*AgentConn, *bytes.Buffer) {
 	t.Helper()
 	var buf bytes.Buffer
@@ -44,8 +48,10 @@ func ingestConn(t *testing.T, tenant uuid.UUID, writer telemetry.NumericWriter, 
 		stream:    &buf,
 		codec:     &protocol.Codec{},
 		telemetry: writer,
+		scheduler: NewBackfillScheduler(DefaultBackfillSchedulerConfig(), nil, nil),
 		logger:    testLogger(),
 	}
+	ac.scheduler.RequestSlot(ac.DeviceID, tenant, SlotRequest{})
 	if capable {
 		ac.Capabilities = []protocol.AgentCapability{protocol.CapBackfill}
 	}
@@ -66,7 +72,7 @@ func readReply(t *testing.T, ac *AgentConn, buf *bytes.Buffer) *protocol.Control
 	return msg
 }
 
-func TestHandleRequestBackfillSlot_GrantsWhenAdmitted(t *testing.T) {
+func TestHandleRequestBackfillSlot_GrantsAndBooksNoPlace(t *testing.T) {
 	clock, _ := fixedClock()
 	s := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 })
 	tenant := uuid.New()
@@ -82,25 +88,20 @@ func TestHandleRequestBackfillSlot_GrantsWhenAdmitted(t *testing.T) {
 	assert.Equal(t, protocol.MsgGrantBackfill, reply.Type)
 	assert.GreaterOrEqual(t, reply.Rate, schedCfg().MinGrantRate)
 	assert.Equal(t, clock().Add(schedCfg().GrantTTL).Unix(), reply.Deadline)
-	// The slot is booked against the connection's tenant, never an agent-supplied one.
-	assert.Equal(t, 1, s.ActiveCount())
+	assert.Equal(t, 0, s.ActiveCount(), "permission to start holds no place")
 }
 
-func TestHandleRequestBackfillSlot_DefersWhenSaturated(t *testing.T) {
+func TestHandleRequestBackfillSlot_GrantsWhileEveryPlaceIsTaken(t *testing.T) {
 	clock, _ := fixedClock()
 	s := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 })
 	for range schedCfg().MaxConcurrent {
-		require.True(t, s.RequestSlot(uuid.New(), uuid.New(), SlotRequest{}).Grant)
+		admitted(t, s, uuid.New())
 	}
 	ac, buf := backfillConn(t, s, uuid.New(), true)
 
-	require.NoError(t, ac.handleRequestBackfillSlot(&protocol.ControlMessage{
-		Type: protocol.MsgRequestBackfillSlot,
-	}))
+	require.NoError(t, ac.handleRequestBackfillSlot(&protocol.ControlMessage{Type: protocol.MsgRequestBackfillSlot}))
 
-	reply := readReply(t, ac, buf)
-	assert.Equal(t, protocol.MsgDeferBackfill, reply.Type)
-	assert.Positive(t, reply.RetryAfter)
+	assert.Equal(t, protocol.MsgGrantBackfill, readReply(t, ac, buf).Type)
 }
 
 func TestHandleRequestBackfillSlot_IgnoredWithoutCapability(t *testing.T) {
@@ -126,20 +127,6 @@ func TestHandleRequestBackfillSlot_NoSchedulerIsNoOp(t *testing.T) {
 	}
 	require.NoError(t, ac.handleRequestBackfillSlot(&protocol.ControlMessage{Type: protocol.MsgRequestBackfillSlot}))
 	assert.Zero(t, buf.Len())
-}
-
-func TestHandleRequestBackfillSlot_ScopesToConnectionTenant(t *testing.T) {
-	clock, _ := fixedClock()
-	s := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 })
-	connTenant := uuid.New()
-	ac, buf := backfillConn(t, s, connTenant, true)
-
-	// Admission keys on the connection's tenant, so filling that tenant's cap defers the next request.
-	for range schedCfg().PerTenantMax {
-		require.True(t, s.RequestSlot(uuid.New(), connTenant, SlotRequest{}).Grant)
-	}
-	require.NoError(t, ac.handleRequestBackfillSlot(&protocol.ControlMessage{Type: protocol.MsgRequestBackfillSlot}))
-	assert.Equal(t, protocol.MsgDeferBackfill, readReply(t, ac, buf).Type)
 }
 
 func TestHandleMetricBackfillBatch_WritesHistoricalSamplesAndAcks(t *testing.T) {
@@ -209,42 +196,51 @@ func (e *erroringTelemetryWriter) WriteSamples(context.Context, uuid.UUID, uuid.
 	return errBackfillWrite
 }
 
-func TestHandleMetricBackfillBatch_DoesNotAckOnPersistFailure(t *testing.T) {
+func TestHandleMetricBackfillBatch_AFailedWriteIsToldToWait(t *testing.T) {
 	tenant := uuid.New()
 	writer := &erroringTelemetryWriter{}
 	ac, buf := ingestConn(t, tenant, writer, true)
-	msg := &protocol.ControlMessage{
-		Type:            protocol.MsgMetricBackfillBatch,
-		Tier:            protocol.BackfillTierRecent60s,
-		BackfillSamples: []protocol.BackfillSample{{Name: "cpu.total", TS: time.Now().Unix() - 100, Value: 1}},
-		Cursor:          time.Now().Unix() - 100,
-	}
-	require.NoError(t, ac.handleMetricBackfillBatch(tenantCtx(tenant), msg, 128))
+	m := appmetrics.NewMetrics(prometheus.NewRegistry())
+	ac.metrics = m
+
+	require.NoError(t, ac.handleMetricBackfillBatch(tenantCtx(tenant), recentBatch(), 128))
+
 	assert.Equal(t, 1, writer.calls, "the write was attempted")
-	assert.Zero(t, buf.Len(), "a failed write is not acked — the agent re-sends from its cursor")
+	reply := readReply(t, ac, buf)
+	assert.Equal(t, protocol.MsgDeferBackfill, reply.Type, "the machine keeps the batch and sends it again")
+	assert.Positive(t, reply.RetryAfter)
+	assert.Zero(t, buf.Len(), "exactly one answer")
+	assert.Equal(t, 0, ac.scheduler.ActiveCount(), "the place is given back after a failed write")
+	assert.InDelta(t, 1, promtestutil.ToFloat64(m.EdgeBackfillAnswersTotal.WithLabelValues("deferred_write_failed")), 0)
 }
 
-func TestHandleMetricBackfillBatch_GuardsNilTelemetryPayloadAndTenant(t *testing.T) {
+func TestHandleMetricBackfillBatch_RefusedBatchesAreToldToWait(t *testing.T) {
 	tenant := uuid.New()
-	sample := []protocol.BackfillSample{{Name: "cpu.total", TS: time.Now().Unix() - 100, Value: 1}}
-	msg := &protocol.ControlMessage{Type: protocol.MsgMetricBackfillBatch, BackfillSamples: sample}
 	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
 
-	nilAc, nilBuf := ingestConn(t, tenant, nil, true)
-	require.NoError(t, nilAc.handleMetricBackfillBatch(tenantCtx(tenant), msg, 128))
-	assert.Zero(t, nilBuf.Len())
+	for _, c := range []struct {
+		name       string
+		ctx        context.Context
+		payloadLen int
+		telemetry  telemetry.NumericWriter
+	}{
+		{"a batch past the payload bound", tenantCtx(tenant), maxTelemetryPayloadBytes + 1, writer},
+		{"a connection with no tenant", context.Background(), 128, writer},
+		{"a server with no metrics store", tenantCtx(tenant), 128, nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			ac, buf := ingestConn(t, tenant, c.telemetry, true)
+			m := appmetrics.NewMetrics(prometheus.NewRegistry())
+			ac.metrics = m
 
-	bigAc, bigBuf := ingestConn(t, tenant, writer, true)
-	require.NoError(t, bigAc.handleMetricBackfillBatch(tenantCtx(tenant), msg, maxTelemetryPayloadBytes+1))
-	assert.Empty(t, writer.calls)
-	assert.Zero(t, bigBuf.Len())
-	assert.Positive(t, bigAc.DroppedTelemetryCount())
+			require.NoError(t, ac.handleMetricBackfillBatch(c.ctx, recentBatch(), c.payloadLen))
 
-	// No tenant in context: dropped, never written with a guessed tenant.
-	noTenantAc, noTenantBuf := ingestConn(t, tenant, writer, true)
-	require.NoError(t, noTenantAc.handleMetricBackfillBatch(context.Background(), msg, 128))
-	assert.Empty(t, writer.calls)
-	assert.Zero(t, noTenantBuf.Len())
+			assert.Empty(t, writer.calls, "nothing is written")
+			assert.Equal(t, protocol.MsgDeferBackfill, readReply(t, ac, buf).Type)
+			assert.Zero(t, buf.Len(), "exactly one answer")
+			assert.InDelta(t, 1, promtestutil.ToFloat64(m.EdgeBackfillAnswersTotal.WithLabelValues("deferred_refused")), 0)
+		})
+	}
 }
 
 func TestHandleMetricBackfillBatch_IgnoredWithoutCapability(t *testing.T) {

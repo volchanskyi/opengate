@@ -54,6 +54,12 @@ func (c TargetConservation) Restarted() bool {
 	return c.Start.StartTimeSeconds != c.End.StartTimeSeconds
 }
 
+// StoppedAnswering reports whether the target answered at the start and not at the end, so the
+// process the run began against did not last it.
+func (c TargetConservation) StoppedAnswering() bool {
+	return c.Start.Read && !c.End.Read
+}
+
 // RetainedGoroutinesPerOperation is the goroutine growth one completed operation left behind.
 // Subtracting the start reading drops the constant start-up goroutines; a lighter end reads zero.
 func (c TargetConservation) RetainedGoroutinesPerOperation() float64 {
