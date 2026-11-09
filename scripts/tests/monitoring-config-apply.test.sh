@@ -377,8 +377,8 @@ for workload in deployment/monitoring-grafana statefulset/monitoring-victoriamet
   fi
 done
 
-# The live scrape ConfigMap carries a second key no repository file produces, and the ownership
-# metadata Helm recorded, which the next chart upgrade requires.
+# The live scrape ConfigMap carries a key no repository file produces, and the ownership metadata
+# Helm recorded, which the next chart upgrade requires.
 rm -f "$WORK"/state/*.json
 cat >"$WORK/state/monitoring-victoriametrics-scrape.json" <<'LIVE'
 {
@@ -397,10 +397,11 @@ cat >"$WORK/state/monitoring-victoriametrics-scrape.json" <<'LIVE'
 LIVE
 run_apply accept "$WORK/ownership.out" || true
 
-if grep -qF "stream-aggr.yml" <<<"$(python3 -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1]))["data"]))' "$WORK/state/monitoring-victoriametrics-scrape.json" 2>/dev/null)"; then
-  pass "the second scrape key survives the apply"
+KEYS="$(python3 -c 'import json,sys; print(" ".join(sorted(json.load(open(sys.argv[1]))["data"])))' "$WORK/state/monitoring-victoriametrics-scrape.json" 2>/dev/null || printf '')"
+if [ "$KEYS" = "scrape.yml" ]; then
+  pass "the applied scrape ConfigMap holds the scrape file alone"
 else
-  fail "the second scrape key survives the apply"
+  fail "the applied scrape ConfigMap holds the scrape file alone (got [$KEYS])"
 fi
 
 OWNER="$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1]))["metadata"]; print((m.get("labels") or {}).get("app.kubernetes.io/managed-by",""), (m.get("annotations") or {}).get("meta.helm.sh/release-name",""))' "$WORK/state/monitoring-victoriametrics-scrape.json" 2>/dev/null || printf '')"
@@ -564,6 +565,25 @@ if readback loaded "$WORK/declared.yml" <<<$'a: 1\nb: {c: x, relabel: keep}'; th
   fail "a loaded configuration carrying something the file does not declare is not the declared one"
 else
   pass "a loaded configuration carrying something the file does not declare is not the declared one"
+fi
+
+# A ConfigMap past what one command-line argument carries (128 KiB on Linux) is compared whole.
+RENDER="$REPO_ROOT/deploy/scripts/monitoring-config-render.py"
+python3 - "$WORK/large.json" <<'PY'
+import json, sys
+json.dump({"data": {"panel.json": "x" * 300_000}}, open(sys.argv[1], "w"))
+PY
+cp "$WORK/large.json" "$WORK/large-live.json"
+if python3 "$RENDER" --same "$WORK/large.json" <"$WORK/large-live.json" 2>"$WORK/large.err"; then
+  pass "the read-back compares a ConfigMap larger than one argument carries"
+else
+  fail "the read-back compares a ConfigMap larger than one argument carries ($(head -c 200 "$WORK/large.err"))"
+fi
+jq '.data["panel.json"] += "y"' "$WORK/large.json" >"$WORK/large-other.json"
+if python3 "$RENDER" --same "$WORK/large.json" <"$WORK/large-other.json" 2>/dev/null; then
+  fail "and tells a large ConfigMap that differs apart from it"
+else
+  pass "and tells a large ConfigMap that differs apart from it"
 fi
 
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"

@@ -1,0 +1,39 @@
+# Five thousand machines come back with an hour's gap each and send their live minutes while they
+# catch up, at production's server and store limits on an ARM runner. Every limit is a reading.
+schema_version: 1
+name: catch-up
+family: spike
+environment: runner
+fixture: small
+
+phases:
+  # The whole fleet comes back within a minute, as a site does when its link returns. Every machine
+  # was installed before the walk, so it dials with the certificate it holds.
+  - name: return
+    duration: 1m
+    operator_arrivals_per_second: 0
+    connected_agents: 5000
+    sessions: 0
+  # Every machine stays while its hour drains, live minutes sent beside it.
+  - name: drain
+    duration: 24m
+    operator_arrivals_per_second: 0
+    connected_agents: 5000
+    sessions: 0
+    measured: true
+
+# No processor ceiling, since a full store is what the leg sets out to see.
+safety:
+  max_node_memory_percent: 90
+  max_error_rate: 0.05
+
+gates:
+  # The fleet's own arrival is read, never judged: the leg's verdict is the store probe's.
+  - series: quic/quic-agents/aggregate
+    metric: error_rate
+    max: 0.05
+    blocking: false
+  - series: quic/quic-agents/connect
+    metric: latency_p95_ms
+    max: 5000
+    blocking: false

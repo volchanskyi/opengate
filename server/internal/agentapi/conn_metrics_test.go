@@ -65,8 +65,7 @@ func TestBackfillDecisionIsObserved(t *testing.T) {
 		PendingSamples: 5000,
 	}))
 
-	assert.InDelta(t, 1, testutil.ToFloat64(m.EdgeBackfillDecisionsTotal.WithLabelValues("grant")), 0)
-	assert.InDelta(t, 1, testutil.ToFloat64(m.EdgeBackfillActiveSlots), 0)
+	assert.InDelta(t, 1, testutil.ToFloat64(m.EdgeBackfillAnswersTotal.WithLabelValues("granted")), 0)
 	assert.GreaterOrEqual(t, testutil.ToFloat64(m.EdgeBackfillGrantRate), float64(schedCfg().MinGrantRate))
 }
 

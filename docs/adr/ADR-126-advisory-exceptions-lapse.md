@@ -36,7 +36,7 @@ commit, and nothing in the repository could change its answer.
   security-audit job.
 - Each finding gets one of three answers. A patch fixes it, and the commit is
   refused with the move that takes the fix. Only a newer minor or major fixes
-  it, and it is listed for Ivan. No release fixes it, and it passes.
+  it, and it is listed for Ivan, or refused when it is serious, below. No release fixes it, and it passes.
 - A release is judged by what it is built from as well as by itself: a tool, a
   chart's program or a Terraform provider carrying an affected module counts as
   patch-fixed when its own newest patch release builds past it. An image counts
@@ -71,13 +71,30 @@ commit, and nothing in the repository could change its answer.
   dependency check.
 - An audit or a lookup that cannot be read is retried after a pause; one that
   reports a finding runs once.
+- **A serious hole is refused at every stage, whatever line fixes it.** A high or
+  critical advisory in what the server image ships, fixed only in a newer minor
+  or major, is refused by the dependency check, by the scan of the image the
+  gauntlet's browser tests run, by CI's `image-scan` job and by the image build
+  before any tag names the image, until Ivan takes the release or a dated entry
+  in [`vulnerability-exceptions.json`](../../scripts/lib/vulnerability-exceptions.json)
+  names it. The Go database carries no severity, so the dependency check reads it
+  from the advisory's aliases: a GitHub advisory's own rating, else a CVE's CVSS
+  version 3 score; an advisory with neither is listed and passes, as the image
+  scanner passes an unknown severity. The earlier stages read the Go and OSV
+  databases, which name a Go hole before the image scanner's does, so they refuse
+  at least what the image build would.
+- That list has the npm list's fields and lapse rules, one list for both
+  checks: the dependency check judges an entry for a Go module, the image scan
+  every entry for a package the image carries
+  ([`exceptions.py`](../../scripts/dependency-fixes/exceptions.py)).
 
 ## Consequences
 
 - A commit is refused from the day a patch for any dependency's advisory is
   published until the patch is taken.
-- An advisory only a newer minor or major fixes never blocks a commit; moving
-  to that line waits for Ivan's approval.
+- An advisory only a newer minor or major fixes blocks a commit only when it is
+  high or critical and in what the server image ships; moving to that line waits
+  for Ivan's approval either way.
 - The first read of an image digest costs a download of its layers, minutes
   for the largest; every later run takes seconds per image.
 - The check asks outside services — OSV, the registries, GitHub. One that does

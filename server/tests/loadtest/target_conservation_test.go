@@ -53,6 +53,20 @@ func TestClassifyInvalidatesARunWhoseTargetWasReplaced(t *testing.T) {
 	assert.Contains(t, verdict.Reasons[0], "target restarted mid-run")
 }
 
+func TestClassifyInvalidatesARunWhoseTargetStoppedAnswering(t *testing.T) {
+	t.Parallel()
+
+	gone := bracket(29, 0, 100)
+	gone.End = TargetHealth{}
+
+	verdict := classifyWithTarget(gone)
+
+	require.Equal(t, ResultInvalid, verdict.Result,
+		"a target that answered at the start and not at the end did not last the run")
+	require.NotEmpty(t, verdict.Reasons)
+	assert.Contains(t, verdict.Reasons[0], "stopped answering")
+}
+
 func TestClassifyFailsARunWhoseTargetKeptWhatItTook(t *testing.T) {
 	t.Parallel()
 

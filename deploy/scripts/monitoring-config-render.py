@@ -6,8 +6,10 @@ input contributes its own labels and annotations, which is what keeps an apply
 from stripping the ownership metadata Helm writes on the objects it owns — a
 ConfigMap applied without them is one the next chart upgrade refuses to touch.
 
-With `--same <desired>` and a live ConfigMap on standard input, exits zero when
-the live copy carries exactly the desired data and non-zero otherwise. Only the
+With `--same <desired file>` and a live ConfigMap on standard input, exits zero
+when the live copy carries exactly the desired data and non-zero otherwise. The
+desired copy is read from a file, since a dashboards ConfigMap outgrows the
+128 KiB one command-line argument may carry. Only the
 data is compared: the cluster adds a resource version of its own, and an apply
 that changed nothing else is not a difference anybody asked about.
 """
@@ -33,7 +35,7 @@ def live_document() -> dict:
 
 
 if sys.argv[1] == "--same":
-    desired = json.loads(sys.argv[2])
+    desired = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
     live = live_document()
     sys.exit(0 if live.get("data") == desired.get("data") else 1)
 

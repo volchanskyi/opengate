@@ -1411,6 +1411,26 @@ jobs:
           fi
           exit 1
 
+  # The image the merge would ship is built and scanned here, so a serious hole stops the merge.
+  image-scan:
+    name: Scan the server image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-pinned-tools
+      - name: Install the pinned scanner
+        run: |
+          set -euo pipefail
+          scripts/install-release-tools.sh trivy
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Build the server image
+        run: docker build --platform linux/amd64 --tag opengate-ci-server:scan .
+      - name: Scan the server image
+        run: scripts/image-scan.sh opengate-ci-server:scan
+
   merge-to-main:
     name: Auto-merge to main
     needs:
@@ -1434,6 +1454,7 @@ jobs:
       - fuzz
       - web-bundle-size
       - iac-gate
+      - image-scan
     if: success() && github.event_name == 'push' && github.ref == 'refs/heads/dev'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -1669,6 +1690,7 @@ jobs:
       - sonarcloud
       - e2e
       - fuzz
+      - image-scan
       - deploy-api-docs
       - merge-to-main
       - auto-tag

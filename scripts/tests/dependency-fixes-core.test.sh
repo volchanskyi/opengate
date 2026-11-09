@@ -26,14 +26,10 @@ trap 'rm -rf "$WORK"' EXIT
 
 echo "dependency-fixes core:"
 
-# Each line the driver prints is a verdict: PASS or FAIL, then what was checked.
-while IFS= read -r line; do
-  case "$line" in
-    PASS\ *) pass "${line#PASS }" ;;
-    FAIL\ *) fail "${line#FAIL }" ;;
-  esac
-done < <(
-  python3 - "$PACKAGE" <<'PY'
+# Each line the driver prints is a verdict: PASS or FAIL, then what was checked. A driver that
+# stops early fails the test, so a crash never reads as a clean run.
+driver_rc=0
+python3 - "$PACKAGE" >"$WORK/verdicts" 2>"$WORK/driver.err" <<'PY' || driver_rc=$?
 import sys
 sys.path.insert(0, sys.argv[1])
 import affected
@@ -101,8 +97,17 @@ newer = [Finding("tool", "jq", "jqlang/jq", "1.7.1", "CVE-2026-39979", "1.8.2")]
 lines, status = report.render([Reading("tool packages", 1, newer)])
 verdict("a hole only a newer line fixes passes the commit", 0, status)
 verdict("and is listed for Ivan to decide", True, any("newer minor or major" in line for line in lines))
+print("DONE")
 PY
-)
+while IFS= read -r line; do
+  case "$line" in
+    PASS\ *) pass "${line#PASS }" ;;
+    FAIL\ *) fail "${line#FAIL }" ;;
+  esac
+done <"$WORK/verdicts"
+if [ "$driver_rc" -ne 0 ] || ! grep -qx DONE "$WORK/verdicts"; then
+  fail "the driver stopped before its last check (exit $driver_rc): $(tail -n 3 "$WORK/driver.err" | tr '\n' ' ')"
+fi
 
 # A lookup that answers with something unreadable is a refusal, never a clean answer.
 REPO="$WORK/repo"

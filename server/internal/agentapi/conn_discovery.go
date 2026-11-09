@@ -43,13 +43,14 @@ func (a *AgentConn) acceptDiscovery(ts int64, payloadLen int) bool {
 	}
 	if ts > 0 {
 		if a.telemetryLast == nil {
-			a.telemetryLast = make(map[protocol.ControlMessageType]int64)
+			a.telemetryLast = make(map[telemetryFloor]int64)
 		}
-		if last, ok := a.telemetryLast[protocol.MsgDiscoveryReport]; ok && ts-last < minDiscoveryIntervalSeconds {
+		discovery := telemetryFloor{msgType: protocol.MsgDiscoveryReport}
+		if last, ok := a.telemetryLast[discovery]; ok && ts-last < minDiscoveryIntervalSeconds {
 			a.dropTelemetry("discovery_interval_floor", "ts", ts, "last_ts", last)
 			return false
 		}
-		a.telemetryLast[protocol.MsgDiscoveryReport] = ts
+		a.telemetryLast[discovery] = ts
 	}
 	return a.acceptedTelemetry(protocol.MsgDiscoveryReport)
 }

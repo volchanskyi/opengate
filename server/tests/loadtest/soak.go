@@ -45,6 +45,22 @@ type loadOptions struct {
 	// retryDeferred makes a machine ask again when the server defers its catch-up slot.
 	// Off by default so a load run sheds the load and measures the deferral path.
 	retryDeferred bool
+
+	// catchUp counts how the server answered every agent's catch-up batches. Nil counts nothing.
+	catchUp *catchUpTally
+
+	// backfillGap sizes the catch-up from the time a machine lost, overriding the counted batches.
+	backfillGap time.Duration
+
+	// liveEvery sends a live window each period while the machine is held; zero sends none.
+	liveEvery time.Duration
+
+	// liveWatch times a watched machine's live windows from sent to visible in the store.
+	liveWatch *liveWatch
+	// watchMachines is how many machines, by index, the watch follows.
+	watchMachines int
+	// watchedDevice is this machine's device number when the watch follows it.
+	watchedDevice string
 }
 
 // defaultMetricDimNames is every host metric dimension a machine writes, in window order.

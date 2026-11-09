@@ -10,7 +10,7 @@ SCRIPT="$REPO_ROOT/.github/actions/docker-hub-mirror/docker-hub-mirror.sh"
 WORKFLOWS="$REPO_ROOT/.github/workflows"
 
 # Every job that pulls a Docker Hub image goes through the mirror, so each job is counted.
-EXPECTED_PULL_JOBS=13
+EXPECTED_PULL_JOBS=14
 
 PASS=0
 FAIL=0

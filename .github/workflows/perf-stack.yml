@@ -1,7 +1,7 @@
 name: Performance Stack (volume + scaling + shapes)
 
-# Runs the volume, scaling and shape families on a runner that brings its own disk and processors.
-# A runner is x86_64 and production is ARM64, so results compare legs and give no absolute capacity.
+# Runs the volume, scaling and shape families on a runner that brings its own disk and processors,
+# and the catch-up leg on an ARM runner at production's limits. The x86_64 legs compare nights.
 
 on:
   schedule:
@@ -696,10 +696,211 @@ jobs:
           set -euo pipefail
           scripts/perf-scaling-curve.sh perf-legs | tee -a "$GITHUB_STEP_SUMMARY"
 
+  # The server and the store at production's limits and settings, with its scrape load, on ARM;
+  # the store probe decides whether the shared writer starts, and the fleet's reading is published.
+  catch-up:
+    name: Catch-up at production's limits (ARM)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    env:
+      CATCHUP_OVERRIDE: deploy/docker-compose.perf-catchup.yml
+      PERF_SERVER_CPUS: '0.25'
+      PERF_SERVER_MEMORY: 384m
+      PERF_SERVER_MEMORY_BYTES: '402653184'
+      PERF_METRICS_CPUS: '0.5'
+      PERF_METRICS_MEMORY: 512m
+      PERF_METRICS_MEMORY_BYTES: '536870912'
+      # About 400 KB of generator memory per machine over a 1.25 GiB baseline is roughly 3.3 GB.
+      PERF_GENERATOR_MEMORY: '5G'
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-pinned-tools
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27'
+          cache-dependency-path: server/go.sum
+
+      - uses: ./.github/actions/docker-hub-mirror
+        with:
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Record what this runner actually is
+        run: |
+          set -euo pipefail
+          printf 'processors: %s\n' "$(nproc)"
+          printf 'processor:  %s\n' "$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -n 1)"
+          printf 'memory:     %s KB\n' "$(awk '/MemTotal/ {print $2}' /proc/meminfo)"
+
+      # The same fixed minute of work at a quarter processor, so a night on a different chip shows.
+      - name: Read the runner's fixed processor benchmark
+        run: scripts/cpu-benchmark.sh runner /tmp/cpu-benchmark.json
+
+      - name: Give the machine-facing path production's buffers
+        run: scripts/perf-stack-quic.sh raise-buffers
+
+      - name: Bring the performance stack up
+        id: stack
+        run: |
+          set -euo pipefail
+          DOCKER_CONFIG="$(./scripts/docker-credstore-guard.sh)"
+          export DOCKER_CONFIG
+          scripts/perf-stack-pull.sh "$COMPOSE_FILE"
+          docker compose -f "$COMPOSE_FILE" -f "$CATCHUP_OVERRIDE" up --build --wait --wait-timeout 300
+
+      - name: Dial the server by its certificate's name
+        run: scripts/perf-stack-quic.sh map-server
+
+      - name: Build the store probe
+        run: go build -C server -trimpath -o /tmp/storeprobe ./tests/storeprobe/
+
+      # Production's store carries its scrape beside machine readings: about fourteen thousand
+      # series every fifteen seconds, which is also production's active series count.
+      - name: Start production's background load
+        run: |
+          set -euo pipefail
+          nohup /tmp/storeprobe -mode=background -store=http://127.0.0.1:8428 -series=14400 -every=15s \
+            >/tmp/background.log 2>&1 &
+          echo "$!" >/tmp/background.pid
+          sleep 30
+
+      - name: Read a quiet minute
+        run: |
+          /tmp/storeprobe -mode=quiet -store=http://127.0.0.1:8428 -quiet=60s \
+            -store-cpus="$PERF_METRICS_CPUS" -store-memory-bytes="$PERF_METRICS_MEMORY_BYTES" -out=/tmp/probe-quiet.json
+
+      - name: Probe the store with one catch-up sender
+        run: |
+          /tmp/storeprobe -mode=probe -store=http://127.0.0.1:8428 -senders=1 -duration=15m \
+            -store-cpus="$PERF_METRICS_CPUS" -store-memory-bytes="$PERF_METRICS_MEMORY_BYTES" -out=/tmp/probe-one.json
+
+      - name: Probe the store with two catch-up senders
+        run: |
+          /tmp/storeprobe -mode=probe -store=http://127.0.0.1:8428 -senders=2 -duration=15m \
+            -store-cpus="$PERF_METRICS_CPUS" -store-memory-bytes="$PERF_METRICS_MEMORY_BYTES" -out=/tmp/probe-two.json
+
+      # The kernel's account of the store decides whether it ran out of memory.
+      - name: Gather the store probe's readings
+        if: always() && steps.stack.outcome == 'success'
+        run: |
+          set -euo pipefail
+          oom="$(docker inspect -f '{{.State.OOMKilled}}' opengate-perf-metrics)"
+          for part in quiet one two; do [ -s "/tmp/probe-$part.json" ] || echo '{}' >"/tmp/probe-$part.json"; done
+          jq -n --argjson oom "$oom" --slurpfile quiet /tmp/probe-quiet.json \
+            --slurpfile one /tmp/probe-one.json --slurpfile two /tmp/probe-two.json \
+            '{oom_killed: $oom, quiet: $quiet[0], one_sender: $one[0], two_senders: $two[0]}' >/tmp/store-probe.json
+
+      # The fleet meets a store holding only production's background, as production's does.
+      - name: Give the fleet a store of its own
+        run: |
+          set -euo pipefail
+          DOCKER_CONFIG="$(./scripts/docker-credstore-guard.sh)"
+          export DOCKER_CONFIG
+          docker compose -f "$COMPOSE_FILE" -f "$CATCHUP_OVERRIDE" up --wait --wait-timeout 120 --force-recreate metrics
+
+      - name: Read the runner's counters before the walk
+        run: |
+          set -euo pipefail
+          scripts/perf-runner-record.sh snapshot \
+            "$(scripts/database-levels.sh cgroup-of opengate-perf-server)" /tmp/runner-before.json
+
+      - name: Walk the catch-up profile, building its fleet first
+        run: |
+          set -euo pipefail
+          mkdir -p "$PERF_BUNDLE_DIR"
+          go build -C server -trimpath -o /tmp/loadtest ./tests/loadtest/
+          # Exit 1 is a partly arrived fleet, which is a measurement; the verdict step judges it.
+          set +e
+          scripts/loadtest-quic-run.sh /tmp/perf-quic.txt -- \
+            scripts/loadtest-generator-share.sh "$PERF_GENERATOR_CPUS" "$PERF_GENERATOR_MEMORY" -- \
+            /tmp/loadtest \
+              -agents=5000 \
+              -addr=server:9090 \
+              -target-net-counters="$PERF_TARGET_NET_COUNTERS" \
+              -default-telemetry \
+              -backfill-gap=1h \
+              -retry-deferred \
+              -enrol-first \
+              -live-every=60s \
+              -live-watch-store=http://127.0.0.1:8428 \
+              -live-watch-machines=50 \
+              -hold=25m \
+              -profile=load/profiles/catch-up.yaml \
+              -commit="$GITHUB_SHA" \
+              -target-cpus="$PERF_SERVER_CPUS" \
+              -target-memory-bytes="$PERF_SERVER_MEMORY_BYTES" \
+              -target-description="compose stack, production's limits, $PERF_SERVER_CPUS processors" \
+              -enroll-url=http://127.0.0.1:8080 \
+              -metrics-url=http://127.0.0.1:8081 \
+              -fixture-account=perf-admin@opengate-loadtest.invalid \
+              -fixture-password="$PERF_FIXTURE_PASSWORD" \
+              -fixture-bootstrap \
+              -fixture-seed=1 \
+              -bundle="$PERF_BUNDLE_DIR/catch-up"
+          walk=$?
+          set -e
+          if [ "$walk" -gt 1 ]; then
+            echo "::error::the harness did not complete a run (exit $walk)." >&2
+            exit "$walk"
+          fi
+        env:
+          # The stack is per-run and reachable only from the runner; the password is generated per run.
+          PERF_FIXTURE_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-Perf!
+
+      - name: Record what the runner and the server's allowance did
+        if: always() && steps.stack.outcome == 'success'
+        run: |
+          set -euo pipefail
+          scripts/perf-runner-record.sh snapshot \
+            "$(scripts/database-levels.sh cgroup-of opengate-perf-server)" /tmp/runner-after.json
+          scripts/perf-runner-record.sh delta /tmp/runner-before.json /tmp/runner-after.json >/tmp/runner-delta.json
+          jq --slurpfile bench /tmp/cpu-benchmark.json \
+            '.cpu_benchmark_rounds_per_second = $bench[0].rounds_per_second' /tmp/runner-delta.json >/tmp/runner.json
+          BUNDLE="$PERF_BUNDLE_DIR/catch-up/bundle.json"
+          if [ -s "$BUNDLE" ]; then
+            scripts/loadtest-bundle-merge.sh "$BUNDLE" --runner /tmp/runner.json --probe /tmp/store-probe.json
+          fi
+          jq -r '"Runner: \(.processor_model), \(.cpu_benchmark_rounds_per_second | floor) benchmark rounds a second at a quarter processor, steal \(.steal_percent)%"' \
+            /tmp/runner.json | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # A short receive buffer on either end means datagrams were lost before either process saw them.
+      - name: Refuse a run whose ends ran short of receive buffer
+        run: scripts/perf-stack-quic.sh check /tmp/perf-quic.txt
+
+      - name: Read the verdict the run wrote about itself
+        if: always() && steps.stack.outcome == 'success'
+        run: scripts/perf-bundle-verdict.sh "$PERF_BUNDLE_DIR/catch-up/bundle.json"
+
+      # The go/no-go for the shared writer, the one reading of this leg that fails the night.
+      - name: Judge the store against the go/no-go
+        if: always() && steps.stack.outcome == 'success'
+        run: |
+          set -euo pipefail
+          scripts/perf-catchup-gate.sh "$PERF_BUNDLE_DIR/catch-up/bundle.json" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Tear the stack down
+        if: always()
+        run: |
+          [ ! -s /tmp/background.pid ] || kill "$(cat /tmp/background.pid)" || true
+          DOCKER_CONFIG="$(./scripts/docker-credstore-guard.sh)"
+          export DOCKER_CONFIG
+          docker compose -f "$COMPOSE_FILE" -f "$CATCHUP_OVERRIDE" down -v
+
+      - name: Upload the catch-up bundle
+        if: always() && steps.stack.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: perf-catch-up
+          path: ${{ env.PERF_BUNDLE_DIR }}
+          if-no-files-found: error
+          retention-days: 90
+
   # Pushes every leg's rows into the trend and compares each leg with the nights before it.
   publish:
     name: Publish the performance trend
-    needs: [started, scaling, volume, shapes]
+    needs: [started, scaling, volume, shapes, catch-up]
     if: ${{ !cancelled() && needs.started.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -799,7 +1000,7 @@ jobs:
   alert:
     name: Alert if the run did not finish
     # A job on a fresh runner still runs when an upstream job was killed at its own timeout.
-    needs: [scaling, scaling-curve, shapes, volume, volume-curve, publish]
+    needs: [scaling, scaling-curve, shapes, volume, volume-curve, catch-up, publish]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -816,7 +1017,7 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
-          RESULTS: scaling=${{ needs.scaling.result }} scaling-curve=${{ needs['scaling-curve'].result }} shapes=${{ needs.shapes.result }} volume=${{ needs.volume.result }} volume-curve=${{ needs['volume-curve'].result }}
+          RESULTS: scaling=${{ needs.scaling.result }} scaling-curve=${{ needs['scaling-curve'].result }} shapes=${{ needs.shapes.result }} volume=${{ needs.volume.result }} volume-curve=${{ needs['volume-curve'].result }} catch-up=${{ needs['catch-up'].result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail

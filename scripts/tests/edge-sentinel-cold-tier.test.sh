@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# Pins the cold-tier rollup config: central rollups emit avg only, since min/max/last stay local.
+# Pins the central store to raw readings: no store-side rollup, one concrete keep-time.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-AGGR_FILE="$REPO_ROOT/deploy/helm/monitoring/files/edge-sentinel-stream-aggr.yaml"
-STS_FILE="$REPO_ROOT/deploy/helm/monitoring/templates/victoriametrics.yaml"
-VALUES_FILE="$REPO_ROOT/deploy/helm/monitoring/values.yaml"
+CHART_DIR="$REPO_ROOT/deploy/helm/monitoring"
+STS_FILE="$CHART_DIR/templates/victoriametrics.yaml"
+VALUES_FILE="$CHART_DIR/values.yaml"
+APPLY_SCRIPT="$REPO_ROOT/deploy/scripts/monitoring-config-apply.sh"
 
 PASS=0
 FAIL=0
@@ -24,63 +25,25 @@ fail() {
   printf '  FAIL %s\n' "$1" >&2
 }
 
-rule_block() {
-  awk -v n="$1" '
-    $0 == "- name: " n { inb = 1; print; next }
-    inb && /^- name:/ { inb = 0 }
-    inb { print }
-  ' "$AGGR_FILE"
-}
+echo "central store keeps raw readings:"
 
-echo "edge sentinel cold-tier config:"
-
-for rule in "edge-sentinel-1m:1m" "edge-sentinel-1h:1h"; do
-  name="${rule%%:*}"
-  interval="${rule##*:}"
-  block="$(rule_block "$name")"
-
-  if [ -z "$block" ]; then
-    fail "$name rollup block is missing"
-    continue
-  fi
-
-  if grep -qF "interval: $interval" <<<"$block"; then
-    pass "$name rollup uses the $interval interval"
-  else
-    fail "$name rollup must declare interval: $interval"
-  fi
-
-  if grep -qF 'match: '\''{__name__=~"opengate_edge_.*"}'\''' <<<"$block"; then
-    pass "$name rollup matches the opengate_edge_ family"
-  else
-    fail "$name rollup must match {__name__=~\"opengate_edge_.*\"}"
-  fi
-
-  if grep -qE '^  outputs: \[avg\]$' <<<"$block"; then
-    pass "$name rollup emits avg only (central cardinality budget)"
-  else
-    fail "$name rollup must emit outputs: [avg] only — min/max/last are agent-local (WS-14b), never central rollups"
-  fi
-done
-
-# The outputs lines go to a variable, not a pipe: pipefail reads `grep -q`'s early exit as absence.
-aggr_outputs="$(grep -E '^  outputs:' "$AGGR_FILE" || true)"
-if grep -qE '\b(min|max|last)\b' <<<"$aggr_outputs"; then
-  fail "no central rollup may emit min/max/last — they ~4x active series past the 50k budget"
+if grep -qF -- '-streamAggr' "$STS_FILE"; then
+  fail "the store must take no stream-aggregation flag; charts read raw readings"
 else
-  pass "no central rollup emits min/max/last"
+  pass "the store takes no stream-aggregation flag"
 fi
 
-if grep -qF -- '-streamAggr.keepInput' "$STS_FILE"; then
-  pass "VictoriaMetrics keeps raw input beside the rollups (-streamAggr.keepInput)"
+rollup_files="$(find "$CHART_DIR" -name '*stream-aggr*' || true)"
+if [ -n "$rollup_files" ]; then
+  fail "the chart must ship no rollup file: $rollup_files"
 else
-  fail "VictoriaMetrics must pass -streamAggr.keepInput so raw 10 s samples survive"
+  pass "the chart ships no rollup file"
 fi
 
-if grep -qF -- '-streamAggr.config=' "$STS_FILE"; then
-  pass "VictoriaMetrics loads the stream-aggregation config"
+if grep -qF 'stream-aggr' "$STS_FILE" "$APPLY_SCRIPT"; then
+  fail "no ConfigMap key or apply step may carry a rollup file"
 else
-  fail "VictoriaMetrics must load -streamAggr.config"
+  pass "no ConfigMap key or apply step carries a rollup file"
 fi
 
 if grep -qF -- '-retentionPeriod=' "$STS_FILE"; then

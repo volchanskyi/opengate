@@ -343,7 +343,7 @@ mutation_go_global_excludes() {
       echo 'openapi_gen\.go|^testutil/|^faulttest/'
       ;;
     .)
-      echo 'openapi_gen\.go|^cmd/meshserver/|^tests/loadtest/main\.go$|^tests/netfault/main\.go$|^internal/testutil/|^internal/faulttest/'
+      echo 'openapi_gen\.go|^cmd/meshserver/|^tests/loadtest/main\.go$|^tests/netfault/main\.go$|^tests/storeprobe/main\.go$|^tests/cpubench/main\.go$|^internal/testutil/|^internal/faulttest/'
       ;;
     *)
       echo "unknown mutation scan path: $1" >&2
@@ -452,7 +452,7 @@ mutation_go_shard_units() {
       echo "dir:internal/relay dir:internal/signaling dir:internal/clientapi dir:internal/stunhelper"
       ;;
     go-observability-harness)
-      echo "dir:internal/telemetry dir:internal/metrics dir:internal/testpg dir:internal/testvm dir:internal/testreaper dir:tests/loadtest dir:tests/netfault"
+      echo "dir:internal/telemetry dir:internal/metrics dir:internal/testpg dir:internal/testvm dir:internal/testreaper dir:tests/loadtest dir:tests/netfault dir:tests/storeprobe dir:tests/cpubench"
       ;;
     # The composition root is mutated: the acceptance suite stands the assembly up, so a mutant
     # that unwires a port has a test to be killed by.

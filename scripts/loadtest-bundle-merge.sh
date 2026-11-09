@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Folds the weight, cleanup, runner and journey readings taken beside a run into its bundle,
-# and fails a merge that finds nothing to merge.
+# Folds the readings taken beside a run into its bundle, and fails a merge that finds nothing to
+# merge.
 #
 # Usage:
-#   loadtest-bundle-merge.sh <bundle.json> [--weight F] [--cleanup F] [--runner F] [--journeys F]...
+#   loadtest-bundle-merge.sh BUNDLE [--weight|--cleanup|--runner|--probe F] [--journeys F]...
 set -euo pipefail
 
 usage() {
-  echo "usage: $0 <bundle.json> [--weight <fixture-weight.json>] [--cleanup <cleanup-proof.json>] [--runner <runner.json>] [--journeys <k6-export.json>]..." >&2
+  echo "usage: $0 <bundle.json> [--weight <fixture-weight.json>] [--cleanup <cleanup-proof.json>] [--runner <runner.json>] [--probe <store-probe.json>] [--journeys <k6-export.json>]..." >&2
 }
 
 # journeys_from reads statistics flat (k6 v1) or nested under "values", and prefers a phase-tagged
@@ -95,7 +95,7 @@ refusals_from() {
 }
 
 main() {
-  local bundle="" weight="" cleanup="" runner="" merged=0
+  local bundle="" weight="" cleanup="" runner="" probe="" merged=0
   # Each export is named, since two generators write files of their own and a fold that
   # replaced the first would discard its numbers.
   local -a journeys=()
@@ -120,6 +120,10 @@ main() {
         runner="${2:-}"
         shift 2
         ;;
+      --probe)
+        probe="${2:-}"
+        shift 2
+        ;;
       --journeys)
         journeys+=("${2:-}")
         shift 2
@@ -135,7 +139,7 @@ main() {
     echo "::error::there is no evidence bundle at $bundle to fold anything into." >&2
     return 1
   fi
-  if [ -z "$weight" ] && [ -z "$cleanup" ] && [ -z "$runner" ] && [ "${#journeys[@]}" -eq 0 ]; then
+  if [ -z "$weight" ] && [ -z "$cleanup" ] && [ -z "$runner" ] && [ -z "$probe" ] && [ "${#journeys[@]}" -eq 0 ]; then
     echo "::error::nothing was named to merge, so this call would report success for no work." >&2
     return 2
   fi
@@ -186,6 +190,16 @@ main() {
       return 1
     fi
     updated="$(jq --argjson r "$(jq -c '.' "$runner")" '.runner = $r' <<<"$updated")"
+    merged=$((merged + 1))
+  fi
+
+  # The store probe's readings are carried whole, for the go/no-go and the trend to read.
+  if [ -n "$probe" ]; then
+    if [ ! -s "$probe" ]; then
+      echo "::error::$probe holds no store probe reading, so the go/no-go would judge nothing." >&2
+      return 1
+    fi
+    updated="$(jq --argjson p "$(jq -c '.' "$probe")" '.store_probe = $p' <<<"$updated")"
     merged=$((merged + 1))
   fi
 

@@ -25,8 +25,9 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 REPO="$WORK/repo"
 HTTP="$WORK/http"
-mkdir -p "$REPO/scripts" "$REPO/web" "$REPO/agent" "$REPO/server" "$WORK/bin" "$WORK/state" \
+mkdir -p "$REPO/scripts/lib" "$REPO/web" "$REPO/agent" "$REPO/server" "$WORK/bin" "$WORK/state" \
   "$HTTP/api.osv.dev/v1/vulns" "$HTTP/vuln.go.dev"
+echo '[]' >"$REPO/scripts/lib/vulnerability-exceptions.json"
 ln -s "$PACKAGE" "$REPO/scripts/dependency-fixes"
 ln -s "$ROOT/scripts/govulncheck-scan.sh" "$REPO/scripts/govulncheck-scan.sh"
 ln -s "$FAKES/fake-curl.py" "$WORK/bin/curl"
@@ -226,6 +227,67 @@ if [ "$status" -eq 2 ] && out_has 'lists no modules'; then
 else
   fail "a scan with no module list must exit 2 (status=$status out=[$(cat "$WORK/out")])"
 fi
+
+# GO-2026-6860's shape: a high hole in a module the server links, fixed only on a newer line,
+# its severity read from its GitHub alias since the Go record carries none.
+cat >"$WORK/govuln-serious.json" <<'JSON'
+{"config": {"protocol_version": "v1.0.0", "scanner_name": "govulncheck", "scan_level": "package"}}
+{"SBOM": {"go_version": "go1.27.3", "modules": [{"path": "example.test/server"},
+  {"path": "golang.org/x/net", "version": "v0.61.0"}, {"path": "github.com/stretchr/testify", "version": "v1.9.0"}]}}
+{"finding": {"osv": "GO-2026-6860", "fixed_version": "v0.62.0", "trace": [{"module": "golang.org/x/net", "version": "v0.61.0"}]}}
+{"finding": {"osv": "GO-2026-7001", "fixed_version": "v2.0.0", "trace": [{"module": "github.com/stretchr/testify", "version": "v1.9.0"}]}}
+JSON
+printf '{"id": "GO-2026-6860", "aliases": ["CVE-2026-78661", "GHSA-4v7x-pqxf-cx7m"]}' \
+  >"$HTTP/api.osv.dev/v1/vulns/GO-2026-6860"
+printf '{"id": "GHSA-4v7x-pqxf-cx7m", "database_specific": {"severity": "HIGH"}}' \
+  >"$HTTP/api.osv.dev/v1/vulns/GHSA-4v7x-pqxf-cx7m"
+printf '{"id": "GO-2026-7001", "aliases": ["GHSA-test-only-hole"]}' >"$HTTP/api.osv.dev/v1/vulns/GO-2026-7001"
+printf '{"id": "GHSA-test-only-hole", "database_specific": {"severity": "CRITICAL"}}' \
+  >"$HTTP/api.osv.dev/v1/vulns/GHSA-test-only-hole"
+# The server build links x/net and the standard library; testify reaches only the tests.
+cat >"$WORK/bin/go" <<'GO'
+#!/usr/bin/env bash
+[ "$1 $2" = "list -deps" ] || exit 64
+printf 'stdlib\nexample.test/server/cmd/meshserver\ngolang.org/x/net\n'
+GO
+chmod +x "$WORK/bin/go"
+
+status=0
+run go FAKE_GOVULN="$WORK/govuln-serious.json" || status=$?
+if [ "$status" -eq 1 ] && out_has 'serious advisories in what the server image ships' \
+  && out_has 'go (server) golang.org/x/net 0.61.0: GO-2026-6860 fixed in 0.62.0 (HIGH)'; then
+  pass "a high hole a newer line fixes, in the server build, refuses the commit and is printed in full"
+else
+  fail "a serious newer-line hole must refuse the commit (status=$status out=[$(cat "$WORK/out")])"
+fi
+serious_block="$(awk '/^dependency-fixes: .*serious advisories/ { inb = 1; next } /^dependency-fixes:/ { inb = 0 } inb' "$WORK/out")"
+if out_has 'GO-2026-7001 fixed in 2.0.0' && ! grep -qF 'GO-2026-7001' <<<"$serious_block"; then
+  pass "a critical hole in a module only the tests build stays listed for Ivan"
+else
+  fail "a test-only module's hole must stay listed (out=[$(cat "$WORK/out")])"
+fi
+
+printf '[{"advisory": "CVE-2026-78661", "package": "golang.org/x/net", "newest": "0.62.0",
+  "review_by": "2999-01-01", "reason": "the server parses no HTML"}]\n' >"$REPO/scripts/lib/vulnerability-exceptions.json"
+mkdir -p "$HTTP/proxy.golang.org/golang.org/x/net/@v"
+printf 'v0.61.0\nv0.62.0\n' >"$HTTP/proxy.golang.org/golang.org/x/net/@v/list"
+status=0
+run go FAKE_GOVULN="$WORK/govuln-serious.json" || status=$?
+if [ "$status" -eq 0 ] && out_has 'excepted until 2999-01-01'; then
+  pass "a live exception naming the hole's CVE passes it, printed with its review date"
+else
+  fail "a live exception must pass the hole (status=$status out=[$(cat "$WORK/out")])"
+fi
+printf 'v0.61.0\nv0.62.0\nv0.63.0\n' >"$HTTP/proxy.golang.org/golang.org/x/net/@v/list"
+status=0
+run go FAKE_GOVULN="$WORK/govuln-serious.json" || status=$?
+if [ "$status" -eq 1 ] && out_has 'golang.org/x/net v0.63.0 is published'; then
+  pass "an exception lapses once its package releases again"
+else
+  fail "a new release must lapse the exception (status=$status out=[$(cat "$WORK/out")])"
+fi
+echo '[]' >"$REPO/scripts/lib/vulnerability-exceptions.json"
+rm -f "$WORK/bin/go"
 
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then

@@ -685,3 +685,32 @@ fn a_bucket_straddling_the_recent_floor_does_not_ship_at_full_resolution() {
         "a bucket that starts before the window is not the recent tier's to ship: {recent:?}"
     );
 }
+
+#[test]
+fn history_older_than_the_central_stores_thirty_days_is_never_planned() {
+    const DAY: i64 = 24 * 3600;
+    let now = 100 * DAY;
+    let mut r = FakeReader::default();
+    r.push_tier(CPU, Tier::T2, now - 31 * DAY, 31.0);
+    r.push_tier(CPU, Tier::T1, now - 29 * DAY, 29.0);
+
+    let batches = drain_all(
+        &r,
+        now,
+        BackfillConfig::default(),
+        &[CPU],
+        BackfillCursors::default(),
+    );
+    let ts_seen: Vec<i64> = batches
+        .iter()
+        .flat_map(|b| b.samples.iter().map(|s| s.ts))
+        .collect();
+    assert!(
+        !ts_seen.contains(&(now - 31 * DAY)),
+        "a 31-day-old hour the store would refuse is never sent: {ts_seen:?}"
+    );
+    assert!(
+        ts_seen.contains(&(now - 29 * DAY)),
+        "a 29-day-old minute is sent: {ts_seen:?}"
+    );
+}

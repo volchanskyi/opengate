@@ -56,6 +56,11 @@ var capabilityOutcomes = map[string][]string{
 		"TestReadingsThatArriveWithNothingInThemAreAccountedFor",
 		"TestAReadingFromAMachineWithAWrongClockIsStillKept",
 		"TestADimensionTheFleetNeverAgreedToIsRefused",
+		"TestAMachineBackFromAnOutageFillsItsChartWhereTheReadingsHappened",
+		"TestCatchUpSentWithoutPermissionIsToldToWaitAndStoresNothing",
+		"TestOneBadReadingCostsNothingElseInItsMinute",
+		"TestHistoryOlderThanTheServerKeepsIsAnsweredAndNotStored",
+		"TestBothKindsOfHealthSummaryInOneBreathAreKept",
 	},
 	"Alerts-and-Rules.md": {
 		"TestARuleReachesAMachineAndItsBreachComesBackAsAnAlert",

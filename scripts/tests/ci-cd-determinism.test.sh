@@ -47,6 +47,8 @@ CAPTURE = re.compile(r"^[ \t]*[A-Za-z_][A-Za-z0-9_]*=\$\?[ \t]*$")
 INLINE_CAPTURE = re.compile(r"\|\|[ \t]*[A-Za-z_][A-Za-z0-9_]*=\$\?")
 PRINTS = re.compile(r"^(cat|echo|printf|tee|true|:)([ \t]|$)")
 CLUSTER_CALL = re.compile(r"kubectl[^|&;]*(exec|cp)[ \t]")
+SCAN = re.compile(r"scripts/image-scan\.sh\b")
+NAMING = re.compile(r"\bcrane[ \t]+(tag|copy)\b")
 
 
 def report(sweep, text):
@@ -237,6 +239,31 @@ def cluster_calls():
     reached("cluster-retry", calls)
 
 
+def scans_before_tags():
+    namings = 0
+    for name in NAMES:
+        for job, body in jobs_of(name).items():
+            scanned = False
+            for step in steps_of(body):
+                run = str(step.get("run", ""))
+                title = step.get("name") or step.get("id") or (run.splitlines()[0] if run else "")
+                label = f"{name} {job}: '{title}'"
+                options = step.get("with") or {}
+                if str(step.get("uses", "")).startswith("docker/build-push-action@"):
+                    pushes = str(options.get("push", "")).lower() == "true" or "push=true" in str(options.get("outputs", ""))
+                    if pushes:
+                        namings += 1
+                        if options.get("tags"):
+                            report("scan-before-tag", f"{label} pushes under a tag before any scan")
+                naming, scan = NAMING.search(run), SCAN.search(run)
+                if naming:
+                    namings += 1
+                    if not scanned and not (scan and scan.start() < naming.start()):
+                        report("scan-before-tag", f"{label} names an image no scan in its job has passed")
+                scanned = scanned or bool(scan)
+    reached("scan-before-tag", namings)
+
+
 caches()
 mutation_reports()
 status_reads()
@@ -244,6 +271,7 @@ environments()
 staging_slot()
 job_status()
 cluster_calls()
+scans_before_tags()
 PY
 
 read_of() { awk -F'\t' -v s="$2" '$1 == "read" && $2 == s { print $3 }' <<<"$1"; }
@@ -384,6 +412,34 @@ jobs:
           UNDER_TEST: ${{ github.sha }}
         run: scripts/staging-version-check.sh >>"$GITHUB_OUTPUT"
 YAML
+cat >"$DEMO/.github/workflows/images.yml" <<'YAML'
+on: workflow_dispatch
+jobs:
+  tagged:
+    steps:
+      - name: Push
+        uses: docker/build-push-action@v7
+        with:
+          push: true
+          tags: ghcr.io/volchanskyi/opengate-server:latest
+  copied:
+    steps:
+      - name: Copy
+        run: crane copy ghcr.io/volchanskyi/opengate-server:latest ghcr.io/volchanskyi/opengate-server:sha-abc
+  late:
+    steps:
+      - name: Tag
+        run: crane tag "ghcr.io/volchanskyi/opengate-server@$DIGEST" latest
+      - run: scripts/image-scan.sh "ghcr.io/volchanskyi/opengate-server@$DIGEST"
+  scanned:
+    steps:
+      - uses: docker/build-push-action@v7
+        with:
+          outputs: type=image,push-by-digest=true,push=true
+      - run: scripts/image-scan.sh "ghcr.io/volchanskyi/opengate-server@$DIGEST"
+      - name: Name it
+        run: crane tag "ghcr.io/volchanskyi/opengate-server@$DIGEST" latest
+YAML
 cat >"$DEMO/scripts/nightly.sh" <<'SH'
 kubectl exec pod -- true
 # Not retried: a second run repeats the fault.
@@ -469,6 +525,11 @@ cd.yml:drills reads success() of cluster, deploy, resolve, which can be skipped"
 
 judge outlives-cancel "cd.yml:deploy runs on after a cancel and neither alerts nor cleans up" \
   "each of N jobs that run on after a cancel sends an alert or cleans up"
+
+judge scan-before-tag "images.yml tagged: 'Push' pushes under a tag before any scan
+images.yml copied: 'Copy' names an image no scan in its job has passed
+images.yml late: 'Tag' names an image no scan in its job has passed" \
+  "each of N image pushes and tags in the workflows follows a scan in its own job"
 
 echo
 echo "Summary: $PASS passed, $FAIL failed"

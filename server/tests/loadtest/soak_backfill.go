@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
+	"sync/atomic"
 	"time"
 
 	"github.com/volchanskyi/opengate/server/internal/protocol"
@@ -59,35 +61,129 @@ const maxDeferrals = 8
 // deferralWaitCap bounds one wait on the server-supplied retry time.
 const deferralWaitCap = 60 * time.Second
 
-// drainBackfill requests a drain slot and, once granted, sends up to opts.backfillBatches
-// batches one acked batch at a time, returning how many were acked.
+// CatchUpCount is how the server answered the run's catch-up batches, how many machines caught up
+// whole, and when, counted from the run's start, the last batch was stored.
+type CatchUpCount struct {
+	Stored            int64   `json:"stored"`
+	Deferred          int64   `json:"deferred"`
+	Unanswered        int64   `json:"unanswered"`
+	Complete          int64   `json:"complete,omitempty"`
+	LastStoredSeconds float64 `json:"last_stored_seconds,omitempty"`
+}
+
+// catchUpTally is the run-wide count every machine's catch-up adds to.
+type catchUpTally struct {
+	stored, deferred, unanswered, finished atomic.Int64
+	// lastStored is the wall clock of the newest stored batch, in Unix nanoseconds.
+	lastStored atomic.Int64
+	started    time.Time
+}
+
+// count is the tally for the bundle, or nil when no batch was sent, which differs from nought
+// stored of nought.
+func (t *catchUpTally) count() *CatchUpCount {
+	if t == nil {
+		return nil
+	}
+	c := &CatchUpCount{
+		Stored: t.stored.Load(), Deferred: t.deferred.Load(), Unanswered: t.unanswered.Load(),
+		Complete: t.finished.Load(),
+	}
+	if c.Stored+c.Deferred+c.Unanswered == 0 {
+		return nil
+	}
+	if last := t.lastStored.Load(); last > 0 && !t.started.IsZero() {
+		c.LastStoredSeconds = time.Unix(0, last).Sub(t.started).Seconds()
+	}
+	return c
+}
+
+// caughtUp counts one machine whose every planned batch was stored.
+func (t *catchUpTally) caughtUp() {
+	if t != nil {
+		t.finished.Add(1)
+	}
+}
+
+// record counts one answer; a nil tally counts nothing.
+func (t *catchUpTally) record(answer batchAnswer) {
+	if t == nil {
+		return
+	}
+	switch answer {
+	case batchStored:
+		t.stored.Add(1)
+		t.lastStored.Store(time.Now().UnixNano())
+	case batchDeferred:
+		t.deferred.Add(1)
+	default:
+		t.unanswered.Add(1)
+	}
+}
+
+// writeCatchUp prints how the run's catch-up batches were answered; nil prints nothing.
+func writeCatchUp(w io.Writer, c *CatchUpCount) {
+	if c == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "Catch-up:    %d stored, %d told to wait, %d never answered\n",
+		c.Stored, c.Deferred, c.Unanswered)
+}
+
+// batchAnswer is what became of one catch-up batch.
+type batchAnswer int
+
+const (
+	batchUnanswered batchAnswer = iota
+	batchStored
+	batchDeferred
+)
+
+// drainBackfill sends the machine's planned batches under a grant, one answered at a time, and
+// returns how many were stored; a persistent machine resends a deferred batch after a regrant.
 func drainBackfill(ctx context.Context, codec *protocol.Codec, stream soakStream, opts loadOptions) (int, error) {
-	if opts.backfillBatches <= 0 {
+	if opts.backfillBatches <= 0 && opts.backfillGap <= 0 {
 		return 0, nil
 	}
-	pendingCount := opts.backfillBatches * opts.backfillSamplesPerBatch
-	if pendingCount < 0 {
-		pendingCount = 0
+	batches := plannedBatches(opts, time.Now())
+	if len(batches) == 0 {
+		return 0, nil
 	}
-	startTS := time.Now().Add(-time.Duration(pendingCount) * time.Second).Unix()
+	pending := 0
+	for _, batch := range batches {
+		pending += len(batch)
+	}
+	oldest := batches[0][0].TS
 
-	granted, err := awaitSlot(ctx, codec, stream, opts, safeUint64(pendingCount), startTS)
+	granted, err := awaitSlot(ctx, codec, stream, opts, safeUint64(pending), oldest)
 	if err != nil || !granted {
 		return 0, err
 	}
 
-	sent := 0
-	for i := 0; i < opts.backfillBatches; i++ {
-		acked, err := sendBackfillBatch(codec, stream, opts.backfillSamplesPerBatch, startTS+int64(i))
+	stored, deferrals := 0, 0
+	for stored < len(batches) {
+		answer, retryAfter, err := sendBackfillBatch(codec, stream, batches[stored])
+		opts.catchUp.record(answer)
 		if err != nil {
-			return sent, err
+			return stored, err
 		}
-		if !acked {
-			return sent, nil // grant expired or ack lost — stop draining
+		switch answer {
+		case batchStored:
+			stored++
+			continue
+		case batchUnanswered:
+			return stored, nil
 		}
-		sent++
+		deferrals++
+		if !opts.retryDeferred || deferrals > maxDeferrals || !waitToAskAgain(ctx, retryAfter) {
+			return stored, nil
+		}
+		if granted, err = awaitSlot(ctx, codec, stream, opts, safeUint64(pending), oldest); err != nil || !granted {
+			return stored, err
+		}
 	}
-	return sent, nil
+	opts.catchUp.caughtUp()
+	return stored, nil
 }
 
 // awaitSlot asks the scheduler for a drain slot and reports whether this machine may drain.
@@ -105,7 +201,7 @@ func awaitSlot(
 			return false, fmt.Errorf("write slot request: %w", err)
 		}
 
-		decision, err := readControlFrame(codec, stream)
+		decision, err := readSlotAnswer(codec, stream)
 		if err != nil {
 			if isTimeout(err) {
 				return false, nil // no scheduler answered within the deadline
@@ -116,14 +212,26 @@ func awaitSlot(
 		switch {
 		case decision.Type == protocol.MsgGrantBackfill:
 			return true, nil
-		case decision.Type != protocol.MsgDeferBackfill:
-			return false, nil
 		case !opts.retryDeferred || asked >= maxDeferrals:
 			return false, nil
 		}
 
 		if !waitToAskAgain(ctx, decision.RetryAfter) {
 			return false, nil
+		}
+	}
+}
+
+// readSlotAnswer reads frames until the answer to a request for permission, passing over any other
+// control message the server pushes meanwhile.
+func readSlotAnswer(codec *protocol.Codec, stream soakStream) (*protocol.ControlMessage, error) {
+	for {
+		reply, err := readControlFrame(codec, stream)
+		if err != nil {
+			return nil, err
+		}
+		if reply.Type == protocol.MsgGrantBackfill || reply.Type == protocol.MsgDeferBackfill {
+			return reply, nil
 		}
 	}
 }
@@ -147,24 +255,30 @@ func waitToAskAgain(ctx context.Context, retryAfter uint32) bool {
 	}
 }
 
-// sendBackfillBatch writes one tiered backfill batch and reports whether it was acked; a read
-// timeout or a non-ack reply ends the drain without an error.
-func sendBackfillBatch(codec *protocol.Codec, stream soakStream, samplesPerBatch int, startTS int64) (bool, error) {
-	samples := buildBackfillSamples(samplesPerBatch, startTS)
+// sendBackfillBatch writes one tiered backfill batch and reads frames until its answer, passing
+// over any other control message; a read timeout leaves the batch unanswered without an error.
+func sendBackfillBatch(codec *protocol.Codec, stream soakStream, samples []protocol.BackfillSample) (batchAnswer, uint32, error) {
 	batch := buildBackfillBatch(protocol.BackfillTierRecent60s, samples, samples[len(samples)-1].TS)
 	payload, err := codec.EncodeControl(batch)
 	if err != nil {
-		return false, fmt.Errorf("encode backfill batch: %w", err)
+		return batchUnanswered, 0, fmt.Errorf("encode backfill batch: %w", err)
 	}
 	if err := codec.WriteFrame(stream, protocol.FrameControl, payload); err != nil {
-		return false, fmt.Errorf("write backfill batch: %w", err)
+		return batchUnanswered, 0, fmt.Errorf("write backfill batch: %w", err)
 	}
-	ack, err := readControlFrame(codec, stream)
-	if err != nil {
-		if isTimeout(err) {
-			return false, nil
+	for {
+		reply, err := readControlFrame(codec, stream)
+		if err != nil {
+			if isTimeout(err) {
+				return batchUnanswered, 0, nil
+			}
+			return batchUnanswered, 0, fmt.Errorf("read backfill answer: %w", err)
 		}
-		return false, fmt.Errorf("read backfill ack: %w", err)
+		switch reply.Type {
+		case protocol.MsgMetricBackfillAck:
+			return batchStored, 0, nil
+		case protocol.MsgDeferBackfill:
+			return batchDeferred, reply.RetryAfter, nil
+		}
 	}
-	return ack.Type == protocol.MsgMetricBackfillAck, nil
 }

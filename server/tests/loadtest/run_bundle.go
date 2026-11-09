@@ -60,6 +60,10 @@ type runBundleInputs struct {
 
 	// Helper is what the run's sessions asked the server's helper; nil is a run that asked nothing.
 	Helper *HelperCount
+	// CatchUp is how the server answered the run's catch-up batches; nil is a run that sent none.
+	CatchUp *CatchUpCount
+	// LiveDelay is the watched machines' live minutes timed to the store; nil watched none.
+	LiveDelay *LiveDelay
 }
 
 // arrivedAgents counts the machines that connected, handshook and registered, whatever
@@ -115,6 +119,8 @@ func buildRunBundle(in runBundleInputs) *Bundle {
 		Cleanup:           uncountedCleanup(in),
 		Leak:              in.Leak,
 		Helper:            in.Helper,
+		CatchUp:           in.CatchUp,
+		LiveDelay:         in.LiveDelay,
 	}
 
 	// The breaking point is read off the phases the run walked, so an early stop answers

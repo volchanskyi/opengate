@@ -1,0 +1,10 @@
+# Holds the catch-up leg's store to production's settings: the default cache share and the scrape it
+# runs beside machine readings. The leg's limits are production's, set by the job's variables.
+services:
+  metrics:
+    command:
+      - -storageDataPath=/victoria-metrics-data
+      - -retentionPeriod=1d
+      - -promscrape.config=/etc/perf/catchup-scrape.yml
+    volumes:
+      - ./perf/catchup-scrape.yml:/etc/perf/catchup-scrape.yml:ro

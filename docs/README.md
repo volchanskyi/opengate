@@ -218,8 +218,8 @@ One test decides which tree a paragraph belongs in: *does it describe something 
 technician or a customer can see or do, or does it describe how we build, deploy
 and run it?* Semantics on one side, mechanism on the other. "A stall vital is the
 share of the last minute tasks spent waiting on disk" is product; "it is a gauge
-scraped into VictoriaMetrics with stream aggregation producing avg-only rollups"
-is infrastructure.
+the server writes into VictoriaMetrics as one raw sample a minute" is
+infrastructure.
 
 The trees are enforced by
 [`scripts/tests/docs-seam.test.sh`](../scripts/tests/docs-seam.test.sh): every

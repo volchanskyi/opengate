@@ -50,6 +50,7 @@ func proveConnection(codec *protocol.Codec, stream soakStream, opts loadOptions,
 	}
 
 	nextBeat := time.Now().Add(holdHeartbeatInterval)
+	nextWindow := time.Now().Add(opts.liveEvery)
 	for {
 		remaining := left()
 		if remaining <= 0 {
@@ -61,8 +62,17 @@ func proveConnection(codec *protocol.Codec, stream soakStream, opts loadOptions,
 			}
 			nextBeat = time.Now().Add(holdHeartbeatInterval)
 		}
-
 		wait := min(holdReadSlice, remaining)
+		if opts.liveEvery > 0 {
+			if !time.Now().Before(nextWindow) {
+				if err := sendLiveWindow(codec, stream, opts); err != nil {
+					return err
+				}
+				nextWindow = nextWindow.Add(opts.liveEvery)
+			}
+			wait = min(wait, time.Until(nextWindow))
+		}
+
 		if err := stream.SetReadDeadline(time.Now().Add(wait)); err != nil {
 			return fmt.Errorf("set read deadline: %w", err)
 		}
@@ -156,3 +166,21 @@ func joinRequestedSession(msg *protocol.ControlMessage, counter *atomic.Int64, h
 
 // relaySessionLifetime bounds one simulated session so no goroutine echoes into an unread pipe.
 const relaySessionLifetime = 5 * time.Minute
+
+// sendLiveWindow writes a window stamped at its send second, past the arrival window's ten-second
+// floor, and tells the watch when a watched machine sent it.
+func sendLiveWindow(codec *protocol.Codec, w io.Writer, opts loadOptions) error {
+	sent := time.Now()
+	ts := sent.Unix()
+	payload, err := codec.EncodeControl(buildDefaultMetricWindow(ts))
+	if err != nil {
+		return fmt.Errorf("encode live window: %w", err)
+	}
+	if err := codec.WriteFrame(w, protocol.FrameControl, payload); err != nil {
+		return fmt.Errorf("write live window: %w", err)
+	}
+	if opts.watchedDevice != "" {
+		opts.liveWatch.sentAt(opts.watchedDevice, ts, sent)
+	}
+	return nil
+}

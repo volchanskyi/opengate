@@ -189,6 +189,15 @@ in_range() {
 if [ -z "${STACK_JSON:-}" ]; then
   fail "the stack could not be rendered, so where its containers sit cannot be checked"
 else
+  # A service rebuilt or pulled on every start is recreated by the bring-up's later compose up.
+  every_start="$(stack '[.services | to_entries[]
+    | select(.value.pull_policy == "build" or .value.pull_policy == "always") | .key] | join(" ")')"
+  if [ -z "$every_start" ]; then
+    pass "no service is rebuilt or pulled on every start, so the server keeps the key the note names"
+  else
+    fail "rebuilt or pulled on every start, so the server comes back under a new master key: $every_start"
+  fi
+
   for lan in office home; do
     if [ "$(stack ".networks.$lan.driver_opts[\"com.docker.network.bridge.inhibit_ipv4\"]")" = "true" ]; then
       pass "the $lan bridge holds no host address, so its router is the only way in or out"

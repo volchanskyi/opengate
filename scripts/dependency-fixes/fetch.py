@@ -107,6 +107,16 @@ def http_json(url, headers=()):
     return parse_json(http_text(url, headers), f"GET {url}")
 
 
+def http_json_or_absent(url):
+    """The JSON at URL, or None when the server answers that nothing is there."""
+    try:
+        return http_json(url)
+    except Unreadable as error:
+        if "returned error: 404" in str(error):
+            return None
+        raise
+
+
 def http_post_json(url, body):
     command = CURL + ["--header", "Content-Type: application/json", "--data-binary", "@-", url]
     return parse_json(run(command, stdin=json.dumps(body), what=f"POST {url}"), f"POST {url}")

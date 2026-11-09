@@ -93,6 +93,15 @@ gauntlet's first check after the prerequisites, and a step of CI's
 - A finding a patch fixes refuses the commit and prints the move that takes the
   fix. One fixed only in a newer minor or major is listed for Ivan, and one no
   release fixes passes.
+- A high or critical hole in a module the server binary links, fixed only in a
+  newer minor or major, is refused and printed in full until Ivan takes the
+  release or a dated entry in
+  [`vulnerability-exceptions.json`](../../scripts/lib/vulnerability-exceptions.json)
+  names it. The Go database rates nothing, so the severity is read from the
+  advisory's aliases: a GitHub advisory's own rating, else a CVE's CVSS score;
+  one with neither is listed. The same list excuses a hole in the image scan
+  ([Container Images](Container-Images.md#vulnerability-scan)), and an entry
+  lapses the way an npm exception does.
 - A tool, chart or provider is judged by what it is built from as well: its own
   newest patch release building past an affected module is the fix.
 - An image is judged against the newest patch tag of the same shape built for

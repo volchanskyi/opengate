@@ -16,7 +16,6 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ALERTING_DIR="$REPO_ROOT/deploy/grafana/provisioning/alerting"
 DASHBOARD_DIR="$REPO_ROOT/deploy/grafana/provisioning/dashboards"
 SCRAPE_FILE="$REPO_ROOT/deploy/helm/monitoring/files/vmagent-scrape.yaml"
-STREAM_AGGR_FILE="$REPO_ROOT/deploy/helm/monitoring/files/edge-sentinel-stream-aggr.yaml"
 
 READBACK="$SCRIPT_DIR/monitoring-readback.py"
 STORE_PROXY="/api/v1/namespaces/$MONITORING_NAMESPACE/services/monitoring-victoriametrics:8428/proxy"
@@ -50,9 +49,7 @@ for file in "$ALERTING_DIR"/*.yml; do
   sed "s|__TELEGRAM_CHAT_ID__|${chat_id}|g" "$file" >"$WORK/grafana-alerting/$name"
 done
 cp "$DASHBOARD_DIR"/* "$WORK/grafana-dashboards/"
-# Both keys belong in the scrape ConfigMap; rendering one would apply it with the other deleted.
 cp "$SCRAPE_FILE" "$WORK/monitoring-victoriametrics-scrape/scrape.yml"
-cp "$STREAM_AGGR_FILE" "$WORK/monitoring-victoriametrics-scrape/stream-aggr.yml"
 
 live_json() {
   kubectl -n "$MONITORING_NAMESPACE" get configmap "$1" -o json 2>/dev/null || true
@@ -64,7 +61,8 @@ desired_json() {
   python3 "$SCRIPT_DIR/monitoring-config-render.py" "$1" "$WORK/$1" <<<"$(live_json "$1")"
 }
 
-# An absent ConfigMap differs from everything.
+# An absent ConfigMap differs from everything. The desired copy is a file, since a dashboards
+# ConfigMap outgrows what one command-line argument carries.
 differs() {
   local name="$1" desired="$2" live
   live="$(live_json "$name")"
@@ -74,14 +72,15 @@ differs() {
 
 changed=()
 for name in grafana-alerting grafana-dashboards monitoring-victoriametrics-scrape; do
-  desired="$(desired_json "$name")"
+  desired="$WORK/$name.desired.json"
+  desired_json "$name" >"$desired"
 
   if ! differs "$name" "$desired"; then
     echo "$name: unchanged"
     continue
   fi
 
-  printf '%s' "$desired" | kubectl -n "$MONITORING_NAMESPACE" apply -f - >/dev/null
+  kubectl -n "$MONITORING_NAMESPACE" apply -f - <"$desired" >/dev/null
 
   # The read-back is the signal: a refused apply can print a warning and still exit zero.
   if differs "$name" "$desired"; then

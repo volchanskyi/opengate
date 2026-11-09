@@ -31,9 +31,10 @@ func (a *Technician) mintEnrolmentToken(label string) enrolmentToken {
 
 // deviceSummary is a machine as the device list shows it.
 type deviceSummary struct {
-	ID       uuid.UUID `json:"id"`
-	Hostname string    `json:"hostname"`
-	Status   string    `json:"status"`
+	ID          uuid.UUID `json:"id"`
+	Hostname    string    `json:"hostname"`
+	Status      string    `json:"status"`
+	AnomalyRate *float64  `json:"anomaly_rate"`
 }
 
 func (a *Technician) devices() []deviceSummary {

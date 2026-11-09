@@ -240,12 +240,12 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-      "description": "Reconnect-backfill scheduler state during a fleet-wide storm: live active drain slots (opengate_edge_backfill_active_slots) and the grant/defer decision rate (opengate_edge_backfill_decisions_total). Defers are the fair-share/back-pressure lever draining a storm gradually; active slots must stay under the global concurrency cap. Requires the server /metrics scrape.",
+      "description": "Catch-up during a fleet-wide storm: catch-up batches being written (opengate_edge_backfill_active_slots) and the server's answers by kind (opengate_edge_backfill_answers_total): granted for a request for permission, stored for a batch written, deferred_* for a batch told to wait and why. Batches being written stay under the global cap. Requires the server /metrics scrape.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
           "custom": {
-            "axisLabel": "slots / decisions per sec",
+            "axisLabel": "batches / answers per sec",
             "drawStyle": "line",
             "fillOpacity": 10,
             "lineWidth": 2,
@@ -262,19 +262,19 @@
         "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom" },
         "tooltip": { "mode": "multi" }
       },
-      "title": "Backfill scheduler state (active slots + decisions)",
+      "title": "Catch-up (batches being written + answers)",
       "type": "timeseries",
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
           "expr": "opengate_edge_backfill_active_slots{namespace=\"$environment\"}",
-          "legendFormat": "active slots",
+          "legendFormat": "batches being written",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "sum by (decision) (rate(opengate_edge_backfill_decisions_total{namespace=\"$environment\"}[5m]))",
-          "legendFormat": "{{decision}} / sec",
+          "expr": "sum by (answer) (rate(opengate_edge_backfill_answers_total{namespace=\"$environment\"}[5m]))",
+          "legendFormat": "{{answer}} / sec",
           "refId": "B"
         }
       ]

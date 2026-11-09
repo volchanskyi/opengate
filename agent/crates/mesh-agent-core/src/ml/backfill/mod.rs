@@ -83,7 +83,7 @@ pub struct BackfillConfig {
 impl Default for BackfillConfig {
     fn default() -> Self {
         Self {
-            retention_secs: 90 * 24 * 3600,
+            retention_secs: 30 * 24 * 3600,
             recent_secs: 48 * 3600,
             mid_secs: 30 * 24 * 3600,
             future_skew_secs: 3600,
@@ -182,7 +182,8 @@ impl CursorStore for LocalTsdb {
     }
 
     fn save_cursor(&mut self, key: SeriesId, ts: i64) -> Result<(), TsdbError> {
-        // A cursor lost to a crash only re-sends timestamp-deduped history, so no fsync is needed.
+        // Saved without a flush: a crash before the next flushed write sends those batches again,
+        // and the central store keeps each copy.
         self.set_cursor(key, ts, Durability::None)
     }
 }

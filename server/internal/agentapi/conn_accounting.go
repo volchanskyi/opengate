@@ -20,7 +20,21 @@ const (
 	clampPast   = "past"
 )
 
-func (a *AgentConn) acceptTelemetry(msgType protocol.ControlMessageType, ts int64, payloadLen int) bool {
+// telemetryFloor names one ten-second floor: a message type and, for a health summary, its kind.
+type telemetryFloor struct {
+	msgType protocol.ControlMessageType
+	kind    string
+}
+
+// The kinds a message type's floor is kept per: none for most, two for a health summary.
+const (
+	floorPerType   = ""
+	summaryAnomaly = "anomaly"
+	summaryBreach  = "breach"
+)
+
+func (a *AgentConn) acceptTelemetry(msgType protocol.ControlMessageType, kind string, ts int64, payloadLen int) bool {
+	floor := telemetryFloor{msgType: msgType, kind: kind}
 	if payloadLen > maxTelemetryPayloadBytes {
 		a.dropTelemetry("payload_too_large", "type", msgType, "bytes", payloadLen)
 		return false
@@ -29,13 +43,13 @@ func (a *AgentConn) acceptTelemetry(msgType protocol.ControlMessageType, ts int6
 		return a.acceptedTelemetry(msgType)
 	}
 	if a.telemetryLast == nil {
-		a.telemetryLast = make(map[protocol.ControlMessageType]int64)
+		a.telemetryLast = make(map[telemetryFloor]int64)
 	}
-	if last, ok := a.telemetryLast[msgType]; ok && ts-last < minTelemetryIntervalSeconds {
-		a.dropTelemetry("interval_floor", "type", msgType, "ts", ts, "last_ts", last)
+	if last, ok := a.telemetryLast[floor]; ok && ts-last < minTelemetryIntervalSeconds {
+		a.dropTelemetry("interval_floor", "type", msgType, "kind", floor.kind, "ts", ts, "last_ts", last)
 		return false
 	}
-	a.telemetryLast[msgType] = ts
+	a.telemetryLast[floor] = ts
 	return a.acceptedTelemetry(msgType)
 }
 

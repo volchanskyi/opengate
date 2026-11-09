@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
 // holdingProfile is one phase with no drain and no length, since the walk uses a test clock
@@ -74,4 +76,19 @@ func TestAProfileRunStoppedByTheNodeStillReportsWhatItDrove(t *testing.T) {
 	results, _, err := runProfile(holdingProfile(3), fleet, clock, outOfRoom, unreadTarget)
 	require.Error(t, err, "a node past its ceiling stops the run")
 	assert.Empty(t, results, "nothing was driven, so nothing is reported")
+}
+
+func TestAProbeTripCarriesNoneOfTheRunsTraffic(t *testing.T) {
+	run := loadOptions{
+		holdFor: time.Minute, relaySessions: true, defaultTelemetry: true, metricWindows: 3,
+		backfillBatches: 2, backfillSamplesPerBatch: 100, backfillGap: time.Hour,
+		liveEvery: time.Minute, answerLogPulls: true,
+	}
+
+	probe := probeOptions(run)
+
+	assert.Empty(t, plannedBatches(probe, time.Now()), "a probe trip catches nothing up")
+	assert.NotContains(t, agentCapabilities(probe), protocol.CapBackfill)
+	assert.Zero(t, probe.liveEvery, "a probe trip sends no live window")
+	assert.Zero(t, probe.holdFor, "a probe trip hangs up once registered")
 }

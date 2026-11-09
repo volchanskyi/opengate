@@ -173,10 +173,22 @@ else
 fi
 
 WORKFLOW="$REPO_ROOT/.github/workflows/perf-stack.yml"
-# The allowance as each call in the workflow spells it, with its variables unexpanded.
+# The allowance as each call in the workflow spells it, with its variables unexpanded. A step that
+# starts technicians beside its harness bounds both with it; a leg with no technicians has no pair.
 allowance="loadtest-generator-share.sh \"\$PERF_GENERATOR_CPUS\" \"\$PERF_GENERATOR_MEMORY\" --"
-harness_bound="$(grep -cF -- "$allowance \\" "$WORKFLOW" || true)"
-k6_bound="$(grep -cF -- "$allowance scripts/loadtest-k6-alongside.sh" "$WORKFLOW" || true)"
+paired_steps="$(
+  python3 - "$WORKFLOW" <<'PY'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+for job in doc.get("jobs", {}).values():
+    for step in job.get("steps") or []:
+        run = str(step.get("run", ""))
+        if "scripts/loadtest-k6-alongside.sh" in run:
+            print(run.replace("\n", "\x1e"))
+PY
+)"
+harness_bound="$(grep -oF -- "$allowance \\" <<<"$paired_steps" | wc -l || true)"
+k6_bound="$(grep -oF -- "$allowance scripts/loadtest-k6-alongside.sh" <<<"$paired_steps" | wc -l || true)"
 if [ "$harness_bound" -gt 0 ] && [ "$harness_bound" = "$k6_bound" ]; then
   pass "perf-stack.yml bounds each leg's harness and its technicians with one allowance ($harness_bound legs)"
 else

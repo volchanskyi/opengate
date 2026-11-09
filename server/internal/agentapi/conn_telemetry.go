@@ -19,16 +19,21 @@ const (
 )
 
 func (a *AgentConn) handleAgentHealthSummary(ctx context.Context, msg *protocol.ControlMessage, payloadLen int) error {
-	if a.telemetry == nil || !a.acceptTelemetry(protocol.MsgAgentHealthSummary, msg.TS, payloadLen) {
+	// A breach-only summary carries no sampler computation, so the anomaly series is
+	// recorded only when the summary holds a sampler result.
+	sampled := msg.SamplerVersion != "" || len(msg.PerFamilyRates) > 0
+	kind := summaryBreach
+	if sampled {
+		kind = summaryAnomaly
+	}
+	if a.telemetry == nil || !a.acceptTelemetry(protocol.MsgAgentHealthSummary, kind, msg.TS, payloadLen) {
 		return nil
 	}
 	// The clock correction is counted after the breach vocabulary filter, so a discarded
 	// message is reported once, as a drop.
 	ts, clamped := clampTelemetryTimestamp(msg.TS, time.Now().UTC())
 	var samples []telemetry.Sample
-	// A breach-only summary carries no sampler computation, so the anomaly series is
-	// recorded only when the summary holds a sampler result.
-	if msg.SamplerVersion != "" || len(msg.PerFamilyRates) > 0 {
+	if sampled {
 		samples = append(samples, telemetry.Sample{
 			Name:  "opengate_edge_node_anomaly_rate",
 			Value: msg.NodeAnomalyRate,
@@ -69,12 +74,12 @@ func (a *AgentConn) handleAgentHealthSummary(ctx context.Context, msg *protocol.
 		return nil
 	}
 	a.observeClockClamp(clamped)
-	a.bufferTelemetry(ctx, samples)
+	a.bufferTelemetry(ctx, protocol.MsgAgentHealthSummary, samples)
 	return nil
 }
 
 func (a *AgentConn) handleAgentMetricWindow(ctx context.Context, msg *protocol.ControlMessage, payloadLen int) error {
-	if a.telemetry == nil || !a.acceptTelemetry(protocol.MsgAgentMetricWindow, msg.TS, payloadLen) {
+	if a.telemetry == nil || !a.acceptTelemetry(protocol.MsgAgentMetricWindow, floorPerType, msg.TS, payloadLen) {
 		return nil
 	}
 	if len(msg.Dims) == 0 {
@@ -105,12 +110,12 @@ func (a *AgentConn) handleAgentMetricWindow(ctx context.Context, msg *protocol.C
 	if len(samples) == 0 {
 		return nil
 	}
-	a.bufferTelemetry(ctx, samples)
+	a.bufferTelemetry(ctx, protocol.MsgAgentMetricWindow, samples)
 	return nil
 }
 
 func (a *AgentConn) handleHealthWindowResponse(ctx context.Context, msg *protocol.ControlMessage, payloadLen int) error {
-	if a.telemetry == nil || !a.acceptTelemetry(protocol.MsgHealthWindowResponse, msg.TS, payloadLen) {
+	if a.telemetry == nil || !a.acceptTelemetry(protocol.MsgHealthWindowResponse, floorPerType, msg.TS, payloadLen) {
 		return nil
 	}
 	if len(msg.Summaries) == 0 {
@@ -149,14 +154,18 @@ func (a *AgentConn) handleHealthWindowResponse(ctx context.Context, msg *protoco
 		a.dropTelemetry("unknown_family", "type", protocol.MsgHealthWindowResponse,
 			"unknown", unknownFamilies, "summaries", len(msg.Summaries))
 	}
-	a.bufferTelemetry(ctx, samples)
+	a.bufferTelemetry(ctx, protocol.MsgHealthWindowResponse, samples)
 	return nil
 }
 
-// bufferTelemetry appends samples to the coalescing buffer on the read-loop goroutine, so it
-// needs no lock; each call books one message against the buffer and flushes at the size cap.
-func (a *AgentConn) bufferTelemetry(ctx context.Context, samples []telemetry.Sample) {
-	if a.telemetry == nil || len(samples) == 0 {
+// bufferTelemetry appends the samples the store accepts to the read loop's coalescing buffer, one
+// message a call, and flushes at the size cap; the read loop alone touches it, so it has no lock.
+func (a *AgentConn) bufferTelemetry(ctx context.Context, msgType protocol.ControlMessageType, samples []telemetry.Sample) {
+	if a.telemetry == nil {
+		return
+	}
+	samples = a.keepWritable(msgType, samples)
+	if len(samples) == 0 {
 		return
 	}
 	a.telemetryBuf = append(a.telemetryBuf, samples...)
@@ -179,4 +188,22 @@ func (a *AgentConn) flushTelemetry(ctx context.Context) {
 	a.persistTelemetry(ctx, msgs, func(jobCtx context.Context, tenant dbtx.Tenant) error {
 		return a.telemetry.WriteSamples(jobCtx, tenant.TenantID, a.DeviceID, batch)
 	})
+}
+
+// keepWritable keeps the samples the store accepts on their own; the rest of a message count as
+// one invalid_value drop however many it lost.
+func (a *AgentConn) keepWritable(msgType protocol.ControlMessageType, samples []telemetry.Sample) []telemetry.Sample {
+	kept := samples[:0]
+	refused := 0
+	for _, s := range samples {
+		if err := telemetry.CheckSample(s); err != nil {
+			refused++
+			continue
+		}
+		kept = append(kept, s)
+	}
+	if refused > 0 {
+		a.dropTelemetry("invalid_value", "type", msgType, "refused", refused, "readings", len(samples))
+	}
+	return kept
 }

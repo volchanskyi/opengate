@@ -37,7 +37,7 @@ on every sample, are described there too.
 
 **A counter over a fixed set of outcomes publishes every outcome at zero from
 start-up** — the log-pull outcomes, the telemetry drop reasons and ingested
-message types, the catch-up decisions and the alert refusal reasons, beside the
+message types, the catch-up answers and the alert refusal reasons, beside the
 investigation vocabularies below
 ([`outcomes.go`](../../server/internal/metrics/outcomes.go)). A counter created
 on its first event has no reading before it, so a rate over it misses the first
@@ -95,8 +95,8 @@ that series the audited-read count.
 | `opengate_edge_telemetry_ingested_total` | `type` | Telemetry control messages accepted for ingest, by control type |
 | `opengate_edge_telemetry_drops_total` | `reason` | Messages discarded by a server-side bound, by typed reason |
 | `opengate_edge_telemetry_clock_clamped_total` | `direction` | Agent-stamped timestamps pulled inside the accepted clock window |
-| `opengate_edge_backfill_decisions_total` | `decision` | Reconnect-backfill admission decisions (`grant`, `defer`) |
-| `opengate_edge_backfill_active_slots` | — | Drain slots currently granted across all agents |
+| `opengate_edge_backfill_answers_total` | `answer` | Catch-up answers the server sent: `granted` for a request for permission; `stored`, `deferred_no_grant`, `deferred_busy`, `deferred_write_failed` or `deferred_refused` for a batch |
+| `opengate_edge_backfill_active_slots` | — | Catch-up batches being written across all agents |
 | `opengate_edge_backfill_grant_rate_samples_per_second` | — | Per-slot ingest rate of the most recent grant |
 
 The first two form a **closed ledger**: every message counted as ingested either
@@ -112,7 +112,9 @@ The drop reasons cover the admission bounds (`payload_too_large`,
 `interval_floor`, and their `discovery_*` counterparts), a payload carrying
 nothing to store (`empty_dims`, `empty_summary`, `empty_summaries`,
 `empty_discovery`), a window naming dimensions outside the
-vitals contract (`unknown_dim`), the persist path (`tenant_missing`,
+vitals contract (`unknown_dim`), a value the store refuses on its own — not a
+number, or infinite — dropped while the rest of its message is written
+(`invalid_value`), the persist path (`tenant_missing`,
 `persist_failed`, `persist_slots_full` — bounded per-connection persist slots
 shed telemetry rather than backpressuring heartbeat, session and control), a
 purged device (`tombstoned`), and reconnect backfill skipping samples older than
@@ -151,9 +153,9 @@ this happened before?" over it is the whole point — so its backward bound is h
 long an alert is kept rather than how long a metric sample is. The
 live-path bounds sit next to the handlers in
 [`conn_telemetry.go`](../../server/internal/agentapi/conn_telemetry.go);
-reconnect backfill keeps its own far wider retention floor in
+reconnect backfill keeps its own wider floor, the store's keep-time, in
 [`conn_backfill.go`](../../server/internal/agentapi/conn_backfill.go), so
-replaying months of pre-rolled history is never truncated by the live window.
+replaying weeks of pre-rolled history is never truncated by the live window.
 
 ## Alerts, incidents and coverage
 

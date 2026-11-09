@@ -174,12 +174,12 @@ agent, taken as an artifact from the image build that produced the running
 staging image, so the scenarios exercise the real backoff schedule and the real
 backfill engine. The **simulated fleet** is twenty agents from
 [`tests/loadtest`](../../server/tests/loadtest) — enough, in one tenant, to
-queue against the concurrent drains the server admits per customer.
+queue against the catch-up batches the server writes at once per tenant.
 
 The fleet stands in for a site rather than generating load, so the drill starts
 it with three switches the load run leaves off: it comes back after its
-connection breaks, it asks again when the server tells it to wait for a
-catch-up slot, and it carries a name of the drill's own. A load run wants the
+connection breaks, it sends a catch-up batch again when the server tells it to
+wait, and it carries a name of the drill's own. A load run wants the
 opposite of the first two — a severance reported and a deferral shed, because
 those are the things it is measuring — and the third is what lets the drill
 count its own machines and remove them afterwards

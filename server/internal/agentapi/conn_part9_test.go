@@ -169,14 +169,14 @@ func TestAcceptTelemetryPinsPayloadAndTimestampBoundaries(t *testing.T) {
 
 	assert.Equal(t, 64*1024, maxTelemetryPayloadBytes)
 	assert.Equal(t, 2*time.Second, telemetryPersistTimeout)
-	assert.True(t, ac.acceptTelemetry(protocol.MsgAgentMetricWindow, 0, maxTelemetryPayloadBytes))
+	assert.True(t, ac.acceptTelemetry(protocol.MsgAgentMetricWindow, floorPerType, 0, maxTelemetryPayloadBytes))
 	assert.Nil(t, ac.telemetryLast, "a missing timestamp must not start interval tracking")
 
-	assert.True(t, ac.acceptTelemetry(protocol.MsgAgentMetricWindow, 100, maxTelemetryPayloadBytes))
-	assert.False(t, ac.acceptTelemetry(protocol.MsgAgentMetricWindow, 109, maxTelemetryPayloadBytes))
-	assert.True(t, ac.acceptTelemetry(protocol.MsgAgentMetricWindow, 110, maxTelemetryPayloadBytes))
-	assert.Equal(t, int64(110), ac.telemetryLast[protocol.MsgAgentMetricWindow])
-	assert.False(t, ac.acceptTelemetry(protocol.MsgAgentMetricWindow, 120, maxTelemetryPayloadBytes+1))
+	assert.True(t, ac.acceptTelemetry(protocol.MsgAgentMetricWindow, floorPerType, 100, maxTelemetryPayloadBytes))
+	assert.False(t, ac.acceptTelemetry(protocol.MsgAgentMetricWindow, floorPerType, 109, maxTelemetryPayloadBytes))
+	assert.True(t, ac.acceptTelemetry(protocol.MsgAgentMetricWindow, floorPerType, 110, maxTelemetryPayloadBytes))
+	assert.Equal(t, int64(110), ac.telemetryLast[telemetryFloor{msgType: protocol.MsgAgentMetricWindow}])
+	assert.False(t, ac.acceptTelemetry(protocol.MsgAgentMetricWindow, floorPerType, 120, maxTelemetryPayloadBytes+1))
 	assert.Equal(t, uint64(2), ac.DroppedTelemetryCount())
 	assert.NotPanics(t, func() { ac.dropTelemetry("nil_logger") })
 }
