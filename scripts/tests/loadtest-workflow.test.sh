@@ -78,12 +78,12 @@ else
   fail "completeness (line $completeness_line) must follow the summary build (line $summary_line)"
 fi
 
-# Reservation decides admission, so the generators' CPU requests together stay within 150m.
+# Reservation decides admission, so the generators' CPU requests together stay within 140m.
 generator_cpu="$(grep -oE '"requests":\{"cpu":"[0-9]+m"' "$WORKFLOW" | grep -oE '[0-9]+' | awk '{ total += $1 } END { print total + 0 }')"
-if [ -n "$generator_cpu" ] && [ "$generator_cpu" -gt 0 ] && [ "$generator_cpu" -le 150 ]; then
+if [ -n "$generator_cpu" ] && [ "$generator_cpu" -gt 0 ] && [ "$generator_cpu" -le 140 ]; then
   pass "the two generator pods together request a share the node can spare"
 else
-  fail "generator requests must total 150m or less (got ${generator_cpu}m)"
+  fail "generator requests must total 140m or less (got ${generator_cpu}m)"
 fi
 
 if grep -q 'LOADTEST_SERVICE_ACCOUNT' "$WORKFLOW"; then

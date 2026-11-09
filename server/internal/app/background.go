@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/relay"
@@ -61,6 +63,33 @@ func startReconcileLoop(ctx context.Context, every time.Duration, reconciler orp
 		failed: "reconcile sweep failed",
 		found: func(purged int) {
 			logger.Warn("reconcile sweep purged orphan telemetry", "count", purged)
+		},
+	}.run(ctx, logger)
+}
+
+// purgeResumer re-runs deletion records stopped part-way and counts those still unfinished.
+type purgeResumer interface {
+	Resume(ctx context.Context) (int, error)
+}
+
+// startPurgeRetryLoop finishes deletions a failed store or a dying server stopped, and publishes
+// how many stay unfinished after each pass.
+func startPurgeRetryLoop(
+	ctx context.Context, every time.Duration, purges purgeResumer,
+	unfinished prometheus.Gauge, logger *slog.Logger,
+) {
+	janitor{
+		every: every,
+		sweep: func(ctx context.Context) (int, error) {
+			left, err := purges.Resume(ctx)
+			if err == nil {
+				unfinished.Set(float64(left))
+			}
+			return left, err
+		},
+		failed: "purge retry failed",
+		found: func(left int) {
+			logger.Warn("deletions still unfinished after the retry", "count", left)
 		},
 	}.run(ctx, logger)
 }
@@ -146,6 +175,8 @@ type BackgroundSchedule struct {
 	Investigations time.Duration
 	// Reconcile is how often orphaned telemetry series are swept.
 	Reconcile time.Duration
+	// PurgeRetry is how often deletion records stopped part-way are run again.
+	PurgeRetry time.Duration
 	// SessionSweep is how often unheld session rows are reclaimed; SessionGrace is their minimum age.
 	SessionSweep time.Duration
 	SessionGrace time.Duration
@@ -164,6 +195,7 @@ func (s BackgroundSchedule) Validate() error {
 		"DBSize":           s.DBSize,
 		"Investigations":   s.Investigations,
 		"Reconcile":        s.Reconcile,
+		"PurgeRetry":       s.PurgeRetry,
 		"SessionSweep":     s.SessionSweep,
 		"SessionGrace":     s.SessionGrace,
 		"IncidentSweep":    s.IncidentSweep,
@@ -197,6 +229,9 @@ func (a *Assembly) StartBackgroundWorkers(ctx context.Context, sched BackgroundS
 	// A nil Reconciler stays out of the loop, since a nil pointer as a port is a non-nil interface.
 	if a.Reconciler != nil {
 		go startReconcileLoop(ctx, sched.Reconcile, a.Reconciler, a.Logger)
+	}
+	if a.pendingPurges != nil {
+		go startPurgeRetryLoop(ctx, sched.PurgeRetry, a.pendingPurges, a.Metrics.PurgeJobsUnfinished, a.Logger)
 	}
 
 	sweeper := session.NewSweeper(a.Sessions, liveRelayTokens(a.Relay), sched.SessionGrace, a.Logger)

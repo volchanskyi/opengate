@@ -6,8 +6,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# Millicores of CPU the node has left after its standing tenants' requests.
-NODE_MILLICORES_FREE=150
+# Millicores the node has left after its standing tenants' requests, staging's store among them.
+NODE_MILLICORES_FREE=140
 
 declare -a WORKFLOWS=(
   "$REPO_ROOT/.github/workflows/network-drill.yml"

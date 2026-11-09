@@ -124,6 +124,23 @@ postgres:
         cpu: 250m
         memory: 64Mi
 
+# A metrics store of the release's own, on scratch space, for an environment that keeps its machine
+# readings apart from the monitoring store; server.victoriaMetricsURL names its Service.
+metricsStore:
+  enabled: false
+  # The image and keep-time the monitoring chart's store runs.
+  image: docker.io/victoriametrics/victoria-metrics:v1.114.0
+  retention: 30d
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+      ephemeral-storage: 256Mi
+    limits:
+      cpu: 250m
+      memory: 512Mi
+      ephemeral-storage: 2Gi
+
 ingress:
   enabled: true
   className: nginx

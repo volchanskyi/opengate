@@ -50,6 +50,8 @@ grafana:
   # The ConfigMap is rendered from the canonical dashboard files and read back by
   # deploy/scripts/monitoring-config-apply.sh.
   dashboardsConfigMap: grafana-dashboards
+  # Staging's machine readings live in its own release's store.
+  stagingReadingsURL: http://opengate-staging-metrics-store.opengate-staging.svc:8428
   resources:
     requests:
       cpu: 50m

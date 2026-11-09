@@ -5,9 +5,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/volchanskyi/opengate/server/internal/app"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
@@ -112,4 +114,58 @@ func TestAMachineDeletedLongAgoIsStillToldToRemoveItself(t *testing.T) {
 	product.Advance(90*24*time.Hour + 91*24*time.Hour)
 
 	product.assertToldToRemoveItself(machine, false)
+}
+
+// sweepingOften runs the orphan sweep many times a second and leaves every other worker idle.
+var sweepingOften = app.BackgroundSchedule{
+	Gauges:           time.Hour,
+	DBSize:           time.Hour,
+	Investigations:   time.Hour,
+	Reconcile:        50 * time.Millisecond,
+	PurgeRetry:       time.Hour,
+	SessionSweep:     time.Hour,
+	SessionGrace:     time.Hour,
+	IncidentSweep:    time.Hour,
+	RetentionSweep:   time.Hour,
+	RetentionHorizon: 365 * 24 * time.Hour,
+}
+
+func TestAnotherEnvironmentsMachinesKeepTheirReadingsThroughThisServersSweep(t *testing.T) {
+	t.Parallel()
+
+	// Both installations run the one default tenant and write to one store, as production and
+	// staging do; the suffix keeps other tests' installations out of their sweeps.
+	suffix := uuid.NewString()[:8]
+	production := newProduct(t, WithNumericTelemetry(), WithSweeps(sweepingOften),
+		WithEnvironment("opengate-"+suffix))
+	staging := newProduct(t, WithNumericTelemetry(), WithSweeps(sweepingOften),
+		WithEnvironment("opengate-staging-"+suffix))
+
+	reportedAt := time.Now().UTC().Truncate(time.Second).Add(-2 * time.Minute)
+	from, to := reportedAt.Add(-5*time.Minute), reportedAt.Add(5*time.Minute)
+	type installation struct {
+		product *Product
+		admin   *Technician
+		machine *Machine
+	}
+	var both []installation
+	for i, product := range []*Product{production, staging} {
+		admin := product.Administrator(product.arrangeCustomer("Contoso"))
+		machine := product.Machine(admin.mintEnrolmentToken("Head Office").Token,
+			[]string{"contoso-prod-01", "contoso-stage-01"}[i])
+		machine.AwaitOnline()
+		machine.report(reportedAt, protocol.MetricDim{Name: "cpu.total", Avg: 12.5})
+		machine.settle()
+		admin.awaitReading(product, machine.DeviceID, from, to, "cpu.total")
+		both = append(both, installation{product, admin, machine})
+	}
+
+	// A second of sweeps every 50 ms gives each installation many passes over the shared store.
+	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); time.Sleep(poll) {
+		for _, each := range both {
+			each.product.publishReadings()
+			require.NotEmpty(t, each.admin.readings(each.machine.DeviceID, from, to, "cpu.total").values("cpu.total"),
+				"each installation's sweep leaves the other installation's machine its readings")
+		}
+	}
 }

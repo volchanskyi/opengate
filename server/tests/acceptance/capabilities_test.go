@@ -96,6 +96,7 @@ var capabilityOutcomes = map[string][]string{
 		"TestDeletingAMachineFromAnotherTenantIsNotFound",
 		"TestAMachineDeletedWhileOffIsToldToRemoveItselfWhenItReturns",
 		"TestAMachineDeletedLongAgoIsStillToldToRemoveItself",
+		"TestAnotherEnvironmentsMachinesKeepTheirReadingsThroughThisServersSweep",
 	},
 }
 

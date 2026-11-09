@@ -177,7 +177,7 @@ jobs:
             --image=docker.io/library/alpine:3.21.9 \
             --restart=Never \
             --labels="$LOADTEST_GENERATOR_LABEL=true" \
-            --overrides='{"spec":{"containers":[{"name":"'"$LOADTEST_K6_POD"'","image":"docker.io/library/alpine:3.21.9","command":["sleep","'"$LOADTEST_POD_LIFETIME_SECONDS"'"],"resources":{"requests":{"cpu":"75m","memory":"128Mi"},"limits":{"cpu":"600m","memory":"768Mi"}}}]}}' \
+            --overrides='{"spec":{"containers":[{"name":"'"$LOADTEST_K6_POD"'","image":"docker.io/library/alpine:3.21.9","command":["sleep","'"$LOADTEST_POD_LIFETIME_SECONDS"'"],"resources":{"requests":{"cpu":"65m","memory":"128Mi"},"limits":{"cpu":"600m","memory":"768Mi"}}}]}}' \
             --command -- sleep "$LOADTEST_POD_LIFETIME_SECONDS"
           deploy/scripts/wait-for-pod-ready.sh "$LOADTEST_K6_POD" 120
           # These calls are short and idempotent, so repeating them is safe.
@@ -223,7 +223,7 @@ jobs:
             --image=docker.io/library/alpine:3.21.9 \
             --restart=Never \
             --labels="$LOADTEST_GENERATOR_LABEL=true" \
-            --overrides='{"spec":{"hostAliases":[{"ip":"'"$SERVER_POD_IP"'","hostnames":["'"${RELEASE}"'-server"]}],"containers":[{"name":"'"$LOADTEST_POD"'","image":"docker.io/library/alpine:3.21.9","command":["sleep","'"$LOADTEST_POD_LIFETIME_SECONDS"'"],"resources":{"requests":{"cpu":"75m","memory":"128Mi"},"limits":{"cpu":"400m","memory":"384Mi"}}}]}}' \
+            --overrides='{"spec":{"hostAliases":[{"ip":"'"$SERVER_POD_IP"'","hostnames":["'"${RELEASE}"'-server"]}],"containers":[{"name":"'"$LOADTEST_POD"'","image":"docker.io/library/alpine:3.21.9","command":["sleep","'"$LOADTEST_POD_LIFETIME_SECONDS"'"],"resources":{"requests":{"cpu":"65m","memory":"128Mi"},"limits":{"cpu":"400m","memory":"384Mi"}}}]}}' \
             --command -- sleep "$LOADTEST_POD_LIFETIME_SECONDS"
           deploy/scripts/wait-for-pod-ready.sh "$LOADTEST_POD" 120
           # Staging into a pod that is already up is short and idempotent.

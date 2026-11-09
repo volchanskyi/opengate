@@ -49,6 +49,22 @@ not reach the machine.
 an interrupted purge continues rather than restarting or silently stopping
 half-done.
 
+**An unfinished job is run again within the hour.** A store or the database not
+answering, or the server stopping, leaves a job part-way. The server re-runs every
+incomplete job from the stage it reached at start-up and then every hour, and
+publishes how many are unfinished. A job is claimed from the moment it is created
+until its run returns, so the hourly pass never runs one its request is running.
+Re-running only at start-up left a stopped job waiting for a restart that might
+not come for weeks.
+
+**Each environment erases only its own readings.** Production and staging run a
+server and a database each, and both use the default tenant. Staging's readings
+live in a store of its own on scratch space, inside the free tier; production's
+stay in the monitoring store. As a second guard, every selector a deletion or the
+orphan sweep builds names the environment the server runs in, so a store shared
+by two environments still never sees one delete the other's machines. A server
+with no environment, as on a developer's machine, reads the whole store.
+
 **The proof of erasure is retained.** The audit events and the tenant row stay.
 Erasing the record that something was erased defeats the point.
 

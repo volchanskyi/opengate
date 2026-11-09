@@ -18,10 +18,10 @@ func (v *VMClient) WithDeleteAuthKey(key string) *VMClient {
 	return v
 }
 
-// DeleteSeries deletes every metric for the tenant, or for one device when deviceID is set.
-// The selector always pins tenant_id; the delete is asynchronous, so callers poll CountSeries.
+// DeleteSeries deletes every metric for the tenant, or for one device when deviceID is set, in the
+// client's environment. The delete is asynchronous, so callers poll CountSeries.
 func (v *VMClient) DeleteSeries(ctx context.Context, tenantID uuid.UUID, deviceID *uuid.UUID) error {
-	selector, err := subjectSelector(tenantID, deviceID)
+	selector, err := v.subjectSelector(tenantID, deviceID)
 	if err != nil {
 		return err
 	}
@@ -42,7 +42,7 @@ func (v *VMClient) DeleteSeries(ctx context.Context, tenantID uuid.UUID, deviceI
 // CountSeries returns how many series still match the subject selector. A purge
 // job may complete only once this reaches zero.
 func (v *VMClient) CountSeries(ctx context.Context, tenantID uuid.UUID, deviceID *uuid.UUID) (int, error) {
-	selector, err := subjectSelector(tenantID, deviceID)
+	selector, err := v.subjectSelector(tenantID, deviceID)
 	if err != nil {
 		return 0, err
 	}
@@ -70,11 +70,11 @@ type SeriesSubject struct {
 	DeviceID uuid.UUID
 }
 
-// ListSubjects returns the distinct (tenant_id, device_id) pairs in VictoriaMetrics, skipping
-// series with a missing or unparseable label so a sweep never deletes what it cannot scope.
+// ListSubjects returns the client's environment's distinct (tenant_id, device_id) pairs, skipping
+// series with an unparseable label, so a sweep never deletes what it cannot scope.
 func (v *VMClient) ListSubjects(ctx context.Context) ([]SeriesSubject, error) {
 	q := url.Values{}
-	q.Set(matchParam, `{device_id=~".+"}`)
+	q.Set(matchParam, "{"+v.environmentMatcher()+`device_id=~".+"}`)
 	resp, err := v.getChecked(ctx, "/api/v1/series?"+q.Encode(), "subjects")
 	if err != nil {
 		return nil, err
@@ -107,14 +107,24 @@ func (v *VMClient) ListSubjects(ctx context.Context) ([]SeriesSubject, error) {
 	return out, nil
 }
 
-// subjectSelector builds a label-matcher selector pinning tenant_id and, for a device
-// purge, device_id, with no metric name so every metric of the subject matches.
-func subjectSelector(tenantID uuid.UUID, deviceID *uuid.UUID) (string, error) {
+// subjectSelector builds a label-matcher selector pinning the environment, tenant_id and, for a
+// device purge, device_id, with no metric name so every metric of the subject matches.
+func (v *VMClient) subjectSelector(tenantID uuid.UUID, deviceID *uuid.UUID) (string, error) {
 	if tenantID == uuid.Nil {
 		return "", fmt.Errorf("tenant_id is required")
 	}
+	env := v.environmentMatcher()
 	if deviceID == nil {
-		return fmt.Sprintf(`{tenant_id=%q}`, tenantID.String()), nil
+		return fmt.Sprintf(`{%stenant_id=%q}`, env, tenantID.String()), nil
 	}
-	return fmt.Sprintf(`{tenant_id=%q,device_id=%q}`, tenantID.String(), deviceID.String()), nil
+	return fmt.Sprintf(`{%stenant_id=%q,device_id=%q}`, env, tenantID.String(), deviceID.String()), nil
+}
+
+// environmentMatcher is the selector's leading environment matcher, empty for a client with none,
+// which reads the whole store.
+func (v *VMClient) environmentMatcher() string {
+	if v.namespace == "" {
+		return ""
+	}
+	return fmt.Sprintf(`%s=%q,`, environmentLabel, v.namespace)
 }

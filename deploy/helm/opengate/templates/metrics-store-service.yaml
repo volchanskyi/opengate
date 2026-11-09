@@ -1,0 +1,19 @@
+{{- if .Values.metricsStore.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "opengate.fullname" . }}-metrics-store
+  labels:
+    {{- include "opengate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: metrics-store
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "opengate.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: metrics-store
+  ports:
+    - name: http
+      port: 8428
+      targetPort: http
+      protocol: TCP
+{{- end }}

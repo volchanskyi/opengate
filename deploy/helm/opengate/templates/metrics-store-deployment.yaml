@@ -1,0 +1,66 @@
+{{- if .Values.metricsStore.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "opengate.fullname" . }}-metrics-store
+  labels:
+    {{- include "opengate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: metrics-store
+spec:
+  replicas: 1
+  strategy:
+    # The store's files belong to one process, so the old pod stops before the new one starts.
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "opengate.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: metrics-store
+  template:
+    metadata:
+      labels:
+        {{- include "opengate.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: metrics-store
+      annotations:
+        # The monitoring stack scrapes the store's own disk and series readings.
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8428"
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: victoriametrics
+          image: {{ .Values.metricsStore.image }}
+          args:
+            - "-storageDataPath=/storage"
+            - "-retentionPeriod={{ .Values.metricsStore.retention }}"
+            - "-httpListenAddr=:8428"
+          ports:
+            - name: http
+              containerPort: 8428
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 15
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 5
+          resources:
+            {{- toYaml .Values.metricsStore.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: storage
+              mountPath: /storage
+      volumes:
+        # The readings live as long as the pod, on the node's boot disk, inside the scratch-disk cap.
+        - name: storage
+          emptyDir:
+            sizeLimit: {{ index .Values.metricsStore.resources.limits "ephemeral-storage" }}
+{{- end }}

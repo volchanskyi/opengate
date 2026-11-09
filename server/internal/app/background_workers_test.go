@@ -19,6 +19,7 @@ func backgroundSchedule() app.BackgroundSchedule {
 		DBSize:         10 * time.Millisecond,
 		Investigations: 10 * time.Millisecond,
 		Reconcile:      10 * time.Millisecond,
+		PurgeRetry:     10 * time.Millisecond,
 		SessionSweep:   10 * time.Millisecond,
 		SessionGrace:   time.Minute,
 		IncidentSweep:  10 * time.Millisecond,
@@ -64,6 +65,8 @@ func TestStartBackgroundWorkersRunsTheOptionalWorkersToo(t *testing.T) {
 
 	cfg := baseConfig(t)
 	cfg.VictoriaMetricsURL = testvm.BaseURL(t)
+	// An environment of its own keeps the sweep away from other tests' readings in the shared store.
+	cfg.Namespace = "app-background-workers"
 	cfg.GitHubRepo = "volchanskyi/opengate"
 
 	assembly, err := app.Build(context.Background(), cfg)

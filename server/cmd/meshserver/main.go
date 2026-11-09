@@ -204,6 +204,9 @@ var productionSchedule = app.BackgroundSchedule{
 	// The orphan-series sweep backs up a purge that already ran, so it runs hourly.
 	Reconcile: time.Hour,
 
+	// A deletion stopped part-way is finished within the hour, not at the next restart.
+	PurgeRetry: time.Hour,
+
 	// The grace period outlasts the gap between issuing a token and connecting with it.
 	// It is also the worst-case lag before a session orphaned by a restart leaves the device page.
 	SessionSweep: time.Minute,

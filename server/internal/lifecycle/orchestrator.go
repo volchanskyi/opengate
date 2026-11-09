@@ -2,8 +2,10 @@ package lifecycle
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,7 +33,15 @@ type Orchestrator struct {
 	edge       EdgeDeregistrar // optional; nil in tests without an agent server
 	verify     VerifyConfig
 	logger     *slog.Logger
+
+	// running maps each record being run to the copy its runner holds, so a second caller with
+	// another copy of the same record leaves it alone.
+	mu      sync.Mutex
+	running map[uuid.UUID]*PurgeJob
 }
+
+// errPurgeRunning is returned by Run for a record another caller is running.
+var errPurgeRunning = errors.New("purge job is already running")
 
 // OrchestratorConfig gathers the orchestrator's dependencies.
 type OrchestratorConfig struct {
@@ -65,10 +75,29 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 		edge:       cfg.Edge,
 		verify:     verify,
 		logger:     logger,
+		running:    make(map[uuid.UUID]*PurgeJob),
 	}
 }
 
-// PurgeDevice tombstones a device, deregisters its agent and creates a purge job unrun.
+// claim reserves the record for the caller holding job and reports whether it was free.
+func (o *Orchestrator) claim(job *PurgeJob) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if holder, held := o.running[job.ID]; held {
+		return holder == job
+	}
+	o.running[job.ID] = job
+	return true
+}
+
+func (o *Orchestrator) release(job *PurgeJob) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	delete(o.running, job.ID)
+}
+
+// PurgeDevice tombstones a device, deregisters its agent and creates a purge job unrun, held for
+// the caller's Run.
 func (o *Orchestrator) PurgeDevice(ctx context.Context, tenantID, deviceID uuid.UUID, by *uuid.UUID) (*PurgeJob, error) {
 	job := &PurgeJob{
 		ID:          uuid.New(),
@@ -78,17 +107,11 @@ func (o *Orchestrator) PurgeDevice(ctx context.Context, tenantID, deviceID uuid.
 		State:       StateRequested,
 		RequestedBy: by,
 	}
-	if err := o.jobs.CreateJob(ctx, job); err != nil {
-		return nil, err
-	}
-	if err := o.applyTombstone(ctx, job); err != nil {
-		return nil, err
-	}
-	return job, nil
+	return o.create(ctx, job)
 }
 
-// PurgeTenant records a tenant-wide tombstone, deregisters every connected agent in
-// the tenant, and creates a tenant-scoped purge job.
+// PurgeTenant records a tenant-wide tombstone, deregisters every connected agent in the tenant,
+// and creates a tenant-scoped purge job held for the caller's Run.
 func (o *Orchestrator) PurgeTenant(ctx context.Context, tenantID uuid.UUID, by *uuid.UUID) (*PurgeJob, error) {
 	job := &PurgeJob{
 		ID:          uuid.New(),
@@ -97,10 +120,19 @@ func (o *Orchestrator) PurgeTenant(ctx context.Context, tenantID uuid.UUID, by *
 		State:       StateRequested,
 		RequestedBy: by,
 	}
+	return o.create(ctx, job)
+}
+
+// create records a new job claimed for its caller, so a retry pass never takes a job the request
+// that made it is about to run.
+func (o *Orchestrator) create(ctx context.Context, job *PurgeJob) (*PurgeJob, error) {
+	o.claim(job)
 	if err := o.jobs.CreateJob(ctx, job); err != nil {
+		o.release(job)
 		return nil, err
 	}
 	if err := o.applyTombstone(ctx, job); err != nil {
+		o.release(job)
 		return nil, err
 	}
 	return job, nil
@@ -143,8 +175,17 @@ func (o *Orchestrator) applyTenantTombstone(ctx context.Context, job *PurgeJob) 
 }
 
 // Run executes the purge stages in order, skipping stages the job's persisted flags mark done.
-// Postgres rows go last so labels and foreign keys stay available while the other stores drain.
+// A job another caller is running returns errPurgeRunning.
 func (o *Orchestrator) Run(ctx context.Context, job *PurgeJob) error {
+	if !o.claim(job) {
+		return errPurgeRunning
+	}
+	defer o.release(job)
+	return o.runStages(ctx, job)
+}
+
+// Postgres rows go last so labels and foreign keys stay available while the other stores drain.
+func (o *Orchestrator) runStages(ctx context.Context, job *PurgeJob) error {
 	if err := o.stageVMDelete(ctx, job); err != nil {
 		return err
 	}
@@ -225,22 +266,37 @@ func (o *Orchestrator) RunInBackground(job *PurgeJob) {
 	}()
 }
 
-// Resume re-applies the tombstone and re-runs every incomplete job after a server restart.
-func (o *Orchestrator) Resume(ctx context.Context) error {
+// Resume re-applies the tombstone and re-runs every incomplete job no other caller is running,
+// from the stage it reached, and returns how many stay incomplete. It runs at start-up and hourly.
+func (o *Orchestrator) Resume(ctx context.Context) (int, error) {
 	jobs, err := o.jobs.ListIncomplete(ctx)
 	if err != nil {
-		return err
+		return 0, err
 	}
+	unfinished := 0
 	for _, job := range jobs {
-		if err := o.applyTombstone(ctx, job); err != nil {
-			o.logger.Error("resume: re-tombstone failed", "job_id", job.ID, "error", err)
-			continue
-		}
-		if err := o.Run(ctx, job); err != nil {
-			o.logger.Error("resume: run failed", "job_id", job.ID, "error", err)
+		if !o.resumeOne(ctx, job) {
+			unfinished++
 		}
 	}
-	return nil
+	return unfinished, nil
+}
+
+// resumeOne reports whether the job is complete once its pass ends.
+func (o *Orchestrator) resumeOne(ctx context.Context, job *PurgeJob) bool {
+	if !o.claim(job) {
+		return false
+	}
+	defer o.release(job)
+	if err := o.applyTombstone(ctx, job); err != nil {
+		o.logger.Error("resume: re-tombstone failed", "job_id", job.ID, "error", err)
+		return false
+	}
+	if err := o.runStages(ctx, job); err != nil {
+		o.logger.Error("resume: run failed", "job_id", job.ID, "error", err)
+		return false
+	}
+	return job.State == StateComplete
 }
 
 func (o *Orchestrator) deletePostgres(ctx context.Context, job *PurgeJob) error {

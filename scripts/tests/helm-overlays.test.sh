@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Tests eviction order and a seeded administrator that survives cleanup, which a load run needs.
+# Tests eviction order and a seeded administrator that survives cleanup, which a load run needs,
+# and the settings and store each environment's render carries.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -249,6 +250,74 @@ expect_env "staging machines dial the release's in-cluster service" \
   "$(server_env opengate-staging "$STAGING" OPENGATE_AGENT_RELAY_URL)" "ws://opengate-staging-server:8080"
 expect_env "staging sessions ask the release's helper, which the load run's machines reach" \
   "$(server_env opengate-staging "$STAGING" OPENGATE_ICE_SERVERS)" "stun:opengate-staging-server:9090"
+
+# Staging's readings live in a store of its own on scratch space; production's chart renders none.
+MONITORING_VALUES="$REPO_ROOT/deploy/helm/monitoring/values.yaml"
+store_findings() { # release, values file
+  RENDER="$(helm template "$1" "$CHART" -f "$2" 2>/dev/null || true)" \
+    python3 - "$1" "$MONITORING_VALUES" <<'PY'
+import os, sys, yaml
+
+release = sys.argv[1]
+with open(sys.argv[2], encoding="utf-8") as handle:
+    monitoring = yaml.safe_load(handle)["victoriametrics"]
+docs = [d for d in yaml.safe_load_all(os.environ["RENDER"]) if d]
+name = release + "-metrics-store"
+kinds = {(d["kind"], d["metadata"]["name"]) for d in docs}
+for kind in ("Deployment", "Service"):
+    print(f"{kind}={(kind, name) in kinds}")
+claims = sorted(n for k, n in kinds if k == "PersistentVolumeClaim" and "metrics-store" in n)
+print("claims=" + ",".join(claims))
+for d in docs:
+    if d["kind"] != "Deployment" or d["metadata"]["name"] != name:
+        continue
+    spec = d["spec"]
+    pod = spec["template"]["spec"]
+    c = pod["containers"][0]
+    r = c.get("resources", {})
+    volumes = pod.get("volumes", [])
+    sources = sorted(k for v in volumes for k in v if k != "name")
+    annotations = spec["template"]["metadata"].get("annotations", {})
+    ctx = pod.get("securityContext", {})
+    print("replicas={} strategy={}".format(spec.get("replicas"), spec.get("strategy", {}).get("type")))
+    print("storage=" + ",".join(sources))
+    print("requests={cpu}/{memory}/{ephemeral-storage}".format(**r.get("requests", {})))
+    print("limits={cpu}/{memory}/{ephemeral-storage}".format(**r.get("limits", {})))
+    print("image_matches={}".format(c["image"] == monitoring["image"]))
+    print("retention_matches={}".format("-retentionPeriod=" + monitoring["retention"] in c.get("args", [])))
+    print("scraped={}".format(annotations.get("prometheus.io/scrape")))
+    read_only = c.get("securityContext", {}).get("readOnlyRootFilesystem")
+    print("non_root={}/{} read_only={}".format(ctx.get("runAsNonRoot"), ctx.get("runAsUser"), read_only))
+PY
+}
+staging_store="$(store_findings opengate-staging "$STAGING")"
+production_store="$(store_findings opengate "$PRODUCTION")"
+expect_line() { # what, findings, wanted line
+  if grep -qxF -- "$3" <<<"$2"; then
+    pass "$1"
+  else
+    fail "$1 (want '$3' in: $(tr '\n' ' ' <<<"$2"))"
+  fi
+}
+expect_line "staging renders its own store" "$staging_store" "Deployment=True"
+expect_line "staging renders the store's Service" "$staging_store" "Service=True"
+expect_line "staging claims no volume for the store" "$staging_store" "claims="
+expect_line "the store's data sits on scratch space" "$staging_store" "storage=emptyDir"
+expect_line "one store replica, replaced rather than doubled" "$staging_store" "replicas=1 strategy=Recreate"
+expect_line "the store reserves 50m, 128Mi and 256Mi of scratch disk" "$staging_store" "requests=50m/128Mi/256Mi"
+expect_line "the store is capped at 250m, 512Mi and 2Gi of scratch disk" "$staging_store" "limits=250m/512Mi/2Gi"
+expect_line "the store runs the image the monitoring chart pins" "$staging_store" "image_matches=True"
+expect_line "the store keeps readings as long as the monitoring store" "$staging_store" "retention_matches=True"
+expect_line "the monitoring stack scrapes the store's own readings" "$staging_store" "scraped=true"
+expect_line "the store runs as the monitoring store's user, on a read-only root" "$staging_store" \
+  "non_root=True/65534 read_only=True"
+expect_line "production renders no store of its own" "$production_store" "Deployment=False"
+expect_env "staging's server writes to its own store" \
+  "$(server_env opengate-staging "$STAGING" OPENGATE_VICTORIAMETRICS_URL)" \
+  "http://opengate-staging-metrics-store.opengate-staging.svc:8428"
+expect_env "production's server writes to the monitoring store" \
+  "$(server_env opengate "$PRODUCTION" OPENGATE_VICTORIAMETRICS_URL)" \
+  "http://monitoring-victoriametrics.monitoring.svc:8428"
 
 echo
 echo "Summary: $PASS passed, $FAIL failed"

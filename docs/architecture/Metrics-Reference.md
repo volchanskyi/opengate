@@ -11,6 +11,7 @@
 - [Database](#database)
 - [The server process](#the-server-process)
 - [Chart reads](#chart-reads)
+- [Data erasure](#data-erasure)
 
 Every Prometheus series the OpenGate server publishes, what it counts, and the
 population it counts over. Names, labels and registration live under
@@ -332,3 +333,14 @@ The read path issues its query at the grid's own instants, so this should stay
 at zero; any non-zero value means the store's evaluation instants and the axis
 the API publishes have diverged, which would shift every charted value into the
 wrong bucket. See [API Reference](./API-Reference.md).
+
+## Data erasure
+
+| Series | Labels | Counts |
+|---|---|---|
+| `opengate_purge_jobs_unfinished` | — | Deletion records not yet complete, as the last hourly retry pass or the start-up pass found them |
+
+Each pass re-runs every unfinished record from the stage it reached, so a reading
+above zero that stays across passes names a store or database that keeps refusing.
+The series carries no machine or tenant label, and no alert rule reads it. What a
+pass does is [Data Erasure](../product/Data-Erasure.md).
