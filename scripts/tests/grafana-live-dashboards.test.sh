@@ -211,6 +211,22 @@ if "edge-sentinel-soak" in docs:
     if "delta(vm_data_size_bytes" not in all_exprs(docs["edge-sentinel-soak"]):
         print("edge-sentinel-soak: the store's growth is not the hourly delta of its size")
 
+# Machine readings live in each environment's own store, so the soak dashboard's two panels that
+# chart them take their data source from a variable that follows the environment.
+READING_PANELS = ["Anomaly rate (node)", "Threshold-alert breaches"]
+if "edge-sentinel-soak" in docs:
+    soak = docs["edge-sentinel-soak"]
+    chooser = [v for v in soak.get("templating", {}).get("list", []) if v.get("name") == "readings"]
+    if len(chooser) != 1 or chooser[0].get("type") != "datasource" or chooser[0].get("query") != "prometheus":
+        print("edge-sentinel-soak: has no Prometheus data source variable named readings")
+    elif "${environment}" not in chooser[0].get("regex", "") and "$environment" not in chooser[0].get("regex", ""):
+        print("edge-sentinel-soak: the readings data source does not follow the environment")
+    for title in READING_PANELS:
+        for panel in by_title(soak, title) or [{"title": title}]:
+            sources = [panel.get("datasource") or {}] + [t.get("datasource") or {} for t in panel.get("targets", [])]
+            if not panel.get("targets") or any(s.get("uid") != "${readings}" for s in sources):
+                print(f"edge-sentinel-soak / {title}: reads machine readings from a store that ignores the environment")
+
 print(f"READ\t{read}")
 PY
 )"
@@ -224,6 +240,39 @@ else
   while IFS= read -r finding; do
     [ -n "$finding" ] && fail "$finding"
   done <<<"$findings"
+fi
+
+# Each environment's readings data source exists under the name the variable's filter picks.
+chart_render="$(helm template monitoring "$REPO_ROOT/deploy/helm/monitoring" 2>/dev/null || true)"
+chart_sources="$(python3 -c '
+import sys, yaml
+for doc in yaml.safe_load_all(sys.stdin):
+    if doc and doc.get("kind") == "ConfigMap" and doc["metadata"]["name"].endswith("-datasources"):
+        sys.stdout.write(doc["data"]["datasources.yml"])
+' <<<"$chart_render")"
+compose_sources="$(cat "$REPO_ROOT/deploy/grafana/provisioning/datasources/datasources.yml")"
+expect_readings_sources() { # where, provisioning text
+  local names environment
+  names="$(python3 -c '
+import sys, yaml
+for ds in (yaml.safe_load(sys.stdin) or {}).get("datasources", []):
+    print(ds.get("name", ""), ds.get("uid", ""))
+' <<<"$2")"
+  for environment in opengate opengate-staging; do
+    if grep -qxF "readings-$environment readings-$environment" <<<"$names"; then
+      pass "the $1 provisions readings-$environment"
+    else
+      fail "the $1 provisions no readings-$environment data source for the soak dashboard"
+    fi
+  done
+}
+expect_readings_sources "monitoring chart" "$chart_sources"
+expect_readings_sources "compose stack" "$compose_sources"
+staging_url="$(grep -oE 'url: http://opengate-staging-metrics-store[^ ]*' <<<"$chart_sources" || true)"
+if [ "$staging_url" = "url: http://opengate-staging-metrics-store.opengate-staging.svc:8428" ]; then
+  pass "the monitoring chart reads staging's readings from staging's store"
+else
+  fail "the monitoring chart's readings-opengate-staging must point at staging's store (got '$staging_url')"
 fi
 
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"

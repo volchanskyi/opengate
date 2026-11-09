@@ -110,6 +110,7 @@ func TestASessionLeftByAMachineThatWentAwayIsReclaimed(t *testing.T) {
 		DBSize:         time.Second,
 		Investigations: time.Second,
 		Reconcile:      time.Hour,
+		PurgeRetry:     time.Hour,
 		SessionSweep:   50 * time.Millisecond,
 		SessionGrace:   time.Nanosecond,
 		IncidentSweep:  time.Hour,

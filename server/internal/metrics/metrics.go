@@ -78,6 +78,9 @@ type Metrics struct {
 	// Chart read path
 	MetricsGridMisalignedTotal prometheus.Counter
 
+	// PurgeJobsUnfinished counts deletion records not yet complete, as the last retry pass found.
+	PurgeJobsUnfinished prometheus.Gauge
+
 	// rules is the rule-id vocabulary bounding the investigation series, set once at start-up.
 	rules atomic.Pointer[ruleVocabulary]
 }
@@ -159,6 +162,9 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 
 		DBSizeBytes: gauge("db_size_bytes",
 			"Database size in bytes (pg_database_size)."),
+
+		PurgeJobsUnfinished: gauge("purge_jobs_unfinished",
+			"Deletion records not yet complete, counted by the last retry pass or at start-up."),
 
 		DeviceLogPullsTotal: counterVec("device_log_pulls_total",
 			"Total on-demand raw-log broker pulls by outcome. The ok series is the audited pull count.",
@@ -250,6 +256,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		m.DirectLinkOutcomesTotal,
 		m.HelperRequestsTotal,
 		m.MetricsGridMisalignedTotal,
+		m.PurgeJobsUnfinished,
 	)
 	reg.MustRegister(newRegistrationAndPoolMetrics(m)...)
 	seedRegistrationAndPoolMetrics(m)

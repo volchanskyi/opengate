@@ -147,7 +147,9 @@ func TestOrchestratorResumesAfterMidPurgeCrash(t *testing.T) {
 
 	assertNoSeries(t, f, ctx, tenant, &device, "VM delete already issued before the crash")
 
-	require.NoError(t, crashOrch.Resume(ctx))
+	unfinished, err := crashOrch.Resume(ctx)
+	require.NoError(t, err)
+	assert.Zero(t, unfinished, "the resumed job completes")
 	assertJobComplete(t, f, ctx, job.ID)
 	assert.Zero(t, countRows(t, f, dbtx.WithTenant(ctx, tenant, true), qDevices, device))
 }

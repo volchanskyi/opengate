@@ -19,6 +19,19 @@ data:
         url: http://{{ $vm }}:8428
         isDefault: true
         editable: false
+      # Each environment's machine readings, named for the environment the soak dashboard picks.
+      - uid: readings-opengate
+        name: readings-opengate
+        type: prometheus
+        access: proxy
+        url: http://{{ $vm }}:8428
+        editable: false
+      - uid: readings-opengate-staging
+        name: readings-opengate-staging
+        type: prometheus
+        access: proxy
+        url: {{ .Values.grafana.stagingReadingsURL }}
+        editable: false
       - uid: Loki
         name: Loki
         type: loki

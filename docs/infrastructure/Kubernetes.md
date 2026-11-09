@@ -62,6 +62,7 @@ templates render:
 | The database | StatefulSet + headless Service + `oci-bv` PVC |
 | Backups | CronJob (`pg_dump` → OCI Object Storage via a write-only PAR; [ADR-035](../adr/ADR-035-block-volume-budget.md)) |
 | The HTTP edge | `Ingress` (ingress-nginx); the cert-manager `ClusterIssuer` is rendered from the chart but applied by [the cluster job](#the-cluster-job) |
+| A metrics store of the release's own, where `metricsStore.enabled` (staging) | Deployment on an `emptyDir` + ClusterIP Service; it holds that environment's machine readings ([Monitoring](./Monitoring.md#what-the-server-reports)) |
 
 The address machines dial for a session is `server.agentRelayURL`, defaulting to
 the release's own in-cluster service, and the session helpers the server names

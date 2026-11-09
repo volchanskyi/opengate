@@ -4,14 +4,16 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"github.com/volchanskyi/opengate/server/internal/auth"
 	"io"
 	"log/slog"
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/rules"
@@ -24,6 +26,7 @@ var testSchedule = BackgroundSchedule{
 	DBSize:         60 * time.Second,
 	Investigations: time.Minute,
 	Reconcile:      time.Hour,
+	PurgeRetry:     time.Hour,
 	SessionSweep:   time.Minute,
 	SessionGrace:   5 * time.Minute,
 	IncidentSweep:  5 * time.Minute,
@@ -324,4 +327,42 @@ func TestTheConsoleSessionSweepCutsAtBothLimits(t *testing.T) {
 
 	assert.Equal(t, now.Add(-auth.ConsoleIdleLimit), collector.idleBefore)
 	assert.Equal(t, now.Add(-auth.ConsoleTotalLimit), collector.startedBefore)
+}
+
+// countingResumer leaves a fixed number of deletions unfinished, or fails, and ends the loop.
+type countingResumer struct {
+	left  int
+	err   error
+	after func()
+}
+
+func (r *countingResumer) Resume(context.Context) (int, error) {
+	r.after()
+	return r.left, r.err
+}
+
+func TestAPurgeRetryPublishesWhatStaysUnfinished(t *testing.T) {
+	for name, tc := range map[string]struct {
+		resumer *countingResumer
+		want    float64
+		says    string
+	}{
+		"deletions left":   {resumer: &countingResumer{left: 2}, want: 2, says: "deletions still unfinished after the retry"},
+		"a failed listing": {resumer: &countingResumer{err: errors.New("database gone")}, want: 7, says: "purge retry failed"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			logger, said := recordingLogger()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			tc.resumer.after = cancel
+			// A gauge read before the pass, which a failed pass leaves as it was.
+			unfinished := prometheus.NewGauge(prometheus.GaugeOpts{Name: "unfinished"})
+			unfinished.Set(7)
+
+			startPurgeRetryLoop(ctx, time.Millisecond, tc.resumer, unfinished, logger)
+
+			assert.InDelta(t, tc.want, promtestutil.ToFloat64(unfinished), 0)
+			assert.Contains(t, said.String(), tc.says)
+		})
+	}
 }

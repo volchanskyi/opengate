@@ -9,6 +9,21 @@ datasources:
     isDefault: true
     editable: false
 
+  # Each environment's machine readings; this stack's one store holds both.
+  - uid: readings-opengate
+    name: readings-opengate
+    type: prometheus
+    access: proxy
+    url: http://opengate-victoriametrics:8428
+    editable: false
+
+  - uid: readings-opengate-staging
+    name: readings-opengate-staging
+    type: prometheus
+    access: proxy
+    url: http://opengate-victoriametrics:8428
+    editable: false
+
   - uid: Loki
     name: Loki
     type: loki

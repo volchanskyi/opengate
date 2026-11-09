@@ -21,3 +21,8 @@ func TestInvestigationsRefreshIsSlowerThanTheScrape(t *testing.T) {
 	assert.GreaterOrEqual(t, productionSchedule.Investigations, 30*time.Second,
 		"a count over tables that only grow is not recomputed at scrape speed")
 }
+
+func TestAnUnfinishedDeletionIsRetriedWithinTheHour(t *testing.T) {
+	assert.Equal(t, time.Hour, productionSchedule.PurgeRetry,
+		"a deletion stopped part-way is finished within the hour, not at the next restart")
+}

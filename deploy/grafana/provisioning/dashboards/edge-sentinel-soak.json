@@ -42,7 +42,7 @@
       ]
     },
     {
-      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "datasource": { "type": "prometheus", "uid": "${readings}" },
       "description": "Node anomaly rate, averaged across the machines that reported it (opengate_edge_node_anomaly_rate, written by the server from each machine's health summary). Under soak this stays low; it is the product signal the whole path exists to carry. Empty means no machine reported in the window.",
       "fieldConfig": {
         "defaults": {
@@ -70,7 +70,7 @@
       "type": "timeseries",
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "datasource": { "type": "prometheus", "uid": "${readings}" },
           "expr": "avg(opengate_edge_node_anomaly_rate{namespace=\"$environment\"})",
           "legendFormat": "node (avg)",
           "refId": "A"
@@ -308,7 +308,7 @@
       ]
     },
     {
-      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "datasource": { "type": "prometheus", "uid": "${readings}" },
       "description": "Declarative threshold-alert breaches currently firing across the fleet (opengate_edge_alert_breach). Each firing rule emits a sample per throttled window while it breaches, so the count is the number of active breach series. Investigation-aid only — no auto-notify.",
       "fieldConfig": {
         "defaults": {
@@ -336,13 +336,13 @@
       "type": "timeseries",
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "datasource": { "type": "prometheus", "uid": "${readings}" },
           "expr": "count(opengate_edge_alert_breach{namespace=\"$environment\"})",
           "legendFormat": "active breaches",
           "refId": "A"
         },
         {
-          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "datasource": { "type": "prometheus", "uid": "${readings}" },
           "expr": "count by (rule) (opengate_edge_alert_breach{namespace=\"$environment\"})",
           "legendFormat": "{{rule}}",
           "refId": "B"
@@ -357,7 +357,7 @@
       {
         "name": "environment",
         "label": "Environment",
-        "description": "Production and staging write into one store. Every panel reads the one chosen here.",
+        "description": "Every panel reads the environment chosen here; its machine readings come from that environment's own store.",
         "type": "custom",
         "query": "Production : opengate, Staging : opengate-staging",
         "current": { "selected": true, "text": "Production", "value": "opengate" },
@@ -368,6 +368,17 @@
         "multi": false,
         "includeAll": false,
         "hide": 0
+      },
+      {
+        "name": "readings",
+        "label": "Readings store",
+        "description": "The store holding the chosen environment's machine readings.",
+        "type": "datasource",
+        "query": "prometheus",
+        "regex": "/^readings-${environment}$/",
+        "multi": false,
+        "includeAll": false,
+        "hide": 2
       }
     ]
   },

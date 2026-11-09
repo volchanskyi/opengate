@@ -80,6 +80,11 @@ then the database row last — so a crash mid-purge leaves the subject marked
 deleted rather than half-alive. Each stage is guarded, so an interrupted job
 resumes safely from where it stopped.
 
+**An unfinished erasure is finished within the hour.** If the metric store or the
+database stops answering partway, or the server stops, the job is run again from
+the stage it reached at the next hourly pass, and at every server start, until it
+completes.
+
 ## Nothing comes back
 
 Every purge first records the subject in a permanent deny-list. Every write path
@@ -94,9 +99,11 @@ re-create purged data:
 The deny-list holds identifiers and the scope of the purge — never telemetry — so
 it is kept indefinitely at negligible cost.
 
-A periodic sweep also removes any metric series whose device no longer exists, as
+An hourly sweep also removes any metric series whose device no longer exists, as
 a second line of defence: the stores are not one transaction, so a partially
-failed purge is caught rather than left behind.
+failed purge is caught rather than left behind. The sweep and every erasure touch
+only the readings their own installation wrote, even where two installations
+share one metric store.
 
 ## The machine's own copy
 

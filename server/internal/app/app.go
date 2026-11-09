@@ -155,6 +155,8 @@ type Assembly struct {
 	Purger     api.DevicePurger
 	PurgeJobs  api.PurgeJobReader
 	Reconciler *lifecycle.Reconciler
+	// pendingPurges re-runs deletion records stopped part-way; nil beside a nil Purger.
+	pendingPurges purgeResumer
 
 	// SigningKeys and Manifests are the agent-update publishing path.
 	SigningKeys *updater.SigningKeys
@@ -335,7 +337,7 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 		Logger:        logger,
 	})
 
-	purger, purgeJobs, reconciler := buildPurgeOrchestrator(ctx, purgeDeps{
+	purge := buildPurgeOrchestrator(ctx, purgeDeps{
 		agentSrv:        agentSrv,
 		db:              store.DB(),
 		tombstones:      tombstoneStore,
@@ -343,6 +345,7 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 		seriesPurger:    telemetryPorts.purger,
 		seriesInventory: telemetryPorts.inventory,
 		investigations:  alertStore,
+		metrics:         appMetrics,
 		logger:          logger,
 	})
 
@@ -391,8 +394,8 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 		AMT:                   management,
 		Cert:                  deviceIssuer,
 		TelemetryReader:       telemetryPorts.reader,
-		Purger:                purger,
-		PurgeJobs:             purgeJobs,
+		Purger:                purge.purger,
+		PurgeJobs:             purge.jobs,
 		Relay:                 agentRelay,
 		Signaling:             sigConfig,
 		Notifier:              notifier,
@@ -442,9 +445,10 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 		JWT:             jwtCfg,
 		Alerts:          alertStore,
 		Rules:           ruleCatalogue,
-		Purger:          purger,
-		PurgeJobs:       purgeJobs,
-		Reconciler:      reconciler,
+		Purger:          purge.purger,
+		PurgeJobs:       purge.jobs,
+		Reconciler:      purge.reconciler,
+		pendingPurges:   purge.resumer,
 		SigningKeys:     signingKeys,
 		Manifests:       manifestStore,
 		Store:           store,
@@ -574,14 +578,23 @@ type purgeDeps struct {
 	// investigations repairs the incident bookkeeping a device erasure leaves
 	// behind, which the foreign-key cascade cannot reach.
 	investigations lifecycle.InvestigationPurger
+	metrics        *appmetrics.Metrics
 	logger         *slog.Logger
+}
+
+// purgePorts are the erasure path's faces; every one is nil without a metrics store.
+type purgePorts struct {
+	purger     api.DevicePurger
+	jobs       api.PurgeJobReader
+	reconciler *lifecycle.Reconciler
+	resumer    purgeResumer
 }
 
 // buildPurgeOrchestrator wires the purge orchestrator and its reconciliation sweep.
 // Without a metrics store it returns nils and the server refuses device deletes.
-func buildPurgeOrchestrator(ctx context.Context, d purgeDeps) (api.DevicePurger, api.PurgeJobReader, *lifecycle.Reconciler) {
+func buildPurgeOrchestrator(ctx context.Context, d purgeDeps) purgePorts {
 	if d.seriesPurger == nil {
-		return nil, nil, nil
+		return purgePorts{}
 	}
 	orchestrator := lifecycle.NewOrchestrator(lifecycle.OrchestratorConfig{
 		Tombstones: d.tombstones,
@@ -599,10 +612,12 @@ func buildPurgeOrchestrator(ctx context.Context, d purgeDeps) (api.DevicePurger,
 	if err := d.agentSrv.WarmTombstones(startupCtx); err != nil {
 		d.logger.Error("warm tombstone deny-list", "error", err)
 	}
-	if err := orchestrator.Resume(startupCtx); err != nil {
+	if unfinished, err := orchestrator.Resume(startupCtx); err != nil {
 		d.logger.Error("resume interrupted purges", "error", err)
+	} else {
+		d.metrics.PurgeJobsUnfinished.Set(float64(unfinished))
 	}
-	return orchestrator, d.jobs, reconciler
+	return purgePorts{purger: orchestrator, jobs: d.jobs, reconciler: reconciler, resumer: orchestrator}
 }
 
 // startupWorkBudget bounds the database work Build does before returning.

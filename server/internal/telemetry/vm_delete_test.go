@@ -146,15 +146,16 @@ func TestSubjectSelector(t *testing.T) {
 	tenant := uuid.MustParse("11111111-1111-1111-1111-111111111111")
 	device := uuid.MustParse("22222222-2222-2222-2222-222222222222")
 
-	got, err := subjectSelector(tenant, nil)
+	client := NewVMClient("http://127.0.0.1:0", nil)
+	got, err := client.subjectSelector(tenant, nil)
 	require.NoError(t, err)
 	assert.Equal(t, `{tenant_id="`+tenant.String()+`"}`, got)
 
-	got, err = subjectSelector(tenant, &device)
+	got, err = client.subjectSelector(tenant, &device)
 	require.NoError(t, err)
 	assert.Equal(t, `{tenant_id="`+tenant.String()+`",device_id="`+device.String()+`"}`, got)
 
-	_, err = subjectSelector(uuid.Nil, nil)
+	_, err = client.subjectSelector(uuid.Nil, nil)
 	require.Error(t, err)
 
 	v := url.Values{}

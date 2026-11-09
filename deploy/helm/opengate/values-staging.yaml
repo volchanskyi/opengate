@@ -20,6 +20,8 @@ server:
   # The load run's machines reach the helper in the cluster; a browser outside it stays on the relay.
   iceServers:
     - stun:opengate-staging-server:9090
+  # Staging's machine readings live in its own store, so neither environment's sweep sees the other's.
+  victoriaMetricsURL: "http://opengate-staging-metrics-store.opengate-staging.svc:8428"
   # Production's own shape, with requests equal to limits so the pod is not evicted early
   # during a load run.
   resources:
@@ -48,6 +50,9 @@ postgres:
     size: 5Gi
   backup:
     enabled: false
+
+metricsStore:
+  enabled: true
 
 # The database starts empty on every pod restart, so the account is re-seeded on each deployment.
 loadTest:

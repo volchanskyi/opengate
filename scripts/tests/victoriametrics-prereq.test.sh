@@ -120,6 +120,10 @@ MK_VM_IMAGE="$(grep -oE 'victoriametrics/victoria-metrics:[^ \\]+' "$ROOT/Makefi
 assert_eq "Makefile VictoriaMetrics image matches testvm's pin" "$GO_VM_IMAGE" "$MK_VM_IMAGE"
 STACK_VM_IMAGE="$(grep -oE 'image: victoriametrics/victoria-metrics:[^ ]+' "$ROOT/deploy/docker-compose.test.yml" | cut -d' ' -f2 || true)"
 assert_eq "the end-to-end stack's VictoriaMetrics image matches testvm's pin" "$GO_VM_IMAGE" "$STACK_VM_IMAGE"
+MONITORING_VM_IMAGE="$(sed -n 's/^  image: docker\.io\/\(victoriametrics\/victoria-metrics:.*\)$/\1/p' "$ROOT/deploy/helm/monitoring/values.yaml")"
+assert_eq "the monitoring store's image matches testvm's pin" "$GO_VM_IMAGE" "$MONITORING_VM_IMAGE"
+STAGING_VM_IMAGE="$(sed -n 's/^  image: docker\.io\/\(victoriametrics\/victoria-metrics:.*\)$/\1/p' "$ROOT/deploy/helm/opengate/values.yaml")"
+assert_eq "staging's store image matches testvm's pin" "$GO_VM_IMAGE" "$STAGING_VM_IMAGE"
 if grep -qE '^victoriametrics-test-up:' "$ROOT/Makefile"; then
   pass "make victoriametrics-test-up exists for vm_ensure_up to call"
 else

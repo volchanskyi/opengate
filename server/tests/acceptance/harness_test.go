@@ -90,6 +90,7 @@ func (p *Product) Advance(d time.Duration) {
 type productOptions struct {
 	numericTelemetry bool
 	sweeps           *app.BackgroundSchedule
+	environment      string
 }
 
 // ProductOption narrows or widens what newProduct stands up.
@@ -98,6 +99,11 @@ type ProductOption func(*productOptions)
 // WithNumericTelemetry gives the product a real metrics store, which costs a container.
 func WithNumericTelemetry() ProductOption {
 	return func(o *productOptions) { o.numericTelemetry = true }
+}
+
+// WithEnvironment names the environment the product runs in, which it stamps on every reading.
+func WithEnvironment(name string) ProductOption {
+	return func(o *productOptions) { o.environment = name }
 }
 
 // WithSweeps runs the product's periodic workers on the caller's cadence, which is far
@@ -128,6 +134,7 @@ func newProduct(t *testing.T, opts ...ProductOption) *Product {
 		AMTOperator:    hardware,
 		AgentRelayBase: machinesRelayBase,
 		Helpers:        sessionHelper,
+		Namespace:      options.environment,
 	}
 	var readingStore *telemetry.VMClient
 	if options.numericTelemetry {

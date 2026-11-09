@@ -40,6 +40,7 @@ flowchart LR
       Server[OpenGate server pods]
       PG[PostgreSQL StatefulSet, one per namespace]
       PgExporter[Postgres exporter Deployment, one per namespace]
+      StagingVM[Staging's VictoriaMetrics Deployment, on scratch space]
     end
 
     subgraph Mon[monitoring namespace]
@@ -52,13 +53,16 @@ flowchart LR
   end
 
   VM -- kubernetes_sd scrape --> Server
-  Server -- Edge Sentinel import, stamped with its namespace --> VM
+  Server -- production's machine readings, stamped with its namespace --> VM
+  Server -- staging's machine readings, stamped with its namespace --> StagingVM
+  VM -- pod scrape --> StagingVM
   VM -- scrape --> NodeExporter
   VM -- pod scrape --> PgExporter
   VM -- scrapes itself --> VM
   PgExporter -- SQL metrics --> PG
   Promtail -- pod logs --> Loki
   Grafana -- PromQL, one environment at a time --> VM
+  Grafana -- staging's machine readings --> StagingVM
   Grafana -- LogQL --> Loki
   Grafana -- alerts --> Telegram[Telegram Bot API]
   Nightly[Benchmark / mutation / PMAT / drift / load-test / drill / perf-stack / soak workflows] -- kubectl VM push --> VM
@@ -135,6 +139,10 @@ The intended free-tier storage model is recorded in
 [ADR-035](../adr/ADR-035-block-volume-budget.md):
 
 - VictoriaMetrics and Loki keep block-backed PVCs.
+- Staging's own store keeps its machine readings on the node's scratch disk, under
+  the cap in the app chart's
+  [`values.yaml`](../../deploy/helm/opengate/values.yaml), and starts empty when
+  its pod is replaced.
 - Grafana uses `emptyDir`; dashboards, datasources, and alerting config are
   provisioned from ConfigMaps.
 - Uptime Kuma is not deployed in-cluster; public uptime monitoring is external.
@@ -199,9 +207,17 @@ and the scoped client lives in
 [`server/internal/telemetry`](../../server/internal/telemetry). VM reads go through
 that client so the server injects the authoritative `tenant_id` matcher. Every
 sample it writes carries the `namespace` the server runs in, which the chart
-hands it from the cluster, so production's and staging's readings stay apart on
-a dashboard; every read the server makes groups that label away, so a device's
-chart is one line across the readings written before and after it.
+hands it from the cluster; every read the server makes groups that label away, so
+a device's chart is one line across the readings written before and after it.
+
+Production writes its machine readings to the monitoring store, and staging to a
+store of its own in its namespace
+([`metrics-store-deployment.yaml`](../../deploy/helm/opengate/templates/metrics-store-deployment.yaml)),
+named by `server.victoriaMetricsURL` in
+[`values-staging.yaml`](../../deploy/helm/opengate/values-staging.yaml). Every
+selector a deletion or the hourly orphan sweep builds also names the server's own
+`namespace`, so neither environment ever erases the other's machines
+([ADR-054](../adr/ADR-054-data-lifecycle.md)).
 
 Host logs are edge-stored and server-proxied: raw lines stay on the device, are
 read on demand through the transient broker, and are never centralized. The
@@ -358,7 +374,10 @@ The **Edge-Sentinel Soak**
 Grafana dashboard charts these alongside anomaly rate, VM cardinality + disk
 growth, and control-plane query p99 over the VM datasource. The
 `opengate_*` series come from the server exposition scrape; the `vm_*` series
-come from the store scraping itself, under the `monitoring` namespace.
+come from the store scraping itself, under the `monitoring` namespace. The two
+panels charting machine readings, anomaly rate and threshold-alert breaches, read
+the chosen environment's own store through the `readings-<environment>` data
+source the Environment selector picks.
 
 ### Cold storage
 
