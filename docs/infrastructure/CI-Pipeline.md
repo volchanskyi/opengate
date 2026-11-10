@@ -471,7 +471,7 @@ judged by; a held leg fails only when it is past its line on two of its last thr
 nights. Each sample's workload label carries a digest of the profile it ran, so a
 change in what a leg offers starts a fresh window. Every leg, a failed one
 included, also records what the runner did — its processor model, processor steal
-and the server container's throttling counters
+and the server container's throttling counters, or that the server stopped
 ([`perf-runner-record.sh`](../../scripts/perf-runner-record.sh)) — so a slow night
 says whether the machine or the code was slow, and its samples carry the processor
 model as a `processor` label. Each run writes a summary table of every limit

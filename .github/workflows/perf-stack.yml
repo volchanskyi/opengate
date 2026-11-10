@@ -781,16 +781,19 @@ jobs:
           /tmp/storeprobe -mode=probe -store=http://127.0.0.1:8428 -senders=2 -duration=15m \
             -store-cpus="$PERF_METRICS_CPUS" -store-memory-bytes="$PERF_METRICS_MEMORY_BYTES" -out=/tmp/probe-two.json
 
-      # The kernel's account of the store decides whether it ran out of memory.
+      # The kernel's account of the store decides whether it ran out of memory. The readings are
+      # written into the uploaded bundle directory, so the fleet walk after them cannot take them.
       - name: Gather the store probe's readings
         if: always() && steps.stack.outcome == 'success'
         run: |
           set -euo pipefail
           oom="$(docker inspect -f '{{.State.OOMKilled}}' opengate-perf-metrics)"
           for part in quiet one two; do [ -s "/tmp/probe-$part.json" ] || echo '{}' >"/tmp/probe-$part.json"; done
+          mkdir -p "$PERF_BUNDLE_DIR/catch-up"
           jq -n --argjson oom "$oom" --slurpfile quiet /tmp/probe-quiet.json \
             --slurpfile one /tmp/probe-one.json --slurpfile two /tmp/probe-two.json \
-            '{oom_killed: $oom, quiet: $quiet[0], one_sender: $one[0], two_senders: $two[0]}' >/tmp/store-probe.json
+            '{oom_killed: $oom, quiet: $quiet[0], one_sender: $one[0], two_senders: $two[0]}' \
+            >"$PERF_BUNDLE_DIR/catch-up/store-probe.json"
 
       # The store's log is read here, before the fleet's store replaces its container.
       - name: Show the store's state
@@ -856,18 +859,30 @@ jobs:
           # The stack is per-run and reachable only from the runner; the password is generated per run.
           PERF_FIXTURE_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-Perf!
 
+      # The probe ran before the walk, so its readings reach the bundle whatever the walk did.
+      - name: Fold the store probe's readings into the bundle
+        if: always() && steps.stack.outcome == 'success'
+        run: |
+          scripts/loadtest-bundle-merge.sh "$PERF_BUNDLE_DIR/catch-up/bundle.json" \
+            --probe "$PERF_BUNDLE_DIR/catch-up/store-probe.json"
+
+      # A server that stopped during the walk took its cgroup with it; the runner is still read.
       - name: Record what the runner and the server's allowance did
         if: always() && steps.stack.outcome == 'success'
         run: |
           set -euo pipefail
-          scripts/perf-runner-record.sh snapshot \
-            "$(scripts/database-levels.sh cgroup-of opengate-perf-server)" /tmp/runner-after.json
+          if [ "$(docker inspect -f '{{.State.Running}}' opengate-perf-server)" = true ]; then
+            scripts/perf-runner-record.sh snapshot \
+              "$(scripts/database-levels.sh cgroup-of opengate-perf-server)" /tmp/runner-after.json
+          else
+            scripts/perf-runner-record.sh snapshot --server-stopped /tmp/runner-after.json
+          fi
           scripts/perf-runner-record.sh delta /tmp/runner-before.json /tmp/runner-after.json >/tmp/runner-delta.json
           jq --slurpfile bench /tmp/cpu-benchmark.json \
             '.cpu_benchmark_rounds_per_second = $bench[0].rounds_per_second' /tmp/runner-delta.json >/tmp/runner.json
           BUNDLE="$PERF_BUNDLE_DIR/catch-up/bundle.json"
           if [ -s "$BUNDLE" ]; then
-            scripts/loadtest-bundle-merge.sh "$BUNDLE" --runner /tmp/runner.json --probe /tmp/store-probe.json
+            scripts/loadtest-bundle-merge.sh "$BUNDLE" --runner /tmp/runner.json
           fi
           jq -r '"Runner: \(.processor_model), \(.cpu_benchmark_rounds_per_second | floor) benchmark rounds a second at a quarter processor, steal \(.steal_percent)%"' \
             /tmp/runner.json | tee -a "$GITHUB_STEP_SUMMARY"
