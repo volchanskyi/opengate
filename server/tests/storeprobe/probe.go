@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -22,6 +23,9 @@ const requestBytes = 256 * 1024
 // livePromise is the delay a live reading is promised within.
 const livePromise = 5 * time.Second
 
+// storeReadTimeout bounds one read of the store's own figures, a Prometheus scrape's default limit.
+const storeReadTimeout = 10 * time.Second
+
 // probeConfig is one probe run against the store at store.
 type probeConfig struct {
 	store        string
@@ -34,6 +38,8 @@ type probeConfig struct {
 	quiet        time.Duration
 	cpuLimit     float64
 	memoryLimit  float64
+	// statusTimeout bounds each read of the store's own figures; zero waits as long as the store.
+	statusTimeout time.Duration
 }
 
 // CatchUpReading is what the catch-up senders put into the store.
@@ -53,11 +59,12 @@ type LiveReading struct {
 }
 
 // StoreReading is the store's own account of the run: its largest resident memory against its
-// limit, and whether it started again.
+// limit, whether it started again, and whether it stopped answering for its figures.
 type StoreReading struct {
 	PeakMemoryBytes  float64 `json:"peak_memory_bytes"`
 	MemoryLimitBytes float64 `json:"memory_limit_bytes"`
 	Restarted        bool    `json:"restarted"`
+	StoppedAnswering bool    `json:"stopped_answering"`
 }
 
 // ProbeReading is one probe run.
@@ -88,7 +95,7 @@ func readStore(ctx context.Context, cfg probeConfig) (storeState, error) {
 	if err != nil {
 		return storeState{}, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := (&http.Client{Timeout: cfg.statusTimeout}).Do(req)
 	if err != nil {
 		return storeState{}, err
 	}
@@ -172,7 +179,9 @@ func (im importer) send(ctx context.Context, body []byte) error {
 func runProbe(ctx context.Context, cfg probeConfig) (ProbeReading, error) {
 	before, err := readStore(ctx, cfg)
 	if err != nil {
-		return ProbeReading{}, err
+		fmt.Fprintf(os.Stderr, "storeprobe: the store did not answer before the probe: %v\n", err)
+		return ProbeReading{Senders: cfg.senders, RequestBytes: cfg.requestBytes,
+			Store: StoreReading{MemoryLimitBytes: cfg.memoryLimit, StoppedAnswering: true}}, nil
 	}
 	im := importer{url: cfg.store + "/api/v1/import/prometheus", client: &http.Client{Timeout: 30 * time.Second}}
 	runCtx, cancel := context.WithTimeout(ctx, cfg.duration)
@@ -219,14 +228,19 @@ func runProbe(ctx context.Context, cfg probeConfig) (ProbeReading, error) {
 	elapsed := time.Since(started).Seconds()
 
 	after, err := readStore(ctx, cfg)
-	restarted := err != nil || after.started != before.started
+	stopped := err != nil
+	if stopped {
+		fmt.Fprintf(os.Stderr, "storeprobe: the store did not answer after the probe: %v\n", err)
+	}
+	restarted := !stopped && after.started != before.started
 	peak.Store(max(peak.Load(), uint64(after.residentBytes)))
 	catchUp = CatchUpReading{Requests: requests.Load(), Readings: readings.Load(), Failed: failed.Load(),
 		ReadingsPerSecond: float64(readings.Load()) / elapsed}
 	return ProbeReading{
 		Senders: cfg.senders, DurationSeconds: elapsed, RequestBytes: cfg.requestBytes,
 		CatchUp: catchUp, Live: live.reading(),
-		Store: StoreReading{PeakMemoryBytes: float64(peak.Load()), MemoryLimitBytes: cfg.memoryLimit, Restarted: restarted},
+		Store: StoreReading{PeakMemoryBytes: float64(peak.Load()), MemoryLimitBytes: cfg.memoryLimit,
+			Restarted: restarted, StoppedAnswering: stopped},
 	}, nil
 }
 

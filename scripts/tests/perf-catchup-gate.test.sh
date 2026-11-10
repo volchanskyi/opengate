@@ -66,6 +66,9 @@ for case in \
   '.store_probe.one_sender.duration_seconds = 600|15 minutes' \
   '.store_probe.oom_killed = true|ran out of memory' \
   '.store_probe.one_sender.store.restarted = true|started again' \
+  '.store_probe.one_sender.store.stopped_answering = true|stopped answering with one sender' \
+  '.store_probe.two_senders.store.stopped_answering = true|stopped answering with two senders' \
+  '.store_probe.one_sender = {senders: 1, duration_seconds: 0, request_bytes: 262144, catch_up: {requests: 0, readings: 0, failed: 0, readings_per_second: 0}, live: {requests: 0, readings: 0, within_five_seconds: 0, p99_ms: 0}, store: {peak_memory_bytes: 0, memory_limit_bytes: 536870912, restarted: false, stopped_answering: true}}|stopped answering with one sender' \
   '.store_probe.one_sender.live.within_five_seconds = 890|99%' \
   '.store_probe.quiet.cpu_share = 0.5|half its processor' \
   '.store_probe.quiet.memory_share = 0.51|half its memory'; do

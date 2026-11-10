@@ -32,6 +32,8 @@ missed="$(jq -r '
         "the probe wrote for \($one.duration_seconds | floor) s, short of 15 minutes" else empty end),
       (if $p.oom_killed then "the store ran out of memory" else empty end),
       (if $one.store.restarted then "the store started again during the probe" else empty end),
+      (if $one.store.stopped_answering then "the store stopped answering with one sender" else empty end),
+      (if $p.two_senders.store.stopped_answering then "the store stopped answering with two senders" else empty end),
       (if ($one.live.requests == 0) or ($one.live.within_five_seconds / $one.live.requests < 0.99) then
         "\($one.live.within_five_seconds) of \($one.live.requests) live-shaped requests were accepted within 5 s, under 99%" else empty end),
       (if $p.quiet.cpu_share >= 0.5 then
