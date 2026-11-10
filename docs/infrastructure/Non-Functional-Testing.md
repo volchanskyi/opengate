@@ -669,8 +669,11 @@ The store probe is the go/no-go for the shared writer, judged by
 reading of the leg that fails the night; the fleet's figures and the two-sender
 probe's rate and live timing are published to the Performance Stack Trends
 dashboard and judge nothing, and a store that stopped answering under either
-probe is a no-go. The probe and the runner's benchmark are published whatever the
-fleet's verdict
+probe is a no-go. The probe's readings are written into the leg's uploaded
+bundle directory the moment it ends, and folded into the bundle after the walk
+whatever became of the server, so a server that dies in the fleet walk leaves
+the go/no-go its reading. The probe and the runner's benchmark are published
+whatever the fleet's verdict
 ([`perf-vm-push.sh`](../../scripts/perf-vm-push.sh)), since they read the store
 and the runner; a fleet run that measured nothing keeps only its own figures
 out.

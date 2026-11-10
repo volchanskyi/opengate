@@ -263,6 +263,48 @@ else
   fail "runner record: $unrecorded"
 fi
 
+# The store's readings reach the uploaded bundle whatever became of the server after the probe,
+# and the runner's record of a stopped server still carries the runner.
+probe_problems="$(
+  python3 - "$WORKFLOW" <<'PY_PROBE'
+import re
+import sys
+
+import yaml
+
+steps = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))["jobs"]["catch-up"]["steps"]
+runs = [str(s.get("run", "")) for s in steps]
+fold = [i for i, run in enumerate(runs) if "--probe" in run]
+judge = next((i for i, run in enumerate(runs) if "perf-catchup-gate.sh" in run), None)
+upload = [s for s in steps if "upload-artifact" in str(s.get("uses", ""))]
+if len(fold) != 1:
+    print(f"{len(fold)} steps fold the store's readings in, where one does")
+else:
+    run, condition = runs[fold[0]], str(steps[fold[0]].get("if", ""))
+    path = re.search(r'--probe\s+"?([^"\s]+)"?', run).group(1)
+    if not path.startswith("$PERF_BUNDLE_DIR/"):
+        print(f"the store's readings sit at {path}, outside the uploaded bundle directory")
+    elif not any(path in r for r in runs[: fold[0]] if "jq -n" in r):
+        print(f"no step before the fold writes the store's readings to {path}")
+    if "perf-runner-record.sh" in run or "cgroup-of" in run:
+        print("the fold waits on the server's counters, which a stopped server cannot give")
+    if "always()" not in condition or "steps.stack.outcome == 'success'" not in condition:
+        print(f"the fold runs only on a walk that passed ({condition or 'no if'})")
+    if judge is None or judge < fold[0]:
+        print("the go/no-go is judged before the store's readings are folded in")
+if not upload or str(upload[0].get("with", {}).get("path", "")) != "${{ env.PERF_BUNDLE_DIR }}":
+    print("the upload carries something other than the whole bundle directory")
+record = [run for run in runs if "perf-runner-record.sh delta" in run]
+if not record or "--server-stopped" not in record[0]:
+    print("the runner's record has no reading for a server that stopped")
+PY_PROBE
+)"
+if [ -z "$probe_problems" ]; then
+  pass "the catch-up leg keeps the store's readings whatever became of the server"
+else
+  fail "catch-up store readings:"$'\n'"$probe_problems"
+fi
+
 if grep -q -- '-fixture-account=' <<<"$(job_block scaling)"; then
   pass "the scaling family builds the fleet its profile declares"
 else

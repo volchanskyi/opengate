@@ -81,7 +81,7 @@ two of its last three nights. The performance stack's `workload` label carries a
 digest of the profile file beside its name, so a change in what a leg offers
 starts a fresh window instead of being judged against the old load. Each leg's
 bundle also records what the runner did — its processor model, processor steal,
-and the server container's throttling counters
+and the server container's throttling counters, or that the server stopped
 ([`perf-runner-record.sh`](../../scripts/perf-runner-record.sh)) — on every
 outcome, a failed leg's in its summary, so a slow night can be told apart as the
 machine's or the code's; a leg's samples carry its processor model as a

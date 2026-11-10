@@ -64,6 +64,25 @@ assert_eq "as a share of its periods" "0.3" "$(jq -r '.server_throttled_share' "
 assert_eq "and the time it was held back, in milliseconds" "2000" \
   "$(jq -r '.server_throttled_ms' "$WORK/runner.json")"
 
+assert_eq "a server that ran to the end is recorded as running" "false" \
+  "$(jq -r '.server_stopped' "$WORK/runner.json")"
+
+# The server's cgroup goes with its container, so the second reading of a stopped server has none.
+reading 1100 100 3000 610 2050000
+"$RECORD" snapshot --server-stopped "$WORK/stopped.json"
+"$RECORD" delta "$WORK/before.json" "$WORK/stopped.json" >"$WORK/stopped-runner.json"
+assert_eq "a stopped server leaves the runner's processor model" "AMD EPYC 7763 64-Core Processor" \
+  "$(jq -r '.processor_model' "$WORK/stopped-runner.json")"
+assert_eq "and the runner's steal" "9.09" "$(jq -r '.steal_percent' "$WORK/stopped-runner.json")"
+assert_eq "and says the server stopped" "true" "$(jq -r '.server_stopped' "$WORK/stopped-runner.json")"
+assert_eq "with no throttling claimed for it" "null null null null" \
+  "$(jq -r '"\(.server_periods) \(.server_throttled_periods) \(.server_throttled_share) \(.server_throttled_ms)"' \
+    "$WORK/stopped-runner.json")"
+
+rc=0
+"$RECORD" snapshot --server-stopped "$WORK/x.json" extra 2>/dev/null || rc=$?
+assert_eq "a stopped-server reading takes one output path" "2" "$rc"
+
 rc=0
 "$RECORD" snapshot "$WORK/no-such-cgroup" "$WORK/x.json" 2>/dev/null || rc=$?
 assert_eq "a cgroup with no processor counters is refused" "1" "$rc"
