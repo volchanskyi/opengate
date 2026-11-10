@@ -112,6 +112,7 @@ governs everything else, and which version changes any dependency takes.
   to act on, in plain language, saying what changes, why, and what it risks. An
   approval covers the one change it names.
 - A plan, an audit, a Dependabot pull request or a failing gate is not an approval.
+- No workflow merges a pull request: every Dependabot pull request waits for Ivan's merge.
 
 ## What deliberately floats
 

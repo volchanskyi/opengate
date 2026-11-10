@@ -134,7 +134,7 @@ Test fixtures with deliberate fake credentials (e.g. [`deploy/tests/fixtures/lea
 
 Updates are **grouped per ecosystem** — one PR per ecosystem rather than one per package — reducing noise.
 
-The [auto-merge workflow](../../.github/workflows/dependabot-auto-merge.yml) classifies each PR via `dependabot/fetch-metadata` and squash-merges patch + minor updates as soon as CI is green; major-version bumps stay open with a comment requesting human review. The full propagation path is:
+Every Dependabot PR waits for Ivan to review and merge it, whatever the size of the version change ([`tool-versions.md`](../../.claude/rules/tool-versions.md)); no workflow merges a pull request. The full propagation path is:
 
 ```
 dependabot/* PR → dev → (CI) → main
