@@ -31,7 +31,7 @@ func main() {
 	defer stop()
 	cfg := probeConfig{store: *store, senders: *senders, duration: *duration, requestBytes: requestBytes,
 		liveRate: *liveRate, liveEvery: time.Second, devices: *devices, quiet: *quiet,
-		cpuLimit: *cpuLimit, memoryLimit: *memoryLimit}
+		cpuLimit: *cpuLimit, memoryLimit: *memoryLimit, statusTimeout: storeReadTimeout}
 
 	var reading any
 	var err error

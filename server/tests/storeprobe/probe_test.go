@@ -70,6 +70,11 @@ type countingStore struct {
 	sequence []string
 	served   int
 	mu       sync.Mutex
+	// silent holds every metrics read after the first answered ones open until the reader leaves,
+	// as a store does that accepts connections and never replies.
+	silent   atomic.Bool
+	answered atomic.Int64
+	answers  int64
 }
 
 func (s *countingStore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -84,6 +89,10 @@ func (s *countingStore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.lines.Add(int64(bytes.Count(body, []byte("\n"))))
 		w.WriteHeader(http.StatusNoContent)
 	case "/metrics":
+		if s.silent.Load() && s.answered.Add(1) > s.answers {
+			<-r.Context().Done()
+			return
+		}
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if len(s.sequence) > 0 {
@@ -134,6 +143,45 @@ func TestARefusedImportIsCountedAsFailedNeverAsStored(t *testing.T) {
 	assert.Zero(t, reading.CatchUp.Readings)
 	assert.Positive(t, reading.CatchUp.Failed)
 	assert.Zero(t, reading.Live.WithinFiveSeconds, "a refused live request is a miss")
+}
+
+func TestAStoreThatStopsAnsweringEndsTheProbeAndIsSaid(t *testing.T) {
+	store := &countingStore{answers: 1,
+		metrics: "process_resident_memory_bytes 1\nprocess_start_time_seconds 1\n"}
+	store.silent.Store(true)
+	server := httptest.NewServer(store)
+	defer server.Close()
+
+	started := time.Now()
+	reading, err := runProbe(context.Background(), probeConfig{
+		store: server.URL, senders: 1, duration: 300 * time.Millisecond, requestBytes: 8 * 1024,
+		liveRate: 100, liveEvery: 100 * time.Millisecond, devices: 5, memoryLimit: 1 << 30,
+		statusTimeout: 200 * time.Millisecond,
+	})
+	require.NoError(t, err, "a store that stops answering is a reading, not a failed probe")
+	assert.Less(t, time.Since(started), 5*time.Second, "the probe ends once its last read gives up")
+	assert.True(t, reading.Store.StoppedAnswering)
+	assert.False(t, reading.Store.Restarted, "a store that never answered has no start time to compare")
+	assert.Positive(t, reading.CatchUp.Requests, "the store took writes until it stopped answering")
+}
+
+func TestAStoreThatNeverAnswersIsSaidAndNothingIsWritten(t *testing.T) {
+	store := &countingStore{}
+	store.silent.Store(true)
+	server := httptest.NewServer(store)
+	defer server.Close()
+
+	started := time.Now()
+	reading, err := runProbe(context.Background(), probeConfig{
+		store: server.URL, senders: 1, duration: 300 * time.Millisecond, requestBytes: 8 * 1024,
+		liveRate: 100, liveEvery: 100 * time.Millisecond, devices: 5, memoryLimit: 1 << 30,
+		statusTimeout: 200 * time.Millisecond,
+	})
+	require.NoError(t, err)
+	assert.Less(t, time.Since(started), 5*time.Second)
+	assert.True(t, reading.Store.StoppedAnswering)
+	assert.Zero(t, reading.CatchUp.Requests)
+	assert.Zero(t, store.lines.Load())
 }
 
 func TestAStoreThatRestartedDuringTheProbeIsSaid(t *testing.T) {

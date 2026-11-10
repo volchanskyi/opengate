@@ -792,6 +792,13 @@ jobs:
             --slurpfile one /tmp/probe-one.json --slurpfile two /tmp/probe-two.json \
             '{oom_killed: $oom, quiet: $quiet[0], one_sender: $one[0], two_senders: $two[0]}' >/tmp/store-probe.json
 
+      # The store's log is read here, before the fleet's store replaces its container.
+      - name: Show the store's state
+        if: always() && steps.stack.outcome == 'success'
+        run: |
+          scripts/perf-store-state.sh opengate-perf-metrics \
+            /tmp/probe-quiet.json /tmp/probe-one.json /tmp/probe-two.json
+
       # The fleet meets a store holding only production's background, as production's does.
       - name: Give the fleet a store of its own
         run: |

@@ -642,8 +642,13 @@ carries. It reads, in order:
 - **The store probe** ([`storeprobe`](../../server/tests/storeprobe)) — fifteen
   minutes of catch-up written by one sender, then by two, in the shared writer's
   request shape and the server's own encoding, beside a live-shaped writer
-  timing each of its requests, with the store's largest memory and whether it
-  started again.
+  timing each of its requests, with the store's largest memory, whether it
+  started again, and whether it stopped answering, since every read of its
+  figures has a time limit.
+- **The store's state** ([`perf-store-state.sh`](../../scripts/perf-store-state.sh))
+  — its container's state in one line, and its last log lines when it stopped,
+  was killed out of memory, or a probe wrote no reading, read before the fleet's
+  store replaces it.
 - **The fleet** ([`catch-up.yaml`](../../load/profiles/catch-up.yaml)) — a fresh
   store; every machine installed before the walk, a few at a time
   (`-enrol-first`): enrolled, connected once so the server writes its row, and
@@ -662,8 +667,9 @@ carries. It reads, in order:
 The store probe is the go/no-go for the shared writer, judged by
 [`perf-catchup-gate.sh`](../../scripts/perf-catchup-gate.sh), and the only
 reading of the leg that fails the night; the fleet's figures and the two-sender
-probe are published to the Performance Stack Trends dashboard and judge
-nothing. The probe and the runner's benchmark are published whatever the
+probe's rate and live timing are published to the Performance Stack Trends
+dashboard and judge nothing, and a store that stopped answering under either
+probe is a no-go. The probe and the runner's benchmark are published whatever the
 fleet's verdict
 ([`perf-vm-push.sh`](../../scripts/perf-vm-push.sh)), since they read the store
 and the runner; a fleet run that measured nothing keeps only its own figures
