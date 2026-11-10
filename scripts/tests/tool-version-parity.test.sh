@@ -39,6 +39,15 @@ else
   pass "every job names its runner image"
 fi
 
+# A dependency reaches dev through Ivan's merge, so the workflows and actions hold no merge call.
+merge_calls="$(grep -rnE 'gh pr merge|enable-pull-request-automerge|automerge-action|enablePullRequestAutoMerge' \
+  "$WORKFLOWS" "$ACTIONS" || true)"
+if [ -n "$merge_calls" ]; then
+  fail "a workflow merges a pull request by itself, so a dependency moves without Ivan's approval:"$'\n'"$merge_calls"
+else
+  pass "no workflow merges a pull request by itself"
+fi
+
 pinned_runners="$(grep -rhcE "^\s*runs-on: *${TOOL_RUNNER_IMAGE}\s*$" "$WORKFLOWS" | awk '{s+=$1} END {print s+0}')"
 if [ "$pinned_runners" -gt 0 ]; then
   pass "$pinned_runners jobs run on the pinned $TOOL_RUNNER_IMAGE"
