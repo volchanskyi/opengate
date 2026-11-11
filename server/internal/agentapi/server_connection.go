@@ -14,6 +14,7 @@ import (
 
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/device"
+	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
@@ -86,6 +87,8 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 		renewal:       s.renewals,
 		trustBundle:   s.cert.CACertPEM(),
 		pongs:         make(chan struct{}, 1),
+		registered:    s.resendOnConnect,
+		allowance:     s.allowance,
 	}
 
 	s.registerConn(ctx, ac, hostname)
@@ -105,6 +108,7 @@ func (s *AgentServer) registerConn(ctx context.Context, ac *AgentConn, hostname 
 	if replaced {
 		go s.retire(context.WithoutCancel(ctx), older.(*AgentConn), ac)
 	}
+	s.seenTenants.Store(presenceTenant(ac), struct{}{})
 	onlineEvt := notifications.Event{
 		Type:           notifications.EventDeviceOnline,
 		DeviceID:       ac.DeviceID,
@@ -155,8 +159,6 @@ func remoteHost(ac *AgentConn) string {
 func (s *AgentServer) unregisterConn(stream *quic.Stream, conn *quic.Conn, ac *AgentConn, hostname string, logger *slog.Logger) {
 	// Runs first so handlers still holding this connection stop writing for the machine.
 	ac.markReleased()
-	s.scheduler.Release(ac.DeviceID)
-	s.coverage.Forget(ac.DeviceID)
 	s.releaseDeviceStatus(ac, hostname, logger)
 	_ = stream.Close()
 	closeWithCode(conn, protocol.CloseBye, "bye")
@@ -172,16 +174,20 @@ func (s *AgentServer) releaseDeviceStatus(ac *AgentConn, hostname string, logger
 		logger.Info("skipping offline transition, newer connection exists")
 		return
 	}
+	// The grant and the rule coverage belong to the machine, so only its current connection's
+	// departure drops them.
+	s.scheduler.Release(ac.DeviceID)
+	s.coverage.Forget(ac.DeviceID)
 	s.count.Add(-1)
 	offlineCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if ac.TenantID != uuid.Nil {
-		offlineCtx = dbtx.WithTenant(offlineCtx, ac.TenantID, false)
-	} else {
-		offlineCtx = dbtx.WithDefaultTenant(offlineCtx, false)
-	}
+	offlineCtx = dbtx.WithTenant(offlineCtx, presenceTenant(ac), false)
+	// The presence sweep takes the row offline when this write fails.
 	if err := s.devices.SetStatus(offlineCtx, ac.DeviceID, device.StatusOffline); err != nil {
 		logger.Error("set device offline", "error", err)
+		if s.metrics != nil {
+			s.metrics.ObservePresenceWriteFailure(appmetrics.PresenceAtDisconnect)
+		}
 	}
 	offlineEvt := notifications.Event{
 		Type:           notifications.EventDeviceOffline,
@@ -263,8 +269,6 @@ func agentTenantID(ctx context.Context) uuid.UUID {
 
 // runControlLoop processes control messages until the stream errors or the context is cancelled.
 func (s *AgentServer) runControlLoop(ctx context.Context, ac *AgentConn, logger *slog.Logger) {
-	// WithoutCancel keeps the tenant scope while the flush outlives the cancelled loop context.
-	defer ac.flushTelemetry(context.WithoutCancel(ctx))
 	for {
 		if err := ac.handleControl(ctx); err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || ctx.Err() != nil {

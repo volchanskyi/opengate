@@ -49,7 +49,7 @@ def by_commit(key, repository, commit):
                         "", aliases=osv.aliases(record))
                 for record in (osv.record(a) for a in osv.matches([{"commit": commit}])[0])]
     deps = _lockfile(repository, commit)
-    newest = fetch.github(f"repos/{repository}/commits/HEAD")["sha"]
+    newest = fetch.github_object(f"repos/{repository}/commits/HEAD")["sha"]
     for (_, name, dep_version), record, fix in osv.check_packages([("crates.io", n, v) for n, v in deps.items()]):
         dropped = fix and newest != commit and \
             not osv.affects("crates.io", name, _lockfile(repository, newest).get(name), record)

@@ -100,7 +100,6 @@ func TestOneBadReadingCostsNothingElseInItsMinute(t *testing.T) {
 		protocol.MetricDim{Name: "cpu.total", Avg: math.NaN()},
 		protocol.MetricDim{Name: "mem.used_percent", Avg: 44.25},
 	)
-	machine.settle()
 
 	from, to := reportedAt.Add(-5*time.Minute), reportedAt.Add(5*time.Minute)
 	admin.awaitReading(product, machine.DeviceID, from, to, "mem.used_percent")
@@ -151,7 +150,6 @@ func TestBothKindsOfHealthSummaryInOneBreathAreKept(t *testing.T) {
 		Type: protocol.MsgAgentHealthSummary, TS: sentAt,
 		SamplerVersion: "s1", ModelVersion: "m1", NodeAnomalyRate: 0.375,
 	})
-	machine.settle()
 
 	require.Eventuallyf(t, func() bool {
 		product.publishReadings()

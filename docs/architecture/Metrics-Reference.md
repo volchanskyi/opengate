@@ -37,9 +37,11 @@ on every sample, are described there too.
 
 **A counter over a fixed set of outcomes publishes every outcome at zero from
 start-up** — the log-pull outcomes, the telemetry drop reasons and ingested
-message types, the catch-up answers and the alert refusal reasons, beside the
+message types, the catch-up answers, the alert refusal reasons and answers, the
+presence outcomes and the numeric writer's classes and outcomes, beside the
 investigation vocabularies below
-([`outcomes.go`](../../server/internal/metrics/outcomes.go)). A counter created
+([`outcomes.go`](../../server/internal/metrics/outcomes.go),
+[`ingest.go`](../../server/internal/metrics/ingest.go)). A counter created
 on its first event has no reading before it, so a rate over it misses the first
 event after every start, and a rule watching for an outcome reads nothing until
 that outcome has happened. Each list is held to the code that records it: the
@@ -52,6 +54,9 @@ the pull outcomes to the handler's own classification.
 | Series | Labels | Counts |
 |---|---|---|
 | `opengate_agent_tls_handshakes_total` | `resumed` | Agent QUIC connections that reached the application handshake |
+| `opengate_presence_sweeps_total` | `outcome` | Presence sweeps: `ok` when every tenant's statement ran, `failed` when one did not |
+| `opengate_presence_marked_offline_total` | — | Rows still saying online with no connection behind them that a sweep took offline |
+| `opengate_presence_write_failures_total` | `at` | Presence writes that failed: `disconnect` for an offline write, `sweep` for a tenant's statement |
 
 The server is the only side that can report whether a TLS session resumed. An
 agent's transport exposes no resumption result — quinn's `handshake_data()`
@@ -76,6 +81,13 @@ sum(rate(opengate_agent_tls_handshakes_total{resumed="true"}[1h]))
   / sum(rate(opengate_agent_tls_handshakes_total[1h]))
 ```
 
+Presence is the connection: status is written on connect and disconnect, and a
+sweep refreshes last-seen in bulk
+([ADR-130](../adr/ADR-130-presence-written-on-change.md)). A rising
+`opengate_presence_marked_offline_total` means offline writes are being missed at
+disconnect and caught by the sweep; `opengate_presence_write_failures_total`
+says where.
+
 ## Endpoint log pulls
 
 | Series | Labels | Counts |
@@ -95,14 +107,31 @@ that series the audited-read count.
 | `opengate_edge_telemetry_ingested_total` | `type` | Telemetry control messages accepted for ingest, by control type |
 | `opengate_edge_telemetry_drops_total` | `reason` | Messages discarded by a server-side bound, by typed reason |
 | `opengate_edge_telemetry_clock_clamped_total` | `direction` | Agent-stamped timestamps pulled inside the accepted clock window |
-| `opengate_edge_backfill_answers_total` | `answer` | Catch-up answers the server sent: `granted` for a request for permission; `stored`, `deferred_no_grant`, `deferred_busy`, `deferred_write_failed` or `deferred_refused` for a batch |
-| `opengate_edge_backfill_active_slots` | — | Catch-up batches being written across all agents |
+| `opengate_edge_backfill_answers_total` | `answer` | Catch-up answers the server sent: `granted` for a request for permission; `stored`, `deferred_no_grant`, `deferred_busy`, `deferred_write_failed`, `deferred_waited_too_long` or `deferred_refused` for a batch |
+| `opengate_edge_backfill_active_slots` | — | Catch-up batches admitted and not yet answered, across all agents |
 | `opengate_edge_backfill_grant_rate_samples_per_second` | — | Per-slot ingest rate of the most recent grant |
+| `opengate_ingest_readings_received_total` | `class` | Readings handed to the numeric writer, `live` or `catch_up` |
+| `opengate_ingest_readings_total` | `class`, `outcome` | Readings the writer settled: `stored`, `invalid`, `tombstoned`, `queue_full`, `write_failed`, `waited_too_long` or `shutdown`; the outcomes sum to the readings received |
+| `opengate_ingest_acceptance_seconds` | `class` | Time from a reading reaching the server to the store accepting it; a reading not stored is counted only in `opengate_ingest_readings_total` |
+| `opengate_ingest_queue_bytes` | `class` | Encoded bytes the writer holds, queued and in flight |
+| `opengate_ingest_queue_oldest_seconds` | `class` | Age of the oldest queued hand-off |
+| `opengate_ingest_requests_total` | `class`, `result` | Store requests the writer sent, `ok` or `failed` |
+| `opengate_ingest_request_seconds` | `class` | Duration of one store request |
+| `opengate_ingest_request_bytes` | `class` | Encoded size of one store request |
+| `opengate_ingest_resend_requests_total` | `cause` | Machines asked to send their history again, after a store restart or a live drop |
+| `opengate_ingest_store_restarts_total` | — | Store restarts the server saw by the store's start time |
+
+The `opengate_ingest_*` series describe the one numeric writer
+([`ingest.go`](../../server/internal/metrics/ingest.go),
+[ADR-044](../adr/ADR-044-telemetry-ingest.md)). `opengate_ingest_readings_total`
+is a ledger of its own, reading for reading: every reading received settles under
+exactly one outcome. The catch-up profile reads its live promise from
+`opengate_ingest_acceptance_seconds`.
 
 The first two form a **closed ledger**: every message counted as ingested either
 produces a write or files exactly one typed drop, so `ingested − drops` tracks
-what was persisted. A discarded coalesced batch reports every message it
-carried, so the two sides stay comparable. The invariant is pinned by
+what was persisted. A message the numeric writer could not store files one drop
+under the writer's reason, so the two sides stay comparable. The invariant is pinned by
 `TestTelemetryAccountingInvariant` in
 [`conn_accounting_test.go`](../../server/internal/agentapi/conn_accounting_test.go),
 which also fails when a new telemetry control type joins the dispatch switch
@@ -114,10 +143,12 @@ nothing to store (`empty_dims`, `empty_summary`, `empty_summaries`,
 `empty_discovery`), a window naming dimensions outside the
 vitals contract (`unknown_dim`), a value the store refuses on its own — not a
 number, or infinite — dropped while the rest of its message is written
-(`invalid_value`), the persist path (`tenant_missing`,
-`persist_failed`, `persist_slots_full` — bounded per-connection persist slots
-shed telemetry rather than backpressuring heartbeat, session and control), a
-purged device (`tombstoned`), and reconnect backfill skipping samples older than
+(`invalid_value`), the numeric writer (`queue_full` when its class is at its
+bound, `waited_too_long` for a catch-up batch past its queue wait,
+`shutting_down`, and `persist_failed` for a failed store write), the persist slots
+the other writes share (`tenant_missing`, `persist_failed`, `persist_slots_full` —
+bounded persist slots shed a write rather than backpressuring heartbeat, session
+and control), a purged device (`tombstoned`), and reconnect backfill skipping samples older than
 its own retention floor (`backfill_out_of_retention`).
 
 `unknown_dim` moves once per window however many of that window's dimensions
@@ -171,6 +202,7 @@ numbers on it are right.
 | `opengate_alerts_created_total` | `rule_id` | Alerts that became a stored row. Replays and refusals are excluded, so a rise is new detection |
 | `opengate_alerts_suppressed_total` | `reason` | Alerts that reached the server and became nothing |
 | `opengate_alerts_open` | — | Alerts sitting in an incident that is not resolved |
+| `opengate_alert_answers_total` | `answer` | Answers sent to machines that read them, one per offered alert: `stored`, `refused_for_good` or `try_again` |
 | `opengate_incidents_open` | `status` | The triage queue, split by where each incident stands |
 | `opengate_rule_coverage` | `rule_id`, `state` | Machines in each coverage state per rule, across the whole install |
 

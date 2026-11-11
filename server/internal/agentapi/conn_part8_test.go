@@ -6,11 +6,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
-	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 	"testing"
-	"time"
 )
 
 func TestAgentConn_HandleSessionAcceptReject(t *testing.T) {
@@ -62,14 +60,15 @@ func TestAgentConn_KnownMessageDispatchesAfterUnknownMessage(t *testing.T) {
 		Type: protocol.ControlMessageType("FutureTelemetryWindow"),
 	})
 	writeControlMsg(t, ac.codec, buf, &protocol.ControlMessage{
-		Type:      protocol.MsgAgentHeartbeat,
-		Timestamp: time.Now().Unix(),
+		Type:     protocol.MsgHardwareReport,
+		CPUModel: "Intel Core i7-1365U",
+		CPUCores: 10,
 	})
 
 	require.NoError(t, ac.handleControl(ctx))
 	require.NoError(t, ac.handleControl(ctx))
 
-	updated, err := testutil.NewTestDevices(t, store).Get(ctx, d.ID)
-	require.NoError(t, err)
-	assert.Equal(t, device.StatusOnline, updated.Status)
+	hw, err := testutil.NewTestHardware(t, store).Get(ctx, d.ID)
+	require.NoError(t, err, "the known message after the unknown one is dispatched and stored")
+	assert.Equal(t, "Intel Core i7-1365U", hw.CPUModel)
 }

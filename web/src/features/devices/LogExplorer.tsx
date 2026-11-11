@@ -91,7 +91,10 @@ export function LogExplorer({ deviceId, source, title, showUnitFilter = false, f
   }, [source, deviceId, fetchLogs, search, showUnitFilter]);
 
   const handlePrevPage = useCallback(() => { runFetch(Math.max(0, offset - LIMIT), level, timeWindow, unit); }, [runFetch, offset, level, timeWindow, unit]);
-  const handleNextPage = useCallback(() => { runFetch(offset + LIMIT, level, timeWindow, unit); }, [runFetch, offset, level, timeWindow, unit]);
+  // The machine may send fewer lines than asked to stay inside the server's message size, so the
+  // next page starts after the last line received.
+  const received = logs?.entries.length ?? 0;
+  const handleNextPage = useCallback(() => { runFetch(offset + (received || LIMIT), level, timeWindow, unit); }, [runFetch, offset, received, level, timeWindow, unit]);
   const selectLevel = useCallback((lvl: string) => { setLevel(lvl); runFetch(0, lvl, timeWindow, unit); }, [runFetch, timeWindow, unit]);
   const selectUnit = useCallback((u: string) => { setUnit(u); runFetch(0, level, timeWindow, u); }, [runFetch, level, timeWindow]);
 

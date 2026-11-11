@@ -71,7 +71,9 @@ git -C "$REPO" init -q && git -C "$REPO" add -A
 printf '[{"name": "v1.2.3", "commit": {"sha": "%s"}}, {"name": "v1", "commit": {"sha": "%s"}}]\n' "$PINNED" "$PINNED" \
   >"$GH/foo/bar/tags%3Fper_page=100"
 printf '[{"name": "v2.0.0", "commit": {"sha": "cccc"}}]\n' >"$GH/foo/baz/tags%3Fper_page=100"
-printf '{"sha": "cccc"}\n' >"$GH/foo/baz/commits/v2.0.0"
+# A release commit touching 127 files spans two pages when gh paginates it.
+changed="$(printf '{"filename": "lib/f%d.js"},' $(seq 1 127))"
+printf '{"sha": "cccc", "files": [%s]}\n' "${changed%,}" >"$GH/foo/baz/commits/v2.0.0"
 for pair in GHSA-bar1-0000-0000:foo/bar:1.2.4 GHSA-baz1-0000-0000:foo/baz:3.0.0; do
   IFS=: read -r id name fixed <<<"$pair"
   printf '{"id": "%s", "summary": "a hole in %s", "affected": [{"package": {"ecosystem": "GitHub Actions",
@@ -100,7 +102,7 @@ else
 fi
 if out_has 'action (.github/actions/local/action.yml) foo/baz 2.0.0: GHSA-baz1-0000-0000 fixed in 3.0.0' \
   && out_has 'newer minor or major'; then
-  pass "a shared action's tag is resolved through its commit, and a fix only a major holds is listed"
+  pass "a shared action's tag is resolved through its commit, read whole however many files it touches, and a fix only a major holds is listed"
 else
   fail "the shared action's newer-major fix must be listed (out=[$(cat "$WORK/out")])"
 fi

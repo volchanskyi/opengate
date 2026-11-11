@@ -2,7 +2,7 @@ package agentapi
 
 import (
 	"bytes"
-	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -14,102 +14,164 @@ import (
 
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
+	"github.com/volchanskyi/opengate/server/internal/telemetry"
 )
 
-func TestHandleMetricBackfillBatch_ABatchWithoutAGrantStoresNothing(t *testing.T) {
+// answeredOnce reads the batch's single answer under the write lock the server holds for a whole
+// frame, and requires nothing after it.
+func answeredOnce(t *testing.T, ac *AgentConn, buf *bytes.Buffer) *protocol.ControlMessage {
+	t.Helper()
+	ac.writeMu.Lock()
+	defer ac.writeMu.Unlock()
+	reply := readReply(t, ac, buf)
+	assert.Zero(t, buf.Len(), "a batch gets exactly one answer")
+	return reply
+}
+
+func TestEveryCatchUpBatchIsAnsweredOnceWhateverBecomesOfIt(t *testing.T) {
+	cases := []struct {
+		name    string
+		fail    error
+		batch   func() *protocol.ControlMessage
+		want    protocol.ControlMessageType
+		counted string
+	}{
+		{name: "stored", batch: recentBatch, want: protocol.MsgMetricBackfillAck, counted: "stored"},
+		{name: "filtered whole", batch: staleBatch, want: protocol.MsgMetricBackfillAck, counted: "stored"},
+		{name: "the queue is full", fail: telemetry.ErrQueueFull, batch: recentBatch,
+			want: protocol.MsgDeferBackfill, counted: "deferred_busy"},
+		{name: "it waited too long", fail: telemetry.ErrWaitedTooLong, batch: recentBatch,
+			want: protocol.MsgDeferBackfill, counted: "deferred_waited_too_long"},
+		{name: "the write failed", fail: fmt.Errorf("%w: store down", telemetry.ErrStoreWrite), batch: recentBatch,
+			want: protocol.MsgDeferBackfill, counted: "deferred_write_failed"},
+		{name: "the server is shutting down", fail: telemetry.ErrShuttingDown, batch: recentBatch,
+			want: protocol.MsgDeferBackfill, counted: "deferred_write_failed"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tenant := uuid.New()
+			writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1), fail: tc.fail}
+			ac, buf := ingestConn(t, tenant, writer, true)
+			m := appmetrics.NewMetrics(prometheus.NewRegistry())
+			ac.metrics = m
+
+			require.NoError(t, ac.handleMetricBackfillBatch(tenantCtx(tenant), tc.batch(), 128))
+
+			assert.Equal(t, tc.want, answeredOnce(t, ac, buf).Type)
+			assert.InDelta(t, 1, promtestutil.ToFloat64(m.EdgeBackfillAnswersTotal.WithLabelValues(tc.counted)), 0)
+			assert.Zero(t, ac.scheduler.ActiveCount(), "an answered batch gives its place back")
+		})
+	}
+}
+
+func TestACatchUpBatchWithoutAGrantStoresNothing(t *testing.T) {
 	tenant := uuid.New()
 	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
 	clock, _ := fixedClock()
-	ac, buf := backfillConn(t, NewBackfillScheduler(schedCfg(), clock, nil), tenant, true)
+	ac, buf := backfillConn(t, NewBackfillScheduler(schedCfg(), clock, nil, nil), tenant, true)
 	ac.telemetry = writer
 	m := appmetrics.NewMetrics(prometheus.NewRegistry())
 	ac.metrics = m
 
 	require.NoError(t, ac.handleMetricBackfillBatch(tenantCtx(tenant), recentBatch(), 128))
 
-	assert.Empty(t, writer.calls)
-	reply := readReply(t, ac, buf)
+	assert.Zero(t, writer.count.Load(), "nothing is queued for a machine without permission")
+	reply := answeredOnce(t, ac, buf)
 	assert.Equal(t, protocol.MsgDeferBackfill, reply.Type)
 	assert.Positive(t, reply.RetryAfter)
 	assert.InDelta(t, 1, promtestutil.ToFloat64(m.EdgeBackfillAnswersTotal.WithLabelValues("deferred_no_grant")), 0)
 }
 
-func TestHandleMetricBackfillBatch_ABatchPastItsTenantsPlacesIsToldToWait(t *testing.T) {
+func TestASecondBatchWhileTheFirstIsQueuedIsToldToWait(t *testing.T) {
 	tenant := uuid.New()
-	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
+	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 2), block: make(chan struct{})}
 	ac, buf := ingestConn(t, tenant, writer, true)
 	m := appmetrics.NewMetrics(prometheus.NewRegistry())
 	ac.metrics = m
-	// The places are booked against the connection's tenant, never one the message names.
-	for range DefaultBackfillSchedulerConfig().PerTenantMax {
-		admitted(t, ac.scheduler, tenant)
-	}
-
 	require.NoError(t, ac.handleMetricBackfillBatch(tenantCtx(tenant), recentBatch(), 128))
 
-	assert.Empty(t, writer.calls)
+	next := recentBatch()
+	next.Cursor++
+	require.NoError(t, ac.handleMetricBackfillBatch(tenantCtx(tenant), next, 128))
+
 	assert.Equal(t, protocol.MsgDeferBackfill, readReply(t, ac, buf).Type)
 	assert.InDelta(t, 1, promtestutil.ToFloat64(m.EdgeBackfillAnswersTotal.WithLabelValues("deferred_busy")), 0)
+	close(writer.block)
+	require.Eventually(t, func() bool { return ac.scheduler.ActiveCount() == 0 }, 2*time.Second, 5*time.Millisecond)
 }
 
-func TestHandleMetricBackfillBatch_AStoredBatchGivesItsPlaceBack(t *testing.T) {
+func TestTheSameBatchSentAgainOnANewConnectionIsWrittenOnceAndAnsweredThere(t *testing.T) {
 	tenant := uuid.New()
-	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
-	ac, buf := ingestConn(t, tenant, writer, true)
-	m := appmetrics.NewMetrics(prometheus.NewRegistry())
-	ac.metrics = m
+	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 2), block: make(chan struct{})}
+	old, oldBuf := ingestConn(t, tenant, writer, true)
+	again, againBuf := backfillConn(t, old.scheduler, tenant, true)
+	again.DeviceID = old.DeviceID
+	again.telemetry = writer
 
-	require.NoError(t, ac.handleMetricBackfillBatch(tenantCtx(tenant), recentBatch(), 128))
+	require.NoError(t, old.handleMetricBackfillBatch(tenantCtx(tenant), recentBatch(), 128))
+	require.NoError(t, again.handleMetricBackfillBatch(tenantCtx(tenant), recentBatch(), 128))
+	close(writer.block)
 
-	receiveTelemetryCall(t, writer.calls)
-	assert.Equal(t, protocol.MsgMetricBackfillAck, readReply(t, ac, buf).Type)
-	assert.Zero(t, buf.Len(), "exactly one answer")
-	assert.Equal(t, 0, ac.scheduler.ActiveCount())
-	assert.InDelta(t, 1, promtestutil.ToFloat64(m.EdgeBackfillAnswersTotal.WithLabelValues("stored")), 0)
+	require.Eventually(t, func() bool {
+		again.writeMu.Lock()
+		defer again.writeMu.Unlock()
+		return againBuf.Len() > 0
+	}, 2*time.Second, 5*time.Millisecond)
+	assert.Equal(t, protocol.MsgMetricBackfillAck, answeredOnce(t, again, againBuf).Type,
+		"the answer goes to the connection the machine holds now")
+	assert.Zero(t, oldBuf.Len(), "the departed connection is not answered")
+	assert.Equal(t, int64(1), writer.count.Load(), "the copy makes no second write")
 }
 
-func TestHandleMetricBackfillBatch_BatchesBeingWrittenHoldAtMostTheGlobalPlaces(t *testing.T) {
-	cfg := DefaultBackfillSchedulerConfig()
-	s := NewBackfillScheduler(cfg, nil, nil)
-	writer := &recordingTelemetryWriter{
-		calls: make(chan telemetryWriteCall, cfg.MaxConcurrent+1),
-		block: make(chan struct{}),
-	}
-
-	type batchConn struct {
-		ac  *AgentConn
-		buf *bytes.Buffer
-		ctx context.Context
-	}
-	conns := make([]batchConn, cfg.MaxConcurrent+1)
-	for i := range conns {
-		tenant := uuid.New()
-		ac, buf := backfillConn(t, s, tenant, true)
-		ac.telemetry = writer
-		s.RequestSlot(ac.DeviceID, tenant, SlotRequest{})
-		conns[i] = batchConn{ac: ac, buf: buf, ctx: tenantCtx(tenant)}
-	}
-
-	done := make(chan struct{}, cfg.MaxConcurrent)
-	for _, c := range conns[:cfg.MaxConcurrent] {
-		go func() {
-			assert.NoError(t, c.ac.handleMetricBackfillBatch(c.ctx, recentBatch(), 128))
-			done <- struct{}{}
-		}()
-	}
-	require.Eventually(t, func() bool { return writer.count.Load() == int64(cfg.MaxConcurrent) },
-		5*time.Second, 10*time.Millisecond)
-	assert.Equal(t, cfg.MaxConcurrent, s.ActiveCount())
-
-	last := conns[cfg.MaxConcurrent]
-	require.NoError(t, last.ac.handleMetricBackfillBatch(last.ctx, recentBatch(), 128))
-	assert.Equal(t, protocol.MsgDeferBackfill, readReply(t, last.ac, last.buf).Type)
+func TestABatchAnsweredAfterItsMachineLeftIsDroppedAndGivesItsPlaceBack(t *testing.T) {
+	tenant := uuid.New()
+	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1), block: make(chan struct{})}
+	ac, buf := ingestConn(t, tenant, writer, true)
+	require.NoError(t, ac.handleMetricBackfillBatch(tenantCtx(tenant), recentBatch(), 128))
+	ac.markReleased()
 
 	close(writer.block)
-	for range cfg.MaxConcurrent {
-		<-done
+	require.Eventually(t, func() bool { return ac.scheduler.ActiveCount() == 0 }, 2*time.Second, 5*time.Millisecond)
+	assert.Zero(t, buf.Len(), "nothing is written to a connection the server let go")
+}
+
+func TestAHeartbeatAndAnAlertBehindAHeldCatchUpBatchAreHandledAtOnce(t *testing.T) {
+	tenant := uuid.New()
+	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1), block: make(chan struct{})}
+	defer close(writer.block)
+	f := alertConn(t)
+	ac := f.conn
+	ac.TenantID = tenant
+	ac.telemetry = writer
+	ac.scheduler = NewBackfillScheduler(DefaultBackfillSchedulerConfig(), nil, nil, nil)
+	ac.scheduler.RequestSlot(ac.DeviceID, uuid.Nil, SlotRequest{})
+	ac.setMeta("linux", "amd64", "0.1.0", []protocol.AgentCapability{protocol.CapBackfill, protocol.CapAlerts})
+	var stream bytes.Buffer
+	ac.stream = &stream
+	ac.codec = &protocol.Codec{}
+	writeControlMsg(t, ac.codec, &stream, recentBatch())
+	writeControlMsg(t, ac.codec, &stream, &protocol.ControlMessage{Type: protocol.MsgAgentHeartbeat, Timestamp: time.Now().Unix()})
+	writeControlMsg(t, ac.codec, &stream, wellFormed(t))
+	ctx := tenantCtx(tenant)
+
+	started := time.Now()
+	for range 3 {
+		require.NoError(t, ac.handleControl(ctx))
 	}
-	assert.Equal(t, 0, s.ActiveCount())
+	assert.Less(t, time.Since(started), 100*time.Millisecond,
+		"the read loop never waits on the store while a catch-up write is held")
+	f.reachedStore(t, 1)
+}
+
+// staleBatch is one batch whose only reading is older than the store keeps.
+func staleBatch() *protocol.ControlMessage {
+	ts := time.Now().Unix() - backfillRetentionSecs - 3600
+	return &protocol.ControlMessage{
+		Type:            protocol.MsgMetricBackfillBatch,
+		Tier:            protocol.BackfillTierRecent60s,
+		BackfillSamples: []protocol.BackfillSample{{Name: "cpu.total", TS: ts, Value: 1}},
+		Cursor:          ts,
+	}
 }
 
 // recentBatch is one batch of a single reading an hour old.

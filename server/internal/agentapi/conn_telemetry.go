@@ -2,6 +2,7 @@ package agentapi
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
@@ -12,10 +13,9 @@ import (
 const (
 	maxTelemetryPayloadBytes    = 64 * 1024
 	minTelemetryIntervalSeconds = 10
-	telemetryPersistTimeout     = 2 * time.Second
-	telemetryConcurrentWrites   = 4
-	// telemetryFlushMaxSamples caps the coalescing buffer so a burst flushes mid-stream.
-	telemetryFlushMaxSamples = 512
+	// telemetryPersistTimeout and telemetryConcurrentWrites bound the alert writes' persist slots.
+	telemetryPersistTimeout   = 2 * time.Second
+	telemetryConcurrentWrites = 4
 )
 
 func (a *AgentConn) handleAgentHealthSummary(ctx context.Context, msg *protocol.ControlMessage, payloadLen int) error {
@@ -74,7 +74,7 @@ func (a *AgentConn) handleAgentHealthSummary(ctx context.Context, msg *protocol.
 		return nil
 	}
 	a.observeClockClamp(clamped)
-	a.bufferTelemetry(ctx, protocol.MsgAgentHealthSummary, samples)
+	a.handOff(ctx, protocol.MsgAgentHealthSummary, samples, nil)
 	return nil
 }
 
@@ -110,7 +110,7 @@ func (a *AgentConn) handleAgentMetricWindow(ctx context.Context, msg *protocol.C
 	if len(samples) == 0 {
 		return nil
 	}
-	a.bufferTelemetry(ctx, protocol.MsgAgentMetricWindow, samples)
+	a.handOff(ctx, protocol.MsgAgentMetricWindow, samples, a.confirmLiveWindow(msg.TS))
 	return nil
 }
 
@@ -154,56 +154,76 @@ func (a *AgentConn) handleHealthWindowResponse(ctx context.Context, msg *protoco
 		a.dropTelemetry("unknown_family", "type", protocol.MsgHealthWindowResponse,
 			"unknown", unknownFamilies, "summaries", len(msg.Summaries))
 	}
-	a.bufferTelemetry(ctx, protocol.MsgHealthWindowResponse, samples)
+	a.handOff(ctx, protocol.MsgHealthWindowResponse, samples, nil)
 	return nil
 }
 
-// bufferTelemetry appends the samples the store accepts to the read loop's coalescing buffer, one
-// message a call, and flushes at the size cap; the read loop alone touches it, so it has no lock.
-func (a *AgentConn) bufferTelemetry(ctx context.Context, msgType protocol.ControlMessageType, samples []telemetry.Sample) {
-	if a.telemetry == nil {
-		return
-	}
-	samples = a.keepWritable(msgType, samples)
-	if len(samples) == 0 {
-		return
-	}
-	a.telemetryBuf = append(a.telemetryBuf, samples...)
-	a.telemetryBufMsgs++
-	if len(a.telemetryBuf) >= telemetryFlushMaxSamples {
-		a.flushTelemetry(ctx)
-	}
+// ReadingWriter takes a message's readings without waiting on the store; *telemetry.Writer is the
+// one the server runs.
+type ReadingWriter interface {
+	Submit(sub telemetry.Submission)
+	// Fill is the share of a class's bound held, which catch-up admission reads.
+	Fill(class telemetry.Class) float64
 }
 
-// flushTelemetry drains the coalescing buffer into one WriteSamples through one persist slot,
-// so a heartbeat's burst is a single write. A no-op when the buffer is empty.
-func (a *AgentConn) flushTelemetry(ctx context.Context) {
-	if len(a.telemetryBuf) == 0 {
+// handOff gives one live message's readings to the writer and returns at once. The answer counts
+// what the store did not take, and stored runs once every reading is accepted or refused.
+func (a *AgentConn) handOff(ctx context.Context, msgType protocol.ControlMessageType, samples []telemetry.Sample, stored func()) {
+	tenant, ok := dbtx.TenantFromContext(ctx)
+	if !ok {
+		a.dropTelemetry("tenant_missing", "type", msgType)
 		return
 	}
-	batch := a.telemetryBuf
-	msgs := a.telemetryBufMsgs
-	a.telemetryBuf = nil
-	a.telemetryBufMsgs = 0
-	a.persistTelemetry(ctx, msgs, func(jobCtx context.Context, tenant dbtx.Tenant) error {
-		return a.telemetry.WriteSamples(jobCtx, tenant.TenantID, a.DeviceID, batch)
+	a.telemetry.Submit(telemetry.Submission{
+		Class:   telemetry.ClassLive,
+		Scope:   telemetry.Scope{Tenant: tenant.TenantID, Device: a.DeviceID},
+		Samples: samples,
+		Done: func(outcome telemetry.Outcome) {
+			a.countRefused(msgType, outcome, len(samples))
+			if outcome.Err != nil {
+				a.dropUnstored(msgType, outcome.Err)
+				return
+			}
+			if stored != nil {
+				stored()
+			}
+		},
 	})
 }
 
-// keepWritable keeps the samples the store accepts on their own; the rest of a message count as
-// one invalid_value drop however many it lost.
-func (a *AgentConn) keepWritable(msgType protocol.ControlMessageType, samples []telemetry.Sample) []telemetry.Sample {
-	kept := samples[:0]
-	refused := 0
-	for _, s := range samples {
-		if err := telemetry.CheckSample(s); err != nil {
-			refused++
-			continue
+// countRefused counts a message whose readings the store refused on their own as one
+// invalid_value drop, however many it lost.
+func (a *AgentConn) countRefused(msgType protocol.ControlMessageType, outcome telemetry.Outcome, readings int) {
+	if outcome.Refused > 0 {
+		a.dropTelemetry("invalid_value", "type", msgType, "refused", outcome.Refused, "readings", readings)
+	}
+}
+
+// dropUnstored counts a message whose readings the writer did not store, under the writer's
+// reason.
+func (a *AgentConn) dropUnstored(msgType protocol.ControlMessageType, err error) {
+	switch {
+	case errors.Is(err, telemetry.ErrQueueFull):
+		a.dropTelemetry("queue_full", "type", msgType)
+	case errors.Is(err, telemetry.ErrTombstoned):
+		a.dropTelemetry("tombstoned", "type", msgType)
+	case errors.Is(err, telemetry.ErrShuttingDown):
+		a.dropTelemetry("shutting_down", "type", msgType)
+	case errors.Is(err, telemetry.ErrWaitedTooLong):
+		a.dropTelemetry("waited_too_long", "type", msgType)
+	default:
+		a.dropTelemetry("persist_failed", "type", msgType, "error", err)
+	}
+}
+
+// confirmLiveWindow tells a machine that reads confirmations its window stamped ts is stored.
+func (a *AgentConn) confirmLiveWindow(ts int64) func() {
+	return func() {
+		if a.requireCapability(protocol.CapLiveConfirmations) != nil {
+			return
 		}
-		kept = append(kept, s)
+		if err := a.sendControl(&protocol.ControlMessage{Type: protocol.MsgLiveWindowStored, TS: ts}); err != nil {
+			a.logger.Debug("live confirmation not sent", "device_id", a.DeviceID, "ts", ts, "error", err)
+		}
 	}
-	if refused > 0 {
-		a.dropTelemetry("invalid_value", "type", msgType, "refused", refused, "readings", len(samples))
-	}
-	return kept
 }

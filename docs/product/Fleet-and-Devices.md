@@ -7,6 +7,7 @@
 - [The device detail page](#the-device-detail-page)
   - [Actions](#actions)
   - [Identity in use on two machines](#identity-in-use-on-two-machines)
+- [Online, offline and last seen](#online-offline-and-last-seen)
 - [Inventory](#inventory)
 - [Browser notifications](#browser-notifications)
 - [Console behaviour](#console-behaviour)
@@ -128,6 +129,18 @@ of them is reinstalled with `--fresh`
 ([Agent Deployment](./Agent-Deployment.md#cloned-machines-and-templates)). A
 machine that merely reconnected after a crash or a network change raises no
 warning.
+
+## Online, offline and last seen
+
+- A machine shows **online** the moment it connects and **offline** the moment it
+  disconnects, with its last-seen time set to when it left.
+- While a machine stays connected, its last-seen time is refreshed every five
+  minutes, so a connected machine's last-seen is at most five minutes old.
+- If a disconnect could not be recorded — the database was briefly out of reach —
+  the next five-minute pass marks the machine offline. A machine that connects
+  during that pass is left online.
+- A failure to record status never drops a machine's connection or a remote
+  session running on it.
 
 ## Inventory
 

@@ -71,6 +71,13 @@ func (i *InstrumentedDevices) ResetAllStatuses(ctx context.Context) error {
 	return observe0(i.observer, "device.Device.ResetAllStatuses", func() error { return i.inner.ResetAllStatuses(ctx) })
 }
 
+func (i *InstrumentedDevices) RefreshPresence(ctx context.Context, connected []DeviceID, grace time.Duration) (int, int, error) {
+	start := time.Now()
+	refreshed, offline, err := i.inner.RefreshPresence(ctx, connected, grace)
+	i.observer.Observe("device.Device.RefreshPresence", time.Since(start), err == nil)
+	return refreshed, offline, err
+}
+
 func (i *InstrumentedDevices) SetMaintenance(ctx context.Context, id DeviceID, on bool, by uuid.UUID, reason string) error {
 	return observe0(i.observer, "device.Device.SetMaintenance", func() error { return i.inner.SetMaintenance(ctx, id, on, by, reason) })
 }

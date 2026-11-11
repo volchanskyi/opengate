@@ -3,6 +3,7 @@ package acceptance
 import (
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -34,6 +35,7 @@ type deviceSummary struct {
 	ID          uuid.UUID `json:"id"`
 	Hostname    string    `json:"hostname"`
 	Status      string    `json:"status"`
+	LastSeen    time.Time `json:"last_seen"`
 	AnomalyRate *float64  `json:"anomaly_rate"`
 }
 

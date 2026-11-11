@@ -76,6 +76,12 @@ func main() {
 	defer store.Close()
 	logger.Info("database opened", "backend", "postgres")
 
+	if limit, err := app.ApplyMemoryLimit(app.CgroupMemoryMax); err != nil {
+		logger.Warn("container memory limit not applied", "error", err)
+	} else if limit > 0 {
+		logger.Info("Go memory limit set from the container", "bytes", limit)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -164,6 +170,13 @@ func main() {
 		logger.Error("internal HTTP shutdown error", "error", err)
 	}
 
+	// The writer drains its queues for its grace period; what is left is re-sent after reconnect.
+	select {
+	case <-assembly.NumericDrained:
+	case <-shutdownCtx.Done():
+		logger.Warn("numeric writer still draining at the shutdown deadline")
+	}
+
 	logger.Info("server stopped")
 }
 
@@ -214,6 +227,9 @@ var productionSchedule = app.BackgroundSchedule{
 
 	// The sweep interval bounds how long a quiet room stays in the triage queue.
 	IncidentSweep: 5 * time.Minute,
+
+	// Last-seen is refreshed in bulk, and an offline write that failed is reconciled, this often.
+	PresenceSweep: 5 * time.Minute,
 
 	// Alerts, their evidence and their rooms are kept for one year.
 	RetentionHorizon: 365 * 24 * time.Hour,

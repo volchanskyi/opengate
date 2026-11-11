@@ -27,6 +27,8 @@ type incident struct {
 	CauseCode string    `json:"cause_code"`
 	Scope     string    `json:"scope"`
 	ScopeName *string   `json:"scope_name"`
+	// Occurrences is how many alerts folded into the room.
+	Occurrences int `json:"occurrences"`
 }
 
 // triageQueue lists the rooms awaiting a technician.
@@ -43,6 +45,14 @@ func (a *Technician) triageQueue() []incident {
 
 // raiseAlert sends an alert with msgpack-packed, deflate-compressed evidence attached.
 func (m *Machine) raiseAlert(topProcess string) (windowStart time.Time) {
+	m.t.Helper()
+	alert := m.cpuAlert(topProcess)
+	m.Send(alert)
+	return time.Unix(alert.WindowStartTS, 0).UTC()
+}
+
+// cpuAlert is the alert a busy processor raises, with its evidence packed as the agent packs it.
+func (m *Machine) cpuAlert(topProcess string) *protocol.ControlMessage {
 	m.t.Helper()
 
 	share := 37.5
@@ -70,7 +80,7 @@ func (m *Machine) raiseAlert(topProcess string) (windowStart time.Time) {
 	end := time.Now().UTC().Truncate(time.Second).Add(-time.Minute)
 	start := end.Add(-5 * time.Minute)
 
-	m.Send(&protocol.ControlMessage{
+	return &protocol.ControlMessage{
 		Type:          protocol.MsgAgentAlert,
 		AlertID:       uuid.NewString(),
 		RuleID:        triageRule,
@@ -84,8 +94,7 @@ func (m *Machine) raiseAlert(topProcess string) (windowStart time.Time) {
 		Backfilled:    &backfilled,
 		EvidenceCodec: protocol.EvidenceCodec,
 		Evidence:      compressed.Bytes(),
-	})
-	return start
+	}
 }
 
 // awaitIncident waits for the room a machine's alert opened.

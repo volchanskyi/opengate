@@ -27,8 +27,11 @@ fn live() -> EdgeAlert {
     }
 }
 
+/// The id an offer goes out under; the server names it in its answer.
+const OFFER_ID: &str = "0b9f4c1e-2d7a-4e3b-8c5f-6a1d2e3f4b5c";
+
 fn sent(alert: &EdgeAlert) -> ControlMessage {
-    let msg = alert_message(alert);
+    let msg = alert_message(OFFER_ID, alert);
     assert!(
         matches!(msg, ControlMessage::AgentAlert { .. }),
         "an alert must travel as an AgentAlert and nothing else"
@@ -57,9 +60,9 @@ fn an_alert_carries_the_identity_the_server_resolves_it_by() {
         FIRED_AT - 300,
         "the window start is part of the identity, so it is the rule's own window"
     );
-    assert!(
-        !alert_id.is_empty(),
-        "the machine names its own report so one can be traced end to end"
+    assert_eq!(
+        alert_id, OFFER_ID,
+        "the report carries its offer's id, so the server's answer finds it"
     );
 }
 

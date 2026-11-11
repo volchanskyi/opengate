@@ -90,8 +90,6 @@ func run() int {
 	reconnect := flag.Bool("reconnect", false, "keep a machine in the run after its connection breaks, so a fleet behind a link that goes dark is still there when the link returns; off measures the server and reports a severance instead of repairing it")
 	backfillGap := flag.Duration("backfill-gap", 0, "size each machine's catch-up from this much lost time, one reading of each vital per closed minute, overriding -backfill-batches")
 	liveEvery := flag.Duration("live-every", 0, "send a live window this often while a machine is held; zero sends none")
-	liveWatchStore := flag.String("live-watch-store", "", "metrics store whose export is read each second to time watched machines' live windows; empty watches none")
-	liveWatchMachines := flag.Int("live-watch-machines", 50, "machines, by index, whose live windows -live-watch-store times")
 	enrolFirstFlag := flag.Bool("enrol-first", false, "install every machine before the walk, a few at a time: enrol, connect once and file it, so the walk's dial is a return with the certificate it holds")
 	retryDeferred := flag.Bool("retry-deferred", false, "ask again when the server tells a machine to wait for a catch-up slot, as a shipped agent does; off sheds the load so the deferral path is measured rather than queued through")
 	hostnamePrefix := flag.String("hostname-prefix", defaultHostnamePrefix, "the name this run's machines carry, so a run can count and remove its own")
@@ -115,6 +113,7 @@ func run() int {
 	fixtureWeightPath := flag.String("fixture-weight", "", "the weighing of the fleet on disk, which is the volume family's whole finding")
 	roomWait := flag.Duration("room-wait", 0, "how long to wait for the shared machine's processor to drop under the profile's ceiling before walking; zero refuses at the first busy reading")
 	leakSnapshotEvery := flag.Duration("leak-snapshot-every", 0, "take and keep the target's goroutine and heap profiles this often, so what grew across a long run is named at a line rather than reported as a slope")
+	technicianCgroup := flag.String("technician-cgroup", "", "the technician generator's own allowance, its cgroup path under /sys/fs/cgroup, judged by this generator's ceilings; empty where the two share one")
 	flag.Parse()
 
 	// Production is never a target, so the address is checked before anything dials.
@@ -223,9 +222,10 @@ func run() int {
 
 	start := time.Now()
 	catchUp.started = start
-	stopWatch := startLiveWatch(&opts, *liveWatchStore, *liveWatchMachines)
+	liveAtStart := readLiveAcceptance(*metricsURL)
 
 	generatorReading := WatchGenerator()
+	technicianReading := WatchBeside(cgroupRoot, *technicianCgroup)
 
 	// The cap and the busy-ness denominator share one declaration, so the bundle cannot
 	// disagree with itself.
@@ -239,9 +239,10 @@ func run() int {
 			Network:   NewNetworkDrops(*targetNetCounters),
 		}, filer, clock, venue)
 	totalDur := time.Since(start)
-	liveDelay := stopWatch()
+	live := liveAcceptanceOver(liveAtStart, readLiveAcceptance(*metricsURL))
 
 	generatorHeadroom := generatorReading()
+	technicianHeadroom := technicianReading()
 
 	targetAtEnd := readSettledTargetHealth(*metricsURL)
 
@@ -273,6 +274,7 @@ func run() int {
 		TargetShape:          targetShape,
 		GeneratorShape:       ReadGeneratorShape("server/tests/loadtest"),
 		Headroom:             generatorHeadroom,
+		TechnicianHeadroom:   technicianHeadroom,
 		Journeys:             readJourneys(*journeysPath),
 		FixtureWeight:        readFixtureWeight(*fixtureWeightPath),
 		Filer:                filer,
@@ -284,7 +286,7 @@ func run() int {
 		Leak:                 leakTrail,
 		Helper:               helpers.count(),
 		CatchUp:              catchUp.count(),
-		LiveDelay:            liveDelay,
+		LiveAcceptance:       live,
 		Conservation: TargetConservation{
 			Start: targetAtStart,
 			End:   targetAtEnd,
@@ -302,7 +304,7 @@ func run() int {
 	printBreakingPoint(bundle.BreakingPoint)
 	printLeakTrail(bundle.Leak)
 	writeCatchUp(os.Stdout, bundle.CatchUp)
-	writeLiveDelay(os.Stdout, bundle.LiveDelay)
+	writeLiveAcceptance(os.Stdout, bundle.LiveAcceptance)
 
 	for _, reason := range bundle.Verdict.Reasons {
 		fmt.Printf("::error::%s\n", reason)

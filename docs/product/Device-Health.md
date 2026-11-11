@@ -199,21 +199,43 @@ the machine is in after the change becomes the new normal.
 A device stores its own metric history locally, so a network outage or a server
 restart does not create a hole in what you can see afterwards.
 
-When the agent reconnects:
+The server tells the machine each minute it has stored, live or caught up, and
+the machine keeps that list. When the agent reconnects:
 
 1. It asks the server for permission to catch up, and the server grants it a
    pace.
-2. It sends the most recent window first, on the same one-minute grid the live
-   stream uses, then progressively older and coarser history.
-3. Every batch gets one answer: stored, or wait and send it again. The server
-   writes a few batches at a time and tells the rest when to come back, so a
-   fleet reconnecting at once cannot overwhelm the ingest path, and an
-   interrupted catch-up resumes where it stopped rather than starting over.
+2. It sends only the minutes the server never confirmed: the newest two days
+   first, then older and coarser history. A minute still in progress is never
+   sent.
+3. Every batch gets one answer: stored, or wait and send it again. When many
+   machines catch up at once, the server takes their batches in turns, customer
+   by customer, so a 5-machine customer keeps moving beside a 2,000-machine one,
+   and an interrupted catch-up resumes where it stopped rather than starting
+   over.
+4. A batch whose answer never comes is sent again after 1, 2, 4… minutes, up to
+   half an hour apart, for as long as the machine stays connected. The
+   connection stays up, so a technician's remote session is not cut.
+
+Two promises hold while any catch-up runs:
+
+| Promise | What it means for you |
+|---|---|
+| Live readings are stored within 5 seconds | The live chart keeps up even while a whole fleet catches up |
+| 5,000 machines back from an hour's outage are all filled within 15 minutes | After a site-wide outage, every chart is whole again within a quarter of an hour |
 
 Every historical point is written at the time it was actually measured, not at
 the time it arrived, so backfilled history lands in the right place on a chart.
 History reaches back thirty days, the time the server keeps readings; anything
-older is acknowledged and left on the machine.
+older is acknowledged and left on the machine. A minute can occasionally arrive
+twice — after a cut link, for instance — and changes no chart, since every chart
+shows averages, lows and highs.
+
+If the reading store restarts, the server asks every connected machine to send
+again everything from just before the restart, and asks a machine that was
+offline at the time when it next connects. One case cannot be repaired: if the
+server and the reading store fail at the same moment, as when the machine both
+run on loses power, the few seconds of readings the store had taken and not yet
+saved are lost.
 
 A reading the machine could not measure — not a number — is dropped on its
 own and counted; the rest of that minute is kept.

@@ -3,6 +3,7 @@ package acceptance
 import (
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -118,4 +119,40 @@ func TestNotAssignedListsOnlyTheMachinesWithNoSite(t *testing.T) {
 
 	both := admin.Get(admin.InCustomer("/api/v1/devices?without_site=true&site_id=" + site.ID.String()))
 	assert.Equal(t, http.StatusBadRequest, both.Status, "a machine cannot be in a site and in none")
+}
+
+// listed is the row the device list shows for one machine.
+func (a *Technician) listed(machine *Machine) deviceSummary {
+	a.t.Helper()
+	for _, d := range a.devices() {
+		if d.ID == machine.DeviceID {
+			return d
+		}
+	}
+	require.FailNowf(a.t, "machine missing from the device list", "%s", machine.Hostname)
+	return deviceSummary{}
+}
+
+func TestAMachineThatDisconnectsShowsOfflineWithTheTimeItLeft(t *testing.T) {
+	t.Parallel()
+
+	product := newProduct(t)
+	contoso := product.arrangeCustomer("Contoso")
+	admin := product.Administrator(contoso)
+	laptop := product.Machine(admin.mintEnrolmentToken("Head Office").Token, "contoso-laptop-07")
+	laptop.AwaitOnline()
+	require.Equal(t, "online", admin.listed(laptop).Status)
+
+	left := time.Now()
+	laptop.Disconnect()
+	require.Eventually(t, func() bool {
+		return admin.listed(laptop).Status == "offline"
+	}, eventually, poll, "a machine that left the network shows offline")
+	assert.WithinDuration(t, left, admin.listed(laptop).LastSeen, 5*time.Second,
+		"the list shows the time the machine left")
+
+	laptop.Reconnect()
+	require.Eventually(t, func() bool {
+		return admin.listed(laptop).Status == "online"
+	}, eventually, poll, "a machine that comes back shows online again")
 }

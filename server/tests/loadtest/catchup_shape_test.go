@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"sync"
 	"testing"
@@ -73,7 +74,7 @@ func TestAHeldMachineSendsAWindowEachPeriod(t *testing.T) {
 	opts := loadOptions{holdFor: time.Hour, liveEvery: 40 * time.Millisecond}
 
 	deadline := time.Now().Add(220 * time.Millisecond)
-	require.NoError(t, proveConnection(codec, stream, opts, func() time.Duration { return time.Until(deadline) }))
+	require.NoError(t, proveConnection(context.Background(), codec, stream, opts, func() time.Duration { return time.Until(deadline) }))
 
 	windows := written.count(t, codec, protocol.MsgAgentMetricWindow)
 	assert.GreaterOrEqual(t, windows, 4, "one window each period while held")

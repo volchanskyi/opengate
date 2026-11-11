@@ -119,12 +119,12 @@ pushed="$(cat "$WORK/pushed")"
 check "a leg that recorded its runner names the processor it ran on, so nights compare like with like" \
   'perf_latency_p95_ms{env="ci",leg="scaling-0.5",phase="register",processor="AMD EPYC 7763 64-Core Processor",workload="scaling/1/d1"} 900 1790689000000'
 
-# The catch-up leg carries the store probe, the fleet's catch-up and live delay, and the runner's
+# The catch-up leg carries the store probe, the fleet's catch-up and live share, and the runner's
 # fixed benchmark; each is pushed under its own name.
 bundle "$WORK/perf-bundles/catch-up" catch-up valid 300 120 40 0
 jq '.runner = {processor_model: "Neoverse-N2", cpu_benchmark_rounds_per_second: 812.5}
   | .catch_up = {stored: 10000, deferred: 40, unanswered: 0, complete: 5000, last_stored_seconds: 1312.5}
-  | .live_delay = {sent: 600, seen: 600, within_five_seconds: 6, p50_ms: 31000, p99_ms: 59500, max_ms: 61000}
+  | .live_acceptance = {received: 360000, stored: 359900, within_five_seconds: 357120}
   | .store_probe = {oom_killed: false, quiet: {seconds: 60, cpu_share: 0.12, memory_share: 0.31},
       one_sender: {senders: 1, duration_seconds: 900,
         catch_up: {readings_per_second: 10500}, live: {requests: 900, within_five_seconds: 891, p99_ms: 420},
@@ -146,8 +146,8 @@ check "the quiet minute's processor share" \
   'perf_catchup_quiet_cpu_share{env="ci",leg="catch-up",processor="Neoverse-N2",workload="catch-up/1/d1"} 0.12 1790689000000'
 check "the time the fleet's last gap was filled" \
   'perf_catchup_fill_seconds{env="ci",leg="catch-up",processor="Neoverse-N2",workload="catch-up/1/d1"} 1312.5 1790689000000'
-check "the watched live minutes' delay to the store" \
-  'perf_catchup_live_visible_p99_ms{env="ci",leg="catch-up",processor="Neoverse-N2",workload="catch-up/1/d1"} 59500 1790689000000'
+check "the share of live readings the server's store accepted within 5 s" \
+  'perf_catchup_live_accepted_within_5s_share{env="ci",leg="catch-up",processor="Neoverse-N2",workload="catch-up/1/d1"} 0.992 1790689000000'
 check "and the runner's fixed benchmark beside its processor" \
   'perf_runner_benchmark_rounds_per_second{env="ci",leg="catch-up",processor="Neoverse-N2",workload="catch-up/1/d1"} 812.5 1790689000000'
 
@@ -168,7 +168,7 @@ check "with the quiet minute" \
   'perf_catchup_quiet_cpu_share{env="ci",leg="catch-up",processor="Neoverse-N2",workload="catch-up/1/d1"} 0.12 1790689000000'
 check "and the runner's benchmark" \
   'perf_runner_benchmark_rounds_per_second{env="ci",leg="catch-up",processor="Neoverse-N2",workload="catch-up/1/d1"} 812.5 1790689000000'
-if grep -qE '^perf_(catchup_fill_seconds|catchup_machines_caught_up|catchup_live_visible|latency_|error_rate)' <<<"$pushed"; then
+if grep -qE '^perf_(catchup_fill_seconds|catchup_machines_caught_up|catchup_live_accepted|latency_|error_rate)' <<<"$pushed"; then
   fail "the invalid fleet's own readings stay out of the trend (pushed=[$pushed])"
 else
   pass "the invalid fleet's own readings stay out of the trend"

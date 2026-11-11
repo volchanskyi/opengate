@@ -26,3 +26,8 @@ func TestAnUnfinishedDeletionIsRetriedWithinTheHour(t *testing.T) {
 	assert.Equal(t, time.Hour, productionSchedule.PurgeRetry,
 		"a deletion stopped part-way is finished within the hour, not at the next restart")
 }
+
+func TestPresenceIsSweptEveryFiveMinutes(t *testing.T) {
+	assert.Equal(t, 5*time.Minute, productionSchedule.PresenceSweep,
+		"a connected machine's last-seen is at most five minutes old")
+}

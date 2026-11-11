@@ -55,12 +55,10 @@ type loadOptions struct {
 	// liveEvery sends a live window each period while the machine is held; zero sends none.
 	liveEvery time.Duration
 
-	// liveWatch times a watched machine's live windows from sent to visible in the store.
-	liveWatch *liveWatch
-	// watchMachines is how many machines, by index, the watch follows.
-	watchMachines int
-	// watchedDevice is this machine's device number when the watch follows it.
-	watchedDevice string
+	// liveSecond is the second of each minute this machine sends its live window at.
+	liveSecond int
+	// resending marks a drain the server asked for again, which counts no machine caught up.
+	resending bool
 }
 
 // defaultMetricDimNames is every host metric dimension a machine writes, in window order.

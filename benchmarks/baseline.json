@@ -60,6 +60,16 @@
       "history_from": "2026-10-23"
     },
     {
+      "name": "BenchmarkEncodeCatchUpBatch",
+      "lang": "go",
+      "history_from": "2026-11-12"
+    },
+    {
+      "name": "BenchmarkEncodeLiveWindow",
+      "lang": "go",
+      "history_from": "2026-11-12"
+    },
+    {
       "name": "BenchmarkEncodeServerHello",
       "lang": "go",
       "history_from": "2026-10-23"

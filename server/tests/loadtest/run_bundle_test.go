@@ -45,6 +45,19 @@ func TestARunBecomesACompleteBundle(t *testing.T) {
 	assert.Equal(t, bundle.Run.StartedAt.Add(3*time.Second), bundle.Run.FinishedAt)
 }
 
+func TestTheTechniciansOwnRoomReachesTheBundleAndItsVerdict(t *testing.T) {
+	in := measuredRun()
+	in.TechnicianHeadroom = &Headroom{Measured: true, Scope: headroomScopeGenerator,
+		CPUHeadroomPercent: 50, MemoryUsedPercent: 96}
+
+	bundle := buildRunBundle(in)
+
+	require.NotNil(t, bundle.TechnicianHeadroom)
+	assert.InDelta(t, 96.0, bundle.TechnicianHeadroom.MemoryUsedPercent, 0.01)
+	assert.Equal(t, ResultInvalid, bundle.Verdict.Result,
+		"technicians out of their own memory make the run measure them")
+}
+
 func TestABundleIsProducedWithoutAProfile(t *testing.T) {
 	bundle := bundleFrom(t, harnessResults(), false)
 

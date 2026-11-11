@@ -24,8 +24,8 @@ pub use retro::{
     RETRO_IDLE_CPU_PERCENT,
 };
 pub use sink::{
-    AlertOrigin, AlertSeverity, AlertSink, EdgeAlert, PushOutcome, SinkStats, DEFAULT_CAPACITY,
-    DEVICE_HOURLY_CEILING,
+    AlertOrigin, AlertSeverity, AlertSink, EdgeAlert, Offer, PushOutcome, SinkStats,
+    DEFAULT_CAPACITY, DEVICE_HOURLY_CEILING,
 };
 pub use transport::alert_message;
 

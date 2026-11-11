@@ -153,7 +153,6 @@ func TestHostMetricDimsIngestScopedByConnectionTenant(t *testing.T) {
 	})
 
 	require.NoError(t, ac.handleControl(dbtx.WithDefaultTenant(context.Background(), false)))
-	ac.flushTelemetry(dbtx.WithDefaultTenant(context.Background(), false))
 
 	call := receiveTelemetryCall(t, writer.calls)
 	assert.Equal(t, dbtx.DefaultTenantID, call.tenantID, "tenant must be the connection's, not agent-supplied")

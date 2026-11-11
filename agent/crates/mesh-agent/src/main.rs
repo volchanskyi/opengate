@@ -426,37 +426,35 @@ pub(crate) fn should_skip_version(incoming: &str) -> bool {
     }
 }
 
-/// Sends every queued alert and returns whether the connection is still usable; a failed send
-/// returns the rest to the sink for the server's duplicate check to resolve after reconnect.
+/// Offers every queued alert and returns whether the connection is still usable. Each waits in
+/// the sink for its answer; a failed send puts every unanswered offer back to go on reconnect.
 pub(crate) async fn send_queued_alerts<S: mesh_agent_core::ControlStream>(
     conn: &mut mesh_agent_core::AgentConnection<S>,
     sink: &mesh_agent_core::alerts::AlertSink,
 ) -> bool {
-    let mut queued = sink.drain();
-    if queued.is_empty() {
+    let offers = sink.offer();
+    if offers.is_empty() {
         return true;
     }
-    let raised = queued.len();
+    let raised = offers.len();
 
-    let mut sent = 0;
-    while let Some(alert) = queued.first() {
+    for (sent, offer) in offers.iter().enumerate() {
+        let alert = &offer.alert;
         if let Err(e) = conn
-            .send_control(mesh_agent_core::alerts::alert_message(alert))
+            .send_control(mesh_agent_core::alerts::alert_message(&offer.id, alert))
             .await
         {
             warn!(
-                error = %e, rule_id = %alert.rule_id, sent, unsent = queued.len(),
+                error = %e, rule_id = %alert.rule_id, sent, unsent = raised - sent,
                 "alert send failed, will reconnect and offer them again"
             );
-            sink.return_unsent(queued);
+            sink.reoffer_awaiting();
             return false;
         }
         debug!(
-            rule_id = %alert.rule_id, subject = %alert.subject, summary = %alert.summary,
-            "alert sent"
+            rule_id = %alert.rule_id, alert_id = %offer.id, subject = %alert.subject,
+            summary = %alert.summary, "alert sent"
         );
-        queued.remove(0);
-        sent += 1;
     }
 
     // Alerts lost to either limit are reported beside what was delivered.
@@ -551,9 +549,15 @@ pub(crate) fn agent_capabilities(has_local_store: bool) -> Vec<mesh_protocol::Ag
         AgentCapability::ThresholdAlerts,
         AgentCapability::Alerts,
         AgentCapability::DirectChannels,
+        AgentCapability::AlertAnswers,
     ];
+    // Confirmations and re-send requests act on the local store catch-up reads.
     if has_local_store {
-        caps.push(AgentCapability::Backfill);
+        caps.extend([
+            AgentCapability::Backfill,
+            AgentCapability::LiveConfirmations,
+            AgentCapability::ResendRequests,
+        ]);
     }
     caps
 }
@@ -633,9 +637,23 @@ mod tests {
     }
 
     #[test]
+    fn agent_capabilities_say_the_agent_reads_alert_answers() {
+        assert!(agent_capabilities(false).contains(&mesh_protocol::AgentCapability::AlertAnswers));
+    }
+
+    #[test]
     fn agent_capabilities_advertise_backfill_only_with_local_store() {
         let caps = agent_capabilities(true);
         assert!(caps.contains(&mesh_protocol::AgentCapability::Backfill));
+    }
+
+    #[test]
+    fn confirmations_and_resend_requests_are_read_only_with_a_local_store() {
+        use mesh_protocol::AgentCapability::{LiveConfirmations, ResendRequests};
+        let with_store = agent_capabilities(true);
+        assert!(with_store.contains(&LiveConfirmations) && with_store.contains(&ResendRequests));
+        let without = agent_capabilities(false);
+        assert!(!without.contains(&LiveConfirmations) && !without.contains(&ResendRequests));
     }
 
     #[test]
@@ -747,15 +765,33 @@ mod tests {
         let mut server = connection(server_end);
 
         assert!(send_queued_alerts(&mut agent, &sink).await, "the link held");
+        let mut offered = Vec::new();
         for expected in ["disk-critical", "cpu-saturated"] {
             match server.receive_control().await.expect("an alert frame") {
-                mesh_protocol::ControlMessage::AgentAlert { rule_id, .. } => {
+                mesh_protocol::ControlMessage::AgentAlert {
+                    rule_id, alert_id, ..
+                } => {
                     assert_eq!(rule_id, expected);
+                    offered.push(alert_id);
                 }
                 other => panic!("expected AgentAlert, got {other:?}"),
             }
         }
         assert!(sink.drain().is_empty(), "nothing is left to send");
+        assert_eq!(
+            sink.stats().awaiting,
+            2,
+            "each sent alert waits for its answer"
+        );
+
+        for id in &offered {
+            sink.answer(id, mesh_protocol::AlertAnswerReason::Stored);
+        }
+        assert_eq!(
+            sink.stats().awaiting,
+            0,
+            "the server's answers name the ids the alerts went out under"
+        );
     }
 
     #[tokio::test]

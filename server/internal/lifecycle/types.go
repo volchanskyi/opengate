@@ -68,6 +68,12 @@ type PurgeJob struct {
 	CompletedAt   *time.Time
 }
 
+// WriteWaiter waits for the store writes registered for a subject, the device or, when nil, every
+// device of the tenant, so series are deleted only after the last write that could land.
+type WriteWaiter interface {
+	WaitForWrites(ctx context.Context, tenantID uuid.UUID, deviceID *uuid.UUID) error
+}
+
 // SeriesPurger deletes and counts VictoriaMetrics series for a subject. The
 // implementation always scopes the selector to tenant_id server-side.
 type SeriesPurger interface {

@@ -52,11 +52,9 @@ export function setup() {
     "load",
     arrivalTechnicians(WALK, REQUESTS_PER_JOURNEY)
   );
-  return {
-    technicians,
-    // The site holds machines, because two journeys are timed against one.
-    siteId: siteWithDevices(BASE_URL, technicians[0].token),
-  };
+  // The site holds machines, because two journeys are timed against one of them.
+  const { siteId, deviceIds } = siteWithDevices(BASE_URL, technicians[0].token);
+  return { technicians, siteId, deviceIds };
 }
 
 export default function (data) {
@@ -76,15 +74,15 @@ export default function (data) {
   const sites = http.get(`${BASE_URL}/api/v1/sites`, { headers });
   check(sites, { "sites 200": (r) => r.status === 200 });
 
-  // List devices, narrowed to a site when the organization has one
-  const devices = http.get(devicesUrl(BASE_URL, data.siteId), { headers });
+  // The whole list is asked for and timed as the console asks for it; its body grows with the fleet,
+  // so none of it is kept.
+  const devices = http.get(devicesUrl(BASE_URL, data.siteId), { headers, responseType: "none" });
   check(devices, { "devices 200": (r) => r.status === 200 });
   deviceListLatency.add(devices.timings.duration);
 
   // The device page and command journeys need a machine and are skipped on an empty fleet.
-  const fleet = devices.status === 200 ? devices.json() || [] : [];
-  if (fleet.length > 0) {
-    const deviceId = fleet[__ITER % fleet.length].id;
+  if (data.deviceIds.length > 0) {
+    const deviceId = data.deviceIds[__ITER % data.deviceIds.length];
 
     const detail = http.get(`${BASE_URL}/api/v1/devices/${deviceId}`, { headers });
     check(detail, { "device detail 200": (r) => r.status === 200 });

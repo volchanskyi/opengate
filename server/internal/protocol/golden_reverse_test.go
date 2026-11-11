@@ -229,9 +229,26 @@ func TestGenerateReverseGoldens(t *testing.T) {
 		Deadline: 1_700_003_600,
 	})
 
+	writeReverseControlFrame(t, dir, codec, "control_alert_answer", &ControlMessage{
+		Type:    MsgAlertAnswer,
+		AlertID: "6f0e1c2a-8d3b-4a5e-9f7c-1b2d3e4f5a6b",
+		Reason:  string(AlertAnswerStored),
+	})
+
 	writeReverseControlFrame(t, dir, codec, "control_defer_backfill", &ControlMessage{
 		Type:       MsgDeferBackfill,
 		RetryAfter: 30,
+	})
+
+	writeReverseControlFrame(t, dir, codec, "control_defer_backfill_since", &ControlMessage{
+		Type:       MsgDeferBackfill,
+		RetryAfter: 17,
+		SinceTS:    1_699_999_970,
+	})
+
+	writeReverseControlFrame(t, dir, codec, "control_live_window_stored", &ControlMessage{
+		Type: MsgLiveWindowStored,
+		TS:   1_700_000_040,
 	})
 
 	writeReverseControlFrame(t, dir, codec, "control_metric_backfill_ack", &ControlMessage{

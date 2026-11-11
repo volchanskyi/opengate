@@ -30,6 +30,7 @@ var testSchedule = BackgroundSchedule{
 	SessionSweep:   time.Minute,
 	SessionGrace:   5 * time.Minute,
 	IncidentSweep:  5 * time.Minute,
+	PresenceSweep:  5 * time.Minute,
 
 	RetentionSweep:   6 * time.Hour,
 	RetentionHorizon: 365 * 24 * time.Hour,

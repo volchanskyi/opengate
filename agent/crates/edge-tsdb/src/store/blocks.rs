@@ -44,6 +44,8 @@ pub(super) const T0: BlockTable = TableDefinition::new("t0_raw");
 pub(super) const T1: BlockTable = TableDefinition::new("t1_min");
 pub(super) const T2: BlockTable = TableDefinition::new("t2_hour");
 pub(super) const CURSOR: TableDefinition<u32, i64> = TableDefinition::new("cursor");
+/// Confirmed spans, `start → end` in seconds.
+pub(super) const CONFIRMED: TableDefinition<i64, i64> = TableDefinition::new("confirmed");
 
 pub(super) fn re<E: std::fmt::Display>(e: E) -> TsdbError {
     TsdbError::Redb(e.to_string())

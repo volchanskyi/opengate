@@ -61,6 +61,12 @@ pub enum AgentCapability {
     /// The direct link takes a channel per job (typing, screen, files) as well as one shared
     /// channel; a browser opens the three only for an agent that lists this.
     DirectChannels,
+    /// Gates the server → agent `AlertAnswer`, which tells the agent what became of each alert.
+    AlertAnswers,
+    /// Gates the server → agent `LiveWindowStored`, which confirms each stored live window.
+    LiveConfirmations,
+    /// Gates a `DeferBackfill` carrying `since_ts`, which asks the agent to send history again.
+    ResendRequests,
 }
 
 /// Current status of a device.

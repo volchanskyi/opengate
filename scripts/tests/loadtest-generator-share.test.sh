@@ -133,6 +133,23 @@ else
   fail "half a processor is asked for as half a processor's worth of quota"
 fi
 
+run_share --slice opengate-technicians.slice 0.5 6G -- printf 'the technicians ran\n'
+assert_eq "a generator given an allowance of its own still runs" "0" "$STATUS"
+if grep -qF 'systemctl set-property --runtime opengate-technicians.slice CPUQuota=50% MemoryMax=6G' "$WORK/calls.txt" \
+  && grep -qF 'systemd-run --scope --quiet --slice=opengate-technicians.slice' "$WORK/calls.txt"; then
+  pass "a named slice holds that generator's allowance apart from the shared one"
+else
+  fail "a named slice holds that generator's allowance apart from the shared one ($(cat "$WORK/calls.txt"))"
+fi
+if grep -qF 'opengate-generator.slice' "$WORK/calls.txt"; then
+  fail "a generator with a slice of its own leaves the shared slice alone"
+else
+  pass "a generator with a slice of its own leaves the shared slice alone"
+fi
+
+run_share --slice 0.5 6G -- true
+assert_eq "a slice that is not a systemd slice name is refused" "2" "$STATUS"
+
 run_share 1 8G -- sh -c 'exit 3'
 assert_eq "a failing command fails the wrapper" "3" "$STATUS"
 
@@ -173,26 +190,37 @@ else
 fi
 
 WORKFLOW="$REPO_ROOT/.github/workflows/perf-stack.yml"
-# The allowance as each call in the workflow spells it, with its variables unexpanded. A step that
-# starts technicians beside its harness bounds both with it; a leg with no technicians has no pair.
-allowance="loadtest-generator-share.sh \"\$PERF_GENERATOR_CPUS\" \"\$PERF_GENERATOR_MEMORY\" --"
-paired_steps="$(
+# A step starting technicians beside its harness bounds both with one allowance, or gives the
+# technicians a slice of their own and hands the harness that slice to judge.
+pairing="$(
   python3 - "$WORKFLOW" <<'PY'
-import sys, yaml
+import re, sys, yaml
 doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
-for job in doc.get("jobs", {}).values():
+share = re.compile(r'loadtest-generator-share\.sh ((?:--slice \S+ )?"\$\w+" "\$\w+") --')
+for name, job in doc.get("jobs", {}).items():
     for step in job.get("steps") or []:
         run = str(step.get("run", ""))
-        if "scripts/loadtest-k6-alongside.sh" in run:
-            print(run.replace("\n", "\x1e"))
+        if "scripts/loadtest-k6-alongside.sh" not in run:
+            continue
+        allowances = share.findall(run)
+        harness = [a for a in allowances if not a.startswith("--slice")]
+        own = [a for a in allowances if a.startswith("--slice opengate-technicians.slice ")]
+        if own:
+            judged = ('-technician-cgroup="$TECHNICIAN_CGROUP"' in run
+                      and "TECHNICIAN_CGROUP=opengate.slice/opengate-technicians.slice" in run)
+            print(f"{name} own {'judged' if judged else 'unjudged'}")
+        elif len(harness) >= 2 and len(set(harness)) == 1:
+            print(f"{name} shared")
+        else:
+            print(f"{name} unbound {allowances}")
 PY
 )"
-harness_bound="$(grep -oF -- "$allowance \\" <<<"$paired_steps" | wc -l || true)"
-k6_bound="$(grep -oF -- "$allowance scripts/loadtest-k6-alongside.sh" <<<"$paired_steps" | wc -l || true)"
-if [ "$harness_bound" -gt 0 ] && [ "$harness_bound" = "$k6_bound" ]; then
-  pass "perf-stack.yml bounds each leg's harness and its technicians with one allowance ($harness_bound legs)"
+if grep -qE ' (unbound|unjudged)' <<<"$pairing"; then
+  fail "perf-stack.yml bounds every leg's technicians with the harness's allowance or judges their own ($pairing)"
+elif grep -qE ' shared$' <<<"$pairing" && grep -qE ' own judged$' <<<"$pairing"; then
+  pass "perf-stack.yml bounds every leg's technicians with the harness's allowance or judges their own"
 else
-  fail "perf-stack.yml bounds each leg's harness and its technicians with one allowance (harness $harness_bound, k6 $k6_bound)"
+  fail "perf-stack.yml holds a leg sharing one allowance and a leg judging the technicians' own ($pairing)"
 fi
 
 echo

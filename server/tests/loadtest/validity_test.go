@@ -46,6 +46,17 @@ func TestARunThatMeasuredTheSystemIsValid(t *testing.T) {
 	assert.True(t, verdict.EntersTrend())
 }
 
+func TestTechniciansInsideTheirOwnRoomLeaveTheRunValid(t *testing.T) {
+	refused := 4.0
+	verdict := classify(func(in *RunInputs) {
+		in.Technicians = &Headroom{Measured: true, Scope: headroomScopeGenerator,
+			CPUHeadroomPercent: 55, MemoryUsedPercent: 70, CPURefusedPercent: &refused}
+	})
+
+	assert.Equal(t, ResultValid, verdict.Result)
+	assert.Empty(t, verdict.Reasons)
+}
+
 func TestARunThatDidNotMeasureTheSystemIsInvalid(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -79,6 +90,30 @@ func TestARunThatDidNotMeasureTheSystemIsInvalid(t *testing.T) {
 				in.Headroom.CPURefusedPercent = &refused
 			},
 			reason: "refused the processor",
+		},
+		{
+			name: "the technicians' own generator had nearly no memory left",
+			mutate: func(in *RunInputs) {
+				in.Technicians = &Headroom{Measured: true, Scope: headroomScopeGenerator,
+					CPUHeadroomPercent: 60, MemoryUsedPercent: 95}
+			},
+			reason: "technician generator memory reached 95.0%",
+		},
+		{
+			name: "the technicians' own generator was refused the processor",
+			mutate: func(in *RunInputs) {
+				refused := 31.0
+				in.Technicians = &Headroom{Measured: true, Scope: headroomScopeGenerator,
+					CPUHeadroomPercent: 60, MemoryUsedPercent: 40, CPURefusedPercent: &refused}
+			},
+			reason: "technician generator was refused the processor for 31.0%",
+		},
+		{
+			name: "the technicians' own allowance was named and never read",
+			mutate: func(in *RunInputs) {
+				in.Technicians = &Headroom{}
+			},
+			reason: "technician generator was not measured",
 		},
 		{
 			name:   "a safety ceiling stopped the run",

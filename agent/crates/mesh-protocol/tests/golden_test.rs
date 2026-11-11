@@ -584,10 +584,32 @@ fn golden_control_frame_grant_backfill() {
 
 #[test]
 fn golden_control_frame_defer_backfill() {
-    let msg = ControlMessage::DeferBackfill { retry_after: 30 };
+    let msg = ControlMessage::DeferBackfill {
+        retry_after: 30,
+        since_ts: 0,
+    };
     let frame = Frame::Control(msg);
     let encoded = frame.encode().unwrap();
     golden_check("control_defer_backfill.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_alert_answer() {
+    let msg = ControlMessage::AlertAnswer {
+        alert_id: "6f0e1c2a-8d3b-4a5e-9f7c-1b2d3e4f5a6b".to_string(),
+        reason: AlertAnswerReason::RefusedForGood,
+    };
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_alert_answer.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_live_window_stored() {
+    let msg = ControlMessage::LiveWindowStored { ts: 1_700_000_040 };
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_live_window_stored.bin", &encoded);
 }
 
 #[test]

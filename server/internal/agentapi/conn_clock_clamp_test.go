@@ -87,7 +87,6 @@ func TestClockClampIsCountedAndStillPersisted(t *testing.T) {
 			stamped := time.Now().Add(tt.offset).Unix()
 			require.NoError(t, ac.handleAgentMetricWindow(ctx, metricWindowMsg(stamped,
 				protocol.MetricDim{Name: testDim, Avg: 1}), 256))
-			ac.flushTelemetry(ctx)
 
 			call := receiveTelemetryCall(t, writer.calls)
 			require.Len(t, call.samples, 1, "a clamped message is still persisted")
@@ -140,7 +139,6 @@ func TestHealthWindowClampPreservesSummaryOrder(t *testing.T) {
 
 	ctx := tenantCtx(tenant)
 	require.NoError(t, ac.handleHealthWindowResponse(ctx, msg, 512))
-	ac.flushTelemetry(ctx)
 
 	call := receiveTelemetryCall(t, writer.calls)
 	require.Len(t, call.samples, len(offsets))

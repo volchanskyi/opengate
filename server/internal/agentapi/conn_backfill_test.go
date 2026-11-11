@@ -3,7 +3,6 @@ package agentapi
 import (
 	"bytes"
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -16,10 +15,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
-	"github.com/volchanskyi/opengate/server/internal/telemetry"
 )
-
-var errBackfillWrite = errors.New("backfill write failed")
 
 func backfillConn(t *testing.T, s *BackfillScheduler, tenant uuid.UUID, capable bool) (*AgentConn, *bytes.Buffer) {
 	t.Helper()
@@ -39,7 +35,7 @@ func backfillConn(t *testing.T, s *BackfillScheduler, tenant uuid.UUID, capable 
 }
 
 // ingestConn builds a connection whose machine already holds a catch-up grant.
-func ingestConn(t *testing.T, tenant uuid.UUID, writer telemetry.NumericWriter, capable bool) (*AgentConn, *bytes.Buffer) {
+func ingestConn(t *testing.T, tenant uuid.UUID, writer ReadingWriter, capable bool) (*AgentConn, *bytes.Buffer) {
 	t.Helper()
 	var buf bytes.Buffer
 	ac := &AgentConn{
@@ -48,10 +44,10 @@ func ingestConn(t *testing.T, tenant uuid.UUID, writer telemetry.NumericWriter, 
 		stream:    &buf,
 		codec:     &protocol.Codec{},
 		telemetry: writer,
-		scheduler: NewBackfillScheduler(DefaultBackfillSchedulerConfig(), nil, nil),
+		scheduler: NewBackfillScheduler(DefaultBackfillSchedulerConfig(), nil, nil, nil),
 		logger:    testLogger(),
 	}
-	ac.scheduler.RequestSlot(ac.DeviceID, tenant, SlotRequest{})
+	ac.scheduler.RequestSlot(ac.DeviceID, ac.customer(), SlotRequest{})
 	if capable {
 		ac.Capabilities = []protocol.AgentCapability{protocol.CapBackfill}
 	}
@@ -74,7 +70,7 @@ func readReply(t *testing.T, ac *AgentConn, buf *bytes.Buffer) *protocol.Control
 
 func TestHandleRequestBackfillSlot_GrantsAndBooksNoPlace(t *testing.T) {
 	clock, _ := fixedClock()
-	s := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 })
+	s := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 }, nil)
 	tenant := uuid.New()
 	ac, buf := backfillConn(t, s, tenant, true)
 
@@ -91,12 +87,9 @@ func TestHandleRequestBackfillSlot_GrantsAndBooksNoPlace(t *testing.T) {
 	assert.Equal(t, 0, s.ActiveCount(), "permission to start holds no place")
 }
 
-func TestHandleRequestBackfillSlot_GrantsWhileEveryPlaceIsTaken(t *testing.T) {
+func TestHandleRequestBackfillSlot_GrantsWhileTheQueueIsFull(t *testing.T) {
 	clock, _ := fixedClock()
-	s := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 })
-	for range schedCfg().MaxConcurrent {
-		admitted(t, s, uuid.New())
-	}
+	s := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 }, func() float64 { return 1 })
 	ac, buf := backfillConn(t, s, uuid.New(), true)
 
 	require.NoError(t, ac.handleRequestBackfillSlot(&protocol.ControlMessage{Type: protocol.MsgRequestBackfillSlot}))
@@ -106,7 +99,7 @@ func TestHandleRequestBackfillSlot_GrantsWhileEveryPlaceIsTaken(t *testing.T) {
 
 func TestHandleRequestBackfillSlot_IgnoredWithoutCapability(t *testing.T) {
 	clock, _ := fixedClock()
-	s := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 })
+	s := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 }, nil)
 	ac, buf := backfillConn(t, s, uuid.New(), false)
 
 	require.NoError(t, ac.handleRequestBackfillSlot(&protocol.ControlMessage{
@@ -189,31 +182,6 @@ func TestHandleMetricBackfillBatch_AllClampedStillAcksToUnstick(t *testing.T) {
 	assert.Equal(t, msg.Cursor, ack.Cursor)
 }
 
-type erroringTelemetryWriter struct{ calls int }
-
-func (e *erroringTelemetryWriter) WriteSamples(context.Context, uuid.UUID, uuid.UUID, []telemetry.Sample) error {
-	e.calls++
-	return errBackfillWrite
-}
-
-func TestHandleMetricBackfillBatch_AFailedWriteIsToldToWait(t *testing.T) {
-	tenant := uuid.New()
-	writer := &erroringTelemetryWriter{}
-	ac, buf := ingestConn(t, tenant, writer, true)
-	m := appmetrics.NewMetrics(prometheus.NewRegistry())
-	ac.metrics = m
-
-	require.NoError(t, ac.handleMetricBackfillBatch(tenantCtx(tenant), recentBatch(), 128))
-
-	assert.Equal(t, 1, writer.calls, "the write was attempted")
-	reply := readReply(t, ac, buf)
-	assert.Equal(t, protocol.MsgDeferBackfill, reply.Type, "the machine keeps the batch and sends it again")
-	assert.Positive(t, reply.RetryAfter)
-	assert.Zero(t, buf.Len(), "exactly one answer")
-	assert.Equal(t, 0, ac.scheduler.ActiveCount(), "the place is given back after a failed write")
-	assert.InDelta(t, 1, promtestutil.ToFloat64(m.EdgeBackfillAnswersTotal.WithLabelValues("deferred_write_failed")), 0)
-}
-
 func TestHandleMetricBackfillBatch_RefusedBatchesAreToldToWait(t *testing.T) {
 	tenant := uuid.New()
 	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
@@ -222,7 +190,7 @@ func TestHandleMetricBackfillBatch_RefusedBatchesAreToldToWait(t *testing.T) {
 		name       string
 		ctx        context.Context
 		payloadLen int
-		telemetry  telemetry.NumericWriter
+		telemetry  ReadingWriter
 	}{
 		{"a batch past the payload bound", tenantCtx(tenant), maxTelemetryPayloadBytes + 1, writer},
 		{"a connection with no tenant", context.Background(), 128, writer},

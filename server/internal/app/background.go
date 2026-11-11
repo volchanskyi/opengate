@@ -50,6 +50,23 @@ func (j janitor) run(ctx context.Context, logger *slog.Logger) {
 	}
 }
 
+// presenceSweeper refreshes connected machines' last-seen and takes stale online rows offline.
+type presenceSweeper interface {
+	SweepPresence(ctx context.Context) (int, error)
+}
+
+// startPresenceSweepLoop runs the presence sweep until ctx is cancelled.
+func startPresenceSweepLoop(ctx context.Context, every time.Duration, sweeper presenceSweeper, logger *slog.Logger) {
+	janitor{
+		every:  every,
+		sweep:  sweeper.SweepPresence,
+		failed: "presence sweep failed",
+		found: func(offline int) {
+			logger.Info("presence sweep took machines offline", "count", offline)
+		},
+	}.run(ctx, logger)
+}
+
 // orphanSweeper reclaims telemetry series no device owns.
 type orphanSweeper interface {
 	Sweep(ctx context.Context) (int, error)
@@ -182,6 +199,8 @@ type BackgroundSchedule struct {
 	SessionGrace time.Duration
 	// IncidentSweep is how often rooms whose hold has run out are closed.
 	IncidentSweep time.Duration
+	// PresenceSweep is how often connected machines' last-seen is refreshed and stale rows go offline.
+	PresenceSweep time.Duration
 	// RetentionSweep is how often expired records are removed; RetentionHorizon is their keep time.
 	RetentionSweep   time.Duration
 	RetentionHorizon time.Duration
@@ -199,6 +218,7 @@ func (s BackgroundSchedule) Validate() error {
 		"SessionSweep":     s.SessionSweep,
 		"SessionGrace":     s.SessionGrace,
 		"IncidentSweep":    s.IncidentSweep,
+		"PresenceSweep":    s.PresenceSweep,
 		"RetentionSweep":   s.RetentionSweep,
 		"RetentionHorizon": s.RetentionHorizon,
 	} {
@@ -239,6 +259,7 @@ func (a *Assembly) StartBackgroundWorkers(ctx context.Context, sched BackgroundS
 	go startConsoleSessionSweepLoop(ctx, sched.SessionSweep, a.ConsoleSessions, a.clock, a.Logger)
 
 	go startIncidentSweepLoop(ctx, sched.IncidentSweep, a.Alerts, groupWindows(a.Rules), a.Logger)
+	go startPresenceSweepLoop(ctx, sched.PresenceSweep, a.Agents, a.Logger)
 
 	go startRetentionSweepLoop(ctx, sched.RetentionSweep, sched.RetentionHorizon, a.Alerts, a.Logger)
 

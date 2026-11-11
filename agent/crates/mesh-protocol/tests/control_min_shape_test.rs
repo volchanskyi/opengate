@@ -1,7 +1,7 @@
 //! Server → agent control messages omit zero-valued fields on the wire (`omitempty`); a decode
 //! error breaks the control loop, so legal zero values decode from a bare `{"type": X}` map.
 
-use mesh_protocol::{ControlMessage, Permissions, SessionToken};
+use mesh_protocol::{AlertAnswerReason, ControlMessage, Permissions, SessionToken};
 use std::collections::BTreeMap;
 
 fn encode_map(pairs: &[(&str, &str)]) -> Vec<u8> {
@@ -172,5 +172,70 @@ fn agent_update_decodes_with_an_absent_sha256() {
             assert_eq!(signature, "ed25519-signature");
         }
         other => panic!("expected AgentUpdate, got {other:?}"),
+    }
+}
+
+#[test]
+fn an_alert_answer_in_a_word_this_build_does_not_know_reads_as_try_again() {
+    match decode_ok(&[
+        ("type", "AlertAnswer"),
+        ("alert_id", "a1"),
+        ("reason", "Parked"),
+    ]) {
+        ControlMessage::AlertAnswer { alert_id, reason } => {
+            assert_eq!(alert_id, "a1");
+            assert_eq!(reason, AlertAnswerReason::TryAgain);
+        }
+        other => panic!("expected AlertAnswer, got {other:?}"),
+    }
+}
+
+#[test]
+fn an_alert_answer_with_no_reason_reads_as_try_again() {
+    match decode_ok(&[("type", "AlertAnswer"), ("alert_id", "a1")]) {
+        ControlMessage::AlertAnswer { reason, .. } => {
+            assert_eq!(reason, AlertAnswerReason::TryAgain);
+        }
+        other => panic!("expected AlertAnswer, got {other:?}"),
+    }
+}
+
+#[test]
+fn each_alert_answer_word_reads_as_itself() {
+    for (word, want) in [
+        ("Stored", AlertAnswerReason::Stored),
+        ("RefusedForGood", AlertAnswerReason::RefusedForGood),
+        ("TryAgain", AlertAnswerReason::TryAgain),
+    ] {
+        match decode_ok(&[
+            ("type", "AlertAnswer"),
+            ("alert_id", "a1"),
+            ("reason", word),
+        ]) {
+            ControlMessage::AlertAnswer { reason, .. } => assert_eq!(reason, want, "{word}"),
+            other => panic!("expected AlertAnswer, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn a_deferral_from_a_server_that_asks_for_nothing_again_decodes_with_no_since() {
+    match decode_ok(&[("type", "DeferBackfill")]) {
+        ControlMessage::DeferBackfill {
+            retry_after,
+            since_ts,
+        } => {
+            assert_eq!(retry_after, 0);
+            assert_eq!(since_ts, 0);
+        }
+        other => panic!("expected DeferBackfill, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_live_confirmation_decodes_without_its_stamp() {
+    match decode_ok(&[("type", "LiveWindowStored")]) {
+        ControlMessage::LiveWindowStored { ts } => assert_eq!(ts, 0),
+        other => panic!("expected LiveWindowStored, got {other:?}"),
     }
 }

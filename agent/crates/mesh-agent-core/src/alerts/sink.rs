@@ -4,6 +4,9 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use mesh_protocol::AlertAnswerReason;
+use uuid::Uuid;
+
 /// Alerts one device may raise in a rolling hour before the excess is suppressed.
 pub const DEVICE_HOURLY_CEILING: u32 = 20;
 
@@ -79,12 +82,23 @@ pub enum PushOutcome {
     SuppressedByCeiling,
 }
 
+/// An alert handed out for delivery, under the id its wire message carries and its answer names.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Offer {
+    /// The id this offer goes out under; an offer again gets a new one.
+    pub id: String,
+    /// The alert offered.
+    pub alert: EdgeAlert,
+}
+
 /// What the sink has done since the process started; loss counts survive a drain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub struct SinkStats {
     /// Alerts waiting for delivery right now.
     pub queued: usize,
+    /// Alerts offered and not yet answered.
+    pub awaiting: usize,
     /// Alerts dropped because the queue was full.
     pub dropped_oldest: u64,
     /// Alerts refused because the device was at its hourly ceiling.
@@ -93,6 +107,8 @@ pub struct SinkStats {
 
 struct Inner {
     queue: VecDeque<EdgeAlert>,
+    /// Offered alerts not yet answered, oldest offer first.
+    awaiting: VecDeque<Offer>,
     capacity: usize,
     ceiling: u32,
     /// Raise times of alerts admitted inside the current window, oldest first.
@@ -129,6 +145,7 @@ impl AlertSink {
         Self {
             inner: Arc::new(Mutex::new(Inner {
                 queue: VecDeque::new(),
+                awaiting: VecDeque::new(),
                 capacity,
                 ceiling,
                 admitted: VecDeque::new(),
@@ -167,16 +184,45 @@ impl AlertSink {
         self.lock().queue.drain(..).collect()
     }
 
-    /// Puts undelivered alerts back at the front of the queue without charging the ceiling again.
-    pub fn return_unsent(&self, alerts: Vec<EdgeAlert>) {
-        if alerts.is_empty() {
-            return;
-        }
+    /// Hands over every queued alert, oldest first, each under a fresh id it then waits under
+    /// until [`AlertSink::answer`] settles it.
+    pub fn offer(&self) -> Vec<Offer> {
         let mut inner = self.lock();
-        for alert in alerts.into_iter().rev() {
-            inner.queue.push_front(alert);
+        let offers: Vec<Offer> = inner
+            .queue
+            .drain(..)
+            .map(|alert| Offer {
+                id: Uuid::new_v4().to_string(),
+                alert,
+            })
+            .collect();
+        inner.awaiting.extend(offers.iter().cloned());
+        offers
+    }
+
+    /// Settles the offer `id`: stored and refused-for-good end it, and anything else puts it back
+    /// first in line. An id the sink does not hold changes nothing.
+    pub fn answer(&self, id: &str, reason: AlertAnswerReason) {
+        let mut inner = self.lock();
+        let Some(at) = inner.awaiting.iter().position(|offer| offer.id == id) else {
+            return;
+        };
+        let Some(offer) = inner.awaiting.remove(at) else {
+            return;
+        };
+        match reason {
+            AlertAnswerReason::Stored | AlertAnswerReason::RefusedForGood => {}
+            _ => inner.queue.push_front(offer.alert),
         }
-        inner.trim_to_capacity();
+    }
+
+    /// Puts every unanswered offer back at the front of the queue, oldest first, without charging
+    /// the ceiling again; a new session answers none of the old one's ids.
+    pub fn reoffer_awaiting(&self) {
+        let mut inner = self.lock();
+        while let Some(offer) = inner.awaiting.pop_back() {
+            inner.queue.push_front(offer.alert);
+        }
     }
 
     /// Sets the hourly ceiling, effective on the next alert; a ceiling of zero is ignored.
@@ -193,6 +239,7 @@ impl AlertSink {
         let inner = self.lock();
         SinkStats {
             queued: inner.queue.len(),
+            awaiting: inner.awaiting.len(),
             dropped_oldest: inner.dropped_oldest,
             suppressed_by_ceiling: inner.suppressed_by_ceiling,
         }
@@ -200,11 +247,14 @@ impl AlertSink {
 }
 
 impl Inner {
-    /// Drops the oldest until the queue is inside its bound, counts each loss and returns how many.
+    /// Drops the oldest until queued and awaiting alerts fit the bound, offers first since they
+    /// were raised before anything still queued, counts each loss and returns how many.
     fn trim_to_capacity(&mut self) -> u64 {
         let mut dropped = 0;
-        while self.queue.len() > self.capacity {
-            self.queue.pop_front();
+        while self.queue.len() + self.awaiting.len() > self.capacity {
+            if self.awaiting.pop_front().is_none() {
+                self.queue.pop_front();
+            }
             self.dropped_oldest += 1;
             dropped += 1;
         }

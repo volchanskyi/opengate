@@ -49,6 +49,13 @@ const (
 	// CapDirectChannels says the agent's direct link takes a channel per job; the browser reads it
 	// from the device record to choose its channels.
 	CapDirectChannels AgentCapability = "DirectChannels"
+	// CapAlertAnswers says the agent reads AlertAnswer and keeps each offered alert until it is
+	// answered stored or refused for good.
+	CapAlertAnswers AgentCapability = "AlertAnswers"
+	// CapLiveConfirmations says the agent reads LiveWindowStored and keeps each confirmed minute.
+	CapLiveConfirmations AgentCapability = "LiveConfirmations"
+	// CapResendRequests says the agent reads a DeferBackfill SinceTS as a request to send again.
+	CapResendRequests AgentCapability = "ResendRequests"
 )
 
 // DeviceStatus represents the current connection state of a device.

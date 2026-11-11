@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Tests scripts/perf-catchup-gate.sh: the store probe's readings in a bundle judged against the
-# go/no-go's marks, each failed mark named, and a bundle with no probe never read as a pass.
+# Tests scripts/perf-catchup-gate.sh: the store probe's readings in a bundle reported against the
+# go/no-go's marks, each missed mark named, and a bundle with no probe never read as a reading.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -50,10 +50,10 @@ echo "catch-up go/no-go:"
 
 bundle_with '.'
 judge
-if [ "$status" -eq 0 ] && out_has 'go: the store took 10500 readings a second'; then
-  pass "a store past every mark is a go, its rate named"
+if [ "$status" -eq 0 ] && out_has 'store probe: the store took 10500 readings a second' && ! out_has 'below its mark'; then
+  pass "a store past every mark is reported with its rate named"
 else
-  fail "a passing probe must be a go (status=$status out=[$(cat "$WORK/out")])"
+  fail "a passing probe must be reported clean (status=$status out=[$(cat "$WORK/out")])"
 fi
 if out_has 'two senders: 14000 readings a second'; then
   pass "the two-sender figure is published beside it for the choice it informs"
@@ -76,10 +76,10 @@ for case in \
   named="${case#*|}"
   bundle_with "$edit"
   judge
-  if [ "$status" -eq 1 ] && out_has "$named" && out_has 'no-go'; then
-    pass "a no-go names the mark it missed: $named"
+  if [ "$status" -eq 0 ] && out_has "$named" && out_has 'below its mark'; then
+    pass "a missed mark is named and fails nothing: $named"
   else
-    fail "$edit must be a no-go naming '$named' (status=$status out=[$(cat "$WORK/out")])"
+    fail "$edit must be reported naming '$named' and exit 0 (status=$status out=[$(cat "$WORK/out")])"
   fi
 done
 

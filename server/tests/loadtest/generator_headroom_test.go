@@ -61,6 +61,48 @@ func TestAGeneratorInsideASliceHoldingTheAllowanceIsMeasuredAgainstTheSlice(t *t
 	assert.EqualValues(t, 7000000, cpu.UsageMicros, "the usage counted is the slice's, both generators together")
 }
 
+func TestAGeneratorBesideThisOneIsMeasuredAgainstItsOwnAllowance(t *testing.T) {
+	mount := t.TempDir()
+	beside := filepath.Join(mount, "opengate.slice", "opengate-technicians.slice")
+	require.NoError(t, os.MkdirAll(beside, 0o700))
+	for name, content := range map[string]string{
+		"cpu.max":        "50000 100000\n",
+		"cpu.stat":       "usage_usec 1000000\nthrottled_usec 0\n",
+		"memory.current": "1073741824\n",
+		"memory.max":     "4294967296\n",
+	} {
+		require.NoError(t, os.WriteFile(filepath.Join(beside, name), []byte(content), 0o600))
+	}
+
+	at := time.Unix(1_800_000_000, 0)
+	meter := besideMeter(mount, "opengate.slice/opengate-technicians.slice", func() time.Time { return at })
+	require.NotNil(t, meter, "a named cgroup holding a quota is that generator's allowance")
+	require.NoError(t, os.WriteFile(filepath.Join(beside, "cpu.stat"),
+		[]byte("usage_usec 3000000\nthrottled_usec 1000000\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(beside, "memory.current"), []byte("3865470566\n"), 0o600))
+	meter.Sample()
+	at = at.Add(10 * time.Second)
+
+	reading := meter.Stop()
+	require.True(t, reading.Measured)
+	assert.InDelta(t, 60.0, reading.CPUHeadroomPercent, 0.5,
+		"two processor-seconds of five on half a processor over ten seconds leaves three fifths")
+	assert.InDelta(t, 90.0, reading.MemoryUsedPercent, 0.1, "the peak sampled, against its own ceiling")
+	require.NotNil(t, reading.CPURefusedPercent)
+	assert.InDelta(t, 10.0, *reading.CPURefusedPercent, 0.5)
+}
+
+func TestANamedAllowanceThatCannotBeReadIsReportedUnmeasured(t *testing.T) {
+	stop := WatchBeside(t.TempDir(), "opengate.slice/opengate-technicians.slice")
+	reading := stop()
+	require.NotNil(t, reading, "a named allowance is always reported, so an unread one invalidates")
+	assert.False(t, reading.Measured)
+}
+
+func TestNoNamedAllowanceReportsNothing(t *testing.T) {
+	assert.Nil(t, WatchBeside(t.TempDir(), "")())
+}
+
 func TestATreeWithNoQuotaAnywhereHoldsNoAllowance(t *testing.T) {
 	mount := t.TempDir()
 	scope := filepath.Join(mount, "user.slice", "run-2.scope")

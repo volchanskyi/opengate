@@ -129,6 +129,7 @@ the frame and continue. Malformed frames and oversized payloads remain fatal.
 | `AgentHealthSummary` | Agent → Server | `ts`, `tenant_id`, `node_anomaly_rate`, `per_family_rates`, `recent_bitmask`, `sampler_ver`, `model_ver`, `breaches`, `rule_coverage` |
 | `PushAlertRules` | Server → Agent | `rules` |
 | `AgentMetricWindow` | Agent → Server | `ts`, `tenant_id`, `dims` |
+| `LiveWindowStored` | Server → Agent | `ts` |
 | `SessionAccept` | Agent → Server | `token`, `relay_url` |
 | `SessionReject` | Agent → Server | `token`, `reason` |
 | `SessionRequest` | Server → Agent | `token`, `relay_url`, `permissions`, `ice_servers` (omitted when empty) |
@@ -177,21 +178,29 @@ the frame and continue. Malformed frames and oversized payloads remain fatal.
 | `SetMaintenanceMode` | Server → Agent | `enabled` |
 | `MaintenanceApplied` | Agent → Server | `enabled` |
 | `AgentAlert` | Agent → Server | `alert_id`, `rule_id`, `rule_version`, `severity`, `metric`, `value`, `window_start_ts`, `window_end_ts`, `observed_ts`, `backfilled`, `evidence_codec`, `evidence` |
+| `AlertAnswer` | Server → Agent | `alert_id`, `reason` |
 
 The Edge Sentinel telemetry variants are ingested by the server when received.
 The agent sampler runs on every device
 ([ADR-056](../adr/ADR-056-maintenance-mode.md)); it pauses only while the
 device is in maintenance mode. Server ingest ignores payload `tenant_id` for
 authorization, resolves the device's authoritative tenant after handshake,
-applies a telemetry payload cap and interval floor, and drops/counts telemetry
-when the bounded persistence path is saturated. The source-of-truth payload definitions are the Rust
+applies a telemetry payload cap and interval floor, and hands every reading to
+the server's one writer, whose bounded queues drop and count what they cannot
+hold. The source-of-truth payload definitions are the Rust
 [`ControlMessage`](../../agent/crates/mesh-protocol/src/control.rs) enum and Go
 [`ControlMessage`](../../server/internal/protocol/control.go) flat struct; the
 store decision is [ADR-044](../adr/ADR-044-telemetry-ingest.md).
 
 Live host metrics reuse `AgentMetricWindow`: the sampler folds its 1 s samples
 into a 60 s window and emits one window per minute over a bounded channel that
-drops under pressure, so a burst never backpressures the control stream. Each
+drops under pressure, so a burst never backpressures the control stream. The
+window goes out at the second of the minute the machine's id names
+([`control_loop.rs`](../../agent/crates/mesh-agent/src/control_loop.rs),
+`live_send_second`), so a fleet that reconnected together reaches the server
+evenly. Once the store has accepted every reading of a window, or deliberately
+refused the rest, the server answers `LiveWindowStored` carrying the window's own
+`ts`, and the agent records that minute as confirmed. Each
 `dims` entry is a host-resource series (`cpu.total`, `mem.used_percent`,
 `disk.used_percent`, `net.rx_bps`, `net.tx_bps`, `disk.mounts_critical`, the five
 `stall.*` vitals, `disk.await_ms` and `disk.queue_depth`) carrying that window's
@@ -239,7 +248,9 @@ and maxima alike, so a live point and a later gap-filled point for the same
 `(dim, ts)` land in one series. On the on-demand log query, `RequestDeviceLogs.source` selects the log
 source (`host` resolves the platform system log, journald on Linux; empty or
 `self` reads the agent's own files) and `unit` narrows host logs to one emitting
-unit; `DeviceLogsResponse.available_units` enumerates the source's distinct units
+unit; `DeviceLogsResponse.has_more` is set when the agent stopped adding lines
+to stay under the server's message ceiling, and the next page starts after the
+lines received; `DeviceLogsResponse.available_units` enumerates the source's distinct units
 for the UI unit dropdown. The `source` vocabulary is the extension point for a
 further platform's log reader and is wider than any one agent implements — an
 agent that names a source it has no reader for gets `DeviceLogsError` naming that
@@ -368,6 +379,12 @@ decode. Each refusal is counted under its own reason
 [Monitoring](../infrastructure/Monitoring.md). `severity` and `backfilled` are always present on the
 wire, so "nothing said" and "not serious" never look alike.
 
+An agent advertising `AlertAnswers` is answered once per alert with
+`AlertAnswer`, naming the `alert_id` it offered and a `reason`: `Stored`,
+`RefusedForGood` or `TryAgain`. An agent reads a `reason` it does not know as
+`TryAgain`, so a later answer keeps the alert rather than losing it
+([ADR-124](../adr/ADR-124-an-alert-reaches-the-queue.md)).
+
 An alert's timestamps are refused rather than clamped, unlike a telemetry
 sample's: `window_start_ts` is part of the identity above, so pulling it to a
 bound would land the same alert on a different row every reconnect. `backfilled`
@@ -431,7 +448,10 @@ capability. Current additive gates:
 | `DeviceLogs` | `RequestDeviceLogs` |
 | `HealthWindow` | `RequestHealthWindow` |
 | `Backfill` | `GrantBackfill`, `DeferBackfill`, `MetricBackfillAck`, `RequestLocalHistory` |
+| `LiveConfirmations` | `LiveWindowStored` |
+| `ResendRequests` | `DeferBackfill` carrying `since_ts` |
 | `ThresholdAlerts` | `PushAlertRules` |
+| `AlertAnswers` | `AlertAnswer` |
 | `Alerts` | _(no server-to-agent message)_ |
 | `DirectChannels` | _(no server-to-agent message)_ |
 
@@ -439,9 +459,16 @@ Catch-up is one exchange under `Backfill`. A `RequestBackfillSlot` is answered
 `GrantBackfill`, a pace and a deadline. Each `MetricBackfillBatch` is answered
 once: `MetricBackfillAck`, echoing its tier and cursor, when every reading was
 stored or deliberately filtered, and `DeferBackfill` with a `retry_after`
-otherwise, after which the agent asks for permission again and resends from its
-last confirmed position
-([`conn_backfill.go`](../../server/internal/agentapi/conn_backfill.go)).
+otherwise, after which the agent sends the same batch again
+([`conn_backfill.go`](../../server/internal/agentapi/conn_backfill.go)). The agent
+sends only minutes the server never confirmed, by `MetricBackfillAck` or
+`LiveWindowStored`, and a batch with no answer within its deadline goes again
+after a growing wait
+([`backfill_loop.rs`](../../agent/crates/mesh-agent/src/backfill_loop.rs)). A
+`DeferBackfill` with a non-zero `since_ts`, sent only to an agent advertising
+`ResendRequests`, asks for everything after that second again: the server sends
+it after the reading store restarts, and after its live queue dropped that
+machine's readings ([ADR-044](../adr/ADR-044-telemetry-ingest.md)).
 
 `Discovery` and `Alerts` gate no server-to-agent message; the agent advertises
 each to signal what it emits — `DiscoveryReport` inventory and self-contained

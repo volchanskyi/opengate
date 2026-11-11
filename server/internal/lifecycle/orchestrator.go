@@ -28,6 +28,7 @@ type Orchestrator struct {
 	tombstones *TombstoneStore
 	jobs       *JobStore
 	series     SeriesPurger
+	writes     WriteWaiter  // optional; nil when no writer runs
 	objects    ObjectPurger // optional; nil when no cold tier
 	pg         PGPurger
 	edge       EdgeDeregistrar // optional; nil in tests without an agent server
@@ -48,6 +49,7 @@ type OrchestratorConfig struct {
 	Tombstones *TombstoneStore
 	Jobs       *JobStore
 	Series     SeriesPurger
+	Writes     WriteWaiter
 	Objects    ObjectPurger
 	PG         PGPurger
 	Edge       EdgeDeregistrar
@@ -70,6 +72,7 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 		tombstones: cfg.Tombstones,
 		jobs:       cfg.Jobs,
 		series:     cfg.Series,
+		writes:     cfg.Writes,
 		objects:    cfg.Objects,
 		pg:         cfg.PG,
 		edge:       cfg.Edge,
@@ -184,77 +187,6 @@ func (o *Orchestrator) Run(ctx context.Context, job *PurgeJob) error {
 	return o.runStages(ctx, job)
 }
 
-// Postgres rows go last so labels and foreign keys stay available while the other stores drain.
-func (o *Orchestrator) runStages(ctx context.Context, job *PurgeJob) error {
-	if err := o.stageVMDelete(ctx, job); err != nil {
-		return err
-	}
-	if err := o.stageObjectDelete(ctx, job); err != nil {
-		return err
-	}
-	if err := o.stagePostgresDelete(ctx, job); err != nil {
-		return err
-	}
-	return o.stageVerifyComplete(ctx, job)
-}
-
-func (o *Orchestrator) stageVMDelete(ctx context.Context, job *PurgeJob) error {
-	if job.VMDeleted {
-		return nil
-	}
-	if err := o.series.DeleteSeries(ctx, job.TenantID, job.DeviceID); err != nil {
-		return o.fail(ctx, job, "vm-delete", err)
-	}
-	job.VMDeleted = true
-	job.State = StateCentralLogicalComplete
-	job.LastError = ""
-	return o.jobs.UpdateProgress(ctx, job)
-}
-
-func (o *Orchestrator) stageObjectDelete(ctx context.Context, job *PurgeJob) error {
-	if job.ObjectDeleted {
-		return nil
-	}
-	if o.objects != nil {
-		job.State = StateObjectDeletePending
-		_ = o.jobs.UpdateProgress(ctx, job)
-		if err := o.objects.DeletePrefix(ctx, job.TenantID, job.DeviceID); err != nil {
-			return o.fail(ctx, job, "object-delete", err)
-		}
-	}
-	job.ObjectDeleted = true
-	return o.jobs.UpdateProgress(ctx, job)
-}
-
-func (o *Orchestrator) stagePostgresDelete(ctx context.Context, job *PurgeJob) error {
-	if job.PGDeleted {
-		return nil
-	}
-	if err := o.deletePostgres(ctx, job); err != nil {
-		return o.fail(ctx, job, "postgres-delete", err)
-	}
-	job.PGDeleted = true
-	return o.jobs.UpdateProgress(ctx, job)
-}
-
-func (o *Orchestrator) stageVerifyComplete(ctx context.Context, job *PurgeJob) error {
-	if !job.Verified {
-		empty, err := o.verifyEmpty(ctx, job)
-		if err != nil {
-			return o.fail(ctx, job, "verify", err)
-		}
-		if !empty {
-			job.State = StateCentralPhysicalPending
-			job.LastError = "vm series awaiting compaction"
-			return o.jobs.UpdateProgress(ctx, job)
-		}
-		job.Verified = true
-	}
-	job.State = StateComplete
-	job.LastError = ""
-	return o.jobs.MarkComplete(ctx, job)
-}
-
 // RunInBackground runs a purge on a detached context bounded by a ten-minute timeout.
 func (o *Orchestrator) RunInBackground(job *PurgeJob) {
 	go func() {
@@ -297,35 +229,6 @@ func (o *Orchestrator) resumeOne(ctx context.Context, job *PurgeJob) bool {
 		return false
 	}
 	return job.State == StateComplete
-}
-
-func (o *Orchestrator) deletePostgres(ctx context.Context, job *PurgeJob) error {
-	if job.Scope == ScopeTenant {
-		_, err := o.pg.DeleteTenantDevices(ctx, job.TenantID)
-		return err
-	}
-	return o.pg.DeleteDevice(ctx, job.TenantID, *job.DeviceID)
-}
-
-func (o *Orchestrator) verifyEmpty(ctx context.Context, job *PurgeJob) (bool, error) {
-	attempts := max(o.verify.MaxAttempts, 1)
-	for i := range attempts {
-		n, err := o.series.CountSeries(ctx, job.TenantID, job.DeviceID)
-		if err != nil {
-			return false, err
-		}
-		if n == 0 {
-			return true, nil
-		}
-		if i < attempts-1 {
-			select {
-			case <-ctx.Done():
-				return false, ctx.Err()
-			case <-time.After(o.verify.Interval):
-			}
-		}
-	}
-	return false, nil
 }
 
 func (o *Orchestrator) fail(ctx context.Context, job *PurgeJob, stage string, cause error) error {

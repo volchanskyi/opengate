@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,7 +23,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/rules"
 	"github.com/volchanskyi/opengate/server/internal/settings"
-	"github.com/volchanskyi/opengate/server/internal/telemetry"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
 
@@ -52,7 +50,7 @@ type AgentConn struct {
 	devices       device.Repository
 	hardware      device.HardwareRepository
 	deviceUpdates updater.DeviceUpdateRepository
-	telemetry     telemetry.NumericWriter
+	telemetry     ReadingWriter
 	inventory     inventory.Repository
 	scheduler     *BackfillScheduler
 	alertRules    AlertRuleProvider
@@ -72,14 +70,6 @@ type AgentConn struct {
 	telemetryLast  map[telemetryFloor]int64
 	telemetrySlots chan struct{}
 	telemetryDrops atomic.Uint64
-
-	// telemetryBuf coalesces a heartbeat burst's samples into one WriteSamples on one persist slot, so
-	// the anomaly summary never loses the slot to host windows. Only the read loop touches it.
-	telemetryBuf []telemetry.Sample
-
-	// telemetryBufMsgs counts the messages buffered in telemetryBuf, so a failed batch records one
-	// drop per message and ingested = persisted + drops holds.
-	telemetryBufMsgs int
 
 	// maintenanceApplied is the last maintenance state the agent reported applying; Postgres holds
 	// the desired state. The read loop writes it and any goroutine reads it.
@@ -120,6 +110,12 @@ type AgentConn struct {
 
 	// pongs carries the pongs the read loop records, which a liveness probe waits on.
 	pongs chan struct{}
+
+	// registered runs once the machine's row is written, with its capabilities known.
+	registered func(*AgentConn)
+
+	// allowance is the server's budget for messages read and not yet handled; nil budgets nothing.
+	allowance *readAllowance
 }
 
 // answersPing sends a ping and reports whether the machine's pong arrives within wait; the read
@@ -190,7 +186,7 @@ type AgentConnConfig struct {
 	Devices       device.Repository
 	Hardware      device.HardwareRepository
 	DeviceUpdates updater.DeviceUpdateRepository
-	Telemetry     telemetry.NumericWriter
+	Telemetry     ReadingWriter
 	Inventory     inventory.Repository
 	Scheduler     *BackfillScheduler
 	AlertRules    AlertRuleProvider
@@ -267,141 +263,6 @@ func (a *AgentConn) writeFrame(frameType byte, payload []byte) error {
 	return a.codec.WriteFrame(a.stream, frameType, payload)
 }
 
-// SendSessionRequest sends a SessionRequest naming the relay address and the host's helpers; the
-// agent requires a token and a relay URL, so an empty one is refused.
-func (a *AgentConn) SendSessionRequest(ctx context.Context, token protocol.SessionToken, relayURL string, perms protocol.Permissions, helpers []string) error {
-	if err := requireNonEmptyFields(protocol.MsgSessionRequest,
-		controlField{"token", string(token)},
-		controlField{"relay_url", relayURL},
-	); err != nil {
-		return err
-	}
-	return a.sendControl(&protocol.ControlMessage{
-		Type:        protocol.MsgSessionRequest,
-		Token:       token,
-		RelayURL:    relayURL,
-		Permissions: &perms,
-		IceServers:  helpers,
-	})
-}
-
-// SendAgentUpdate sends an AgentUpdate to the agent; version, url and signature are required,
-// and the updater checks sha256 against the downloaded artifact.
-func (a *AgentConn) SendAgentUpdate(ctx context.Context, version, url, sha256, signature string) error {
-	if err := requireNonEmptyFields(protocol.MsgAgentUpdate,
-		controlField{"version", version},
-		controlField{"url", url},
-		controlField{"signature", signature},
-	); err != nil {
-		return err
-	}
-	return a.sendControl(&protocol.ControlMessage{
-		Type:      protocol.MsgAgentUpdate,
-		Version:   version,
-		URL:       url,
-		SHA256:    sha256,
-		Signature: signature,
-	})
-}
-
-// SendAgentDeregistered tells the agent its device was deleted and it should clean up.
-func (a *AgentConn) SendAgentDeregistered(ctx context.Context, reason string) error {
-	return a.sendControl(&protocol.ControlMessage{
-		Type:   protocol.MsgAgentDeregistered,
-		Reason: reason,
-	})
-}
-
-// SendRestartAgent asks the agent to restart itself.
-func (a *AgentConn) SendRestartAgent(ctx context.Context, reason string) error {
-	return a.sendControl(&protocol.ControlMessage{
-		Type:   protocol.MsgRestartAgent,
-		Reason: reason,
-	})
-}
-
-// SendRequestHardwareReport asks the agent to collect and send hardware info.
-func (a *AgentConn) SendRequestHardwareReport(ctx context.Context) error {
-	if err := a.requireCapability(protocol.CapHardwareInventory); err != nil {
-		return err
-	}
-	return a.sendControl(&protocol.ControlMessage{
-		Type: protocol.MsgRequestHardwareReport,
-	})
-}
-
-// SendRequestHealthWindow asks the agent for its bounded recent health summary window.
-func (a *AgentConn) SendRequestHealthWindow(ctx context.Context, sinceTS int64, limit uint32) error {
-	if err := a.requireCapability(protocol.CapHealthWindow); err != nil {
-		return err
-	}
-	return a.sendControl(&protocol.ControlMessage{
-		Type:    protocol.MsgRequestHealthWindow,
-		SinceTS: sinceTS,
-		Limit:   limit,
-	})
-}
-
-// SendPushAlertRules pushes a ruleset and the per-machine alert ceiling to the agent; a zero
-// ceiling leaves the agent's allowance unchanged. Requires the ThresholdAlerts capability.
-func (a *AgentConn) SendPushAlertRules(ctx context.Context, ruleset RuleSet) error {
-	if err := a.requireCapability(protocol.CapThresholdAlerts); err != nil {
-		return err
-	}
-	return a.sendControl(&protocol.ControlMessage{
-		Type:                protocol.MsgPushAlertRules,
-		AlertRules:          ruleset.Rules,
-		DeviceHourlyCeiling: ruleset.DeviceHourlyCeiling,
-	})
-}
-
-// SendRequestLocalHistory asks the agent for a bounded, full-resolution slice of
-// one dimension's local history. Gated by the Backfill capability.
-func (a *AgentConn) SendRequestLocalHistory(ctx context.Context, dim string, fromTS, toTS int64, maxPoints uint32) error {
-	if err := a.requireCapability(protocol.CapBackfill); err != nil {
-		return err
-	}
-	return a.sendControl(&protocol.ControlMessage{
-		Type:      protocol.MsgRequestLocalHistory,
-		Dim:       dim,
-		FromTS:    fromTS,
-		ToTS:      toTS,
-		MaxPoints: maxPoints,
-	})
-}
-
-// SendRequestDeviceLogs asks the agent to collect and send filtered log entries.
-func (a *AgentConn) SendRequestDeviceLogs(ctx context.Context, filter device.LogFilter) error {
-	if err := a.requireCapability(protocol.CapDeviceLogs); err != nil {
-		return err
-	}
-	offset := clampNonNegativeUint32(filter.Offset)
-	limit := clampNonNegativeUint32(filter.Limit)
-	return a.sendControl(&protocol.ControlMessage{
-		Type:      protocol.MsgRequestDeviceLogs,
-		LogLevel:  filter.Level,
-		TimeFrom:  filter.From,
-		TimeTo:    filter.To,
-		Search:    filter.Search,
-		LogOffset: offset,
-		LogLimit:  limit,
-		Source:    filter.Source,
-		Unit:      filter.Unit,
-	})
-}
-
-// clampNonNegativeUint32 narrows a non-negative int to uint32, clamping any
-// value outside [0, math.MaxUint32] to the boundary. Negative values become 0.
-func clampNonNegativeUint32(v int) uint32 {
-	if v <= 0 {
-		return 0
-	}
-	if uint64(v) > math.MaxUint32 {
-		return math.MaxUint32
-	}
-	return uint32(v)
-}
-
 // Close closes the agent connection.
 func (a *AgentConn) Close() error {
 	if closer, ok := a.stream.(io.Closer); ok {
@@ -430,10 +291,11 @@ func (a *AgentConn) handleControl(ctx context.Context) error {
 		ctx = dbtx.WithDefaultTenant(ctx, false)
 	}
 
-	frameType, payload, err := a.codec.ReadFrame(a.stream)
+	frameType, payload, release, err := a.readFrame(ctx)
 	if err != nil {
 		return fmt.Errorf("read frame: %w", err)
 	}
+	defer release()
 
 	if frameType == protocol.FramePing {
 		return a.writeFrame(protocol.FramePong, nil)
@@ -516,6 +378,28 @@ func (a *AgentConn) handleControl(ctx context.Context) error {
 	}
 }
 
+// readFrame reads one frame inside the machine message ceiling and the server's read allowance,
+// both applied to the declared length before the payload is allocated.
+func (a *AgentConn) readFrame(ctx context.Context) (byte, []byte, func(), error) {
+	frameType, length, err := a.codec.ReadFrameHeader(a.stream)
+	if err != nil {
+		return 0, nil, nil, err
+	}
+	if length > maxMachineMessageBytes {
+		return 0, nil, nil, fmt.Errorf("%w: %d bytes (max %d)", protocol.ErrFrameTooLarge, length, maxMachineMessageBytes)
+	}
+	release, err := a.allowance.reserve(ctx, int64(length))
+	if err != nil {
+		return 0, nil, nil, err
+	}
+	payload, err := a.codec.ReadPayload(a.stream, length)
+	if err != nil {
+		release()
+		return 0, nil, nil, err
+	}
+	return frameType, payload, release, nil
+}
+
 // rejectTombstonedWrite drops a write-path message from a purged device and
 // reports that it was rejected, so the caller stops without persisting anything.
 func (a *AgentConn) rejectTombstonedWrite(msg *protocol.ControlMessage) bool {
@@ -556,15 +440,9 @@ func IsCapabilityError(err error) bool {
 	return errors.Is(err, ErrCapabilityNotAdvertised)
 }
 
-func (a *AgentConn) handleHeartbeat(ctx context.Context, msg *protocol.ControlMessage) error {
-	// The agent sends the heartbeat before its telemetry burst, so the heartbeat flushes the
-	// previous burst as one write.
-	a.flushTelemetry(ctx)
-
-	if err := a.devices.SetStatus(ctx, a.DeviceID, device.StatusOnline); err != nil {
-		return fmt.Errorf("update heartbeat: %w", err)
-	}
-
+// handleHeartbeat writes nothing: presence is written on connect and disconnect, and the presence
+// sweep refreshes last-seen.
+func (a *AgentConn) handleHeartbeat(_ context.Context, msg *protocol.ControlMessage) error {
 	a.logger.Debug("heartbeat",
 		"device_id", a.DeviceID,
 		"timestamp", msg.Timestamp,

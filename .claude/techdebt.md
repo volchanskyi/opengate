@@ -561,7 +561,7 @@ knob added to the catalogue grammar.
 ### Every control frame allocates the whole union
 
 [`ControlMessage`](../server/internal/protocol/control.go) is one struct
-carrying a field for every message type on the wire — 102 fields, 1 432 bytes —
+carrying a field for every message type on the wire — 107 fields, 1 512 bytes —
 and the decoder allocates one per frame. A heartbeat that sets three of those
 fields costs the same as a discovery report that sets twenty, and Go rounds the
 allocation to a size class, so the price rises in steps: eight bytes of new

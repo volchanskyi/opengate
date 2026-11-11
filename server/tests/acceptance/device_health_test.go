@@ -60,12 +60,6 @@ func (m *Machine) report(at time.Time, dims ...protocol.MetricDim) {
 	m.Send(&protocol.ControlMessage{Type: protocol.MsgAgentMetricWindow, TS: at.Unix(), Dims: dims})
 }
 
-// settle sends a heartbeat, the boundary at which the telemetry burst is written.
-func (m *Machine) settle() {
-	m.t.Helper()
-	m.Send(&protocol.ControlMessage{Type: protocol.MsgAgentHeartbeat, Timestamp: time.Now().UTC().Unix()})
-}
-
 func TestAMachineReportsAMinuteAndTheTechnicianReadsItBack(t *testing.T) {
 	t.Parallel()
 
@@ -81,7 +75,6 @@ func TestAMachineReportsAMinuteAndTheTechnicianReadsItBack(t *testing.T) {
 		protocol.MetricDim{Name: "cpu.total", Avg: 71.5},
 		protocol.MetricDim{Name: "mem.used_percent", Avg: 44.25},
 	)
-	machine.settle()
 
 	from, to := reportedAt.Add(-5*time.Minute), reportedAt.Add(5*time.Minute)
 	admin.awaitReading(product, machine.DeviceID, from, to, "cpu.total")
@@ -104,7 +97,6 @@ func TestReadingsThatArriveWithNothingInThemAreAccountedFor(t *testing.T) {
 	machine.AwaitOnline()
 
 	machine.report(time.Now().UTC().Add(-time.Minute))
-	machine.settle()
 
 	require.Eventually(t, func() bool {
 		return admin.dropsCounted("empty_dims") >= 1
@@ -124,7 +116,6 @@ func TestAReadingFromAMachineWithAWrongClockIsStillKept(t *testing.T) {
 
 	// The timestamp is six hours ahead, beyond the accepted window, so the reading is clamped.
 	machine.report(time.Now().UTC().Add(6*time.Hour), protocol.MetricDim{Name: "cpu.total", Avg: 12.5})
-	machine.settle()
 
 	from, to := time.Now().UTC().Add(-time.Hour), time.Now().UTC().Add(time.Hour)
 	admin.awaitReading(product, machine.DeviceID, from, to, "cpu.total")
@@ -142,7 +133,6 @@ func TestADimensionTheFleetNeverAgreedToIsRefused(t *testing.T) {
 
 	machine.report(time.Now().UTC().Add(-time.Minute),
 		protocol.MetricDim{Name: "attacker.invented.dim", Avg: 1})
-	machine.settle()
 
 	require.Eventually(t, func() bool {
 		return admin.dropsCounted("unknown_dim") >= 1
@@ -173,4 +163,61 @@ func (a *Technician) platformInstrumentation() string {
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(a.t, err)
 	return string(body)
+}
+
+// livePromise is how soon a live minute reaches the chart during anything else the server does.
+const livePromise = 5 * time.Second
+
+func TestALiveMinuteReachesTheChartWithoutWaitingForAHeartbeat(t *testing.T) {
+	t.Parallel()
+
+	product := newProduct(t, WithNumericTelemetry())
+	admin := product.Administrator(product.arrangeCustomer("Contoso"))
+	machine := product.Machine(admin.mintEnrolmentToken("Head Office").Token, "contoso-server-04")
+	machine.AwaitOnline()
+
+	minute := time.Now().UTC().Truncate(time.Minute).Add(-time.Minute)
+	sent := time.Now()
+	machine.report(minute, protocol.MetricDim{Name: "cpu.total", Avg: 64})
+
+	from, to := minute.Add(-5*time.Minute), minute.Add(5*time.Minute)
+	require.Eventually(t, func() bool {
+		product.publishReadings()
+		return len(admin.readings(machine.DeviceID, from, to, "cpu.total").values("cpu.total")) > 0
+	}, livePromise, 100*time.Millisecond, "a live minute is on the chart within five seconds, with no heartbeat")
+	assert.Less(t, time.Since(sent), livePromise)
+}
+
+func TestAMachineIsToldEachMinuteItSentWasStored(t *testing.T) {
+	t.Parallel()
+
+	product := newProduct(t, WithNumericTelemetry())
+	admin := product.Administrator(product.arrangeCustomer("Contoso"))
+	machine := product.Machine(admin.mintEnrolmentToken("Head Office").Token, "contoso-server-05",
+		protocol.CapLiveConfirmations)
+	machine.AwaitOnline()
+
+	first := time.Now().UTC().Truncate(time.Minute).Add(-2 * time.Minute)
+	for _, minute := range []time.Time{first, first.Add(time.Minute)} {
+		machine.report(minute, protocol.MetricDim{Name: "cpu.total", Avg: 40})
+	}
+
+	for _, minute := range []time.Time{first, first.Add(time.Minute)} {
+		machine.awaitConfirmation(minute)
+	}
+}
+
+// awaitConfirmation waits for the product to say the minute stamped at was stored.
+func (m *Machine) awaitConfirmation(at time.Time) {
+	m.t.Helper()
+	require.Eventuallyf(m.t, func() bool {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		for _, msg := range m.inbox {
+			if msg.Type == protocol.MsgLiveWindowStored && msg.TS == at.Unix() {
+				return true
+			}
+		}
+		return false
+	}, eventually, poll, "the machine was never told its minute %s was stored", at.Format(time.RFC3339))
 }

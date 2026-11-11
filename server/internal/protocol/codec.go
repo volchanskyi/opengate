@@ -104,38 +104,54 @@ func (c *Codec) WriteFrame(w io.Writer, frameType byte, payload []byte) error {
 // ReadFrame reads a typed frame from a reader.
 // Returns the frame type, payload, and any error.
 func (c *Codec) ReadFrame(r io.Reader) (byte, []byte, error) {
+	frameType, length, err := c.ReadFrameHeader(r)
+	if err != nil || frameType == FramePing || frameType == FramePong {
+		return frameType, nil, err
+	}
+	if int(length) > MaxFrameSize {
+		return 0, nil, fmt.Errorf("%w: %d bytes (max %d)", ErrFrameTooLarge, length, MaxFrameSize)
+	}
+	payload, err := c.ReadPayload(r, length)
+	if err != nil {
+		return 0, nil, err
+	}
+	return frameType, payload, nil
+}
+
+// ReadFrameHeader reads a frame's type and declared payload length and nothing more, so a reader
+// can refuse or budget the length before it allocates. Ping and pong carry no length.
+func (c *Codec) ReadFrameHeader(r io.Reader) (byte, uint32, error) {
 	var typeBuf [1]byte
 	if _, err := io.ReadFull(r, typeBuf[:]); err != nil {
-		return 0, nil, err
+		return 0, 0, err
 	}
 	frameType := typeBuf[0]
 
 	if frameType == FramePing || frameType == FramePong {
-		return frameType, nil, nil
+		return frameType, 0, nil
 	}
 
 	if frameType != FrameControl && frameType != FrameDesktop &&
 		frameType != FrameTerminal && frameType != FrameFile {
-		return 0, nil, fmt.Errorf("%w: 0x%02x", ErrUnknownFrameType, frameType)
+		return 0, 0, fmt.Errorf("%w: 0x%02x", ErrUnknownFrameType, frameType)
 	}
 
 	var lengthBuf [4]byte
 	if _, err := io.ReadFull(r, lengthBuf[:]); err != nil {
-		return 0, nil, fmt.Errorf("%w: %v", ErrIncompleteFrame, err)
+		return 0, 0, fmt.Errorf("%w: %v", ErrIncompleteFrame, err)
 	}
-	length := binary.BigEndian.Uint32(lengthBuf[:])
+	return frameType, binary.BigEndian.Uint32(lengthBuf[:]), nil
+}
 
-	if int(length) > MaxFrameSize {
-		return 0, nil, fmt.Errorf("%w: %d bytes (max %d)", ErrFrameTooLarge, length, MaxFrameSize)
-	}
-
+// ReadPayload reads a payload of the length a header declared.
+func (c *Codec) ReadPayload(r io.Reader, length uint32) ([]byte, error) {
 	payload := make([]byte, length)
 	if length > 0 {
 		if _, err := io.ReadFull(r, payload); err != nil {
-			return 0, nil, fmt.Errorf("%w: %v", ErrIncompleteFrame, err)
+			return nil, fmt.Errorf("%w: %v", ErrIncompleteFrame, err)
 		}
 	}
-	return frameType, payload, nil
+	return payload, nil
 }
 
 // EncodeHandshake encodes a handshake message to binary format.

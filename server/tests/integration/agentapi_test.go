@@ -222,26 +222,31 @@ func TestAgentConnect_RegistersDevice(t *testing.T) {
 	assert.Equal(t, "integration-test-host", getDevice(t, env, deviceID).Hostname)
 }
 
-func TestAgentConnect_HeartbeatUpdatesLastSeen(t *testing.T) {
+func TestAgentConnect_HeartbeatLeavesTheRowAlone(t *testing.T) {
 	t.Parallel()
 	env, stream, deviceID := setupOnlineAgent(t)
-
-	originalLastSeen := getDevice(t, env, deviceID).UpdatedAt
+	registered := getDevice(t, env, deviceID)
 
 	codec := &protocol.Codec{}
-	hbMsg := &protocol.ControlMessage{
-		Type:      protocol.MsgAgentHeartbeat,
-		Timestamp: time.Now().Unix(),
+	for _, msg := range []*protocol.ControlMessage{
+		{Type: protocol.MsgAgentHeartbeat, Timestamp: time.Now().Unix()},
+		{Type: protocol.MsgHardwareReport, CPUModel: "AMD Ryzen 7 PRO 7840U", CPUCores: 8},
+	} {
+		payload, err := codec.EncodeControl(msg)
+		require.NoError(t, err)
+		require.NoError(t, codec.WriteFrame(stream, protocol.FrameControl, payload))
 	}
-	payload, err := codec.EncodeControl(hbMsg)
-	require.NoError(t, err)
-	require.NoError(t, codec.WriteFrame(stream, protocol.FrameControl, payload))
 
+	hardware := testutil.NewTestHardware(t, env.store)
 	require.Eventually(t, func() bool {
-		d, err := env.devices.Get(defaultTenantContext(), deviceID)
-		return err == nil && !d.UpdatedAt.Before(originalLastSeen)
-	}, 2*time.Second, 50*time.Millisecond)
-	assert.Equal(t, db.StatusOnline, getDevice(t, env, deviceID).Status)
+		hw, err := hardware.Get(defaultTenantContext(), deviceID)
+		return err == nil && hw.CPUModel == "AMD Ryzen 7 PRO 7840U"
+	}, 2*time.Second, 25*time.Millisecond, "the report sent after the heartbeat is stored")
+
+	after := getDevice(t, env, deviceID)
+	assert.Equal(t, registered.UpdatedAt, after.UpdatedAt, "a heartbeat writes nothing to the machine's row")
+	assert.Equal(t, registered.LastSeen, after.LastSeen)
+	assert.Equal(t, db.StatusOnline, after.Status)
 }
 
 func TestAgentConnect_DisconnectSetsOffline(t *testing.T) {

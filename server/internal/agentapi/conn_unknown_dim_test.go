@@ -32,7 +32,6 @@ func TestMetricWindowDropsUnlistedDims(t *testing.T) {
 		},
 	}
 	require.NoError(t, ac.handleAgentMetricWindow(tenantCtx(tenant), msg, 256))
-	ac.flushTelemetry(tenantCtx(tenant))
 
 	call := <-writer.calls
 	names := make([]string, 0, len(call.samples))
@@ -62,7 +61,6 @@ func TestMetricWindowOfJunkDimsWritesNothing(t *testing.T) {
 		Dims: dims,
 	}
 	require.NoError(t, ac.handleAgentMetricWindow(tenantCtx(tenant), msg, 256))
-	ac.flushTelemetry(tenantCtx(tenant))
 
 	assert.Empty(t, writer.calls, "a window of invented dims reaches no store")
 	assert.InDelta(t, 1,

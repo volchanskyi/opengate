@@ -1,13 +1,14 @@
-//! Reconnect backfill: recent-first tiered replay of durable history, where the caller persists
-//! a batch's cursor only after the server acks it, so a dropped connection re-sends idempotently.
+//! Reconnect backfill: recent-first tiered replay of durable history the server never confirmed;
+//! a batch's span is confirmed only once the server acks it, so a dropped link re-sends it.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
 
+use edge_tsdb::confirmed::ConfirmedRanges;
 use edge_tsdb::store::TsdbSnapshot;
 use edge_tsdb::tier::TierPoint;
 use edge_tsdb::{Durability, LocalTsdb, Sample, SeriesId, Tier, TsdbError};
-use mesh_protocol::{BackfillTier, HistoryPoint};
+use mesh_protocol::HistoryPoint;
 
 use super::store_sink::WindowReduction;
 
@@ -74,8 +75,6 @@ pub struct BackfillConfig {
     pub recent_secs: i64,
     /// Age below which history ships as 1 min from T1; older ships as 1 hr from T2.
     pub mid_secs: i64,
-    /// Buckets beyond `now + future_skew_secs` are skipped as a wild clock.
-    pub future_skew_secs: i64,
     /// Soft cap on samples per batch.
     pub max_batch_samples: usize,
 }
@@ -86,30 +85,7 @@ impl Default for BackfillConfig {
             retention_secs: 30 * 24 * 3600,
             recent_secs: 48 * 3600,
             mid_secs: 30 * 24 * 3600,
-            future_skew_secs: 3600,
             max_batch_samples: 1000,
-        }
-    }
-}
-
-/// Per-tier resume watermarks: the newest acked bucket timestamp, `None` if never shipped.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct BackfillCursors {
-    /// Newest 60 s window shipped from T0.
-    pub recent60s: Option<i64>,
-    /// Newest 1 min bucket shipped from T1.
-    pub rollup1m: Option<i64>,
-    /// Newest 1 hr bucket shipped from T2.
-    pub rollup1h: Option<i64>,
-}
-
-impl BackfillCursors {
-    fn get(&self, tier: BackfillTier) -> Option<i64> {
-        match tier {
-            BackfillTier::Recent60s => self.recent60s,
-            BackfillTier::Rollup1m => self.rollup1m,
-            BackfillTier::Rollup1h => self.rollup1h,
-            _ => None,
         }
     }
 }
@@ -150,63 +126,87 @@ pub(crate) fn roll_to_60s(
         .collect()
 }
 
-/// Reserved cursor key for the 60 s-tier watermark, at the top of the [`SeriesId`] space.
+/// The cursor key the 60 s-tier watermark had, read once by [`migrate_cursors`].
 pub const TIER_CURSOR_RECENT60S: SeriesId = SeriesId::MAX;
-/// Reserved cursor key for the 1 min-tier watermark.
+/// The cursor key the 1 min-tier watermark had.
 pub const TIER_CURSOR_ROLLUP1M: SeriesId = SeriesId::MAX - 1;
-/// Reserved cursor key for the 1 hr-tier watermark.
+/// The cursor key the 1 hr-tier watermark had.
 pub const TIER_CURSOR_ROLLUP1H: SeriesId = SeriesId::MAX - 2;
 
-/// The reserved cursor key for a shippable tier, `None` for a tier with no watermark.
-#[must_use]
-pub fn tier_cursor_key(tier: BackfillTier) -> Option<SeriesId> {
-    match tier {
-        BackfillTier::Recent60s => Some(TIER_CURSOR_RECENT60S),
-        BackfillTier::Rollup1m => Some(TIER_CURSOR_ROLLUP1M),
-        BackfillTier::Rollup1h => Some(TIER_CURSOR_ROLLUP1H),
-        _ => None,
-    }
-}
-
-/// Durable storage for the per-tier backfill watermarks.
-pub trait CursorStore {
-    /// The persisted watermark for a reserved tier key, or `None` if never set.
+/// Durable storage for the spans the server confirmed, and the per-tier watermarks they replace.
+pub trait ConfirmedStore {
+    /// The spans the server has confirmed it stores.
+    fn load_confirmed(&self) -> Result<ConfirmedRanges, TsdbError>;
+    /// Replaces the confirmed spans.
+    fn save_confirmed(&mut self, ranges: &ConfirmedRanges) -> Result<(), TsdbError>;
+    /// A watermark an older agent saved under a reserved tier key, or `None`.
     fn load_cursor(&self, key: SeriesId) -> Result<Option<i64>, TsdbError>;
-    /// Persists a watermark advance for a reserved tier key.
-    fn save_cursor(&mut self, key: SeriesId, ts: i64) -> Result<(), TsdbError>;
+    /// Removes a watermark once it is read into the confirmed spans.
+    fn remove_cursor(&mut self, key: SeriesId) -> Result<(), TsdbError>;
 }
 
-impl CursorStore for LocalTsdb {
+impl ConfirmedStore for LocalTsdb {
+    fn load_confirmed(&self) -> Result<ConfirmedRanges, TsdbError> {
+        self.confirmed()
+    }
+
+    fn save_confirmed(&mut self, ranges: &ConfirmedRanges) -> Result<(), TsdbError> {
+        // Saved without a flush, made durable by the next durable commit; a crash before it
+        // sends about a minute again, which the central store keeps as a repeat.
+        LocalTsdb::save_confirmed(self, ranges, Durability::None)
+    }
+
     fn load_cursor(&self, key: SeriesId) -> Result<Option<i64>, TsdbError> {
         self.cursor(key)
     }
 
-    fn save_cursor(&mut self, key: SeriesId, ts: i64) -> Result<(), TsdbError> {
-        // Saved without a flush: a crash before the next flushed write sends those batches again,
-        // and the central store keeps each copy.
-        self.set_cursor(key, ts, Durability::None)
+    fn remove_cursor(&mut self, key: SeriesId) -> Result<(), TsdbError> {
+        LocalTsdb::remove_cursor(self, key, Durability::None)
     }
 }
 
-/// Loads the per-tier resume watermarks from `store`.
-pub fn load_cursors<C: CursorStore>(store: &C) -> Result<BackfillCursors, TsdbError> {
-    Ok(BackfillCursors {
-        recent60s: store.load_cursor(TIER_CURSOR_RECENT60S)?,
-        rollup1m: store.load_cursor(TIER_CURSOR_ROLLUP1M)?,
-        rollup1h: store.load_cursor(TIER_CURSOR_ROLLUP1H)?,
-    })
+/// Records that the server stores `[start, end)`.
+pub fn confirm<C: ConfirmedStore>(store: &mut C, start: i64, end: i64) -> Result<(), TsdbError> {
+    let mut ranges = store.load_confirmed()?;
+    ranges.add(start, end);
+    store.save_confirmed(&ranges)
 }
 
-/// Advances the watermark for a tier whose batch the server acked; a tier without a key is a no-op.
-pub fn record_ack<C: CursorStore>(
+/// Forgets every confirmation from the minute holding `since`, so that history is sent again.
+pub fn forget_after<C: ConfirmedStore>(store: &mut C, since: i64) -> Result<(), TsdbError> {
+    let mut ranges = store.load_confirmed()?;
+    ranges.forget_after(since);
+    store.save_confirmed(&ranges)
+}
+
+/// Turns the per-tier watermarks an older agent kept into confirmed spans once, each tier's band
+/// up to its watermark, then removes them; reports whether any were found.
+pub fn migrate_cursors<C: ConfirmedStore>(
     store: &mut C,
-    tier: BackfillTier,
-    cursor: i64,
-) -> Result<(), TsdbError> {
-    if let Some(key) = tier_cursor_key(tier) {
-        store.save_cursor(key, cursor)?;
+    now: i64,
+    cfg: BackfillConfig,
+) -> Result<bool, TsdbError> {
+    let tiers = [
+        (TIER_CURSOR_RECENT60S, now - cfg.recent_secs, RECENT_STEP),
+        (TIER_CURSOR_ROLLUP1M, now - cfg.mid_secs, MIN_STEP),
+        (TIER_CURSOR_ROLLUP1H, now - cfg.retention_secs, HOUR_STEP),
+    ];
+    let mut ranges = store.load_confirmed()?;
+    let mut found = false;
+    for (key, band_floor, step) in tiers {
+        if let Some(cursor) = store.load_cursor(key)? {
+            ranges.add(band_floor.min(cursor), cursor + step);
+            found = true;
+        }
     }
-    Ok(())
+    if !found {
+        return Ok(false);
+    }
+    store.save_confirmed(&ranges)?;
+    for (key, _, _) in tiers {
+        store.remove_cursor(key)?;
+    }
+    Ok(true)
 }
 
 /// The pending sample count and oldest pending timestamp (`0` when none), from a throwaway drain.
@@ -215,9 +215,9 @@ pub fn pending_hint<R: TierReader>(
     now: i64,
     cfg: BackfillConfig,
     series: &[SeriesId],
-    cursors: BackfillCursors,
+    confirmed: &ConfirmedRanges,
 ) -> Result<(u64, i64), TsdbError> {
-    let mut drain = BackfillDrain::new(reader, now, cfg, series, cursors);
+    let mut drain = BackfillDrain::new(reader, now, cfg, series, confirmed);
     let mut pending: u64 = 0;
     let mut oldest = i64::MAX;
     while let Some(batch) = drain.next_batch()? {

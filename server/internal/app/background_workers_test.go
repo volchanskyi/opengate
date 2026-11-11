@@ -23,6 +23,7 @@ func backgroundSchedule() app.BackgroundSchedule {
 		SessionSweep:   10 * time.Millisecond,
 		SessionGrace:   time.Minute,
 		IncidentSweep:  10 * time.Millisecond,
+		PresenceSweep:  10 * time.Millisecond,
 
 		RetentionSweep: 10 * time.Millisecond,
 		// A horizon this long keeps the run's own rows out of the sweep.
@@ -58,6 +59,21 @@ func TestStartBackgroundWorkersRunsThePeriodicWorkers(t *testing.T) {
 	assert.Eventually(t, func() bool {
 		return promtestutil.ToFloat64(assembly.Metrics.DBSizeBytes) > 0
 	}, time.Minute, 20*time.Millisecond, "no worker ever measured the database")
+}
+
+func TestStartBackgroundWorkersSweepsPresence(t *testing.T) {
+	t.Parallel()
+
+	assembly, err := app.Build(context.Background(), baseConfig(t))
+	require.NoError(t, err)
+
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	require.NoError(t, assembly.StartBackgroundWorkers(ctx, backgroundSchedule()))
+
+	assert.Eventually(t, func() bool {
+		return promtestutil.ToFloat64(assembly.Metrics.PresenceSweepsTotal.WithLabelValues("ok")) > 0
+	}, time.Minute, 20*time.Millisecond, "the presence sweep never ran")
 }
 
 func TestStartBackgroundWorkersRunsTheOptionalWorkersToo(t *testing.T) {

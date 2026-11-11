@@ -39,8 +39,8 @@ catch_up_samples() { # bundle leg workload processor part
       else
         sample("catchup_fill_seconds"; ""; .catch_up.last_stored_seconds),
         sample("catchup_machines_caught_up"; ""; .catch_up.complete),
-        sample("catchup_live_visible_p99_ms"; ""; .live_delay.p99_ms),
-        sample("catchup_live_visible_within_5s_share"; ""; share(.live_delay.within_five_seconds; .live_delay.sent))
+        sample("catchup_live_accepted_within_5s_share"; "";
+          share(.live_acceptance.within_five_seconds; .live_acceptance.received))
       end
   ' "$1"
 }

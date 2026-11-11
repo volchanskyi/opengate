@@ -62,6 +62,7 @@ var edgeTelemetryDropReasons = []string{
 	"alert_rule_unknown", "alert_rule_stopped", "alert_timestamp_out_of_range",
 	"alert_evidence_codec_unknown", "alert_evidence_undecodable",
 	"alert_organization_unknown", "alert_organization_ceiling", "alert_duplicate",
+	"queue_full", "shutting_down", "waited_too_long",
 }
 
 // EdgeTelemetryDropReasons returns the reasons telemetry is discarded under, each
@@ -91,11 +92,50 @@ const backfillGranted = "granted"
 var backfillAnswers = []string{
 	backfillGranted, "stored",
 	"deferred_no_grant", "deferred_busy", "deferred_write_failed", "deferred_refused",
+	"deferred_waited_too_long",
 }
 
 // BackfillAnswers returns the catch-up answers, each published at zero from start-up.
 func BackfillAnswers() []string {
 	return append([]string(nil), backfillAnswers...)
+}
+
+// The answers an offered alert gets, as the alert-answer counter spells them.
+const (
+	AlertAnswerStored         = "stored"
+	AlertAnswerRefusedForGood = "refused_for_good"
+	AlertAnswerTryAgain       = "try_again"
+)
+
+var alertAnswers = []string{AlertAnswerStored, AlertAnswerRefusedForGood, AlertAnswerTryAgain}
+
+// ObserveAlertAnswer counts one answer sent to a machine.
+func (m *Metrics) ObserveAlertAnswer(answer string) {
+	m.AlertAnswersTotal.WithLabelValues(answer).Inc()
+}
+
+// The outcomes of a presence sweep, and the places a presence write can fail.
+const (
+	PresenceSweepOK      = "ok"
+	PresenceSweepFailed  = "failed"
+	PresenceAtDisconnect = "disconnect"
+	PresenceAtSweep      = "sweep"
+)
+
+var (
+	presenceSweepOutcomes = []string{PresenceSweepOK, PresenceSweepFailed}
+	presenceWritePlaces   = []string{PresenceAtDisconnect, PresenceAtSweep}
+)
+
+// ObservePresenceSweep counts one sweep under its outcome and the rows it took offline.
+func (m *Metrics) ObservePresenceSweep(outcome string, markedOffline int) {
+	m.PresenceSweepsTotal.WithLabelValues(outcome).Inc()
+	m.PresenceMarkedOfflineTotal.Add(float64(markedOffline))
+}
+
+// ObservePresenceWriteFailure counts one failed presence write at the place it failed.
+func (m *Metrics) ObservePresenceWriteFailure(at string) {
+	m.PresenceWriteFailuresTotal.WithLabelValues(at).Inc()
 }
 
 // seedOutcomes publishes every value of every closed set above at zero.
@@ -120,6 +160,15 @@ func (m *Metrics) seedOutcomes() {
 	}
 	for _, result := range helperRequestResults {
 		m.HelperRequestsTotal.WithLabelValues(result)
+	}
+	for _, answer := range alertAnswers {
+		m.AlertAnswersTotal.WithLabelValues(answer)
+	}
+	for _, outcome := range presenceSweepOutcomes {
+		m.PresenceSweepsTotal.WithLabelValues(outcome)
+	}
+	for _, at := range presenceWritePlaces {
+		m.PresenceWriteFailuresTotal.WithLabelValues(at)
 	}
 }
 

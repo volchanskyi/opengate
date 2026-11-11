@@ -191,6 +191,9 @@ type Repository interface {
 	UpdateOrganization(ctx context.Context, id DeviceID, organizationID OrganizationID) error
 	SetStatus(ctx context.Context, id DeviceID, status DeviceStatus) error
 	ResetAllStatuses(ctx context.Context) error
+	// RefreshPresence stamps last-seen on the scope's connected machines and takes offline every
+	// other online row last seen over grace ago, reporting how many rows each half changed.
+	RefreshPresence(ctx context.Context, connected []DeviceID, grace time.Duration) (refreshed, offline int, err error)
 	// SetMaintenance stamps entry time (kept on reason edits), user and reason; disabling clears all.
 	// Returns ErrDeviceNotFound when no device in the tenant scope matches id.
 	SetMaintenance(ctx context.Context, id DeviceID, on bool, by uuid.UUID, reason string) error

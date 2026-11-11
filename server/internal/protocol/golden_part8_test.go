@@ -21,6 +21,19 @@ func TestGoldenControlGrantBackfill(t *testing.T) {
 	assert.Equal(t, int64(1700003600), msg.Deadline)
 }
 
+func TestGoldenControlAlertAnswer(t *testing.T) {
+	msg := decodeControlFrame(t, "control_alert_answer.bin")
+	assert.Equal(t, MsgAlertAnswer, msg.Type)
+	assert.Equal(t, "6f0e1c2a-8d3b-4a5e-9f7c-1b2d3e4f5a6b", msg.AlertID)
+	assert.Equal(t, string(AlertAnswerRefusedForGood), msg.Reason)
+}
+
+func TestGoldenControlLiveWindowStored(t *testing.T) {
+	msg := decodeControlFrame(t, "control_live_window_stored.bin")
+	assert.Equal(t, MsgLiveWindowStored, msg.Type)
+	assert.Equal(t, int64(1_700_000_040), msg.TS)
+}
+
 func TestGoldenControlDeferBackfill(t *testing.T) {
 	msg := decodeControlFrame(t, "control_defer_backfill.bin")
 	assert.Equal(t, MsgDeferBackfill, msg.Type)

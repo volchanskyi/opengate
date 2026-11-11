@@ -1,9 +1,10 @@
 # Resource Conservation — A Counter Is Not A Measurement
 
 **Enforced by:**
-[`server/tests/integration/conservation_test.go`](../../server/tests/integration/conservation_test.go)
-and
+[`server/tests/integration/conservation_test.go`](../../server/tests/integration/conservation_test.go),
 [`mps_conservation_test.go`](../../server/tests/integration/mps_conservation_test.go)
+and
+[`catchup_conservation_test.go`](../../server/tests/integration/catchup_conservation_test.go)
 (gauntlet go-integration step),
 [`policy/semgrep/resources/hijacked-request-context.yaml`](../../policy/semgrep/resources/hijacked-request-context.yaml)
 (pen-test gate, fixtures pinned by
@@ -32,6 +33,9 @@ work was undone is not evidence that it was.
 - [`mps_conservation_test.go`](../../server/tests/integration/mps_conservation_test.go)
   does the same for Intel AMT requests, a third of them answered, a third
   stalled after the channel opens, and a third never confirmed.
+- [`catchup_conservation_test.go`](../../server/tests/integration/catchup_conservation_test.go)
+  does the same for catch-up sessions: a machine connects, catches up through the
+  numeric writer, and leaves.
 
 ### The assertion is a slope, never a fixed baseline
 

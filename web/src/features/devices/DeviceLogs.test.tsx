@@ -118,7 +118,7 @@ describe('DeviceLogs (Agent pane over LogExplorer)', () => {
     expect(screen.getByRole('button', { name: 'Next page' })).toBeEnabled();
   });
 
-  it('Next page advances the offset by one page (offset paging, not append)', async () => {
+  it('Next page moves the offset past the lines received (offset paging, not append)', async () => {
     const user = userEvent.setup();
     const fetchLogs = vi.fn();
     useDeviceStore.setState({ fetchLogs });
@@ -127,12 +127,14 @@ describe('DeviceLogs (Agent pane over LogExplorer)', () => {
 
     await user.click(screen.getByRole('button', { name: 'Next page' }));
     expect(fetchLogs).toHaveBeenCalledWith('agent', 'd1', expect.objectContaining({
-      offset: 300,
+      offset: sampleLogs.entries.length,
       limit: 300,
     }));
 
     await user.click(screen.getByRole('button', { name: 'Next page' }));
-    expect(fetchLogs).toHaveBeenLastCalledWith('agent', 'd1', expect.objectContaining({ offset: 600 }));
+    expect(fetchLogs).toHaveBeenLastCalledWith('agent', 'd1', expect.objectContaining({
+      offset: 2 * sampleLogs.entries.length,
+    }));
   });
 
   it('Previous page is disabled on the first page and enabled after paging forward', async () => {

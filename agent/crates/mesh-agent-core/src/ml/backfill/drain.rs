@@ -1,25 +1,28 @@
-//! The tier walk: recent-first, then oldest-first per tier from a durable watermark, so an
-//! interrupted replay resumes without re-sending or shipping one time at two resolutions.
+//! The tier walk: recent-first, then oldest-first per tier, skipping every span the server
+//! confirmed and every minute that has not ended, never one time at two resolutions.
 
 use std::collections::BTreeMap;
 
+use edge_tsdb::confirmed::ConfirmedRanges;
 use edge_tsdb::{SeriesId, Tier, TsdbError};
 use mesh_protocol::{BackfillSample, BackfillTier};
 
 use super::{
-    roll_to_60s, BackfillConfig, BackfillCursors, BucketReduction, TierReader, HOUR_STEP, MIN_STEP,
-    RECENT_STEP,
+    roll_to_60s, BackfillConfig, BucketReduction, TierReader, HOUR_STEP, MIN_STEP, RECENT_STEP,
 };
 use crate::ml::store_sink::{
     series_dim_name, series_max_dim_name, series_reduction, WindowReduction,
 };
 
 /// A batch of pre-rolled samples for one tier, ascending by timestamp, ending at bucket `cursor`.
+/// Its ack confirms `[start, end)`: the span the drain scanned for it, empty stretches included.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlannedBatch {
     pub tier: BackfillTier,
     pub samples: Vec<BackfillSample>,
     pub cursor: i64,
+    pub start: i64,
+    pub end: i64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -55,27 +58,27 @@ pub struct BackfillDrain<'a, R: TierReader> {
     now: i64,
     cfg: BackfillConfig,
     series: &'a [SeriesId],
-    cursors: BackfillCursors,
+    confirmed: &'a ConfirmedRanges,
     phase: Phase,
     pos: i64,
     pos_ready: bool,
 }
 
 impl<'a, R: TierReader> BackfillDrain<'a, R> {
-    /// Starts a drain from the given durable cursors.
+    /// Starts a drain over everything the server has not confirmed.
     pub fn new(
         reader: &'a R,
         now: i64,
         cfg: BackfillConfig,
         series: &'a [SeriesId],
-        cursors: BackfillCursors,
+        confirmed: &'a ConfirmedRanges,
     ) -> Self {
         Self {
             reader,
             now,
             cfg,
             series,
-            cursors,
+            confirmed,
             phase: Phase::Recent,
             pos: 0,
             pos_ready: false,
@@ -101,9 +104,10 @@ impl<'a, R: TierReader> BackfillDrain<'a, R> {
 
     fn band(&self, phase: Phase) -> (i64, i64, i64) {
         match phase {
+            // The newest bucket is the last whole minute: a minute still running is never sent.
             Phase::Recent => (
                 self.now - self.cfg.recent_secs,
-                self.now + self.cfg.future_skew_secs,
+                self.now - RECENT_STEP,
                 RECENT_STEP,
             ),
             Phase::Mid => (
@@ -121,18 +125,19 @@ impl<'a, R: TierReader> BackfillDrain<'a, R> {
         }
     }
 
-    /// Whether a bucket may ship in the current phase; a rollup bucket must lie entirely in its
-    /// band so no time ships at two resolutions.
+    /// Whether a bucket may ship in the current phase: ended, unconfirmed, and for a rollup
+    /// entirely in its band so no time ships at two resolutions.
     fn emit_ok(&self, ts: i64, step: i64) -> bool {
         let (lo, hi, _) = self.band(self.phase);
-        match self.phase {
+        let in_band = match self.phase {
             Phase::Recent => ts >= lo && ts <= hi,
             Phase::Mid | Phase::Old => ts >= lo && ts + step <= hi,
             Phase::Done => false,
-        }
+        };
+        in_band && ts + step <= self.now && !self.confirmed.covers(ts, ts + step)
     }
 
-    /// Produces the next batch, or `None` when drained; the caller owns the durable cursor.
+    /// Produces the next batch, or `None` when drained; the caller records each confirmation.
     pub fn next_batch(&mut self) -> Result<Option<PlannedBatch>, TsdbError> {
         loop {
             let Some(tier) = self.phase.tier() else {
@@ -141,10 +146,12 @@ impl<'a, R: TierReader> BackfillDrain<'a, R> {
             let (band_lo, band_hi, step) = self.band(self.phase);
 
             if !self.pos_ready {
-                // Resumes strictly after the watermark and never before the band floor.
-                let resume = self.cursors.get(tier).map(|c| c + step);
-                self.pos = resume.map_or(band_lo, |r| r.max(band_lo));
+                self.pos = band_lo;
                 self.pos_ready = true;
+            }
+            // A confirmed span is skipped whole, to the first bucket at or after its end.
+            while let Some(end) = self.confirmed.span_end_at(self.pos) {
+                self.pos = end.div_euclid(step) * step + if end % step == 0 { 0 } else { step };
             }
 
             if self.pos > band_hi {
@@ -152,6 +159,7 @@ impl<'a, R: TierReader> BackfillDrain<'a, R> {
                 continue;
             }
 
+            let scanned_from = self.pos;
             let read_end = (self.pos + step * self.buckets_per_batch()).min(band_hi);
             let buckets = self.read_buckets(tier, step, self.pos, read_end)?;
 
@@ -190,6 +198,8 @@ impl<'a, R: TierReader> BackfillDrain<'a, R> {
                 tier,
                 samples,
                 cursor,
+                start: scanned_from.min(cursor),
+                end: cursor + step,
             }));
         }
     }
@@ -212,9 +222,13 @@ impl<'a, R: TierReader> BackfillDrain<'a, R> {
         for &series in self.series {
             let reduction = series_reduction(series);
             let points: Vec<(i64, f64, f64)> = match tier {
-                BackfillTier::Recent60s => {
-                    roll_to_60s(&self.reader.range_raw(series, start, end)?, reduction)
-                }
+                // A 60 s window starting at `end` holds readings up to a minute past it.
+                BackfillTier::Recent60s => roll_to_60s(
+                    &self
+                        .reader
+                        .range_raw(series, start, end + RECENT_STEP - 1)?,
+                    reduction,
+                ),
                 BackfillTier::Rollup1m => self
                     .reader
                     .range_tier(series, Tier::T1, start, end)?

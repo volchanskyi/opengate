@@ -22,20 +22,45 @@ type telemetryWriteCall struct {
 	samples  []telemetry.Sample
 }
 
+// recordingTelemetryWriter takes hand-offs as the writer does: the store's own checks refuse a
+// bad reading, and block, when set, holds every answer until it is closed.
 type recordingTelemetryWriter struct {
 	calls chan telemetryWriteCall
 	block chan struct{}
 	count atomic.Int64
+	// fail, when set, answers every hand-off with it.
+	fail error
 }
 
-func (r *recordingTelemetryWriter) WriteSamples(_ context.Context, tenantID uuid.UUID, deviceID uuid.UUID, samples []telemetry.Sample) error {
+func (r *recordingTelemetryWriter) Submit(sub telemetry.Submission) {
 	r.count.Add(1)
-	if r.block != nil {
-		<-r.block
+	kept := make([]telemetry.Sample, 0, len(sub.Samples))
+	for _, sample := range sub.Samples {
+		if telemetry.CheckSample(sample) == nil {
+			kept = append(kept, sample)
+		}
 	}
-	r.calls <- telemetryWriteCall{tenantID: tenantID, deviceID: deviceID, samples: samples}
-	return nil
+	answer := func() {
+		if len(kept) > 0 && r.fail == nil {
+			r.calls <- telemetryWriteCall{tenantID: sub.Scope.Tenant, deviceID: sub.Scope.Device, samples: kept}
+		}
+		if r.fail != nil {
+			sub.Done(telemetry.Outcome{Refused: len(sub.Samples) - len(kept), Err: r.fail})
+			return
+		}
+		sub.Done(telemetry.Outcome{Stored: len(kept), Refused: len(sub.Samples) - len(kept)})
+	}
+	if r.block != nil {
+		go func() {
+			<-r.block
+			answer()
+		}()
+		return
+	}
+	answer()
 }
+
+func (r *recordingTelemetryWriter) Fill(telemetry.Class) float64 { return 0 }
 
 func TestAgentConn_HandleAgentHealthSummaryUsesAuthoritativeTenant(t *testing.T) {
 	deviceID := uuid.New()
@@ -54,7 +79,6 @@ func TestAgentConn_HandleAgentHealthSummaryUsesAuthoritativeTenant(t *testing.T)
 
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
 	require.NoError(t, ac.handleControl(ctx))
-	ac.flushTelemetry(ctx)
 
 	call := receiveTelemetryCall(t, writer.calls)
 	assert.Equal(t, dbtx.DefaultTenantID, call.tenantID)
@@ -83,7 +107,6 @@ func TestAgentConn_TelemetryIntervalFloorDropsFastSamples(t *testing.T) {
 
 	require.NoError(t, ac.handleControl(ctx))
 	require.NoError(t, ac.handleControl(ctx))
-	ac.flushTelemetry(ctx)
 	_ = receiveTelemetryCall(t, writer.calls)
 	assert.Equal(t, uint64(1), ac.DroppedTelemetryCount())
 	assert.Equal(t, int64(1), writer.count.Load())
@@ -119,7 +142,6 @@ func TestAgentConn_TelemetryWriterDoesNotBlockControlLoop(t *testing.T) {
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
 	require.NoError(t, ac.handleControl(ctx))
 	start := time.Now()
-	ac.flushTelemetry(ctx)
 	assert.Less(t, time.Since(start), 100*time.Millisecond)
 	close(writer.block)
 	_ = receiveTelemetryCall(t, writer.calls)
@@ -141,7 +163,6 @@ func TestAgentConn_HandleHealthWindowResponseFansOutSummaries(t *testing.T) {
 
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
 	require.NoError(t, ac.handleControl(ctx))
-	ac.flushTelemetry(ctx)
 
 	call := receiveTelemetryCall(t, writer.calls)
 	require.Len(t, call.samples, 2)

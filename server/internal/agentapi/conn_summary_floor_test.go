@@ -38,12 +38,12 @@ func TestAnAnomalySummaryAndABreachSummaryInOneSecondAreBothKept(t *testing.T) {
 	writeControlMsg(t, ac.codec, buf, breachSummary(now+1))
 	require.NoError(t, ac.handleControl(ctx))
 	require.NoError(t, ac.handleControl(ctx))
-	ac.flushTelemetry(ctx)
 
-	call := receiveTelemetryCall(t, writer.calls)
-	names := make([]string, 0, len(call.samples))
-	for _, s := range call.samples {
-		names = append(names, s.Name)
+	var names []string
+	for range 2 {
+		for _, s := range receiveTelemetryCall(t, writer.calls).samples {
+			names = append(names, s.Name)
+		}
 	}
 	assert.Contains(t, names, "opengate_edge_node_anomaly_rate")
 	assert.Contains(t, names, "opengate_edge_alert_breach")
@@ -67,7 +67,6 @@ func TestTwoSummariesOfOneKindInsideTheFloorKeepTheFirst(t *testing.T) {
 			writeControlMsg(t, ac.codec, buf, c.summary(now+1))
 			require.NoError(t, ac.handleControl(ctx))
 			require.NoError(t, ac.handleControl(ctx))
-			ac.flushTelemetry(ctx)
 
 			receiveTelemetryCall(t, writer.calls)
 			assert.Equal(t, uint64(1), ac.DroppedTelemetryCount())

@@ -130,3 +130,8 @@ def github(path):
     if len(pages) != 1:
         raise Unreadable(f"gh api {path}: {len(pages)} answers where one was expected")
     return pages[0]
+
+
+def github_object(path):
+    """One GitHub API object, read whole: paginated, gh repeats a commit once per hundred files."""
+    return parse_json(run(["gh", "api", path], what=f"gh api {path}"), f"gh api {path}")

@@ -1,5 +1,5 @@
-//! Reconnect-backfill loop: drains persisted history recent-first, one acked batch at a time,
-//! and answers deep-history pulls; store access runs on blocking threads.
+//! Reconnect-backfill loop: drains the history the server never confirmed, one answered batch at a
+//! time, and answers deep-history pulls; store access runs on blocking threads.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -9,14 +9,40 @@ use rand::RngExt;
 use crate::clock::unix_now;
 use edge_tsdb::TsdbError;
 use mesh_agent_core::ml::backfill::{
-    answer_local_history, load_cursors, pace_delay, pending_hint, record_ack, BackfillConfig,
-    BackfillDrain,
+    answer_local_history, confirm, forget_after, migrate_cursors, pace_delay, pending_hint,
+    BackfillConfig, BackfillDrain, ConfirmedStore,
 };
 use mesh_agent_core::ml::store_sink::{dim_series, LocalStoreSink, BACKFILL_SERIES};
 use mesh_protocol::{BackfillTier, ControlMessage};
 
 /// Maximum full-resolution points in one deep-history pull; also the default.
 const HISTORY_HARD_CAP: usize = 100_000;
+
+/// How long the batch in flight waits for its answer: four times the server's own 15 s bound,
+/// so it passes only on a server fault.
+const ANSWER_DEADLINE: Duration = Duration::from_secs(60);
+
+/// The longest wait before a batch whose answer never came is sent again.
+const MAX_MISSED_ANSWER_WAIT: Duration = Duration::from_secs(30 * 60);
+
+/// The wait before the batch is sent again after `misses` answers in a row never came: one minute,
+/// doubling, at most thirty, with no limit on attempts.
+pub(crate) fn missed_answer_wait(misses: u32) -> Duration {
+    let minutes = 1u64 << misses.saturating_sub(1).min(5);
+    Duration::from_secs(minutes * 60).min(MAX_MISSED_ANSWER_WAIT)
+}
+
+/// The batch waiting for its answer: what an ack must name, the span it confirms, and the
+/// message to send again when no answer comes.
+struct InFlight {
+    tier: BackfillTier,
+    cursor: i64,
+    start: i64,
+    end: i64,
+    message: ControlMessage,
+    /// When the answer is due; `None` while the batch waits to be sent again.
+    answer_by: Option<tokio::time::Instant>,
+}
 
 /// Where a coordinator is in the request, grant, drain lifecycle for the current session.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -43,6 +69,9 @@ pub(crate) struct BackfillCoordinator {
     store: Arc<Mutex<LocalStoreSink>>,
     cfg: BackfillConfig,
     phase: Phase,
+    in_flight: Option<InFlight>,
+    /// Answers missed in a row for the batch in flight.
+    misses: u32,
 }
 
 impl BackfillCoordinator {
@@ -51,6 +80,8 @@ impl BackfillCoordinator {
             store,
             cfg: BackfillConfig::default(),
             phase: Phase::Idle,
+            in_flight: None,
+            misses: 0,
         }
     }
 
@@ -58,13 +89,18 @@ impl BackfillCoordinator {
     /// or `None` when no history is pending.
     pub(crate) async fn start_session(&mut self) -> Option<ControlMessage> {
         self.phase = Phase::Idle;
+        self.in_flight = None;
+        self.misses = 0;
         let cfg = self.cfg;
         let now = unix_now();
         let hint = self
-            .read_store(move |sink| {
+            .write_store(move |sink| {
+                if migrate_cursors(sink.store_mut(), now, cfg)? {
+                    tracing::info!("backfill: watermarks read into confirmed spans");
+                }
                 let snap = sink.snapshot()?;
-                let cursors = load_cursors(sink.store())?;
-                pending_hint(&snap, now, cfg, &BACKFILL_SERIES, cursors)
+                let confirmed = sink.store().load_confirmed()?;
+                pending_hint(&snap, now, cfg, &BACKFILL_SERIES, &confirmed)
             })
             .await;
         let (pending, oldest) = match hint {
@@ -96,9 +132,12 @@ impl BackfillCoordinator {
         };
     }
 
-    /// Goes quiescent and returns the jittered delay before the caller restarts the session.
+    /// Goes quiescent and returns the jittered delay before the caller restarts the session; the
+    /// deferred batch stays unconfirmed, so it is planned again.
     pub(crate) fn on_defer(&mut self, retry_after: u32) -> Duration {
         self.phase = Phase::Quiescent;
+        self.in_flight = None;
+        self.misses = 0;
         let base = u64::from(retry_after.max(1));
         // Jitter ±25 % so a fleet-wide reconnect herd de-synchronises its retries.
         let jitter = rand::rng().random_range(0..=(base / 2).max(1));
@@ -121,8 +160,8 @@ impl BackfillCoordinator {
             return None;
         }
         if unix_now() > deadline {
-            // Grant expired mid-drain: durable data is safe, so re-request a
-            // fresh slot from the last acked watermark.
+            // Grant expired mid-drain: confirmed spans are kept, so a fresh slot
+            // resumes with what the server has not confirmed.
             return self.start_session().await;
         }
         let cfg = self.cfg;
@@ -130,8 +169,8 @@ impl BackfillCoordinator {
         let planned = self
             .read_store(move |sink| {
                 let snap = sink.snapshot()?;
-                let cursors = load_cursors(sink.store())?;
-                BackfillDrain::new(&snap, now, cfg, &BACKFILL_SERIES, cursors).next_batch()
+                let confirmed = sink.store().load_confirmed()?;
+                BackfillDrain::new(&snap, now, cfg, &BACKFILL_SERIES, &confirmed).next_batch()
             })
             .await;
         match planned {
@@ -142,11 +181,20 @@ impl BackfillCoordinator {
                     awaiting_ack: true,
                     last_len: batch.samples.len(),
                 };
-                Some(ControlMessage::MetricBackfillBatch {
+                let message = ControlMessage::MetricBackfillBatch {
                     tier: batch.tier,
                     samples: batch.samples,
                     cursor: batch.cursor,
-                })
+                };
+                self.in_flight = Some(InFlight {
+                    tier: batch.tier,
+                    cursor: batch.cursor,
+                    start: batch.start,
+                    end: batch.end,
+                    message: message.clone(),
+                    answer_by: Some(tokio::time::Instant::now() + ANSWER_DEADLINE),
+                });
+                Some(message)
             }
             Ok(None) => {
                 self.phase = Phase::Quiescent;
@@ -160,8 +208,8 @@ impl BackfillCoordinator {
         }
     }
 
-    /// Advances the durable per-tier watermark and returns the pace delay before the next batch.
-    /// An ack outside the draining phase is ignored.
+    /// Confirms the batch in flight when the ack names it and returns the pace delay before the
+    /// next batch; an ack for any other batch, or outside the draining phase, confirms nothing.
     pub(crate) async fn on_ack(&mut self, tier: BackfillTier, cursor: i64) -> Duration {
         let Phase::Draining {
             rate,
@@ -172,16 +220,24 @@ impl BackfillCoordinator {
         else {
             return Duration::ZERO;
         };
-        let store = Arc::clone(&self.store);
-        let write = tokio::task::spawn_blocking(move || {
-            let mut sink = store.lock().expect("store mutex poisoned");
-            record_ack(sink.store_mut(), tier, cursor)
-        })
-        .await;
-        match write {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => tracing::warn!(error = %e, "backfill: cursor persist failed"),
-            Err(e) => tracing::warn!(error = %e, "backfill: cursor task panicked"),
+        let Some(batch) = self
+            .in_flight
+            .take_if(|b| b.tier == tier && b.cursor == cursor)
+        else {
+            tracing::debug!(
+                ?tier,
+                cursor,
+                "backfill: an ack for another batch confirms nothing"
+            );
+            return Duration::ZERO;
+        };
+        self.misses = 0;
+        let (start, end) = (batch.start, batch.end);
+        if let Err(e) = self
+            .write_store(move |sink| confirm(sink.store_mut(), start, end))
+            .await
+        {
+            tracing::warn!(error = %e, "backfill: confirmation persist failed");
         }
         self.phase = Phase::Draining {
             rate,
@@ -190,6 +246,59 @@ impl BackfillCoordinator {
             last_len,
         };
         pace_delay(last_len, rate)
+    }
+
+    /// Confirms the minute a live window stamped `ts` covers, which catch-up then skips.
+    pub(crate) async fn on_live_confirmed(&mut self, ts: i64) {
+        let minute = ts.div_euclid(60) * 60;
+        if let Err(e) = self
+            .write_store(move |sink| confirm(sink.store_mut(), minute, minute + 60))
+            .await
+        {
+            tracing::warn!(error = %e, "backfill: live confirmation persist failed");
+        }
+    }
+
+    /// Forgets what the server confirmed from `since_ts` on, since it asks for it again, and
+    /// returns the jittered wait before catch-up restarts.
+    pub(crate) async fn on_resend_request(&mut self, since_ts: i64, retry_after: u32) -> Duration {
+        tracing::info!(since_ts, "backfill: the server asked for history again");
+        if let Err(e) = self
+            .write_store(move |sink| forget_after(sink.store_mut(), since_ts))
+            .await
+        {
+            tracing::warn!(error = %e, "backfill: forgetting confirmations failed");
+        }
+        self.on_defer(retry_after)
+    }
+
+    /// When the batch in flight must be answered by, or `None` when nothing is awaited.
+    pub(crate) fn answer_deadline(&self) -> Option<tokio::time::Instant> {
+        self.in_flight.as_ref().and_then(|b| b.answer_by)
+    }
+
+    /// Pauses catch-up after an answer that never came and returns the wait before the same batch
+    /// goes again; the connection stays up, and each miss is logged.
+    pub(crate) fn on_missed_answer(&mut self) -> Duration {
+        let Some(batch) = self.in_flight.as_mut() else {
+            return Duration::ZERO;
+        };
+        batch.answer_by = None;
+        self.misses += 1;
+        let wait = missed_answer_wait(self.misses);
+        tracing::warn!(
+            misses = self.misses,
+            wait_s = wait.as_secs(),
+            "backfill: the server never answered a batch; sending it again later"
+        );
+        wait
+    }
+
+    /// The batch waiting to be sent again, due its answer once more; `None` when none waits.
+    pub(crate) fn resend_in_flight(&mut self) -> Option<ControlMessage> {
+        let batch = self.in_flight.as_mut().filter(|b| b.answer_by.is_none())?;
+        batch.answer_by = Some(tokio::time::Instant::now() + ANSWER_DEADLINE);
+        Some(batch.message.clone())
     }
 
     /// Answers a `RequestLocalHistory` with a bounded 1 s pull of one dimension from the T0 tier.
@@ -234,6 +343,29 @@ impl BackfillCoordinator {
     /// True while a grant is held and the drain has not finished.
     pub(crate) fn is_draining(&self) -> bool {
         matches!(self.phase, Phase::Draining { .. })
+    }
+
+    /// Runs a store write on a blocking thread so a redb commit never stalls the control loop.
+    async fn write_store<F, T>(&self, f: F) -> Result<T, TsdbError>
+    where
+        F: FnOnce(&mut LocalStoreSink) -> Result<T, TsdbError> + Send + 'static,
+        T: Send + 'static,
+    {
+        let store = Arc::clone(&self.store);
+        match tokio::task::spawn_blocking(move || {
+            let mut sink = store.lock().expect("store mutex poisoned");
+            f(&mut sink)
+        })
+        .await
+        {
+            Ok(res) => res,
+            Err(e) => {
+                tracing::warn!(error = %e, "backfill: store write task panicked");
+                Err(TsdbError::Io(std::io::Error::other(
+                    "store write task panicked",
+                )))
+            }
+        }
     }
 
     /// Runs a read-only store closure on a blocking thread so a cold-cache redb read never
@@ -311,9 +443,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn full_cycle_requests_grants_drains_and_advances_cursor() {
+    async fn full_cycle_requests_grants_drains_and_confirms() {
         let now = unix_now();
-        let store = seeded_store(now, 30);
+        let store = seeded_store(now - 60, 120);
         let mut c = BackfillCoordinator::new(store);
 
         match c.start_session().await {
@@ -355,7 +487,7 @@ mod tests {
 
     #[tokio::test]
     async fn defer_yields_a_bounded_jittered_retry_and_no_drain() {
-        let store = seeded_store(unix_now(), 30);
+        let store = seeded_store(unix_now() - 60, 120);
         let mut c = BackfillCoordinator::new(store);
         c.start_session().await;
         let delay = c.on_defer(20);
@@ -402,10 +534,179 @@ mod tests {
         }
     }
 
+    /// Drives a session to its first batch and returns it with its tier and cursor.
+    async fn first_batch(c: &mut BackfillCoordinator) -> (BackfillTier, i64) {
+        c.start_session().await.expect("history is pending");
+        c.on_grant(1_000, unix_now() + 3600);
+        match c.next_batch().await {
+            Some(ControlMessage::MetricBackfillBatch { tier, cursor, .. }) => (tier, cursor),
+            other => panic!("expected a batch, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn an_acked_session_leaves_nothing_to_send_next_time() {
+        let store = seeded_store(unix_now() - 60, 120);
+        let mut c = BackfillCoordinator::new(store);
+        let (tier, cursor) = first_batch(&mut c).await;
+        c.on_ack(tier, cursor).await;
+        while let Some(ControlMessage::MetricBackfillBatch { tier, cursor, .. }) =
+            c.next_batch().await
+        {
+            c.on_ack(tier, cursor).await;
+        }
+
+        assert!(
+            c.start_session().await.is_none(),
+            "every confirmed minute stays sent across sessions"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_ack_for_another_batch_confirms_nothing() {
+        let store = seeded_store(unix_now() - 60, 120);
+        let mut c = BackfillCoordinator::new(store);
+        let (tier, cursor) = first_batch(&mut c).await;
+
+        c.on_ack(tier, cursor - 60).await;
+
+        assert!(
+            c.answer_deadline().is_some(),
+            "the batch in flight still waits for its own answer"
+        );
+        assert!(
+            c.next_batch().await.is_none(),
+            "and nothing else is sent meanwhile"
+        );
+        c.on_ack(tier, cursor).await;
+        assert!(c.answer_deadline().is_none());
+    }
+
+    #[tokio::test]
+    async fn a_live_confirmation_confirms_its_minute() {
+        let now = unix_now();
+        let minute = (now - 120).div_euclid(60) * 60;
+        let store = seeded_store(minute + 60, 60);
+        let mut c = BackfillCoordinator::new(Arc::clone(&store));
+
+        c.on_live_confirmed(minute + 17).await;
+
+        assert!(
+            c.start_session().await.is_none(),
+            "a minute the server confirmed live is not caught up"
+        );
+    }
+
+    #[test]
+    fn a_missed_answer_waits_one_two_four_minutes_and_on_to_thirty_without_limit() {
+        let waits: Vec<u64> = (1..=9)
+            .map(|m| missed_answer_wait(m).as_secs() / 60)
+            .collect();
+        assert_eq!(waits, vec![1, 2, 4, 8, 16, 30, 30, 30, 30]);
+        assert_eq!(
+            missed_answer_wait(10_000),
+            Duration::from_secs(30 * 60),
+            "no limit on attempts"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_missed_answer_sends_the_same_batch_again_and_keeps_the_connection() {
+        let store = seeded_store(unix_now() - 60, 120);
+        let mut c = BackfillCoordinator::new(store);
+        let sent = c.start_session().await;
+        assert!(sent.is_some());
+        c.on_grant(1_000, unix_now() + 3600);
+        let first = c.next_batch().await.expect("a batch");
+        let deadline = c.answer_deadline().expect("an answer is due");
+        assert!(deadline <= tokio::time::Instant::now() + ANSWER_DEADLINE);
+
+        for misses in 1..=3 {
+            assert_eq!(c.on_missed_answer(), missed_answer_wait(misses));
+            assert!(
+                c.answer_deadline().is_none(),
+                "catch-up pauses while it waits"
+            );
+            assert!(
+                c.next_batch().await.is_none(),
+                "no other batch overtakes it"
+            );
+            assert_eq!(
+                c.resend_in_flight(),
+                Some(first.clone()),
+                "the same batch goes again"
+            );
+            assert!(c.answer_deadline().is_some());
+        }
+        assert!(
+            c.is_draining(),
+            "the session, and the connection under it, carry on"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_resend_request_forgets_what_came_after_its_time_and_restarts_catch_up() {
+        let now = unix_now();
+        let store = seeded_store(now - 60, 180);
+        let mut c = BackfillCoordinator::new(store);
+        let (tier, cursor) = first_batch(&mut c).await;
+        c.on_ack(tier, cursor).await;
+        while let Some(ControlMessage::MetricBackfillBatch { tier, cursor, .. }) =
+            c.next_batch().await
+        {
+            c.on_ack(tier, cursor).await;
+        }
+        assert!(c.start_session().await.is_none());
+
+        let wait = c.on_resend_request(now - 120, 2).await;
+
+        assert!(
+            wait <= Duration::from_secs(3),
+            "catch-up restarts after the requested wait"
+        );
+        assert!(!c.is_draining());
+        assert!(
+            matches!(
+                c.start_session().await,
+                Some(ControlMessage::RequestBackfillSlot { .. })
+            ),
+            "the forgotten minutes are caught up again"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_older_agents_watermarks_are_read_once_at_the_first_session() {
+        let now = unix_now();
+        let store = seeded_store(now - 60, 120);
+        {
+            let mut sink = store.lock().unwrap();
+            sink.store_mut()
+                .set_cursor(
+                    mesh_agent_core::ml::backfill::TIER_CURSOR_RECENT60S,
+                    now,
+                    Durability::Full,
+                )
+                .unwrap();
+        }
+        let mut c = BackfillCoordinator::new(Arc::clone(&store));
+
+        assert!(
+            c.start_session().await.is_none(),
+            "what the old watermark covered is not sent again"
+        );
+        let sink = store.lock().unwrap();
+        assert_eq!(
+            sink.store()
+                .cursor(mesh_agent_core::ml::backfill::TIER_CURSOR_RECENT60S)
+                .unwrap(),
+            None
+        );
+    }
+
     #[tokio::test]
     async fn expired_grant_reslots_instead_of_draining_past_it() {
         let now = unix_now();
-        let store = seeded_store(now, 30);
+        let store = seeded_store(now - 60, 120);
         let mut c = BackfillCoordinator::new(store);
         c.start_session().await;
         // Deadline already in the past: the next drive re-requests a slot.

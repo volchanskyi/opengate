@@ -70,6 +70,7 @@ type Metrics struct {
 
 	// Investigations meta-monitoring of the rule pack; every series here is O(rules).
 	AlertsSuppressedTotal *prometheus.CounterVec
+	AlertAnswersTotal     *prometheus.CounterVec
 	AlertsCreatedTotal    *prometheus.CounterVec
 	AlertsOpen            prometheus.Gauge
 	IncidentsOpen         *prometheus.GaugeVec
@@ -80,6 +81,13 @@ type Metrics struct {
 
 	// PurgeJobsUnfinished counts deletion records not yet complete, as the last retry pass found.
 	PurgeJobsUnfinished prometheus.Gauge
+
+	// Presence: status written on connect and disconnect, last-seen refreshed by a periodic sweep.
+	PresenceSweepsTotal        *prometheus.CounterVec
+	PresenceMarkedOfflineTotal prometheus.Counter
+	PresenceWriteFailuresTotal *prometheus.CounterVec
+
+	ingestMetrics
 
 	// rules is the rule-id vocabulary bounding the investigation series, set once at start-up.
 	rules atomic.Pointer[ruleVocabulary]
@@ -166,6 +174,17 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		PurgeJobsUnfinished: gauge("purge_jobs_unfinished",
 			"Deletion records not yet complete, counted by the last retry pass or at start-up."),
 
+		PresenceSweepsTotal: counterVec("presence_sweeps_total",
+			"Presence sweeps by outcome: ok when every tenant's statement ran, failed when one did not.",
+			"outcome"),
+
+		PresenceMarkedOfflineTotal: counter("presence_marked_offline_total",
+			"Online rows with no connection that a presence sweep took offline."),
+
+		PresenceWriteFailuresTotal: counterVec("presence_write_failures_total",
+			"Presence writes that failed, by where: disconnect for an offline write, sweep for a tenant's statement.",
+			"at"),
+
 		DeviceLogPullsTotal: counterVec("device_log_pulls_total",
 			"Total on-demand raw-log broker pulls by outcome. The ok series is the audited pull count.",
 			"result"),
@@ -195,6 +214,10 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 
 		EdgeBackfillGrantRate: gauge("edge_backfill_grant_rate_samples_per_second",
 			"Per-slot ingest rate (samples/sec) of the most recent backfill grant."),
+
+		AlertAnswersTotal: counterVec("alert_answers_total",
+			"Answers sent to machines that read them, one per offered alert: stored, refused_for_good or try_again.",
+			"answer"),
 
 		AlertsSuppressedTotal: counterVec("alerts_suppressed_total",
 			"Total alerts that did not become a stored row, by reason. There is no path for asking an endpoint again, so a rising organization_ceiling series is detection being refused rather than noise being filtered.",
@@ -248,6 +271,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		m.EdgeBackfillActiveSlots,
 		m.EdgeBackfillGrantRate,
 		m.AlertsSuppressedTotal,
+		m.AlertAnswersTotal,
 		m.AlertsCreatedTotal,
 		m.AlertsOpen,
 		m.IncidentsOpen,
@@ -257,7 +281,13 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		m.HelperRequestsTotal,
 		m.MetricsGridMisalignedTotal,
 		m.PurgeJobsUnfinished,
+		m.PresenceSweepsTotal,
+		m.PresenceMarkedOfflineTotal,
+		m.PresenceWriteFailuresTotal,
 	)
+	m.ingestMetrics = newIngestMetrics()
+	reg.MustRegister(m.ingestMetrics.collectors()...)
+	m.ingestMetrics.seed()
 	reg.MustRegister(newRegistrationAndPoolMetrics(m)...)
 	seedRegistrationAndPoolMetrics(m)
 

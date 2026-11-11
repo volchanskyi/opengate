@@ -416,13 +416,13 @@ mutation_go_shard_units() {
       echo "file:internal/api/handlers_updates.go file:internal/api/handlers_purge.go"
       ;;
     go-agentapi-connection)
-      echo "file:internal/agentapi/conn.go file:internal/agentapi/conn_register.go file:internal/agentapi/conn_guard.go file:internal/agentapi/conn_maintenance.go file:internal/agentapi/server.go file:internal/agentapi/server_connection.go file:internal/agentapi/deregister.go"
+      echo "file:internal/agentapi/conn.go file:internal/agentapi/conn_requests.go file:internal/agentapi/conn_register.go file:internal/agentapi/conn_guard.go file:internal/agentapi/conn_maintenance.go file:internal/agentapi/server.go file:internal/agentapi/server_connection.go file:internal/agentapi/deregister.go file:internal/agentapi/presence_sweep.go file:internal/agentapi/read_allowance.go"
       ;;
     go-agentapi-handshake)
       echo "file:internal/agentapi/handshaker.go file:internal/agentapi/errors.go file:internal/agentapi/admission.go file:internal/agentapi/conn_restricted.go file:internal/agentapi/renewal.go file:internal/agentapi/renewal_sweep.go"
       ;;
     go-agentapi-backfill)
-      echo "file:internal/agentapi/backfill_scheduler.go file:internal/agentapi/conn_backfill.go"
+      echo "file:internal/agentapi/backfill_scheduler.go file:internal/agentapi/backfill_rotation.go file:internal/agentapi/backfill_admission_types.go file:internal/agentapi/backfill_pace.go file:internal/agentapi/conn_backfill.go file:internal/agentapi/resend.go"
       ;;
     go-agentapi-edge-telemetry)
       echo "file:internal/agentapi/conn_discovery.go file:internal/agentapi/conn_telemetry.go file:internal/agentapi/conn_accounting.go file:internal/agentapi/conn_coverage.go file:internal/agentapi/conn_logs.go file:internal/agentapi/conn_history.go file:internal/agentapi/conn_hardware.go file:internal/agentapi/alert_breach.go file:internal/agentapi/alert_rules.go file:internal/agentapi/conn_alerts.go file:internal/agentapi/alert_rules_catalogue.go file:internal/agentapi/vitals.go"

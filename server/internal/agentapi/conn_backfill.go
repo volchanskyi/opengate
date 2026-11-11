@@ -2,7 +2,11 @@ package agentapi
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
@@ -19,9 +23,6 @@ const (
 	backfillRetentionSecs = 30 * 24 * 3600
 	// backfillFutureSkewSecs rejects timestamps further ahead than this many seconds.
 	backfillFutureSkewSecs = 3600
-	// backfillPersistTimeout bounds a batch's synchronous VM write so a slow backend cannot stall
-	// the control loop.
-	backfillPersistTimeout = 5 * time.Second
 )
 
 // The answers a catch-up batch gets, as opengate_edge_backfill_answers_total names them.
@@ -31,10 +32,11 @@ const (
 	backfillDeferredBusy        = "deferred_busy"
 	backfillDeferredWriteFailed = "deferred_write_failed"
 	backfillDeferredRefused     = "deferred_refused"
+	backfillDeferredWaited      = "deferred_waited_too_long"
 )
 
-// handleMetricBackfillBatch writes a batch at its own timestamps under the connection's tenant and
-// answers it once: an ack when stored or filtered, a deferral otherwise.
+// handleMetricBackfillBatch admits a granted batch by the catch-up queue's fill and hands it to
+// the writer; the batch is answered once, an ack when stored or filtered, a deferral otherwise.
 func (a *AgentConn) handleMetricBackfillBatch(ctx context.Context, msg *protocol.ControlMessage, payloadLen int) error {
 	if err := a.requireCapability(protocol.CapBackfill); err != nil {
 		a.logger.Debug("ignoring backfill batch: capability not advertised", "device_id", a.DeviceID)
@@ -53,30 +55,71 @@ func (a *AgentConn) handleMetricBackfillBatch(ctx context.Context, msg *protocol
 		return a.deferBackfill(backfillDeferredRefused, minRetryAfter)
 	}
 
-	leave, admission := a.scheduler.Admit(a.DeviceID, tenant.TenantID)
-	if !admission.Admitted {
+	samples := a.backfillSamples(msg)
+	scope := telemetry.Scope{Tenant: tenant.TenantID, Device: a.DeviceID}
+	encoded := telemetry.Encode(scope, samples)
+	admission := a.scheduler.Admit(CatchUpBatch{
+		Device:   a.DeviceID,
+		Customer: a.customer(),
+		Key:      fmt.Sprintf("%v:%d", msg.Tier, msg.Cursor),
+		Size:     encoded.Size(),
+		Answer:   a.backfillAnswer(msg.Tier, msg.Cursor, len(samples)),
+	})
+	switch admission.Verdict {
+	case Joined:
+		return nil
+	case Refused:
 		answer := backfillDeferredBusy
 		if admission.Reason == BackfillNoGrant {
 			answer = backfillDeferredNoGrant
 		}
 		return a.deferBackfill(answer, time.Duration(admission.RetryAfter)*time.Second)
 	}
-	stored := a.persistBackfill(ctx, tenant, msg)
-	leave()
-	if !stored {
-		return a.deferBackfill(backfillDeferredWriteFailed, minRetryAfter)
-	}
-	a.observeBackfillAnswer(backfillStored)
-	return a.sendControl(&protocol.ControlMessage{
-		Type:   protocol.MsgMetricBackfillAck,
-		Tier:   msg.Tier,
-		Cursor: msg.Cursor,
+	a.telemetry.Submit(telemetry.Submission{
+		Class:   telemetry.ClassCatchUp,
+		Scope:   scope,
+		Samples: samples,
+		Encoded: encoded,
+		Done:    func(outcome telemetry.Outcome) { a.scheduler.Complete(a.DeviceID, outcome) },
 	})
+	return nil
 }
 
-// persistBackfill writes the batch's samples inside retention and the vitals vocabulary, and
-// reports whether the batch counts as stored; a batch whose every sample was filtered is stored.
-func (a *AgentConn) persistBackfill(ctx context.Context, tenant dbtx.Tenant, msg *protocol.ControlMessage) bool {
+// backfillAnswer answers one batch on this connection once the writer settles it. A send to a
+// connection that has gone is dropped: the machine sends the batch again after reconnect.
+func (a *AgentConn) backfillAnswer(tier protocol.BackfillTier, cursor int64, readings int) func(telemetry.Outcome) {
+	return func(outcome telemetry.Outcome) {
+		a.countRefused(protocol.MsgMetricBackfillBatch, outcome, readings)
+		var err error
+		if outcome.Err != nil {
+			a.dropUnstored(protocol.MsgMetricBackfillBatch, outcome.Err)
+			err = a.deferUnstored(outcome.Err)
+		} else {
+			a.observeBackfillAnswer(backfillStored)
+			err = a.sendControl(&protocol.ControlMessage{Type: protocol.MsgMetricBackfillAck, Tier: tier, Cursor: cursor})
+		}
+		if err != nil {
+			a.logger.Debug("backfill answer not sent", "device_id", a.DeviceID, "error", err)
+		}
+	}
+}
+
+// deferUnstored tells the machine to send a batch the writer did not store again, counted
+// under the writer's reason.
+func (a *AgentConn) deferUnstored(err error) error {
+	switch {
+	case errors.Is(err, telemetry.ErrQueueFull):
+		return a.deferBackfill(backfillDeferredBusy, minRetryAfter)
+	case errors.Is(err, telemetry.ErrWaitedTooLong):
+		return a.deferBackfill(backfillDeferredWaited, minRetryAfter)
+	default:
+		return a.deferBackfill(backfillDeferredWriteFailed, minRetryAfter)
+	}
+}
+
+// backfillSamples keeps the batch's samples inside retention and the vitals vocabulary, counting
+// each kind of drop once per batch.
+func (a *AgentConn) backfillSamples(msg *protocol.ControlMessage) []telemetry.Sample {
 	now := time.Now().Unix()
 	floor := now - backfillRetentionSecs
 	ceil := now + backfillFutureSkewSecs
@@ -109,17 +152,15 @@ func (a *AgentConn) persistBackfill(ctx context.Context, tenant dbtx.Tenant, msg
 		a.dropTelemetry("unknown_dim", "type", protocol.MsgMetricBackfillBatch,
 			"tier", msg.Tier, "unknown", unknown, "batch", len(msg.BackfillSamples))
 	}
-	samples = a.keepWritable(protocol.MsgMetricBackfillBatch, samples)
-	if len(samples) == 0 {
-		return true
-	}
-	jobCtx, cancel := context.WithTimeout(ctx, backfillPersistTimeout)
-	defer cancel()
-	if err := a.telemetry.WriteSamples(jobCtx, tenant.TenantID, a.DeviceID, samples); err != nil {
-		a.logger.Warn("backfill persist failed; deferring the batch", "device_id", a.DeviceID, "error", err)
-		return false
-	}
-	return true
+	return samples
+}
+
+// customer is the organization this machine's catch-up is shared under; an unresolved one is
+// the unassigned group, uuid.Nil.
+func (a *AgentConn) customer() uuid.UUID {
+	a.metaMu.RLock()
+	defer a.metaMu.RUnlock()
+	return a.organizationID
 }
 
 // deferBackfill tells the machine to keep the batch and send it again after retry.
@@ -149,7 +190,7 @@ func (a *AgentConn) handleRequestBackfillSlot(msg *protocol.ControlMessage) erro
 		return nil
 	}
 
-	decision := a.scheduler.RequestSlot(a.DeviceID, a.TenantID, SlotRequest{
+	decision := a.scheduler.RequestSlot(a.DeviceID, a.customer(), SlotRequest{
 		PendingSamples: msg.PendingSamples,
 		OldestTS:       msg.OldestTS,
 	})

@@ -13,12 +13,13 @@ use crate::error::{Result, TsdbError};
 use crate::sample::{Sample, SeriesId};
 use crate::tier::TierPoint;
 
+use crate::confirmed::ConfirmedRanges;
 #[cfg(feature = "cold-deflate")]
 use blocks::deflate_cold_blocks;
 use blocks::{
     evict_blocks, map_durability, read_raw, read_stored_version, read_tier, read_tier_span,
-    scan_logical, stamp_current_format, write_all, BlockTable, Cand, OpenSeries, CURRENT_FORMAT,
-    CURSOR, T0, T0_BLOCK_SAMPLES, T1, T2,
+    scan_logical, stamp_current_format, write_all, BlockTable, Cand, OpenSeries, CONFIRMED,
+    CURRENT_FORMAT, CURSOR, T0, T0_BLOCK_SAMPLES, T1, T2,
 };
 
 /// The two downsampled rollup tiers the store serves alongside T0 raw.
@@ -198,6 +199,56 @@ impl LocalTsdb {
         Ok(())
     }
 
+    /// Removes the durable backfill cursor for `series`; an unset one is left as it is.
+    pub fn remove_cursor(&mut self, series: SeriesId, durability: Durability) -> Result<()> {
+        let mut wt = self.db.begin_write().map_err(blocks::re)?;
+        wt.set_durability(map_durability(durability))
+            .map_err(blocks::re)?;
+        {
+            let mut t = wt.open_table(CURSOR).map_err(blocks::re)?;
+            t.remove(series).map_err(blocks::re)?;
+        }
+        wt.commit().map_err(blocks::re)?;
+        Ok(())
+    }
+
+    /// The spans the server has confirmed it stores.
+    pub fn confirmed(&self) -> Result<ConfirmedRanges> {
+        let rt = self.db.begin_read().map_err(blocks::re)?;
+        let table = match rt.open_table(CONFIRMED) {
+            Ok(t) => t,
+            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(ConfirmedRanges::default()),
+            Err(e) => return Err(blocks::re(e)),
+        };
+        let mut spans = Vec::new();
+        for entry in table.iter().map_err(blocks::re)? {
+            let (start, end) = entry.map_err(blocks::re)?;
+            spans.push((start.value(), end.value()));
+        }
+        Ok(ConfirmedRanges::from_spans(spans))
+    }
+
+    /// Replaces the confirmed spans; a save without durability is made durable by the store's
+    /// next durable commit.
+    pub fn save_confirmed(
+        &mut self,
+        ranges: &ConfirmedRanges,
+        durability: Durability,
+    ) -> Result<()> {
+        let mut wt = self.db.begin_write().map_err(blocks::re)?;
+        wt.set_durability(map_durability(durability))
+            .map_err(blocks::re)?;
+        wt.delete_table(CONFIRMED).map_err(blocks::re)?;
+        {
+            let mut t = wt.open_table(CONFIRMED).map_err(blocks::re)?;
+            for &(start, end) in ranges.spans() {
+                t.insert(start, end).map_err(blocks::re)?;
+            }
+        }
+        wt.commit().map_err(blocks::re)?;
+        Ok(())
+    }
+
     /// Opens a consistent MVCC read snapshot that concurrent writes do not affect.
     pub fn snapshot(&self) -> Result<TsdbSnapshot> {
         Ok(TsdbSnapshot {
@@ -230,7 +281,7 @@ impl LocalTsdb {
         Ok(())
     }
 
-    /// Purges every tier, rollup, cursor and in-memory buffer on deprovision.
+    /// Purges every tier, rollup, cursor, confirmation and in-memory buffer on deprovision.
     pub fn purge(&mut self) -> Result<()> {
         let mut wt = self.db.begin_write().map_err(blocks::re)?;
         wt.set_durability(redb::Durability::Immediate)
@@ -239,6 +290,7 @@ impl LocalTsdb {
             wt.delete_table(def).map_err(blocks::re)?;
         }
         wt.delete_table(CURSOR).map_err(blocks::re)?;
+        wt.delete_table(CONFIRMED).map_err(blocks::re)?;
         wt.commit().map_err(blocks::re)?;
         self.open.clear();
         self.logical_bytes = 0;

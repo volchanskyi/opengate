@@ -49,7 +49,42 @@ func runHasItsOwnAllowance() bool {
 
 // WatchGenerator samples the generator on an interval and returns a stop function that reports.
 func WatchGenerator() func() Headroom {
-	meter := StartGeneratorMeter()
+	return watchMeter(StartGeneratorMeter())
+}
+
+// WatchBeside samples the allowance at path under mount, held by a generator beside this one; no
+// path reports nil, and an allowance that cannot be read reports unmeasured.
+func WatchBeside(mount, path string) func() *Headroom {
+	if path == "" {
+		return func() *Headroom { return nil }
+	}
+	meter := besideMeter(mount, path, time.Now)
+	if meter == nil {
+		return func() *Headroom { return &Headroom{} }
+	}
+	stop := watchMeter(meter)
+	return func() *Headroom {
+		reading := stop()
+		return &reading
+	}
+}
+
+// besideMeter measures the cgroup at path under mount against the allowance it holds, or is nil
+// where that cgroup holds none.
+func besideMeter(mount, path string, now func() time.Time) *cgroupMeter {
+	files, ok := openCgroupFiles(mount, path)
+	if !ok {
+		return nil
+	}
+	if meter := startCgroupMeter(files, now); meter != nil {
+		return meter
+	}
+	files.close()
+	return nil
+}
+
+// watchMeter samples meter on an interval and returns a stop function that reports its reading.
+func watchMeter(meter GeneratorMeter) func() Headroom {
 	done := make(chan struct{})
 	finished := make(chan struct{})
 	go func() {

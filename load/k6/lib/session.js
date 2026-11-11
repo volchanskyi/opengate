@@ -147,9 +147,12 @@ export function visibleSiteIds(baseUrl, token) {
   return (resp.json() || []).map((site) => site.id);
 }
 
+/** Machines setup keeps for the journeys to open; every virtual user holds its own copy. */
+export const MACHINES_VISITED = 100;
+
 /**
- * The first site that holds machines, or undefined when none does.
- * `devicesUrl` reads undefined as the unfiltered fleet request.
+ * The first site that holds machines and up to MACHINES_VISITED of their ids, read once; no site
+ * and no ids when none does. `devicesUrl` reads undefined as the unfiltered fleet request.
  */
 export function siteWithDevices(baseUrl, token) {
   const headers = authHeaders(token);
@@ -158,11 +161,12 @@ export function siteWithDevices(baseUrl, token) {
     if (resp.status !== 200) {
       throw new Error(`setup: list devices returned ${resp.status}: ${resp.body}`);
     }
-    if ((resp.json() || []).length > 0) {
-      return siteId;
+    const machines = resp.json() || [];
+    if (machines.length > 0) {
+      return { siteId, deviceIds: machines.slice(0, MACHINES_VISITED).map((machine) => machine.id) };
     }
   }
-  return undefined;
+  return { siteId: undefined, deviceIds: [] };
 }
 
 /** Device-list URL, narrowed to `siteId` when one is given. */

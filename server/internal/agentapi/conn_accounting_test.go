@@ -76,9 +76,15 @@ func (s *accountingSinks) accept() error {
 	return nil
 }
 
-func (s *accountingSinks) WriteSamples(context.Context, uuid.UUID, uuid.UUID, []telemetry.Sample) error {
-	return s.accept()
+func (s *accountingSinks) Submit(sub telemetry.Submission) {
+	if err := s.accept(); err != nil {
+		sub.Done(telemetry.Outcome{Err: err})
+		return
+	}
+	sub.Done(telemetry.Outcome{Stored: len(sub.Samples)})
 }
+
+func (s *accountingSinks) Fill(telemetry.Class) float64 { return 0 }
 
 func (s *accountingSinks) Replace(context.Context, uuid.UUID, time.Time, []inventory.Component) error {
 	return s.accept()
@@ -100,12 +106,10 @@ type accountingCase struct {
 	msgs []*protocol.ControlMessage
 	// pad inflates the last message so it breaches a payload cap.
 	pad int
-	// fillSlots saturates the persist slots before the flush.
+	// fillSlots saturates the persist slots alerts are written on.
 	fillSlots bool
 	// failWrites makes every store return an error.
 	failWrites bool
-	// flushWithoutTenant flushes on a context carrying no tenant.
-	flushWithoutTenant bool
 
 	ingested  int
 	persisted int
@@ -158,7 +162,7 @@ func accountingCases(now int64) []accountingCase {
 	pkg := protocol.DiscoveredPackage{Name: "openssl", Version: "3.0.13"}
 	dim := protocol.MetricDim{Name: testDim, Avg: 12.5}
 	summary := protocol.HealthSummary{TS: now, NodeAnomalyRate: 0.4, SamplerVersion: "s1"}
-	coalesced := []*protocol.ControlMessage{
+	twoWindows := []*protocol.ControlMessage{
 		metricWindowMsg(now, dim),
 		metricWindowMsg(now+minTelemetryIntervalSeconds, dim),
 	}
@@ -236,12 +240,6 @@ func accountingCases(now int64) []accountingCase {
 		},
 		typedDrop("discovery report with no components", discoveryMsg(now), "empty_discovery"),
 		{
-			name:  "discovery report over the payload cap never reaches the ingest counter",
-			msgs:  []*protocol.ControlMessage{discoveryMsg(now, pkg)},
-			pad:   maxDiscoveryPayloadBytes + 1,
-			drops: map[string]int{"discovery_payload_too_large": 1},
-		},
-		{
 			name: "discovery report inside the interval floor is dropped",
 			msgs: []*protocol.ControlMessage{
 				discoveryMsg(now, pkg),
@@ -267,22 +265,15 @@ func accountingCases(now int64) []accountingCase {
 			drops:    map[string]int{alertDropSeverityUnknown: 1},
 		},
 		{
-			name:               "a coalesced batch flushed without a tenant drops every message it carried",
-			msgs:               coalesced,
-			flushWithoutTenant: true,
-			ingested:           2,
-			drops:              map[string]int{"tenant_missing": 2},
-		},
-		{
-			name:      "a coalesced batch shed by full persist slots drops every message it carried",
-			msgs:      coalesced,
+			name:      "an alert shed by full persist slots is a typed drop",
+			msgs:      []*protocol.ControlMessage{alertMsg(now, protocol.AlertSeverityWarning)},
 			fillSlots: true,
-			ingested:  2,
-			drops:     map[string]int{"persist_slots_full": 2},
+			ingested:  1,
+			drops:     map[string]int{"persist_slots_full": 1},
 		},
 		{
-			name:       "a coalesced batch whose write fails drops every message it carried",
-			msgs:       coalesced,
+			name:       "each window whose write fails is counted as lost",
+			msgs:       twoWindows,
 			failWrites: true,
 			ingested:   2,
 			drops:      map[string]int{"persist_failed": 2},
@@ -347,11 +338,6 @@ func runAccountingCase(t *testing.T, m *appmetrics.Metrics, tc accountingCase) i
 	for range tc.msgs {
 		require.NoError(t, ac.handleControl(ctx))
 	}
-	flushCtx := ctx
-	if tc.flushWithoutTenant {
-		flushCtx = context.Background()
-	}
-	ac.flushTelemetry(flushCtx)
 
 	require.Eventually(t, func() bool {
 		return sinks.writes.Load() >= int64(tc.writes)

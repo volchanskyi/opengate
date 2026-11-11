@@ -114,6 +114,7 @@ func TestASessionLeftByAMachineThatWentAwayIsReclaimed(t *testing.T) {
 		SessionSweep:   50 * time.Millisecond,
 		SessionGrace:   time.Nanosecond,
 		IncidentSweep:  time.Hour,
+		PresenceSweep:  time.Hour,
 		// The retention horizon exceeds anything this run creates, leaving the age sweep idle.
 		RetentionSweep:   time.Hour,
 		RetentionHorizon: 365 * 24 * time.Hour,

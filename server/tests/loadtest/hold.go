@@ -17,7 +17,7 @@ func holdOpen(ctx context.Context, codec *protocol.Codec, stream soakStream, opt
 		return nil
 	}
 	deadline := time.Now().Add(opts.holdFor)
-	return proveConnection(codec, stream, opts, func() time.Duration {
+	return proveConnection(ctx, codec, stream, opts, func() time.Duration {
 		if ctx.Err() != nil {
 			return 0
 		}
@@ -31,7 +31,7 @@ func proveUntilWoundDown(ctx context.Context, codec *protocol.Codec, stream soak
 	if opts.holdFor <= 0 {
 		return nil
 	}
-	return proveConnection(codec, stream, opts, func() time.Duration {
+	return proveConnection(ctx, codec, stream, opts, func() time.Duration {
 		if ctx.Err() != nil {
 			return 0
 		}
@@ -41,7 +41,7 @@ func proveUntilWoundDown(ctx context.Context, codec *protocol.Codec, stream soak
 
 // proveConnection answers the server and heartbeats while left reports time remaining; a read
 // timeout is the ordinary quiet-server case.
-func proveConnection(codec *protocol.Codec, stream soakStream, opts loadOptions,
+func proveConnection(ctx context.Context, codec *protocol.Codec, stream soakStream, opts loadOptions,
 	left func() time.Duration,
 ) error {
 	// One heartbeat before the loop lets a stay shorter than one interval detect a severance.
@@ -50,7 +50,12 @@ func proveConnection(codec *protocol.Codec, stream soakStream, opts loadOptions,
 	}
 
 	nextBeat := time.Now().Add(holdHeartbeatInterval)
-	nextWindow := time.Now().Add(opts.liveEvery)
+	// Each machine sends at its own second of the period, so a fleet that came back together
+	// arrives evenly through it.
+	nextWindow := time.Now()
+	if opts.liveEvery > 0 {
+		nextWindow = nextWindow.Add(liveSendDelay(nextWindow, opts.liveSecond) % opts.liveEvery)
+	}
 	for {
 		remaining := left()
 		if remaining <= 0 {
@@ -82,6 +87,12 @@ func proveConnection(codec *protocol.Codec, stream soakStream, opts loadOptions,
 				continue
 			}
 			return fmt.Errorf("hold open: %w", err)
+		}
+		if msg.Type == protocol.MsgDeferBackfill && msg.SinceTS != 0 {
+			if err := answerResendRequest(ctx, codec, stream, opts, msg); err != nil {
+				return err
+			}
+			continue
 		}
 		if err := answerHeldFrame(codec, stream, msg, opts); err != nil {
 			return err
@@ -127,8 +138,30 @@ func answerHeldFrame(codec *protocol.Codec, w io.Writer, msg *protocol.ControlMe
 			return nil
 		}
 		return joinRequestedSession(msg, opts.sessionsJoined, opts.helpers)
+	case protocol.MsgLiveWindowStored:
+		opts.catchUp.confirmed()
 	}
 	return nil
+}
+
+// liveSendSecond is the second of each minute a machine named name sends its live window at, as
+// the agent takes it from its own id.
+func liveSendSecond(name string) int {
+	hash := uint64(0xcbf29ce484222325)
+	for _, b := range []byte(name) {
+		hash = (hash ^ uint64(b)) * 0x100000001b3
+	}
+	return int(hash % 60)
+}
+
+// liveSendDelay is how long from now until the clock next reads second past a minute; never zero.
+func liveSendDelay(now time.Time, second int) time.Duration {
+	into := time.Duration(now.UnixMilli()%60_000) * time.Millisecond
+	wait := (time.Duration(second)*time.Second + time.Minute - into) % time.Minute
+	if wait == 0 {
+		return time.Minute
+	}
+	return wait
 }
 
 // joinRequestedSession echoes on its own goroutine so the control stream stays readable while
@@ -168,19 +201,15 @@ func joinRequestedSession(msg *protocol.ControlMessage, counter *atomic.Int64, h
 const relaySessionLifetime = 5 * time.Minute
 
 // sendLiveWindow writes a window stamped at its send second, past the arrival window's ten-second
-// floor, and tells the watch when a watched machine sent it.
-func sendLiveWindow(codec *protocol.Codec, w io.Writer, opts loadOptions) error {
-	sent := time.Now()
-	ts := sent.Unix()
+// floor.
+func sendLiveWindow(codec *protocol.Codec, w io.Writer, _ loadOptions) error {
+	ts := time.Now().Unix()
 	payload, err := codec.EncodeControl(buildDefaultMetricWindow(ts))
 	if err != nil {
 		return fmt.Errorf("encode live window: %w", err)
 	}
 	if err := codec.WriteFrame(w, protocol.FrameControl, payload); err != nil {
 		return fmt.Errorf("write live window: %w", err)
-	}
-	if opts.watchedDevice != "" {
-		opts.liveWatch.sentAt(opts.watchedDevice, ts, sent)
 	}
 	return nil
 }

@@ -27,6 +27,8 @@ type runBundleInputs struct {
 
 	// Headroom is what the generator had left while it produced the load; zero invalidates the run.
 	Headroom Headroom
+	// TechnicianHeadroom is what the technicians' own allowance had left; nil where they share one.
+	TechnicianHeadroom *Headroom
 
 	// Journeys are the technician-side screens this night timed.
 	Journeys []JourneyResult
@@ -62,8 +64,8 @@ type runBundleInputs struct {
 	Helper *HelperCount
 	// CatchUp is how the server answered the run's catch-up batches; nil is a run that sent none.
 	CatchUp *CatchUpCount
-	// LiveDelay is the watched machines' live minutes timed to the store; nil watched none.
-	LiveDelay *LiveDelay
+	// LiveAcceptance is the server's account of the run's live readings; nil read none.
+	LiveAcceptance *LiveAcceptance
 }
 
 // arrivedAgents counts the machines that connected, handshook and registered, whatever
@@ -107,20 +109,21 @@ func buildRunBundle(in runBundleInputs) *Bundle {
 	}
 
 	bundle := &Bundle{
-		SchemaVersion:     bundleSchemaVersion,
-		Run:               runIdentity(in, finished),
-		Target:            targetFingerprint(in),
-		Generator:         generatorFingerprint(in),
-		Fixture:           fixtureCounts(in, arrived),
-		Phases:            phaseResults(in, finished, arrived, register, errorRate),
-		Journeys:          in.Journeys,
-		Observations:      latencyObservations(finished, connect, handshake, errorRate, in),
-		GeneratorHeadroom: in.Headroom,
-		Cleanup:           uncountedCleanup(in),
-		Leak:              in.Leak,
-		Helper:            in.Helper,
-		CatchUp:           in.CatchUp,
-		LiveDelay:         in.LiveDelay,
+		SchemaVersion:      bundleSchemaVersion,
+		Run:                runIdentity(in, finished),
+		Target:             targetFingerprint(in),
+		Generator:          generatorFingerprint(in),
+		Fixture:            fixtureCounts(in, arrived),
+		Phases:             phaseResults(in, finished, arrived, register, errorRate),
+		Journeys:           in.Journeys,
+		Observations:       latencyObservations(finished, connect, handshake, errorRate, in),
+		GeneratorHeadroom:  in.Headroom,
+		TechnicianHeadroom: in.TechnicianHeadroom,
+		Cleanup:            uncountedCleanup(in),
+		Leak:               in.Leak,
+		Helper:             in.Helper,
+		CatchUp:            in.CatchUp,
+		LiveAcceptance:     in.LiveAcceptance,
 	}
 
 	// The breaking point is read off the phases the run walked, so an early stop answers
@@ -135,6 +138,7 @@ func buildRunBundle(in runBundleInputs) *Bundle {
 		ExpectedScenarios: []string{"quic-agents"},
 		ProducedScenarios: producedScenarios(arrived),
 		Headroom:          bundle.GeneratorHeadroom,
+		Technicians:       bundle.TechnicianHeadroom,
 		Phases:            bundle.Phases,
 		Target:            in.Conservation,
 		Helper:            in.Helper,

@@ -1,19 +1,18 @@
 //! Converts an alert raised on this machine into the wire message that carries it.
 
-use uuid::Uuid;
-
 use mesh_protocol::{AlertSeverity as WireSeverity, ControlMessage};
 
 use super::sink::{AlertOrigin, AlertSeverity, EdgeAlert};
 
 const MICROS_PER_SEC: i64 = 1_000_000;
 
-/// The wire message for one alert, with a fresh trace id that is not part of the alert's identity.
+/// The wire message for one alert offered under `id`, which the server's answer names and which
+/// takes no part in the alert's identity.
 #[must_use]
-pub fn alert_message(alert: &EdgeAlert) -> ControlMessage {
+pub fn alert_message(id: &str, alert: &EdgeAlert) -> ControlMessage {
     let start = floor_seconds(alert.window_start_micros);
     ControlMessage::AgentAlert {
-        alert_id: Uuid::new_v4().to_string(),
+        alert_id: id.to_string(),
         rule_id: alert.rule_id.clone(),
         rule_version: alert.rule_version,
         severity: wire_severity(alert.severity),

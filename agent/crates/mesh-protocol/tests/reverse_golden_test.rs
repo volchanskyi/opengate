@@ -254,10 +254,43 @@ fn reverse_golden_grant_backfill() {
 fn reverse_golden_defer_backfill() {
     let frame = decode_frame("go_control_defer_backfill.bin");
     match frame {
-        Frame::Control(ControlMessage::DeferBackfill { retry_after }) => {
+        Frame::Control(ControlMessage::DeferBackfill {
+            retry_after,
+            since_ts,
+        }) => {
             assert_eq!(retry_after, 30);
+            assert_eq!(since_ts, 0, "a plain deferral asks for nothing again");
         }
         other => panic!("expected DeferBackfill, got {:?}", other),
+    }
+}
+
+#[test]
+fn reverse_golden_defer_backfill_since() {
+    let frame = decode_frame("go_control_defer_backfill_since.bin");
+    match frame {
+        Frame::Control(ControlMessage::DeferBackfill {
+            retry_after,
+            since_ts,
+        }) => {
+            assert_eq!(retry_after, 17);
+            assert_eq!(
+                since_ts, 1_699_999_970,
+                "a re-send request names where to send again from"
+            );
+        }
+        other => panic!("expected DeferBackfill, got {:?}", other),
+    }
+}
+
+#[test]
+fn reverse_golden_live_window_stored() {
+    let frame = decode_frame("go_control_live_window_stored.bin");
+    match frame {
+        Frame::Control(ControlMessage::LiveWindowStored { ts }) => {
+            assert_eq!(ts, 1_700_000_040);
+        }
+        other => panic!("expected LiveWindowStored, got {:?}", other),
     }
 }
 
@@ -289,6 +322,18 @@ fn reverse_golden_request_local_history() {
             assert_eq!(max_points, 1000);
         }
         other => panic!("expected RequestLocalHistory, got {:?}", other),
+    }
+}
+
+#[test]
+fn reverse_golden_alert_answer() {
+    let frame = decode_frame("go_control_alert_answer.bin");
+    match frame {
+        Frame::Control(ControlMessage::AlertAnswer { alert_id, reason }) => {
+            assert_eq!(alert_id, "6f0e1c2a-8d3b-4a5e-9f7c-1b2d3e4f5a6b");
+            assert_eq!(reason, AlertAnswerReason::Stored);
+        }
+        other => panic!("expected AlertAnswer, got {:?}", other),
     }
 }
 

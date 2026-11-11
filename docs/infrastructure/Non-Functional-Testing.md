@@ -119,7 +119,9 @@ whose room it is. A generator with an allowance of its own — a cgroup quota, o
 own cgroup as the staging load-test pod has, or on the slice above it that the
 runner's generators share — is measured against that allowance, and three
 rules fall on the figure: too little processor left, too much memory held, or too
-much of the run spent runnable and refused the processor. A generator that shares
+much of the run spent runnable and refused the processor. The breakpoint leg
+gives the technicians a slice of their own, named to the harness
+(`-technician-cgroup`), which judges it by the same three rules. A generator that shares
 a box with the system it measures, which is what the throwaway stack is, has no
 allowance to be measured against; its figure is carried as evidence and the
 question of whether it offered the load is answered by its own lateness, which is
@@ -404,7 +406,10 @@ building its executors from the profile the night walks:
 [`load/k6/lib/session.js`](../../load/k6/lib/session.js) — one account per
 simulated technician, from a pool sized so no account passes its own request
 allowance — and reads the sites they can see. Where a scenario times a journey against one machine, it reads
-the fleet from a site chosen for holding machines: an estate spreads its fleet
+the fleet once, in `setup()`, from a site chosen for holding machines, and keeps up to a hundred of their
+ids; each visit still asks for the whole list and times it, keeping none of its body, so the generator's
+memory follows its visits rather than the fleet
+([`loadtest-k6-bodies.test.sh`](../../scripts/tests/loadtest-k6-bodies.test.sh)): an estate spreads its fleet
 over its sites, so a site picked for sorting first is empty as often as not, and
 a journey with nothing to open publishes a zero indistinguishable from a fast
 night. The scenarios act on the fleet the estate already holds rather than
@@ -655,21 +660,29 @@ carries. It reads, in order:
   filed, so the walk's dial is a return with the certificate it holds, as an
   installed agent's is; then the harness's machines returning with an hour's
   gap each
-  (`-backfill-gap`) and sending a live window each minute (`-live-every`) while
-  they drain; the run records when the last gap was stored and how each batch was
-  answered, and a watch on fifty machines times their live minutes from sent to
-  readable in the store (`-live-watch-store`).
+  (`-backfill-gap`) and sending a live window each minute (`-live-every`), each
+  at the second of the minute its machine id names, while they drain, with the
+  busy morning's technicians at work beside them: the profile's sessions and
+  arrivals, the harness answering session requests (`-relay-sessions`) and k6
+  driving the browser side. The harness reads each `LiveWindowStored` and
+  re-send request as an agent does, and records when the last gap was stored and
+  how each batch was answered. The live promise is read from the server's own
+  receipt-to-acceptance figure
+  ([`opengate_ingest_acceptance_seconds`](../architecture/Metrics-Reference.md#telemetry-ingest)),
+  a reading not stored counting as a miss.
 - **The runner's processor** — a fixed minute of hashing and compression at a
   quarter processor ([`cpu-benchmark.sh`](../../scripts/cpu-benchmark.sh)),
   beside the processor model the runner reports, so a night on different
   hardware shows.
 
-The store probe is the go/no-go for the shared writer, judged by
-[`perf-catchup-gate.sh`](../../scripts/perf-catchup-gate.sh), and the only
-reading of the leg that fails the night; the fleet's figures and the two-sender
-probe's rate and live timing are published to the Performance Stack Trends
-dashboard and judge nothing, and a store that stopped answering under either
-probe is a no-go. The probe's readings are written into the leg's uploaded
+The fleet's gates in the profile fail the night: live readings stored within
+5 seconds, every machine's hour filled within fifteen minutes of the fleet's
+return, and the busy morning's connection limits, read against the run's own rows
+by [`perf-bundle-limits.sh`](../../scripts/perf-bundle-limits.sh). The store
+probe is a published reading: [`perf-catchup-gate.sh`](../../scripts/perf-catchup-gate.sh)
+reports it against its marks and fails only when the probe wrote nothing, and its
+rate and live timing reach the Performance Stack Trends dashboard beside the
+fleet's figures. The probe's readings are written into the leg's uploaded
 bundle directory the moment it ends, and folded into the bundle after the walk
 whatever became of the server, so a server that dies in the fleet walk leaves
 the go/no-go its reading. The probe and the runner's benchmark are published
