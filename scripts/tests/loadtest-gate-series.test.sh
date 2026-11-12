@@ -37,20 +37,20 @@ gated_series() {
   profile_gates "$PROFILE" | jq -r '.[].series' | sort -u
 }
 
-decided_measurements() {
-  {
-    profile_gates "$PROFILE" | jq -r '.[] | "\(.series)|\(.metric)"'
-    profile_ungated "$PROFILE" | jq -r '.[] | "\(.series)|\(.metric)"'
-  } | sort -u
+limited_measurements() {
+  profile_gates "$PROFILE" | jq -r '.[] | "\(.series)|\(.metric)"' | sort -u
 }
 
 emitted_measurements() {
   jq -r '
     .[]
     | . as $row
-    | ["latency_p50_ms", "latency_p95_ms", "latency_p99_ms", "rps", "error_rate", "dropped_iterations"][]
-    | select($row[.] != null)
-    | "\($row.source)/\($row.scenario)/\($row.phase)|\(.)"
+    | to_entries[]
+    | select((.key | IN("source", "scenario", "phase", "commit", "env", "timestamp", "workload", "target_cpus",
+        "cpu_cap", "memory_cap", "memory_bytes") | not) and (.value | type) == "number")
+    # The pace delivered reads beside its share of the pace planned, which carries the limit.
+    | select(.key != "rps" or $row.rps_share_of_plan == null)
+    | "\($row.source)/\($row.scenario)/\($row.phase)|\(.key)"
   ' <<<"$1" | sort -u
 }
 
@@ -113,8 +113,14 @@ Handshake:   p50=20ms  p95=40ms  p99=60ms
 Register:    p50=5ms  p95=10ms  p99=15ms
 TXT
 
+# The run's bundle carries the phases the pace is planned over and the levels the night read.
+jq -n '{run: {commit: "gate"}, target: {cpus: 0.25, memory_bytes: 402653184},
+  phases: [{name: "steady", measured: true, offered_agent_arrivals_per_second: 1, achieved_agent_arrivals_per_second: 1,
+            started_at: "2026-11-12T01:00:00Z", finished_at: "2026-11-12T01:02:00Z", target_busy_percent: 30,
+            target_resident_bytes: 80000000}],
+  database_levels: {cpu_percent: 12, memory_percent: 40}}' >"$WORK/bundle.json"
 ROWS="$(
-  K6_SUMMARY_DIR="$WORK/k6" QUIC_OUTPUT_FILE="$WORK/quic.txt" GITHUB_SHA="gate" \
+  K6_SUMMARY_DIR="$WORK/k6" QUIC_OUTPUT_FILE="$WORK/quic.txt" GITHUB_SHA="gate" LOADTEST_BUNDLE="$WORK/bundle.json" \
     "$SUMMARIZE"
 )"
 
@@ -137,17 +143,17 @@ else
   fail "expected >= 8 gated series, found $gated_count — did the profile's gates change shape?"
 fi
 
-undecided=""
-decided="$(decided_measurements)"
+unlimited=""
+limited="$(limited_measurements)"
 while IFS= read -r measurement; do
   [ -n "$measurement" ] || continue
-  grep -qxF "$measurement" <<<"$decided" || undecided="$undecided $measurement"
+  grep -qxF "$measurement" <<<"$limited" || unlimited="$unlimited $measurement"
 done < <(emitted_measurements "$ROWS")
 
-if [ -z "$undecided" ]; then
-  pass "every measurement the extraction produces carries a decision"
+if [ -z "$unlimited" ]; then
+  pass "every measurement the extraction produces carries a limit"
 else
-  fail "measurements nobody ruled on (limit them, or declare them ungated with a reason):$undecided"
+  fail "measurements the extraction produces and the profile holds to nothing:$unlimited"
 fi
 
 emitted="$(emitted_measurements "$ROWS")"
@@ -155,10 +161,10 @@ phantom=""
 while IFS= read -r measurement; do
   [ -n "$measurement" ] || continue
   grep -qxF "$measurement" <<<"$emitted" || phantom="$phantom $measurement"
-done < <(decided_measurements)
+done < <(limited_measurements)
 
 if [ -z "$phantom" ]; then
-  pass "every decision the profile records names a measurement that arrives"
+  pass "every limit the profile records names a measurement that arrives"
 else
   fail "decisions about measurements the extraction never produces:$phantom"
 fi
@@ -169,14 +175,14 @@ while IFS= read -r series; do
   rest="${series#*/}"
   scen="${rest%%/*}"
   phase="${rest#*/}"
-  keys="$(jq -r --arg s "$src" --arg c "$scen" --arg p "$phase" \
-    '[.[] | select(.source==$s and .scenario==$c and .phase==$p) | keys[]]
-     | map(select(. == "latency_p50_ms" or . == "latency_p95_ms" or . == "rps" or . == "error_rate"))
-     | length' <<<"$ROWS")"
-  if [ "${keys:-0}" -ge 2 ]; then
-    pass "gated series carries gate statistics: $series"
+  missing="$(jq -r --arg s "$src" --arg c "$scen" --arg p "$phase" --argjson gates "$(profile_gates "$PROFILE")" '
+    ([.[] | select(.source==$s and .scenario==$c and .phase==$p)] | first // {}) as $row
+    | [$gates[] | select(.series == "\($s)/\($c)/\($p)" and .follows == null) | .metric
+       | select(($row[.] | type) != "number")] | unique | join(" ")' <<<"$ROWS")"
+  if [ -z "$missing" ]; then
+    pass "gated series carries the readings its limits name: $series"
   else
-    fail "gated series carries no gate statistics: $series"
+    fail "gated series lacks the readings its limits name: $series ($missing)"
   fi
 done < <(gated_series)
 

@@ -1,0 +1,102 @@
+name: Performance volume
+
+# The volume family: the same technician load against fleets of 500, 2,000 and 8,000 enrolled
+# machines, each on a runner of its own, weighed, read together and compared with its own nights.
+
+on:
+  schedule:
+    # The hour decides queue order: a scheduled run starts hours after the time it names.
+    - cron: '20 7 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: perf-volume
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # The start time is taken once so every sample of the night carries the same date.
+  started:
+    name: Record when the run started
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      started_at: ${{ steps.started.outputs.at }}
+    steps:
+      - name: Record when the run started
+        id: started
+        run: echo "at=$(date -u +%s)" >>"$GITHUB_OUTPUT"
+
+  volume:
+    name: Volume family (${{ matrix.agents }} machines)
+    strategy:
+      fail-fast: false
+      # Each leg varies the count of machines that actually enrolled, with the profile path spelled out.
+      matrix:
+        include:
+          - agents: '500'
+            path: load/profiles/volume-500.yaml
+          - agents: '2000'
+            path: load/profiles/volume-2000.yaml
+          - agents: '8000'
+            path: load/profiles/volume-8000.yaml
+    uses: ./.github/workflows/perf-leg.yml
+    with:
+      leg: volume-${{ matrix.agents }}
+      title: Volume family (${{ matrix.agents }} machines)
+      profile: ${{ matrix.path }}
+      agents: ${{ matrix.agents }}
+      hold: 5m
+      minutes: 60
+      weigh: true
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  # Compares the volume legs, which hold different data under the same technician load.
+  # The curve is published and not gated, since one night is one sample per leg.
+  volume-curve:
+    name: Volume family, read together
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    needs: volume
+    # A leg that failed leaves a hole in the curve, which the script reports.
+    if: ${{ !cancelled() }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Collect every leg of the sweep
+        uses: actions/download-artifact@v8
+        with:
+          pattern: perf-volume-*
+          path: perf-legs
+
+      - name: Publish the curve, and refuse a sweep that measured nothing
+        run: |
+          set -euo pipefail
+          scripts/perf-volume-curve.sh perf-legs | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # Runs after a cancel or a timeout too, so a night that died is alerted on.
+  trend:
+    name: Alert if the run did not finish, and publish the trend
+    needs: [started, volume, volume-curve]
+    if: always()
+    uses: ./.github/workflows/perf-trend.yml
+    with:
+      domain: volume
+      started-at: ${{ needs.started.outputs.started_at }}
+      results: >-
+        started=${{ needs.started.result }}
+        volume=${{ needs.volume.result }}
+        volume-curve=${{ needs['volume-curve'].result }}
+    secrets:
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_WORKFLOW_USER_OCID: ${{ secrets.OCI_WORKFLOW_USER_OCID }}
+      OCI_WORKFLOW_FINGERPRINT: ${{ secrets.OCI_WORKFLOW_FINGERPRINT }}
+      OCI_WORKFLOW_PRIVATE_KEY: ${{ secrets.OCI_WORKFLOW_PRIVATE_KEY }}
+      OCI_REGION: ${{ secrets.OCI_REGION }}
+      OKE_CLUSTER_ID: ${{ secrets.OKE_CLUSTER_ID }}
+      DEPLOY_TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
+      DEPLOY_TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}

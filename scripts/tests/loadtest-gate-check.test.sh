@@ -172,13 +172,29 @@ SCALING="$REPO_ROOT/load/profiles/scaling.yaml"
   exit 1
 }
 
+# clean_night prints rows meeting every limit of a profile at its edge, so a case lays the one
+# reading it is about over a night that otherwise passes.
+clean_night() { # profile
+  # shellcheck source=scripts/lib/loadtest-profile.sh
+  . "$REPO_ROOT/scripts/lib/loadtest-profile.sh"
+  profile_gates "$1" | jq -c '[.[] | select(.follows == null)
+    | (.series | split("/")) as [$source, $scenario, $phase]
+    | {source: $source, scenario: $scenario, phase: $phase, (.metric): (.max // .min)}]'
+}
+
+# over_clean_night writes a profile's clean night with the rows given laid over it.
+over_clean_night() { # profile rows-json
+  jq -n --argjson clean "$(clean_night "$1")" --argjson rows "$2" '
+    ($clean + $rows) | group_by([.source, .scenario, .phase]) | map(add)' >"$WORK/summary.json"
+}
+
 scaling_rows() {
-  jq -n --argjson rate "$1" '[
+  over_clean_night "$SCALING" "$(jq -nc --argjson rate "$1" '[
     { source: "quic", scenario: "quic-agents", phase: "aggregate",
       error_rate: $rate, latency_p95_ms: 55, rps: 25 },
     { source: "quic", scenario: "quic-agents", phase: "connect",
       latency_p95_ms: 55, error_rate: $rate }
-  ]' >"$WORK/summary.json"
+  ]')"
 }
 
 run_scaling() {
@@ -220,12 +236,12 @@ SOAK="$REPO_ROOT/load/profiles/soak.yaml"
 }
 
 soak_rows() {
-  jq -n --argjson p95 "$1" '[
+  over_clean_night "$SOAK" "$(jq -nc --argjson p95 "$1" '[
     { source: "quic", scenario: "quic-agents", phase: "aggregate",
       error_rate: 0, latency_p95_ms: 20, rps: 25 },
     { source: "quic", scenario: "quic-agents", phase: "connect",
       latency_p95_ms: $p95, error_rate: 0 }
-  ]' >"$WORK/summary.json"
+  ]')"
 }
 
 run_soak() {
@@ -244,6 +260,39 @@ run_soak
 assert_eq "soak: a night past the ceiling fails the run" "1" "$STATUS"
 assert_contains "soak: the breach names the connect path" "quic/quic-agents/connect" "$OUT"
 assert_lacks "soak: and does not merely report it" "reported, not enforced" "$OUT"
+
+# A rung starved of processor on purpose reads a failing limit as a watched mark; a limit that
+# follows another decides nothing of its own.
+cat >"$WORK/profile.yaml" <<'YAML'
+gates:
+  - series: quic/quic-agents/register
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+    blocking_from_cpus: 1
+  - series: catchup/gaps/drain
+    metric: fill_seconds
+    max: 960
+    blocking: true
+  - series: catchup/batches/drain
+    metric: deferred
+    follows: catchup/gaps/drain|fill_seconds
+    blocking: false
+YAML
+starved_rows() { # cpus
+  jq -n --argjson cpus "$1" '[
+    {source: "quic", scenario: "quic-agents", phase: "register", target_cpus: $cpus, latency_p95_ms: 4000},
+    {source: "catchup", scenario: "gaps", phase: "drain", target_cpus: $cpus, fill_seconds: 600},
+    {source: "catchup", scenario: "batches", phase: "drain", target_cpus: $cpus, deferred: 120000}]' >"$WORK/summary.json"
+}
+starved_rows 0.25
+run_check
+assert_eq "a rung given a quarter processor reads a past limit as a mark, not a failure" "0" "$STATUS"
+assert_contains "and reports it" "reported, not enforced: quic/quic-agents/register" "$OUT"
+assert_lacks "the batches told to wait decide nothing of their own" "deferred" "$OUT"
+starved_rows 1
+run_check
+assert_eq "the same reading on a rung given its whole processor fails the run" "1" "$STATUS"
 
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then

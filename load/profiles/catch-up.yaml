@@ -29,13 +29,35 @@ safety:
   max_error_rate: 0.05
 
 gates:
-  # Live readings reach the store within 5 s during the catch-up, by the server's own count, a
-  # reading not stored counting as a miss.
+  # The catch-up promises, the store probe's marks and the technicians beside the return.
+  - series: quic/quic-agents/aggregate
+    metric: error_rate
+    max: 0.02
+    blocking: true
+  - series: quic/quic-agents/connect
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: quic/quic-agents/register
+    metric: latency_p50_ms
+    max: 100
+    blocking: false
+  - series: quic/quic-agents/register
+    metric: latency_p95_ms
+    max: 5000
+    blocking: false
   - series: catchup/live/drain
     metric: within_5s_share
     min: 0.99
     blocking: true
-  # Every machine's hour is filled, the last within fifteen minutes of the fleet's return minute.
+  - series: quic/online/return
+    metric: online_p95_seconds
+    max: 180
+    blocking: true
+  - series: quic/online/return
+    metric: online_all_seconds
+    max: 300
+    blocking: true
   - series: catchup/gaps/drain
     metric: machines_caught_up
     min: 5000
@@ -44,12 +66,135 @@ gates:
     metric: fill_seconds
     max: 960
     blocking: true
-  # The busy morning's limits hold while it all happens.
-  - series: quic/quic-agents/aggregate
-    metric: error_rate
-    max: 0.02
+  - series: catchup/batches/drain
+    metric: unanswered
+    max: 0
     blocking: true
-  - series: quic/quic-agents/connect
+  - series: catchup/batches/drain
+    metric: deferred
+    follows: catchup/gaps/drain|fill_seconds
+    blocking: false
+  - series: catchup/watched/drain
+    metric: within_5s_share
+    min: 0.99
+    blocking: true
+  - series: catchup/probe-one/probe
+    metric: readings_per_second
+    min: 10000
+    blocking: false
+  - series: catchup/probe-one/probe
+    metric: live_within_5s_share
+    min: 0.99
+    blocking: false
+  - series: catchup/probe-one/probe
+    metric: duration_seconds
+    min: 900
+    blocking: true
+  - series: catchup/probe-two/probe
+    metric: readings_per_second
+    min: 10000
+    blocking: false
+  - series: catchup/probe-two/probe
+    metric: live_within_5s_share
+    min: 0.99
+    blocking: false
+  - series: catchup/probe-two/probe
+    metric: duration_seconds
+    min: 900
+    blocking: true
+  - series: catchup/probe-quiet/probe
+    metric: cpu_share
+    max: 0.5
+    blocking: false
+  - series: catchup/probe-quiet/probe
+    metric: memory_share
+    max: 0.5
+    blocking: false
+  - series: catchup/probe-store/probe
+    metric: peak_memory_share
+    max: 0.8
+    blocking: false
+  - series: catchup/probe-store/probe
+    metric: store_failures
+    max: 0
+    blocking: false
+  - series: k6/api-baseline/command_accept
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: k6/api-baseline/command_accept
     metric: latency_p95_ms
-    max: 3000
+    max: 1000
     blocking: true
+  - series: k6/api-baseline/command_accept
+    metric: error_rate
+    max: 0.01
+    blocking: true
+  - series: k6/api-baseline/device_detail
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: k6/api-baseline/device_detail
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: k6/api-baseline/device_detail
+    metric: error_rate
+    max: 0.01
+    blocking: true
+  - series: k6/api-baseline/device_list
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: k6/api-baseline/device_list
+    metric: latency_p95_ms
+    max: 300
+    blocking: true
+  - series: k6/api-baseline/device_list
+    metric: error_rate
+    max: 0.01
+    blocking: true
+  - series: k6/relay-throughput/relay
+    metric: latency_p50_ms
+    max: 400
+    blocking: true
+  - series: k6/relay-throughput/relay
+    metric: latency_p95_ms
+    max: 400
+    blocking: true
+  - series: k6/relay-throughput/relay
+    metric: error_rate
+    max: 0.01
+    blocking: true
+  - series: service/server/measured
+    metric: cpu_percent
+    max: 80
+    blocking: false
+  - series: service/server/measured
+    metric: memory_percent
+    max: 80
+    blocking: false
+  - series: service/database/measured
+    metric: cpu_percent
+    max: 80
+    blocking: false
+  - series: service/database/measured
+    metric: memory_percent
+    max: 80
+    blocking: false
+  - series: quic/register/return
+    metric: latency_p50_ms
+    max: 100
+    blocking: false
+  - series: quic/register/return
+    metric: latency_p95_ms
+    max: 5000
+    blocking: false
+  - series: quic/register/drain
+    metric: latency_p50_ms
+    max: 100
+    blocking: false
+  - series: quic/register/drain
+    metric: latency_p95_ms
+    max: 5000
+    blocking: false

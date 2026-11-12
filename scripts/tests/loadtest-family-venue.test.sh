@@ -116,6 +116,24 @@ for profile in "${profiles[@]}"; do
   fi
 done
 
+# A job that calls a shared leg is read with the leg; a leg that installs no generator fails it.
+PLANT="$(mktemp -d)"
+cat >"$PLANT/domain.yml" <<'YAML'
+jobs:
+  walk:
+    uses: ./.github/workflows/leg.yml
+    with:
+      profile: load/profiles/peak.yaml
+YAML
+printf 'jobs:\n  leg:\n    steps:\n      - name: Walk the fleet\n        run: echo walk\n' >"$PLANT/leg.yml"
+planted="$(python3 "$SCRIPT_DIR/fixtures/profile-venue.py" "$PLANT" load/profiles/peak.yaml)"
+if grep -qF "calls leg.yml" <<<"$planted" && ! grep -qF "Install k6" <<<"$planted"; then
+  pass "a job calling a shared leg is read with the leg, so a leg installing no generator is seen"
+else
+  fail "a job calling a shared leg must be read with the leg ($planted)"
+fi
+rm -rf "$PLANT"
+
 if [ "$checked_venues" -gt 0 ]; then
   pass "the sweep reached $checked_venues profiles declaring technician load"
 else

@@ -391,11 +391,25 @@ jobs:
           fi
           scripts/loadtest-bundle-merge.sh loadtest-bundle/quic-agents.json --cleanup loadtest-cleanup.json
 
+      # The database's levels over the measured span join the bundle, so the rows carry them and
+      # their marks are read with every other limit.
+      - name: Fold the database's levels into the bundle
+        if: always()
+        run: |
+          set -euo pipefail
+          BUNDLE=loadtest-bundle/quic-agents.json
+          [ -s "$BUNDLE" ] || exit 0
+          read -r FROM TO <<<"$(scripts/run-summary.sh window "$LOADTEST_PROFILE" "$BUNDLE")"
+          [ -n "${FROM:-}" ] || exit 0
+          scripts/database-levels.sh cluster "$NAMESPACE" "$FROM" "$TO" >database-levels.json
+          scripts/loadtest-bundle-merge.sh "$BUNDLE" --database database-levels.json
+
       - name: Build canonical load-test summary
         if: always()
         run: |
           K6_SUMMARY_DIR="$LOADTEST_K6_SUMMARY_DIR" \
             QUIC_OUTPUT_FILE="$LOADTEST_QUIC_OUTPUT" \
+            LOADTEST_BUNDLE=loadtest-bundle/quic-agents.json \
             scripts/loadtest-summarize.sh > loadtest-summary.json
           # The raw exports stage inside the workspace so the artifact layout is workspace-relative.
           mkdir -p loadtest-k6-raw
@@ -577,11 +591,6 @@ jobs:
           SUMMARY_ARGS=(--title "Nightly load test" --profile "$LOADTEST_PROFILE" --rows loadtest-rows.json)
           if [ -s "$BUNDLE" ]; then
             SUMMARY_ARGS+=(--bundle "$BUNDLE")
-            read -r FROM TO <<<"$(scripts/run-summary.sh window "$LOADTEST_PROFILE" "$BUNDLE")"
-            if [ -n "${FROM:-}" ]; then
-              scripts/database-levels.sh cluster "$NAMESPACE" "$FROM" "$TO" >database-levels.json
-              SUMMARY_ARGS+=(--database database-levels.json)
-            fi
           fi
           {
             echo "Commit: \`${{ github.sha }}\`"

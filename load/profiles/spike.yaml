@@ -33,8 +33,7 @@ safety:
   max_error_rate: 0.05
 
 gates:
-  # The evidence bundle judges the leg, so limits name machine-side measurements only.
-  # The step may degrade, and every run owes that its machines came back so recovery is measured.
+  # The burst is held to 5 s and the machines, the technicians and the parts to their promises.
   - series: quic/quic-agents/aggregate
     metric: error_rate
     max: 0.05
@@ -43,8 +42,14 @@ gates:
     metric: latency_p95_ms
     max: 5000
     blocking: true
-  # Every machine of the wave comes online, each counted when it finishes, and 95% of them within
-  # five seconds of dialling: the promise to a site whose whole fleet reconnects at once.
+  - series: quic/quic-agents/register
+    metric: latency_p50_ms
+    max: 100
+    blocking: false
+  - series: quic/quic-agents/register
+    metric: latency_p95_ms
+    max: 5000
+    blocking: true
   - series: quic/quic-agents/wave
     metric: arrival_share
     min: 1
@@ -52,4 +57,96 @@ gates:
   - series: quic/quic-agents/wave
     metric: latency_p95_ms
     max: 5000
+    blocking: true
+  - series: catchup/live/drain
+    metric: within_5s_share
+    min: 0.99
+    blocking: true
+  - series: k6/api-baseline/command_accept
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: k6/api-baseline/command_accept
+    metric: latency_p95_ms
+    max: 1000
+    blocking: true
+  - series: k6/api-baseline/command_accept
+    metric: error_rate
+    max: 0.01
+    blocking: true
+  - series: k6/api-baseline/device_detail
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: k6/api-baseline/device_detail
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: k6/api-baseline/device_detail
+    metric: error_rate
+    max: 0.01
+    blocking: true
+  - series: k6/api-baseline/device_list
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: k6/api-baseline/device_list
+    metric: latency_p95_ms
+    max: 300
+    blocking: true
+  - series: k6/api-baseline/device_list
+    metric: error_rate
+    max: 0.01
+    blocking: true
+  - series: k6/relay-throughput/relay
+    metric: latency_p50_ms
+    max: 400
+    blocking: true
+  - series: k6/relay-throughput/relay
+    metric: latency_p95_ms
+    max: 400
+    blocking: true
+  - series: k6/relay-throughput/relay
+    metric: error_rate
+    max: 0.01
+    blocking: true
+  - series: service/server/measured
+    metric: cpu_percent
+    max: 80
+    blocking: false
+  - series: service/server/measured
+    metric: memory_percent
+    max: 80
+    blocking: false
+  - series: service/database/measured
+    metric: cpu_percent
+    max: 80
+    blocking: false
+  - series: service/database/measured
+    metric: memory_percent
+    max: 80
+    blocking: false
+  - series: quic/register/baseline
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: quic/register/baseline
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: quic/register/spike
+    metric: latency_p50_ms
+    max: 100
+    blocking: false
+  - series: quic/register/spike
+    metric: latency_p95_ms
+    max: 5000
+    blocking: true
+  - series: quic/register/recovery
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: quic/register/recovery
+    metric: latency_p95_ms
+    max: 500
     blocking: true

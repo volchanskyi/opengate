@@ -189,11 +189,12 @@ else
   fail "a call with no command is refused"
 fi
 
-WORKFLOW="$REPO_ROOT/.github/workflows/perf-stack.yml"
-# A step starting technicians beside its harness bounds both with one allowance, or gives the
-# technicians a slice of their own and hands the harness that slice to judge.
+LEG_WORKFLOW="$REPO_ROOT/.github/workflows/perf-leg.yml"
+SHAPES_WORKFLOW="$REPO_ROOT/.github/workflows/perf-shapes.yml"
+# The leg's walk bounds the technicians with the harness's allowance, or gives them a slice of their
+# own and hands the harness that slice to judge; a domain gives its breakpoint leg that slice.
 pairing="$(
-  python3 - "$WORKFLOW" <<'PY'
+  python3 - "$LEG_WORKFLOW" <<'PY'
 import re, sys, yaml
 doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
 share = re.compile(r'loadtest-generator-share\.sh ((?:--slice \S+ )?"\$\w+" "\$\w+") --')
@@ -205,22 +206,28 @@ for name, job in doc.get("jobs", {}).items():
         allowances = share.findall(run)
         harness = [a for a in allowances if not a.startswith("--slice")]
         own = [a for a in allowances if a.startswith("--slice opengate-technicians.slice ")]
+        if len(harness) >= 2 and len(set(harness)) == 1:
+            print(f"{name} shared")
+        else:
+            print(f"{name} unbound {allowances}")
         if own:
             judged = ('-technician-cgroup="$TECHNICIAN_CGROUP"' in run
                       and "TECHNICIAN_CGROUP=opengate.slice/opengate-technicians.slice" in run)
             print(f"{name} own {'judged' if judged else 'unjudged'}")
-        elif len(harness) >= 2 and len(set(harness)) == 1:
-            print(f"{name} shared")
-        else:
-            print(f"{name} unbound {allowances}")
 PY
 )"
 if grep -qE ' (unbound|unjudged)' <<<"$pairing"; then
-  fail "perf-stack.yml bounds every leg's technicians with the harness's allowance or judges their own ($pairing)"
+  fail "perf-leg.yml bounds the technicians with the harness's allowance or judges their own ($pairing)"
 elif grep -qE ' shared$' <<<"$pairing" && grep -qE ' own judged$' <<<"$pairing"; then
-  pass "perf-stack.yml bounds every leg's technicians with the harness's allowance or judges their own"
+  pass "perf-leg.yml bounds the technicians with the harness's allowance or judges their own"
 else
-  fail "perf-stack.yml holds a leg sharing one allowance and a leg judging the technicians' own ($pairing)"
+  fail "perf-leg.yml holds no walk that shares one allowance and judges the technicians' own ($pairing)"
+fi
+if grep -qE "^[[:space:]]+technician-cpus:[[:space:]]+\\\$\\{\\{ matrix\.technician_cpus" "$SHAPES_WORKFLOW" \
+  && grep -qE "^[[:space:]]+technician_cpus:[[:space:]]+'[0-9.]+'" "$SHAPES_WORKFLOW"; then
+  pass "perf-shapes.yml gives a leg's technicians an allowance of their own"
+else
+  fail "perf-shapes.yml gives no leg's technicians an allowance of their own, so the judged slice runs nowhere"
 fi
 
 echo

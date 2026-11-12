@@ -40,46 +40,34 @@ for gate in profile.get("gates") or []:
             "max": gate.get("max"),
             "min": gate.get("min"),
             "blocking": bool(gate.get("blocking")),
+            "blocking_from_cpus": gate.get("blocking_from_cpus"),
+            "follows": gate.get("follows"),
         }
     )
 json.dump(rows, sys.stdout)
 PY
 }
 
-# profile_ungated prints the measurements a profile leaves without a limit, as a JSON array of
-# {series, metric, reason}; a measurement neither limited nor listed here is unruled.
-profile_ungated() {
-  local profile="$1"
+# signin_promise prints the ordinary sign-in promise a profile's limits hold the machines to: the
+# median and slowest-5% marks in milliseconds, tab-separated; nothing for a profile with none.
+signin_promise() { # profile
+  local gates
+  gates="$(profile_gates "$1")" || return 2
+  jq -r '[.[] | select(.series == "quic/quic-agents/register")] as $limits
+    | ([$limits[] | select(.metric == "latency_p50_ms") | .max][0]) as $p50
+    | ([$limits[] | select(.metric == "latency_p95_ms") | .max][0]) as $p95
+    | if $p50 == null or $p95 == null then empty else "\($p50)\t\($p95)" end' <<<"$gates"
+}
 
-  if [ ! -s "$profile" ]; then
-    echo "::error::there is no profile at $profile." >&2
-    return 2
-  fi
-  if ! profile_reader_available; then
-    echo "::error::this machine cannot read a profile (python3 with PyYAML is missing)." >&2
-    return 2
-  fi
-
-  python3 - "$profile" <<'PY'
-import json
-import sys
-
-import yaml
-
-with open(sys.argv[1], encoding="utf-8") as handle:
-    profile = yaml.safe_load(handle) or {}
-
-rows = []
-for entry in profile.get("ungated") or []:
-    rows.append(
-        {
-            "series": entry.get("series"),
-            "metric": entry.get("metric"),
-            "reason": entry.get("reason"),
-        }
-    )
-json.dump(rows, sys.stdout)
-PY
+# signin_promise_kept prints 1 where a bundle's machines signed in within the promise given, 0 where
+# they did not, and nothing where the bundle timed no sign-in.
+signin_promise_kept() { # bundle promise
+  jq -r --arg promise "$2" '
+    ($promise | split("\t") | map(tonumber)) as [$p50, $p95]
+    | (reduce (.observations // [])[] as $o ({}; .[$o.series] = $o.value)) as $value
+    | if $value.register_p50_ms == null or $value.register_p95_ms == null then empty
+      elif $value.register_p50_ms <= $p50 and $value.register_p95_ms <= $p95 then 1
+      else 0 end' "$1"
 }
 
 # profile_venue prints the venue a profile runs in, which decides how large a fleet it may ask for.

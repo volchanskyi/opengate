@@ -459,17 +459,31 @@ plus absolute limits, error rate has hard ceilings and is judged against the sam
 window, p99 is advisory-only, and missing VM history or transport failure does not
 create a false red.
 
-The performance stack ([`perf-stack.yml`](../../.github/workflows/perf-stack.yml))
-and the endurance run ([`soak.yml`](../../.github/workflows/soak.yml)) follow the
-same shape: the run's first job records when it began, a publish job pushes each
-leg's readings through [`perf-vm-push.sh`](../../scripts/perf-vm-push.sh) and
-compares them with recent nights through
-[`perf-regression-check.sh`](../../scripts/perf-regression-check.sh), and a `gate`
-job reads the publish job's result. A night past its line is pushed flagged and
-left out of later windows, so one slow night never moves the median the next is
-judged by; a held leg fails only when it is past its line on two of its last three
-nights. Each sample's workload label carries a digest of the profile it ran, so a
-change in what a leg offers starts a fresh window. Every leg, a failed one
+The four performance domains —
+[`perf-scaling.yml`](../../.github/workflows/perf-scaling.yml),
+[`perf-volume.yml`](../../.github/workflows/perf-volume.yml),
+[`perf-shapes.yml`](../../.github/workflows/perf-shapes.yml) and
+[`perf-catchup.yml`](../../.github/workflows/perf-catchup.yml), each running its
+legs through [`perf-leg.yml`](../../.github/workflows/perf-leg.yml) and its night
+through [`perf-trend.yml`](../../.github/workflows/perf-trend.yml) — and the
+endurance run ([`soak.yml`](../../.github/workflows/soak.yml)) follow the same
+shape: the run's first job records when it began, a publish job pushes each leg's
+readings through [`perf-vm-push.sh`](../../scripts/perf-vm-push.sh) and compares
+them with their own nights on the same chip through
+[`perf-regression-check.sh`](../../scripts/perf-regression-check.sh), writing
+each series against its nights into the job's summary, and a `gate` job reads the
+publish job's result. A held leg's tail past its line is pushed flagged and left
+out of later windows, so one slow night never moves the median the next is judged
+by, and the leg fails only when it is past its line on two of its last three
+nights. The server's and database's levels past one and a half times their median
+read over and fail nothing; a breakpoint holding fewer machines than its median
+fails the night, and so does a scaling rung that misses the ordinary sign-in
+promise on a chip where most of its nights kept it. Each sample's workload label
+carries the profile's name, load version and digest; nights are matched by name
+and version, so a profile whose limits changed keeps its nights, and a change in
+what a leg offers, which raises the version
+([`profile-load-version.test.sh`](../../scripts/tests/profile-load-version.test.sh)),
+starts a fresh window. Every leg, a failed one
 included, also records what the runner did — its processor model, processor steal
 and the server container's throttling counters, or that the server stopped
 ([`perf-runner-record.sh`](../../scripts/perf-runner-record.sh)) — so a slow night

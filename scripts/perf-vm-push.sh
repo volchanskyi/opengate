@@ -10,6 +10,8 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/loadtest-profile.sh
+. "$HERE/lib/loadtest-profile.sh"
 
 ROWS_FILE=""
 cleanup() { [ -z "$ROWS_FILE" ] || rm -f "$ROWS_FILE"; }
@@ -43,6 +45,55 @@ catch_up_samples() { # bundle leg workload processor part
           share(.live_acceptance.within_five_seconds; .live_acceptance.received))
       end
   ' "$1"
+}
+
+# capacity_samples prints the machines a ladder held and, for a scaling rung, whether its machines
+# kept the profile's ordinary sign-in promise; each is read against its own nights on its chip.
+capacity_samples() { # bundle leg workload processor
+  local bundle="$1" leg="$2" workload="$3" processor="$4" name promise kept=""
+  name="$(jq -r '.run.profile_name // empty' "$bundle")"
+  if [ "$name" = scaling ]; then
+    promise="$(signin_promise "$HERE/../load/profiles/$name.yaml")" || return 2
+    [ -z "$promise" ] || kept="$(signin_promise_kept "$bundle" "$promise")"
+  fi
+  jq -r --arg leg "$leg" --arg workload "$workload" --arg processor "$processor" --arg kept "$kept" '
+    def label_escape: tostring | gsub("\\\\"; "\\\\") | gsub("\""; "\\\"");
+    def labels($phase): "env=\"ci\",leg=\"\($leg | label_escape)\",phase=\"\($phase)\","
+      + (if $processor == "" then "" else "processor=\"\($processor | label_escape)\"," end)
+      + "workload=\"\($workload | label_escape)\"";
+    (if .breaking_point.held_agents == null then empty
+     else "perf_breakpoint_held_agents{\(labels("ladder"))} \(.breaking_point.held_agents)" end),
+    (if $kept == "" then empty else "perf_signin_promise_kept{\(labels("register"))} \($kept)" end)
+  ' "$bundle"
+}
+
+# sizing_sample prints the smallest processor share whose scaling rung kept the ordinary sign-in
+# promise, once every rung of the sweep measured the system; a rung missing would read as a rise.
+sizing_sample() { # bundle...
+  local bundle rungs=() name promise="" kept smallest="" version="" verdict cpus
+  for bundle in "$@"; do
+    [ "$(jq -r '.run.profile_name // empty' "$bundle")" = scaling ] && rungs+=("$bundle")
+  done
+  [ "${#rungs[@]}" -gt 0 ] || return 0
+  for bundle in "${rungs[@]}"; do
+    verdict="$(jq -r '.verdict.result // empty' "$bundle")"
+    if [ "$verdict" = invalid ] || [ -z "$verdict" ]; then
+      echo "::notice::the scaling sweep is missing a rung that measured the system, so no sizing figure is pushed." >&2
+      return 0
+    fi
+    if [ -z "$promise" ]; then
+      name="$(jq -r '.run.profile_name' "$bundle")"
+      promise="$(signin_promise "$HERE/../load/profiles/$name.yaml")" || return 2
+      [ -n "$promise" ] || return 0
+      version="$(jq -r '.run.profile_version' "$bundle")"
+    fi
+    kept="$(signin_promise_kept "$bundle" "$promise")"
+    cpus="$(jq -r '.target.cpus // empty' "$bundle")"
+    if [ "$kept" = 1 ] && [ -n "$cpus" ] && { [ -z "$smallest" ] || awk -v a="$cpus" -v b="$smallest" 'BEGIN { exit !(a + 0 < b + 0) }'; }; then
+      smallest="$cpus"
+    fi
+  done
+  [ -z "$smallest" ] || printf 'perf_scaling_sizing_cpus{env="ci",workload="scaling/%s"} %s\n' "$version" "$smallest"
 }
 
 main() {
@@ -85,14 +136,25 @@ main() {
           | (if any($flagged[]; .leg == $leg and .phase == $row.phase and .measurement == $measurement)
               then "flagged=\"1\"," else "" end) as $flag
           | "perf_\($measurement){env=\"ci\",\($flag)leg=\"\($leg | label_escape)\",phase=\"\(.phase | label_escape)\",\(cpu)workload=\"\($workload | label_escape)\"} \($value)";
+        # A level names its scenario, since the server and the database share the measured phase.
+        def level($measurement; $value):
+          select($value != null)
+          | "perf_\($measurement){env=\"ci\",leg=\"\($leg | label_escape)\",phase=\"\(.phase | label_escape)\",\(cpu)scenario=\"\(.scenario | label_escape)\",workload=\"\($workload | label_escape)\"} \($value)";
         .[]
-        | sample("latency_p95_ms"; .latency_p95_ms),
-          sample("latency_p50_ms"; .latency_p50_ms),
-          sample("error_rate"; .error_rate)
+        | if .source == "service" then
+            level("cpu_percent"; .cpu_percent), level("memory_percent"; .memory_percent)
+          else
+            sample("latency_p95_ms"; .latency_p95_ms),
+            sample("latency_p50_ms"; .latency_p50_ms),
+            sample("error_rate"; .error_rate)
+          end
       ' "$rows"
     )"$'\n'
+    metrics+="$(capacity_samples "$bundle" "$leg" "$workload" "$processor")"$'\n'
     metrics+="$(catch_up_samples "$bundle" "$leg" "$workload" "$processor" fleet)"$'\n'
   done
+
+  metrics+="$(sizing_sample "$@")"$'\n'
 
   if [ -z "${metrics//$'\n'/}" ]; then
     echo "::error::no leg measured the system, so there is nothing for the trend." >&2

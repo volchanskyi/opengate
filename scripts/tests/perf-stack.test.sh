@@ -5,7 +5,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 COMPOSE="$REPO_ROOT/deploy/docker-compose.perf.yml"
-WORKFLOW="$REPO_ROOT/.github/workflows/perf-stack.yml"
+WORKFLOWS_DIR="$REPO_ROOT/.github/workflows"
+LEG_WORKFLOW="$WORKFLOWS_DIR/perf-leg.yml"
+TREND_WORKFLOW="$WORKFLOWS_DIR/perf-trend.yml"
+# The four domains, each a nightly of its own over the shared leg and the shared trend.
+DOMAINS=("$WORKFLOWS_DIR/perf-scaling.yml" "$WORKFLOWS_DIR/perf-volume.yml" "$WORKFLOWS_DIR/perf-shapes.yml"
+  "$WORKFLOWS_DIR/perf-catchup.yml")
+PERF_WORKFLOWS=("$LEG_WORKFLOW" "$TREND_WORKFLOW" "${DOMAINS[@]}")
 # shellcheck source=scripts/lib/loadtest-profile.sh
 . "$REPO_ROOT/scripts/lib/loadtest-profile.sh"
 
@@ -24,7 +30,7 @@ fail() {
 
 echo "perf stack:"
 
-for f in "$COMPOSE" "$WORKFLOW"; do
+for f in "$COMPOSE" "${PERF_WORKFLOWS[@]}"; do
   if [ ! -f "$f" ]; then
     fail "missing file: $f"
     printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"
@@ -154,53 +160,115 @@ else
   echo "  note docker not on PATH; what compose renders is not read back here (CI runs it)"
 fi
 
-for family in volume- scaling; do
-  if grep -q "load/profiles/${family}" "$WORKFLOW"; then
-    pass "the workflow runs the ${family%-} profile"
+# legs prints one line a leg every domain calls the shared leg for, its matrix expanded:
+# domain, job, leg, profile, catch-up, weigh, technician allowance and arm, separated by tabs.
+legs() {
+  python3 - "$LEG_WORKFLOW" "${DOMAINS[@]}" <<'PY_LEGS'
+import itertools, os, re, sys
+
+import yaml
+
+leg_file, domains = os.path.basename(sys.argv[1]), sys.argv[2:]
+expr = re.compile(r"\$\{\{\s*matrix\.(\w+)(?:\s*\|\|\s*'([^']*)')?\s*\}\}")
+
+
+def combos(matrix):
+    if not matrix:
+        return [{}]
+    if "include" in matrix:
+        return list(matrix["include"])
+    keys = list(matrix)
+    return [dict(zip(keys, values)) for values in itertools.product(*(matrix[k] for k in keys))]
+
+
+def resolve(value, combo):
+    text = str(value)
+    return expr.sub(lambda m: str(combo.get(m.group(1), m.group(2) or "")), text)
+
+
+for path in domains:
+    doc = yaml.safe_load(open(path, encoding="utf-8"))
+    for job_name, job in (doc.get("jobs") or {}).items():
+        if not str(job.get("uses", "")).endswith(f"/{leg_file}"):
+            continue
+        for combo in combos((job.get("strategy") or {}).get("matrix")):
+            given = {k: resolve(v, combo) for k, v in (job.get("with") or {}).items()}
+            print("\t".join([os.path.basename(path), job_name, given.get("leg", ""), given.get("profile", ""),
+                             given.get("catch-up", "False"), given.get("weigh", "False"),
+                             given.get("technician-cpus", ""), given.get("arm", "False")]))
+PY_LEGS
+}
+
+LEGS="$(legs)"
+if [ -n "$LEGS" ]; then
+  pass "the domains call the shared leg for $(wc -l <<<"$LEGS") leg(s)"
+else
+  fail "no domain calls the shared leg, so every check below reads nothing"
+fi
+
+# A leg's name is its trend series, so no two legs share one.
+dupes="$(cut -f3 <<<"$LEGS" | sort | uniq -d)"
+if [ -z "$dupes" ]; then
+  pass "every leg has a name of its own, which its trend series carries"
+else
+  fail "legs share a name, so their nights mix in one series: $dupes"
+fi
+
+walked_profiles="$(cut -f4 <<<"$LEGS")"
+for family in volume- scaling peak spike breakpoint catch-up; do
+  if grep -q "load/profiles/${family}" <<<"$walked_profiles"; then
+    pass "a domain walks the ${family%-} profile"
   else
-    fail "the workflow runs the ${family%-} profile"
+    fail "no domain walks the ${family%-} profile"
   fi
 done
 
-if grep -q 'weigh' "$WORKFLOW"; then
-  pass "the workflow weighs the fixture it built"
+# The volume legs weigh their fixture, and the catch-up leg alone runs the store probe on ARM.
+if awk -F'\t' '$4 ~ /volume-/ && $6 != "True" { bad = 1 } END { exit bad }' <<<"$LEGS"; then
+  pass "every volume leg weighs the fixture it built"
 else
-  fail "the workflow weighs the fixture it built"
+  fail "a volume leg does not weigh the fixture it built"
+fi
+if awk -F'\t' '($3 == "catch-up") != ($5 == "True" && $8 == "True") { bad = 1 } END { exit bad }' <<<"$LEGS"; then
+  pass "the catch-up leg alone runs the store probe, on ARM"
+else
+  fail "the store probe or the ARM runner reaches a leg other than catch-up"
 fi
 
 missing_paths="$(
-  python3 - "$WORKFLOW" "$REPO_ROOT" <<'PY'
+  python3 - "$REPO_ROOT" "${PERF_WORKFLOWS[@]}" <<'PY'
 import os
 import re
 import sys
 
 import yaml
 
-workflow, root = sys.argv[1], sys.argv[2]
-with open(workflow, encoding="utf-8") as handle:
-    document = yaml.safe_load(handle)
-
+root = sys.argv[1]
 candidate = re.compile(r"(?<![\w/.-])((?:scripts|load|deploy|policy|benchmarks)/[\w./-]+)")
 missing = []
-for job in document.get("jobs", {}).values():
-    job_dir = (job.get("defaults", {}).get("run", {}) or {}).get("working-directory", "")
-    for step in job.get("steps", []) or []:
-        script = step.get("run")
-        if not script:
-            continue
-        step_dir = step.get("working-directory", job_dir) or ""
+for workflow in sys.argv[2:]:
+    with open(workflow, encoding="utf-8") as handle:
+        document = yaml.safe_load(handle)
+    texts = []
+    for job in document.get("jobs", {}).values():
+        job_dir = (job.get("defaults", {}).get("run", {}) or {}).get("working-directory", "")
+        texts += [(str(v), "") for v in (job.get("with") or {}).values()]
+        texts += [(str(v), "") for v in (job.get("env") or {}).values()]
+        for step in job.get("steps", []) or []:
+            if step.get("run"):
+                texts.append((step["run"], step.get("working-directory", job_dir) or ""))
+    for script, step_dir in texts:
         for path in set(candidate.findall(script)):
             if path.endswith((".", "/")):
                 continue
-            resolved = os.path.normpath(os.path.join(root, step_dir, path))
-            if not os.path.exists(resolved):
-                missing.append(f"{step.get('name', '?')}: {path} (from {step_dir or '.'})")
+            if not os.path.exists(os.path.normpath(os.path.join(root, step_dir, path))):
+                missing.append(f"{os.path.basename(workflow)}: {path} (from {step_dir or '.'})")
 for row in sorted(missing):
     print(row)
 PY
 )"
 if [ -z "$missing_paths" ]; then
-  pass "every path a step names exists from where that step runs"
+  pass "every path a domain or the leg names exists from where it is read"
 else
   fail "paths named from the wrong directory: $missing_paths"
 fi
@@ -220,67 +288,115 @@ else
   fail "the weighing counts tables that do not exist:$unknown_tables"
 fi
 
-# Each family passes -enroll-url so the server signs the certificates the harness uses.
-job_block() {
-  awk -v job="$1" '
-    $0 ~ "^  " job ":$" { in_job = 1; next }
-    /^  [a-z-]+:$/ { in_job = 0 }
-    in_job { print }
-  ' "$WORKFLOW"
-}
-for family in volume scaling shapes; do
-  block="$(job_block "$family")"
-  if grep -q -- '-enroll-url=' <<<"$block"; then
-    pass "the $family family asks the server to sign, so it holds the server's own authority"
-  else
-    fail "the $family family signs its own certificates against an authority the server never made"
-  fi
-done
+# The leg's walk: the server signs the harness's certificates, the fleet is the profile's, the
+# technicians walk the harness's profile, and the harness answers the sessions they open.
+walk_problems="$(
+  python3 - "$LEG_WORKFLOW" <<'PY_WALK'
+import re, sys, yaml
 
-# A failed leg keeps the machine it ran on: the record is summed on every outcome once the stack
-# came up, the walk's own failure included.
-unrecorded="$(
-  python3 - "$WORKFLOW" <<'PY'
-import sys
-
-import yaml
-
-jobs = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))["jobs"]
-for family in ("volume", "scaling", "shapes"):
-    steps = jobs[family].get("steps") or []
-    record = [s for s in steps if "perf-runner-record.sh delta" in str(s.get("run", ""))]
-    if not record:
-        print(f"{family}: no step sums the runner's record")
-        continue
-    condition = str(record[0].get("if", ""))
-    if "always()" not in condition or "steps.stack.outcome == 'success'" not in condition:
-        print(f"{family}: the record runs only on a leg that passed ({condition or 'no if'})")
-PY
+job = next(iter(yaml.safe_load(open(sys.argv[1], encoding="utf-8"))["jobs"].values()))
+steps = job.get("steps") or []
+walk = next((s for s in steps if "/tmp/loadtest" in str(s.get("run", ""))), None)
+if walk is None:
+    print("the leg runs no harness")
+    sys.exit(0)
+run, env = str(walk["run"]), {**(job.get("env") or {}), **(walk.get("env") or {})}
+for flag, why in (("-enroll-url=", "the harness signs its own certificates against an authority the server never made"),
+                  ("-fixture-account=", "the walk measures against an empty database"),
+                  ("-relay-sessions", "nobody answers a session a technician opens"),
+                  ('-profile="$PROFILE"', "the harness walks something other than the leg's profile")):
+    if flag not in run:
+        print(why)
+if str(env.get("LOADTEST_PROFILE", "")) != str(env.get("PROFILE", "")) or "inputs.profile" not in str(env.get("PROFILE", "")):
+    print(f"the technicians walk {env.get('LOADTEST_PROFILE')} and the harness walks {env.get('PROFILE')}")
+k6 = re.search(r"loadtest-k6-alongside\.sh\s+\S+\s+([^&\n]+)&", run)
+if not k6:
+    print("the leg starts no browser-side generator")
+    sys.exit(0)
+scenarios = k6.group(1).split()
+folds = "\n".join(str(s.get("run", "")) for s in steps if "--journeys" in str(s.get("run", "")))
+for scenario in scenarios:
+    if f"--journeys /tmp/perf-k6/{scenario}.json" not in folds:
+        print(f"the leg offers {scenario} and folds its numbers nowhere")
+for folded in re.findall(r"--journeys /tmp/perf-k6/([a-z0-9-]+)\.json", folds):
+    if folded not in scenarios:
+        print(f"the leg folds {folded}'s export and never runs it")
+print("scenarios=" + " ".join(scenarios))
+PY_WALK
 )"
-if [ -z "$unrecorded" ]; then
-  pass "every family records its runner on every outcome once the stack is up"
+SCENARIOS="$(sed -n 's/^scenarios=//p' <<<"$walk_problems")"
+walk_problems="$(grep -v '^scenarios=' <<<"$walk_problems" || true)"
+if [ -z "$walk_problems" ] && [ -n "$SCENARIOS" ]; then
+  pass "the leg's harness and technicians walk one profile against the server's authority, and fold what they ran"
 else
-  fail "runner record: $unrecorded"
+  fail "the leg's walk:"$'\n'"$walk_problems"
 fi
 
-# The store's readings reach the uploaded bundle whatever became of the server after the probe,
-# and the runner's record of a stopped server still carries the runner.
-probe_problems="$(
-  python3 - "$WORKFLOW" <<'PY_PROBE'
+# Every leg's profile declares a technician load, and its declared sessions are held open by a
+# scenario the leg runs.
+offers_sessions=no
+for scenario in $SCENARIOS; do
+  script="$REPO_ROOT/load/k6/scenarios/$scenario.js"
+  if [ ! -f "$script" ]; then
+    fail "the leg names scenario $scenario and there is no such script"
+    continue
+  fi
+  grep -q 'sessionScenarios' "$script" && offers_sessions=yes
+done
+legs_read=0
+while IFS=$'\t' read -r domain _ leg profile _; do
+  [ -n "$leg" ] || continue
+  if [ -z "$profile" ] || [ ! -f "$REPO_ROOT/$profile" ]; then
+    fail "$domain's $leg leg names [$profile], which is no profile"
+    continue
+  fi
+  legs_read=$((legs_read + 1))
+  phases="$(profile_phases "$REPO_ROOT/$profile" 2>/dev/null)" || {
+    fail "$domain's $leg leg names $profile, which does not read"
+    continue
+  }
+  declares="$(jq '[.[] | select(.sessions > 0 or .arrivals_per_second > 0)] | length' <<<"$phases")"
+  sessions="$(jq '[.[] | select(.sessions > 0)] | length' <<<"$phases")"
+  if [ "$declares" -eq 0 ]; then
+    fail "$domain's $leg leg walks a profile with no technician load, so its claim is about an idle fleet"
+  elif [ "$sessions" -gt 0 ] && [ "$offers_sessions" != yes ]; then
+    fail "$domain's $leg leg declares sessions and no scenario the leg runs holds one open"
+  else
+    pass "$domain's $leg leg offers the technician load its profile declares"
+  fi
+done <<<"$LEGS"
+if [ "$legs_read" -eq 0 ]; then
+  fail "no leg was read, so every check above asserted an absence it never tested"
+fi
+
+# A failed leg keeps the machine it ran on, and the store's readings reach the uploaded bundle
+# whatever became of the server after the probe.
+leg_problems="$(
+  python3 - "$LEG_WORKFLOW" <<'PY_LEG'
 import re
 import sys
 
 import yaml
 
-steps = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))["jobs"]["catch-up"]["steps"]
+steps = next(iter(yaml.safe_load(open(sys.argv[1], encoding="utf-8"))["jobs"].values()))["steps"]
 runs = [str(s.get("run", "")) for s in steps]
+conds = [str(s.get("if", "") or "") for s in steps]
+record = [i for i, run in enumerate(runs) if "perf-runner-record.sh delta" in run]
+if not record:
+    print("no step sums the runner's record")
+else:
+    if "always()" not in conds[record[0]] or "steps.stack.outcome == 'success'" not in conds[record[0]]:
+        print(f"the record runs only on a leg that passed ({conds[record[0]] or 'no if'})")
+    if "--server-stopped" not in runs[record[0]]:
+        print("the runner's record has no reading for a server that stopped")
+if not any("verdict" in run for run in runs):
+    print("the leg never reads the bundle's verdict, so a run that measured nothing passes")
 fold = [i for i, run in enumerate(runs) if "--probe" in run]
-judge = next((i for i, run in enumerate(runs) if "perf-catchup-gate.sh" in run), None)
-upload = [s for s in steps if "upload-artifact" in str(s.get("uses", ""))]
+judge = next((i for i, run in enumerate(runs) if "perf-bundle-limits.sh" in run), None)
 if len(fold) != 1:
     print(f"{len(fold)} steps fold the store's readings in, where one does")
 else:
-    run, condition = runs[fold[0]], str(steps[fold[0]].get("if", ""))
+    run, condition = runs[fold[0]], conds[fold[0]]
     path = re.search(r'--probe\s+"?([^"\s]+)"?', run).group(1)
     if not path.startswith("$PERF_BUNDLE_DIR/"):
         print(f"the store's readings sit at {path}, outside the uploaded bundle directory")
@@ -291,301 +407,104 @@ else:
     if "always()" not in condition or "steps.stack.outcome == 'success'" not in condition:
         print(f"the fold runs only on a walk that passed ({condition or 'no if'})")
     if judge is None or judge < fold[0]:
-        print("the go/no-go is judged before the store's readings are folded in")
+        print("the store probe is judged against its marks before its readings are folded in")
+upload = [s for s in steps if "upload-artifact" in str(s.get("uses", ""))]
 if not upload or str(upload[0].get("with", {}).get("path", "")) != "${{ env.PERF_BUNDLE_DIR }}":
     print("the upload carries something other than the whole bundle directory")
-record = [run for run in runs if "perf-runner-record.sh delta" in run]
-if not record or "--server-stopped" not in record[0]:
-    print("the runner's record has no reading for a server that stopped")
-PY_PROBE
+elif "inputs.leg" not in str(upload[0].get("with", {}).get("name", "")):
+    print("the upload's name is not the leg's, so two legs of a night overwrite each other")
+PY_LEG
 )"
-if [ -z "$probe_problems" ]; then
-  pass "the catch-up leg keeps the store's readings whatever became of the server"
+if [ -z "$leg_problems" ]; then
+  pass "the leg records its runner, reads its verdict and keeps the store's readings whatever became of the server"
 else
-  fail "catch-up store readings:"$'\n'"$probe_problems"
+  fail "the leg:"$'\n'"$leg_problems"
 fi
 
-if grep -q -- '-fixture-account=' <<<"$(job_block scaling)"; then
-  pass "the scaling family builds the fleet its profile declares"
-else
-  fail "the scaling family measures against an empty database, so its data is not the profile's"
-fi
-
-# legs_of <family> prints one record per leg: its profile, then whether that leg offers a
-# browser-side generator.
-legs_of() {
-  local family="$1" block default_offers include profile
-  block="$(job_block "$family")"
-  default_offers=false
-  grep -q 'loadtest-k6-alongside\.sh' <<<"$block" && default_offers=true
-
-  include="$(awk '
-    /^        include:[[:space:]]*$/ { inc = 1; next }
-    inc && /^        [^ ]/ { inc = 0 }
-    inc { print }
-  ' <<<"$block")"
-
-  if [ -z "$include" ]; then
-    profile="$(grep -oE 'load/profiles/[a-z0-9.-]+\.yaml' <<<"$block" | sort -u)"
-    printf '%s\t%s\n' "$profile" "$default_offers"
-    return 0
-  fi
-
-  awk -v fallback="$default_offers" '
-    function flush() {
-      if (seen) printf "%s\t%s\n", path, (journeys == "" ? fallback : journeys)
-    }
-    /^          - / {
-      flush()
-      seen = 1; path = ""; journeys = ""
-      line = $0
-      sub(/^          - /, "", line)
-      $0 = "            " line
-    }
-    /^            path:[[:space:]]/ {
-      v = $0; sub(/^[[:space:]]*path:[[:space:]]*/, "", v); path = v; next
-    }
-    /^            journeys:[[:space:]]/ {
-      v = $0; sub(/^[[:space:]]*journeys:[[:space:]]*/, "", v); journeys = v; next
-    }
-    END { flush() }
-  ' <<<"$include"
+# The cron hour sets a place in the queue order, and the domains go after every other nightly cron,
+# each in a slot of its own. Only crons that fire every night count.
+daily_crons() {
+  sed -n "s/^ *- cron: '\([0-9]*\) \([0-9]*\) \* \* \*'.*/\2 \1/p" "$1"
 }
-
-# folds_gate <block> prints the condition on the step that folds the browser-side numbers in.
-folds_gate() {
-  awk '
-    /^      - name:/ { cond = "" }
-    /^        if:/ { c = $0; sub(/^[[:space:]]*if:[[:space:]]*/, "", c); cond = c }
-    /--journeys/ { print cond; exit }
-  ' <<<"$1"
-}
-
-# Legs that declare a technician load and deliberately offer none, each beside its reason; an
-# entry fails once its leg offers a generator.
-declare -A OFFERS_NO_JOURNEYS=()
-
-# Every leg names a readable profile, and at least one leg is read.
-legs_read=0
-for family in volume scaling shapes; do
-  while IFS=$'\t' read -r profile journeys; do
-    if [ -z "$profile" ]; then
-      fail "the $family family has a leg that names no profile, so every check below holds it to nothing"
-      continue
-    fi
-    if [ ! -f "$REPO_ROOT/$profile" ]; then
-      fail "the $family family names $profile and there is no such profile"
-      continue
-    fi
-    legs_read=$((legs_read + 1))
-  done < <(legs_of "$family")
-done
-if [ "$legs_read" -gt 0 ]; then
-  pass "the three families present $legs_read leg(s) this gate can read"
-else
-  fail "no leg was enumerated at all, so every check below is asserting an absence it never tested"
-fi
-
-# A leg that declares a technician load offers one. Where it deliberately does
-# not, the exemption is written down and re-earned here.
-exempt_unused=""
-for family in volume scaling shapes; do
-  while IFS=$'\t' read -r profile journeys; do
-    [ -n "$profile" ] && [ -f "$REPO_ROOT/$profile" ] || continue
-    phases="$(profile_phases "$REPO_ROOT/$profile" 2>/dev/null)" || continue
-    declares="$(jq '[.[] | select(.sessions > 0 or .arrivals_per_second > 0)] | length' <<<"$phases")"
-    key="$family $profile"
-    exempt="${OFFERS_NO_JOURNEYS[$key]:-}"
-
-    if [ "$declares" -eq 0 ]; then
-      fail "the $family family's $profile declares no technician load at all, so its capacity claim is about an idle fleet by declaration"
-    elif [ "$journeys" = true ]; then
-      if [ -n "$exempt" ]; then
-        exempt_unused="$exempt_unused"$'\n'"      $key"
-      else
-        pass "$family's $(basename "$profile" .yaml) leg offers the technician load its profile declares"
-      fi
-    elif [ -n "$exempt" ]; then
-      pass "$family's $(basename "$profile" .yaml) leg offers none, for a reason written down: $exempt"
-    else
-      fail "the $family family's $profile declares a technician load in $declares phase(s) and its leg offers none, so it varies its variable against machines arriving and nothing else"
-    fi
-  done < <(legs_of "$family")
-done
-if [ -z "$exempt_unused" ]; then
-  pass "every written-down exemption still describes a leg that offers nothing"
-else
-  fail "a leg is exempted from offering a technician load and now offers one, so the exemption has outlived its reason:$exempt_unused"
-fi
-
-# A leg that starts a generator folds its export in, and a leg that folds one starts a generator.
-for family in volume scaling shapes; do
-  block="$(job_block "$family")"
-  gate="$(folds_gate "$block")"
-  folds_at_all=no
-  grep -q -- '--journeys' <<<"$block" && folds_at_all=yes
-
-  while IFS=$'\t' read -r profile journeys; do
-    [ -n "$profile" ] || continue
-    runs="$journeys"
-    folds=false
-    if [ "$folds_at_all" = yes ]; then
-      case "$gate" in
-        '') folds=true ;;
-        *matrix.journeys*) folds="$journeys" ;;
-        *) folds=true ;;
-      esac
-    fi
-    if [ "$runs" = "$folds" ]; then
-      pass "$family's $(basename "$profile" .yaml) leg offers and folds its technician numbers together"
-    else
-      fail "$family's $(basename "$profile" .yaml) leg runs a browser-side generator ($runs) and folds its journeys ($folds), which do not agree"
-    fi
-  done < <(legs_of "$family")
-done
-
-# The generator's LOADTEST_PROFILE and the harness's -profile name the same profile expression.
-for family in volume scaling shapes; do
-  block="$(job_block "$family")"
-  grep -q 'loadtest-k6-alongside\.sh' <<<"$block" || continue
-
-  generator_walks="$(sed -n 's/^[[:space:]]*LOADTEST_PROFILE:[[:space:]]*//p' <<<"$block" | sed -n 1p)"
-  # The value is taken whole, because a matrix expression carries spaces of its own.
-  harness_walks="$(sed -n 's/^[[:space:]]*-profile=//p' <<<"$block" | sed -n 1p)"
-  harness_walks="${harness_walks%%[[:space:]]\\}"
-  harness_walks="${harness_walks#\"}"
-  harness_walks="${harness_walks%\"}"
-
-  if [ -z "$generator_walks" ]; then
-    fail "the $family family starts a browser-side generator and names no profile for it, so the generator is refused where it stands and the leg offers no technician load at all"
-  elif [ "$generator_walks" = "$harness_walks" ]; then
-    pass "the $family family's generator and harness walk the same profile ($generator_walks)"
+domain_slots=""
+for domain in "${DOMAINS[@]}"; do
+  slot="$(daily_crons "$domain" | head -1)"
+  if [ -n "$slot" ]; then
+    domain_slots="$domain_slots$slot"$'\n'
   else
-    fail "the $family family's generator walks $generator_walks and its harness walks $harness_walks, so the two halves of the leg offer different shapes"
+    fail "$(basename "$domain") does not run nightly"
   fi
 done
-
-# Every declared `sessions` count is offered by a scenario read off the invocation.
-# An executor offers either arrivals (a journey rate) or sessions (a count held open).
-scenarios_on() {
-  local block="$1" invocation word
-  invocation="$(grep -oE 'loadtest-k6-alongside\.sh[^&]*' <<<"$block" | head -1 || true)"
-  local -a words=()
-  read -r -a words <<<"$invocation"
-  # Everything after the script and the harness's output path is a scenario.
-  for word in "${words[@]:2}"; do
-    case "$word" in
-      -* | '' | '&' | \\) continue ;;
-      *) printf '%s\n' "$word" ;;
-    esac
-  done
-}
-
-for family in volume scaling shapes; do
-  block="$(job_block "$family")"
-
-  # The sessions a leg declares are held open beside its fleet, and the harness answers them.
-  while IFS=$'\t' read -r profile journeys; do
-    [ -n "$profile" ] && [ -f "$REPO_ROOT/$profile" ] || continue
-    [ "$journeys" = true ] || continue
-    leg="$(basename "$profile" .yaml)"
-
-    phases="$(profile_phases "$REPO_ROOT/$profile" 2>/dev/null)" || continue
-    declared_sessions="$(jq '[.[] | select(.sessions > 0)] | length' <<<"$phases")"
-    [ "$declared_sessions" -gt 0 ] || continue
-
-    offers_sessions=no
-    while IFS= read -r scenario; do
-      [ -n "$scenario" ] || continue
-      script="$REPO_ROOT/load/k6/scenarios/$scenario.js"
-      if [ ! -f "$script" ]; then
-        fail "the $family family names scenario $scenario and there is no such script"
-        continue
-      fi
-      grep -q 'sessionScenarios' "$script" && offers_sessions=yes
-    done < <(scenarios_on "$block")
-
-    if [ "$offers_sessions" = yes ]; then
-      pass "the sessions $family's $leg leg declares are held open beside its fleet"
-    else
-      fail "$family's $leg leg declares sessions in $declared_sessions phase(s) and no scenario on it holds one open, so its capacity claim is read with nobody watching a screen"
-    fi
-
-    if grep -q -- '-relay-sessions' <<<"$block"; then
-      pass "$family's $leg leg has a harness that joins the machine side of a session and echoes"
-    else
-      fail "$family's $leg leg is not told to answer a session request, so the browser side times a frame nobody sends back"
-    fi
-  done < <(legs_of "$family")
-
-  # The scenarios a family runs and the exports it folds are one invocation and one shared list.
-  grep -q 'loadtest-k6-alongside\.sh' <<<"$block" || continue
-
-  folded=0
-  while IFS= read -r scenario; do
-    [ -n "$scenario" ] || continue
-    if grep -q -- "--journeys[^|]*$scenario\.json" <<<"$block"; then
-      folded=$((folded + 1))
-    else
-      fail "the $family family offers $scenario and folds its numbers nowhere"
-    fi
-  done < <(scenarios_on "$block")
-  if [ "$folded" -gt 0 ]; then
-    pass "the $family family folds $folded scenario(s) it runs into its own evidence"
-  else
-    fail "the $family family folds no scenario it runs, so this sweep checked nothing"
-  fi
-
-  while IFS= read -r export_name; do
-    [ -n "$export_name" ] || continue
-    if grep -qxF "$export_name" <<<"$(scenarios_on "$block")"; then
-      pass "the export the $family family folds for $export_name is one its leg produces"
-    else
-      fail "the $family family folds $export_name's export and its leg never runs it"
-    fi
-  done < <(grep -oE '\-\-journeys [^ ]+' <<<"$block" \
-    | sed -nE 's|.*/([a-z0-9-]+)\.json.*|\1|p' | sort -u)
-done
-
-if grep -q 'verdict' "$WORKFLOW"; then
-  pass "the workflow reads the verdict the harness wrote about the run"
+first_hour="$(sort -n <<<"$domain_slots" | awk 'NF { print $1; exit }')"
+shared_slots="$(sort <<<"$domain_slots" | uniq -d | awk 'NF')"
+if [ "$(grep -c . <<<"$domain_slots")" -eq "${#DOMAINS[@]}" ] && [ -z "$shared_slots" ]; then
+  pass "each domain runs nightly in a slot of its own"
 else
-  fail "the workflow never reads the bundle's verdict, so a run that measured nothing passes"
+  fail "the domains share a slot or one runs on no night: $(tr '\n' ',' <<<"$domain_slots")"
 fi
-
-# The cron hour sets a place in the queue order, and this run goes after every nightly cron.
-# Only crons that fire every night count; a weekly cron queues on another day.
-daily_hours() {
-  sed -n "s/^ *- cron: '[0-9]* \([0-9]*\) \* \* \*'.*/\1/p" "$1"
-}
-
-perf_hour="$(daily_hours "$WORKFLOW" | head -1)"
-if [ -n "$perf_hour" ]; then
-  pass "the stack runs nightly"
-else
-  fail "the stack runs nightly"
-fi
-
 behind=""
 for other in "$REPO_ROOT"/.github/workflows/*.yml; do
-  [ "$other" = "$WORKFLOW" ] && continue
-  while read -r hour; do
+  case " ${DOMAINS[*]} " in *" $other "*) continue ;; esac
+  while read -r hour _; do
     [ -n "$hour" ] || continue
-    if [ "$hour" -ge "${perf_hour:-0}" ]; then
+    if [ "$hour" -ge "${first_hour:-0}" ]; then
       behind="$behind $(basename "$other"):$hour"
     fi
-  done < <(daily_hours "$other")
+  done < <(daily_crons "$other")
 done
-if [ -z "$behind" ]; then
-  pass "the stack is last in the night's order"
+if [ -n "$first_hour" ] && [ -z "$behind" ]; then
+  pass "the domains are last in the night's order"
 else
-  fail "the stack is last in the night's order (not behind:$behind)"
+  fail "the domains are last in the night's order (not behind:$behind)"
+fi
+
+# Each domain runs alone: its own concurrency group, and a trend call that outlives a cancel,
+# names the domain, and is handed the run's start and every other job's result.
+domain_problems="$(
+  python3 - "$TREND_WORKFLOW" "${DOMAINS[@]}" <<'PY_DOMAINS'
+import os, re, sys, yaml
+
+trend_file, groups = os.path.basename(sys.argv[1]), {}
+for path in sys.argv[2:]:
+    name = os.path.basename(path)
+    doc = yaml.safe_load(open(path, encoding="utf-8"))
+    jobs = doc.get("jobs") or {}
+    group = (doc.get("concurrency") or {}).get("group")
+    if not group:
+        print(f"{name}: no concurrency group, so two of its nights can overlap")
+    elif group in groups:
+        print(f"{name}: shares the concurrency group {group} with {groups[group]}")
+    else:
+        groups[group] = name
+    calls = [(j, b) for j, b in jobs.items() if str(b.get("uses", "")).endswith(f"/{trend_file}")]
+    if len(calls) != 1:
+        print(f"{name}: calls the trend {len(calls)} times, where once publishes and alerts the night")
+        continue
+    job, body = calls[0]
+    given = body.get("with") or {}
+    if "always()" not in str(body.get("if", "")):
+        print(f"{name}: the trend call does not run after a cancel or a timeout, so a night that died is not alerted")
+    if given.get("domain") != name.removeprefix("perf-").removesuffix(".yml").replace("catchup", "catch-up"):
+        print(f"{name}: the alert names the domain [{given.get('domain')}]")
+    if "outputs.started_at" not in str(given.get("started-at", "")):
+        print(f"{name}: the trend is not handed the time the run started")
+    named = set(re.findall(r"([\w-]+)=\$\{\{ needs", str(given.get("results", ""))))
+    others = set(jobs) - {job}
+    needs = set(body.get("needs") or [])
+    if named != others or needs != others:
+        print(f"{name}: the trend reads {sorted(named)} and waits on {sorted(needs)} of the jobs {sorted(others)}")
+PY_DOMAINS
+)"
+if [ -z "$domain_problems" ]; then
+  pass "each domain runs alone and hands its trend call the run's start and every job's result"
+else
+  fail "domains:"$'\n'"$domain_problems"
 fi
 
 # Every job that brings the stack up sets production's socket buffers, dials the server by its
 # certificate's name, and hands the harness the target's network counters.
 path_problems="$(
-  python3 - "$WORKFLOW" "$REPO_ROOT/.github/workflows/soak.yml" <<'PY'
+  python3 - "$LEG_WORKFLOW" "$REPO_ROOT/.github/workflows/soak.yml" <<'PY'
 import sys, yaml
 
 jobs_read = 0
@@ -637,7 +556,7 @@ fi
 # Images are pulled first with bounded retries, and every always-run step after the bring-up
 # waits on the stack having come up.
 bringup_problems="$(
-  python3 - "$WORKFLOW" "$REPO_ROOT/.github/workflows/soak.yml" <<'PY_BRINGUP'
+  python3 - "$LEG_WORKFLOW" "$REPO_ROOT/.github/workflows/soak.yml" <<'PY_BRINGUP'
 import sys, yaml
 
 jobs_read = 0
@@ -735,9 +654,8 @@ else
 fi
 rm -rf "$PULL_WORK"
 
-TREND_WORKFLOW="$WORKFLOW"
-# A publish job pushes every leg's rows with the run's start and compares each leg with its own
-# nights, and a gate job reads the verdict off the job's result.
+# The trend's publish job pushes every leg's rows with the run's start and compares each leg with
+# its own nights, and a gate job reads the verdict off the job's result.
 publish_problems="$(
   python3 - "$TREND_WORKFLOW" <<'PY_PUBLISH'
 import sys, yaml
@@ -753,22 +671,26 @@ if "scripts/perf-vm-push.sh" not in runs:
     print("the publish job does not push the legs' rows")
 if "scripts/perf-regression-check.sh" not in runs:
     print("the publish job does not compare the legs with the nights before them")
-if "outputs.started_at" not in str(env.get("VM_RUN_STARTED_AT", "")):
+if "inputs.started-at" not in str(env.get("VM_RUN_STARTED_AT", "")):
     print("the publish job is not handed the time the run started")
 if "!cancelled()" not in str(publish.get("if", "")):
     print("the publish job does not run after a leg that failed, or runs on after a cancel")
 if not any("oci-kube-setup" in str(s.get("uses", "")) for s in publish.get("steps", [])):
     print("the publish job never reaches the store")
 gate = jobs.get("gate") or {}
-gate_runs = "\n".join(str(s.get("run", "")) for s in gate.get("steps", []))
+gate_text = yaml.safe_dump(gate.get("steps", []))
 if "publish" not in (gate.get("needs") or []) or "!cancelled()" not in str(gate.get("if", "")):
     print("no gate job reads the publish job whatever it met short of a cancel")
-if "needs.publish.result" not in gate_runs or "needs.publish.outputs.regression" not in gate_runs:
+if "needs.publish.result" not in gate_text or "needs.publish.outputs.regression" not in gate_text:
     print("the gate does not read the publish job's result and its finding")
+alert = jobs.get("alert") or {}
+alert_text = yaml.safe_dump(alert)
+if "always()" not in str(alert.get("if", "")) or "inputs.domain" not in alert_text or "inputs.results" not in alert_text:
+    print("the alert does not outlive a failed publish, or does not name the domain and its jobs")
 PY_PUBLISH
 )"
 if [ -z "$publish_problems" ]; then
-  pass "$(basename "$TREND_WORKFLOW") publishes its legs and gates them against their nights"
+  pass "$(basename "$TREND_WORKFLOW") publishes the legs, gates them against their nights and alerts by domain"
 else
   fail "$(basename "$TREND_WORKFLOW"): $publish_problems"
 fi

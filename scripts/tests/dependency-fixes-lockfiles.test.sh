@@ -289,6 +289,61 @@ fi
 echo '[]' >"$REPO/scripts/lib/vulnerability-exceptions.json"
 rm -f "$WORK/bin/go"
 
+# govulncheck reads a module that go.mod replaces with a copy under the copy's own path, where no
+# advisory is filed, so the copy is read by the module and release it is built on.
+COPY_VERSION=v0.65.1-0.20261112000000-abcdef123456
+cat >"$REPO/server/go.mod" <<MOD
+module example.test/server
+
+require (
+	github.com/quic-go/quic-go v0.65.0
+	golang.org/x/net v0.62.0
+)
+
+replace github.com/quic-go/quic-go => github.com/example/quic-go $COPY_VERSION
+MOD
+cat >"$WORK/govuln-copy.json" <<JSON
+{"config": {"protocol_version": "v1.0.0", "scanner_name": "govulncheck", "scan_level": "package"}}
+{"SBOM": {"go_version": "go1.27.4", "modules": [{"path": "example.test/server"},
+  {"path": "github.com/example/quic-go", "version": "$COPY_VERSION"}]}}
+JSON
+cat >"$HTTP/api.osv.dev/v1/vulns/GO-2026-9001" <<'JSON'
+{"id": "GO-2026-9001", "summary": "Unbounded memory for queued CRYPTO frames", "modified": "2026-11-12T00:00:00Z",
+ "aliases": ["GHSA-test-copy-hole"],
+ "affected": [{"package": {"name": "github.com/quic-go/quic-go", "ecosystem": "Go"},
+   "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "0.65.1"}]}]}]}
+JSON
+echo '{"Go|github.com/quic-go/quic-go|0.65.0": ["GO-2026-9001"]}' >"$HTTP/osv-matches.json"
+status=0
+run go FAKE_GOVULN="$WORK/govuln-copy.json" || status=$?
+if [ "$status" -eq 1 ] \
+  && out_has "go (server, copy github.com/example/quic-go@$COPY_VERSION) github.com/quic-go/quic-go 0.65.0: GO-2026-9001 fixed in 0.65.1" \
+  && out_has 'rebuild the copy on github.com/quic-go/quic-go 0.65.1 and repin its replace in server/go.mod'; then
+  pass "a Go module taken from a copy is read against the advisories of the release it is built on"
+else
+  fail "a Go copy must be checked by the release it is built on (status=$status out=[$(cat "$WORK/out")])"
+fi
+
+sed -i "s|$COPY_VERSION|v0.66.1-0.20261112000000-abcdef123456|" "$REPO/server/go.mod"
+status=0
+run go FAKE_GOVULN="$WORK/govuln-copy.json" || status=$?
+if [ "$status" -eq 2 ] && out_has 'is built on v0.66.0, but server/go.mod requires v0.65.0'; then
+  pass "a copy built on another release than go.mod requires is unreadable, never read by the wrong one"
+else
+  fail "a copy and its requirement that disagree must exit 2 (status=$status out=[$(cat "$WORK/out")])"
+fi
+printf 'module example.test/server\n\nreplace github.com/quic-go/quic-go => github.com/example/quic-go %s\n' \
+  "$COPY_VERSION" >"$REPO/server/go.mod"
+status=0
+run go FAKE_GOVULN="$WORK/govuln-copy.json" || status=$?
+if [ "$status" -eq 2 ] && out_has 'requires no release of it'; then
+  pass "a copy of a module go.mod never requires is unreadable, since no release names its advisories"
+else
+  fail "a copy with no requirement must exit 2 (status=$status out=[$(cat "$WORK/out")])"
+fi
+echo '{}' >"$HTTP/osv-matches.json"
+printf 'module example.test/server\n' >"$REPO/server/go.mod"
+
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then
   printf '  - %s\n' "${FAILURES[@]}" >&2

@@ -233,10 +233,11 @@ func run() int {
 
 	results, phases, flatBusy, flatBusyAbsent := runWorkload(profile, *agents, agentPlan, credentials, *addr, opts,
 		PhaseReadings{
-			Busy:      NewTargetBusy(*metricsURL, targetShape.CPUs),
-			Census:    NewTargetCensus(*metricsURL),
-			Generator: NewGeneratorRoom(),
-			Network:   NewNetworkDrops(*targetNetCounters),
+			Busy:         NewTargetBusy(*metricsURL, targetShape.CPUs),
+			Census:       NewTargetCensus(*metricsURL),
+			Generator:    NewGeneratorRoom(),
+			Network:      NewNetworkDrops(*targetNetCounters),
+			Registration: NewPhaseRegistration(*metricsURL),
 		}, filer, clock, venue)
 	totalDur := time.Since(start)
 	live := liveAcceptanceOver(liveAtStart, readLiveAcceptance(*metricsURL))

@@ -6,9 +6,9 @@
 summary_term_text() {
   case "$1" in
     Measurement) printf '%s' 'What was measured: the source, the scenario and the phase, then the reading.' ;;
-    Expected) printf '%s' 'The limit this measurement is held to. (reported only) marks a limit that is watched and does not fail the run; no limit marks a measurement nothing holds.' ;;
+    Expected) printf '%s' 'The limit this measurement is held to. (pass/over) marks a limit that is watched: past it the row reads over and the run goes on.' ;;
     Actual) printf '%s' 'What this run measured.' ;;
-    Result) printf '%s' 'pass: inside its limit. FAIL: past a limit that fails the run. over: past a limit that is only reported. —: nothing to judge it against.' ;;
+    Result) printf '%s' 'pass: inside its limit. FAIL: past a limit that fails the run, or a reading held to no limit. over: past a watched limit. —: a reading this table holds to no limit.' ;;
     p50) printf '%s' 'Half of the requests took this long or less: the ordinary case.' ;;
     p95) printf '%s' 'Nineteen in twenty took this long or less: the slow end a user notices.' ;;
     p99) printf '%s' 'Ninety-nine in a hundred took this long or less: the worst the run saw, short of outliers.' ;;

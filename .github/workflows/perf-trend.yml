@@ -1,0 +1,213 @@
+name: Performance trend
+
+# A performance domain's night after its legs: push every leg's rows into the trend, compare each
+# leg with its own nights, fail the night on a leg past them, and alert naming the domain.
+
+on:
+  workflow_call:
+    inputs:
+      domain:
+        description: "The domain's name, which every alert of the night carries"
+        required: true
+        type: string
+      started-at:
+        description: "When the domain's run started, in seconds since the epoch; empty when unrecorded"
+        required: true
+        type: string
+      results:
+        description: "Each job of the domain as name=result, separated by spaces"
+        required: true
+        type: string
+    secrets:
+      OCI_TENANCY_OCID:
+        required: true
+      OCI_WORKFLOW_USER_OCID:
+        required: true
+      OCI_WORKFLOW_FINGERPRINT:
+        required: true
+      OCI_WORKFLOW_PRIVATE_KEY:
+        required: true
+      OCI_REGION:
+        required: true
+      OKE_CLUSTER_ID:
+        required: true
+      DEPLOY_TELEGRAM_BOT_TOKEN:
+        required: true
+      DEPLOY_TELEGRAM_CHAT_ID:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Pushes every leg's rows into the trend and compares each leg with the nights before it.
+  publish:
+    name: Publish the performance trend
+    if: ${{ !cancelled() && inputs.started-at != '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      alert_text: ${{ steps.check.outputs.alert_text }}
+      regression: ${{ steps.check.outputs.regression }}
+    env:
+      # When the run started, which every sample of the night carries.
+      VM_RUN_STARTED_AT: ${{ inputs.started-at }}
+      # The check writes the series past their line here, and the push labels them flagged.
+      PERF_FLAGGED_FILE: perf-flagged.tsv
+      # The check writes each series against its own nights here, for the job's summary.
+      PERF_NIGHTS_TABLE: perf-nights.md
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-pinned-tools
+
+      - name: Collect every leg's bundle
+        uses: actions/download-artifact@v8
+        with:
+          pattern: perf-*
+          path: perf-legs
+
+      - name: OCI + kubeconfig setup
+        uses: ./.github/actions/oci-kube-setup
+        with:
+          oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
+          oci-user: ${{ secrets.OCI_WORKFLOW_USER_OCID }}
+          oci-fingerprint: ${{ secrets.OCI_WORKFLOW_FINGERPRINT }}
+          oci-private-key: ${{ secrets.OCI_WORKFLOW_PRIVATE_KEY }}
+          oci-region: ${{ secrets.OCI_REGION }}
+          cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
+
+      # A leg is named by its bundle's directory; a leg that did not measure the system is pushed nowhere.
+      - name: Compare each leg with the nights before it
+        id: check
+        run: |
+          set -euo pipefail
+          mapfile -t BUNDLES < <(find perf-legs -name bundle.json | sort)
+          if [ "${#BUNDLES[@]}" -eq 0 ]; then
+            echo "::error::no leg wrote a bundle, so there is nothing to compare or publish."
+            exit 1
+          fi
+          set +e
+          scripts/perf-regression-check.sh "${BUNDLES[@]}" >perf-regression.out 2>&1
+          CHECK_STATUS=$?
+          set -e
+          cat perf-regression.out
+          if [ -s "$PERF_NIGHTS_TABLE" ]; then
+            cat "$PERF_NIGHTS_TABLE" >>"$GITHUB_STEP_SUMMARY"
+          fi
+          case "$CHECK_STATUS" in
+            0) echo "regression=0" >>"$GITHUB_OUTPUT" ;;
+            1) echo "regression=1" >>"$GITHUB_OUTPUT" ;;
+            *)
+              echo "regression=0" >>"$GITHUB_OUTPUT"
+              echo "::error::the legs could not be compared with their nights (exit $CHECK_STATUS)."
+              exit "$CHECK_STATUS"
+              ;;
+          esac
+          {
+            echo "alert_text<<EOF"
+            grep '^REGRESSION_ALERT:' perf-regression.out | sed 's/^REGRESSION_ALERT://' || true
+            echo "EOF"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Push to VictoriaMetrics
+        run: |
+          set -euo pipefail
+          mapfile -t BUNDLES < <(find perf-legs -name bundle.json | sort)
+          scripts/perf-vm-push.sh "${BUNDLES[@]}"
+
+      - name: Remove OCI credentials
+        if: always()
+        uses: ./.github/actions/oci-kube-teardown
+
+  gate:
+    name: Performance regression gate
+    needs: [publish]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Fail workflow red on a leg past its nights
+        env:
+          PUBLISHED: ${{ needs.publish.result }}
+          REGRESSION: ${{ needs.publish.outputs.regression }}
+        run: |
+          if [ "$PUBLISHED" != "success" ]; then
+            echo "::error::the performance trend was not published; see the publish job."
+            exit 1
+          fi
+          if [ "$REGRESSION" = "1" ]; then
+            echo "::error::a leg that holds its load is past the nights before it — see the publish job's summary and the Telegram alert."
+            exit 1
+          fi
+          echo "No leg is past the nights before it."
+
+  # Alerts when a job of the domain dies, is cancelled, or is killed at its timeout, and when a
+  # leg is past its nights.
+  alert:
+    name: Alert if the run did not finish
+    needs: [publish]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      DOMAIN: ${{ inputs.domain }}
+      RESULTS: ${{ inputs.results }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-pinned-tools
+
+      - name: Send Telegram alert
+        # The results are facts about the named jobs and distinguish a cancel from a failure.
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
+        run: |
+          set -euo pipefail
+          LOST=""
+          for entry in $RESULTS; do
+            name="${entry%%=*}"
+            result="${entry#*=}"
+            case "$result" in
+              success | skipped) ;;
+              *) LOST="${LOST}  - ${name}: ${result}"$'\n' ;;
+            esac
+          done
+          if [ -z "$LOST" ]; then
+            echo "No alert sent: every job finished."
+            exit 0
+          fi
+          scripts/telegram-alert.sh "$(printf 'The performance %s run did not finish:\n\n%s\nRun: %s' "$DOMAIN" "$LOST" "$RUN_URL")"
+
+      - name: Send Telegram alert
+        # Fires once the publish job ran, or was skipped by a cancel after every job it reads finished.
+        # A refused send fails this job alone, so the verdict the gate reads stays the run's.
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
+          FINDING: ${{ needs.publish.outputs.regression }}
+          ALERT_TEXT: ${{ needs.publish.outputs.alert_text }}
+          JOB_STATUS: ${{ needs.publish.result }}
+        run: |
+          set -euo pipefail
+          if [ "$JOB_STATUS" = "skipped" ]; then
+            # A job that did not finish has had its alert from the step above.
+            for entry in $RESULTS; do
+              case "${entry#*=}" in success | skipped) ;; *) exit 0 ;; esac
+            done
+            JOB_STATUS="cancelled before publishing"
+          fi
+          if [ "$JOB_STATUS" = "success" ] && [ "${FINDING:-0}" != "1" ]; then
+            echo "No alert sent: the legs were published and none is past its nights."
+            exit 0
+          fi
+          if [ "${FINDING:-0}" = "1" ]; then
+            MSG="$(printf 'Performance %s: %s\n\nRun: %s\nTrend: Grafana dashboard "Performance Stack Trends" (opengate-perf-stack-trend)' "$DOMAIN" "$ALERT_TEXT" "$RUN_URL")"
+          else
+            MSG="$(printf 'Performance %s trend: the legs were not published (%s).\n\nRun: %s' "$DOMAIN" "$JOB_STATUS" "$RUN_URL")"
+          fi
+          scripts/telegram-alert.sh "$MSG"

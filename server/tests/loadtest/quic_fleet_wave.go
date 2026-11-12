@@ -6,6 +6,8 @@ import "time"
 type waveEntry struct {
 	began  bool
 	online time.Duration
+	// onlineAt is when the machine first registered, read against the start of its phase.
+	onlineAt time.Time
 	// arrived marks the machine's first registration, and ended the end of its life.
 	arrived bool
 	ended   bool
@@ -44,6 +46,7 @@ func (f *QUICFleet) Wave(from, to int) Wave {
 		switch {
 		case entry.arrived:
 			wave.Online = append(wave.Online, entry.online)
+			wave.OnlineAt = append(wave.OnlineAt, entry.onlineAt)
 		case !entry.ended:
 			wave.Pending++
 		}

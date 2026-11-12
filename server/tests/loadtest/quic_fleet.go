@@ -167,8 +167,10 @@ func (f *QUICFleet) noteArrival(index int, arrived *atomic.Bool, dialledAt time.
 	f.connected++
 	if first {
 		f.outcomes.Arrived++
+		now := time.Now()
 		f.waves[index].arrived = true
-		f.waves[index].online = time.Since(dialledAt)
+		f.waves[index].online = now.Sub(dialledAt)
+		f.waves[index].onlineAt = now
 	}
 }
 

@@ -126,14 +126,284 @@ safety:
   max_error_rate: 0.01
 
 gates:
-  # The evidence bundle judges the run, so these limits confirm the declared load was applied.
-  # A leak shows as a slope in the readings, so no limit here tries to catch one.
+  # A soak is held to the ordinary promises and to what each completed operation leaves behind.
   - series: quic/quic-agents/aggregate
     metric: error_rate
     max: 0.01
     blocking: true
-  # The ceiling holds under the technician load, which does not move the connect path.
   - series: quic/quic-agents/connect
     metric: latency_p95_ms
-    max: 2000
+    max: 500
+    blocking: true
+  - series: quic/quic-agents/register
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: quic/quic-agents/register
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: quic/quic-agents/wave
+    metric: arrival_share
+    min: 1
+    blocking: true
+  - series: quic/quic-agents/wave
+    metric: latency_p95_ms
+    max: 1000
+    blocking: true
+  - series: catchup/live/drain
+    metric: within_5s_share
+    min: 0.99
+    blocking: true
+  - series: k6/api-baseline/command_accept
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: k6/api-baseline/command_accept
+    metric: latency_p95_ms
+    max: 1000
+    blocking: true
+  - series: k6/api-baseline/command_accept
+    metric: error_rate
+    max: 0.01
+    blocking: true
+  - series: k6/api-baseline/device_detail
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: k6/api-baseline/device_detail
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: k6/api-baseline/device_detail
+    metric: error_rate
+    max: 0.01
+    blocking: true
+  - series: k6/api-baseline/device_list
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: k6/api-baseline/device_list
+    metric: latency_p95_ms
+    max: 300
+    blocking: true
+  - series: k6/api-baseline/device_list
+    metric: error_rate
+    max: 0.01
+    blocking: true
+  - series: k6/relay-throughput/relay
+    metric: latency_p50_ms
+    max: 400
+    blocking: true
+  - series: k6/relay-throughput/relay
+    metric: latency_p95_ms
+    max: 400
+    blocking: true
+  - series: k6/relay-throughput/relay
+    metric: error_rate
+    max: 0.01
+    blocking: true
+  - series: service/server/measured
+    metric: cpu_percent
+    max: 80
+    blocking: false
+  - series: service/server/measured
+    metric: memory_percent
+    max: 80
+    blocking: false
+  - series: service/database/measured
+    metric: cpu_percent
+    max: 80
+    blocking: false
+  - series: service/database/measured
+    metric: memory_percent
+    max: 80
+    blocking: false
+  - series: leak/server/run
+    metric: retained_goroutines_per_operation
+    max: 0.5
+    blocking: true
+  - series: leak/server/run
+    metric: retained_bytes_per_operation
+    max: 2048
+    blocking: true
+  - series: leak/server/run
+    metric: growing_sites
+    max: 0
+    blocking: true
+  - series: quic/register/ramp
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: quic/register/ramp
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: quic/register/busy-01
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: quic/register/busy-01
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: quic/register/quiet-01
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: quic/register/quiet-01
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: quic/register/busy-02
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: quic/register/busy-02
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: quic/register/quiet-02
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: quic/register/quiet-02
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: quic/register/busy-03
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: quic/register/busy-03
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: quic/register/quiet-03
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: quic/register/quiet-03
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: quic/register/busy-04
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: quic/register/busy-04
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: quic/register/quiet-04
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: quic/register/quiet-04
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: quic/register/busy-05
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: quic/register/busy-05
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: quic/register/quiet-05
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: quic/register/quiet-05
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: quic/register/busy-06
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: quic/register/busy-06
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: quic/register/quiet-06
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: quic/register/quiet-06
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: quic/register/busy-07
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: quic/register/busy-07
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: quic/register/quiet-07
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: quic/register/quiet-07
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: quic/register/busy-08
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: quic/register/busy-08
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: quic/register/quiet-08
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: quic/register/quiet-08
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: quic/register/busy-09
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: quic/register/busy-09
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: quic/register/quiet-09
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: quic/register/quiet-09
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: quic/register/busy-10
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: quic/register/busy-10
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: quic/register/quiet-10
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: quic/register/quiet-10
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: quic/register/drain
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: quic/register/drain
+    metric: latency_p95_ms
+    max: 500
     blocking: true

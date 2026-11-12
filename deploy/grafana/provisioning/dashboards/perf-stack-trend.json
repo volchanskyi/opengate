@@ -2,15 +2,33 @@
   "annotations": {
     "list": []
   },
-  "description": "Each leg of the nightly performance stack, one point per night, measured on the compose stack on a CI runner. A runner is not production hardware, so a leg is compared with its own nights and never with another machine.",
+  "description": "Each leg of the four nightly performance domains, one point per night, measured on the compose stack on a CI runner. A runner is not production hardware, so a leg is compared with its own nights and never with another machine.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
   "id": null,
   "links": [
     {
-      "title": "Workflow",
-      "url": "https://github.com/volchanskyi/opengate/actions/workflows/perf-stack.yml",
+      "title": "Scaling workflow",
+      "url": "https://github.com/volchanskyi/opengate/actions/workflows/perf-scaling.yml",
+      "targetBlank": true,
+      "type": "link"
+    },
+    {
+      "title": "Volume workflow",
+      "url": "https://github.com/volchanskyi/opengate/actions/workflows/perf-volume.yml",
+      "targetBlank": true,
+      "type": "link"
+    },
+    {
+      "title": "Shapes workflow",
+      "url": "https://github.com/volchanskyi/opengate/actions/workflows/perf-shapes.yml",
+      "targetBlank": true,
+      "type": "link"
+    },
+    {
+      "title": "Catch-up workflow",
+      "url": "https://github.com/volchanskyi/opengate/actions/workflows/perf-catchup.yml",
       "targetBlank": true,
       "type": "link"
     }
@@ -705,6 +723,258 @@
           "instant": true,
           "range": false,
           "legendFormat": "{{leg}} {{phase}} {{processor}} {{workload}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "VictoriaMetrics"
+      },
+      "description": "How much of its own processor or memory allowance the server or the database used over the measured phases. A level past one and a half times the median of its own nights on the same chip reads over and fails nothing.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisLabel": "% of allowance",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "always",
+            "spanNulls": false
+          },
+          "unit": "percent",
+          "min": 0,
+          "noValue": "No night published in this range"
+        }
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 110
+      },
+      "id": 12,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "min",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "title": "Server and database levels",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "VictoriaMetrics"
+          },
+          "expr": "{__name__=~\"perf_(cpu|memory)_percent\",env=\"ci\"}[$__range]",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{__name__}} {{leg}} {{phase}} {{scenario}} {{processor}} {{workload}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "VictoriaMetrics"
+      },
+      "description": "The largest rung of the breakpoint ladder whose machines kept the ordinary promises. The night fails when it holds fewer than the median of its own nights on the same chip.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisLabel": "machines",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "always",
+            "spanNulls": false
+          },
+          "unit": "short",
+          "min": 0,
+          "noValue": "No night published in this range"
+        }
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 120
+      },
+      "id": 13,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "min",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "title": "Machines the breakpoint held",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "VictoriaMetrics"
+          },
+          "expr": "perf_breakpoint_held_agents{env=\"ci\"}[$__range]",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{leg}} {{phase}} {{processor}} {{workload}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "VictoriaMetrics"
+      },
+      "description": "1 where a scaling rung's machines signed in within the profile's ordinary promise, 0 where they did not. A rung that misses it on a chip where most of its own nights kept it fails the night.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisLabel": "kept",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "always",
+            "spanNulls": false
+          },
+          "unit": "short",
+          "min": 0,
+          "noValue": "No night published in this range"
+        }
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 130
+      },
+      "id": 14,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "min",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "title": "Scaling rungs keeping the sign-in promise",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "VictoriaMetrics"
+          },
+          "expr": "perf_signin_promise_kept{env=\"ci\"}[$__range]",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{leg}} {{phase}} {{processor}} {{workload}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "VictoriaMetrics"
+      },
+      "description": "The smallest processor share whose rung kept the ordinary sign-in promise, on a night every rung measured. The rungs run on runners of their own, so the figure is published and judged by none.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisLabel": "processors",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "always",
+            "spanNulls": false
+          },
+          "unit": "short",
+          "min": 0,
+          "noValue": "No night published in this range"
+        }
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 140
+      },
+      "id": 15,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "min",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "title": "Scaling sizing figure",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "VictoriaMetrics"
+          },
+          "expr": "perf_scaling_sizing_cpus{env=\"ci\"}[$__range]",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{leg}} {{phase}} {{workload}}",
           "refId": "A"
         }
       ]

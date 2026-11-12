@@ -1,0 +1,75 @@
+name: Performance catch-up
+
+# The server and the store at production's limits and settings, with production's scrape load, on
+# ARM: the store probe, then the whole fleet back after an hour away, held to its promises.
+
+on:
+  schedule:
+    # The hour decides queue order: a scheduled run starts hours after the time it names.
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: perf-catchup
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # The start time is taken once so every sample of the night carries the same date.
+  started:
+    name: Record when the run started
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      started_at: ${{ steps.started.outputs.at }}
+    steps:
+      - name: Record when the run started
+        id: started
+        run: echo "at=$(date -u +%s)" >>"$GITHUB_OUTPUT"
+
+  # Technicians work as on a busy morning while the fleet catches up (decision U), and the
+  # catch-up promises and the busy morning's limits fail the night (decision AA).
+  catch-up:
+    name: Catch-up at production's limits (ARM)
+    uses: ./.github/workflows/perf-leg.yml
+    with:
+      leg: catch-up
+      title: Catch-up at production's limits (ARM)
+      profile: load/profiles/catch-up.yaml
+      agents: '5000'
+      hold: 25m
+      minutes: 120
+      arm: true
+      catch-up: true
+      server-cpus: '0.25'
+      server-memory: 384m
+      server-memory-bytes: '402653184'
+      # About 400 KB of generator memory per machine over a 1.25 GiB baseline is roughly 3.3 GB.
+      generator-memory: 5G
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  # Runs after a cancel or a timeout too, so a night that died is alerted on.
+  trend:
+    name: Alert if the run did not finish, and publish the trend
+    needs: [started, catch-up]
+    if: always()
+    uses: ./.github/workflows/perf-trend.yml
+    with:
+      domain: catch-up
+      started-at: ${{ needs.started.outputs.started_at }}
+      results: >-
+        started=${{ needs.started.result }}
+        catch-up=${{ needs['catch-up'].result }}
+    secrets:
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_WORKFLOW_USER_OCID: ${{ secrets.OCI_WORKFLOW_USER_OCID }}
+      OCI_WORKFLOW_FINGERPRINT: ${{ secrets.OCI_WORKFLOW_FINGERPRINT }}
+      OCI_WORKFLOW_PRIVATE_KEY: ${{ secrets.OCI_WORKFLOW_PRIVATE_KEY }}
+      OCI_REGION: ${{ secrets.OCI_REGION }}
+      OKE_CLUSTER_ID: ${{ secrets.OKE_CLUSTER_ID }}
+      DEPLOY_TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
+      DEPLOY_TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}

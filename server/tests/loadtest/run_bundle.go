@@ -164,7 +164,7 @@ func runIdentity(in runBundleInputs, finished time.Time) RunIdentity {
 	}
 	if in.Profile != nil {
 		identity.ProfileName = in.Profile.Name
-		identity.ProfileVersion = in.Profile.SchemaVersion
+		identity.ProfileVersion = in.Profile.LoadVersion()
 		identity.ProfileDigest = in.Profile.Digest
 		identity.Family = in.Profile.Family
 		identity.Environment = in.Profile.Environment

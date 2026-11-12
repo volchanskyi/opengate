@@ -61,7 +61,7 @@ against its window median with a calibrated tolerance plus absolute ceilings,
 pushes the current rows, alerts, and only then fails. Pushing before failing
 means a regression is still recorded.
 
-**The performance stack and the endurance run join the store and the gate** the
+**The performance domains and the endurance run join the store and the gate** the
 same way, each with a publish job and a gate job of its own
 ([`perf-vm-push.sh`](../../scripts/perf-vm-push.sh),
 [`perf-regression-check.sh`](../../scripts/perf-regression-check.sh)). Their
@@ -77,9 +77,26 @@ modes on the same code — 5–10 ms and 350–840 ms, with nothing between — 
 of seven red nights were that jump. A night past its line is pushed with
 `flagged="1"` and the window leaves it out, so one slow night never moves the
 median the next is judged by; a held leg fails only when it is past its line on
-two of its last three nights. The performance stack's `workload` label carries a
-digest of the profile file beside its name, so a change in what a leg offers
-starts a fresh window instead of being judged against the old load. Each leg's
+two of its last three nights. A performance leg's `workload` label carries the
+profile's name, its load version and a digest of the file; nights are matched by
+name and version, as Perfherder and Bencher keep a series by its workload apart
+from its limits, so a profile whose limits changed keeps its nights and a change
+in what a leg offers, which raises the version, starts a fresh window.
+[`profile-load-version.test.sh`](../../scripts/tests/profile-load-version.test.sh)
+pins each version's load, so a load changed without its version fails.
+
+**Nights are compared on one chip, each kind of reading by its own rule.** A
+leg's night is read only against its nights on the same processor model: a busy
+morning on one model read hundreds of milliseconds every night and a few on every
+other. The server's and the database's levels past one and a half times their
+median read over and fail nothing, since a level moves with the runner as much as
+with the code. A breakpoint holding fewer machines than its median fails the
+night. The scaling sweep's four rungs each run on a runner of their own and in
+thirty nights shared a chip once, so a rung fails the night when it misses the
+ordinary sign-in promise on a chip where most of its nights kept it, and the
+sweep's sizing figure, the smallest share that kept it, is published and judged
+by none. The publish job writes every series beside the line its nights draw into
+its summary ([`perf-regression-check.sh`](../../scripts/perf-regression-check.sh)). Each leg's
 bundle also records what the runner did — its processor model, processor steal,
 and the server container's throttling counters, or that the server stopped
 ([`perf-runner-record.sh`](../../scripts/perf-runner-record.sh)) — on every

@@ -77,6 +77,8 @@ type Wave struct {
 	Pending int
 	// Online is each machine that came online, timed from its first dial to registered.
 	Online []time.Duration
+	// OnlineAt is when each machine that came online first registered.
+	OnlineAt []time.Time
 }
 
 // OnlineShare is the share of the dialled machines that came online, absent with none dialled.
@@ -156,6 +158,7 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, readings Phase
 	closeBusy := readings.Busy.Bracket()
 	closeRoom := readings.Generator.Bracket()
 	closeDrops := readings.Network.Bracket()
+	closeRegistration := readings.Registration.Bracket()
 	step := phase.Duration.Duration / rampSteps
 	if step <= 0 {
 		step = phase.Duration.Duration
@@ -188,6 +191,7 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, readings Phase
 
 	// The probes make a phase run longer than declared, so the recorded end is the actual one.
 	finishedAt := clock.Now()
+	askedBy := fleet.Asked()
 	saw := fleet.Outcomes().Since(began)
 	seconds := finishedAt.Sub(startedAt).Seconds()
 
@@ -196,6 +200,7 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, readings Phase
 	targetBusy, busyAbsent := closeBusy(finishedAt.Sub(startedAt))
 	generatorHeadroom, generatorRefused := closeRoom(finishedAt.Sub(startedAt))
 	generatorDrops, targetDrops := closeDrops()
+	registerP50, registerP95 := closeRegistration()
 
 	// A measured phase's wave is counted to its finish, so the next phase's wind-down cancels none.
 	var wave Wave
@@ -215,9 +220,14 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, readings Phase
 	departedDuring := fleet.Outcomes().Departed - departedBefore
 
 	return PhaseResult{
-		Name:       phase.Name,
-		StartedAt:  startedAt,
-		FinishedAt: finishedAt,
+		Name:          phase.Name,
+		StartedAt:     startedAt,
+		FinishedAt:    finishedAt,
+		askedFrom:     firstAsked,
+		askedTo:       askedBy,
+		Measured:      phase.Measured,
+		RegisterP50Ms: registerP50,
+		RegisterP95Ms: registerP95,
 		// The climb is the offer: machines asked for beyond the previous level, over the phase's clock.
 		OfferedAgentArrivalsPerSecond:  ratePerSecond(int64(max(phase.ConnectedAgents-from, 0)), seconds),
 		AchievedAgentArrivalsPerSecond: ratePerSecond(saw.Arrived, seconds),

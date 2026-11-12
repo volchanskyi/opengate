@@ -289,7 +289,7 @@ func parseVMSample(pair [2]any) (int64, float64, error) {
 // buildSelector composes a `metric{k="v",...}` selector with sorted, escaped matchers,
 // rejecting a tenant_id matcher and invalid metric or label names.
 func buildSelector(metric string, matchers map[string]string) (string, error) {
-	if !metricNameRE.MatchString(metric) {
+	if !validMetricName(metric) {
 		return "", fmt.Errorf("invalid metric name %q", metric)
 	}
 	if _, ok := matchers["tenant_id"]; ok {
@@ -300,7 +300,7 @@ func buildSelector(metric string, matchers map[string]string) (string, error) {
 	}
 	keys := make([]string, 0, len(matchers))
 	for k := range matchers {
-		if !labelNameRE.MatchString(k) {
+		if !validLabelName(k) {
 			return "", fmt.Errorf("invalid label name %q", k)
 		}
 		keys = append(keys, k)

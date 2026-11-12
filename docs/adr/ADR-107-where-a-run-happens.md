@@ -21,6 +21,22 @@ fault in the product.
 it asks for.** A table binds the two and is checked against the workflows,
 so a profile with nowhere to run fails rather than sitting unscheduled.
 
+**The runner families run as four domains, each a workflow of its own.**
+[`perf-scaling.yml`](../../.github/workflows/perf-scaling.yml) (the processor
+sweep), [`perf-volume.yml`](../../.github/workflows/perf-volume.yml) (the
+estates), [`perf-shapes.yml`](../../.github/workflows/perf-shapes.yml) (busy
+morning, link came back, raise it until it gives) and
+[`perf-catchup.yml`](../../.github/workflows/perf-catchup.yml) (the ARM leg at
+production's limits) each have a schedule slot, a concurrency group, a
+regression gate over their own legs and an alert naming the domain. Every leg
+runs through one shared workflow,
+[`perf-leg.yml`](../../.github/workflows/perf-leg.yml), and every domain
+publishes, gates and alerts through another,
+[`perf-trend.yml`](../../.github/workflows/perf-trend.yml). As one workflow, 15 of
+20 nights read red, each red leg turning the whole night red under one alert, so
+a busy-morning slowdown read as noise beside reds expected elsewhere; split, a red
+night names the domain it belongs to.
+
 **Staging is production-shaped where a run can feel it.** Its server reserves
 and is capped at exactly what production's is, and its database reserves and is
 capped at production's processor, so a number measured there means something

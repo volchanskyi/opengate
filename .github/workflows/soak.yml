@@ -182,8 +182,19 @@ jobs:
         if: always() && steps.stack.outcome == 'success'
         run: scripts/perf-bundle-verdict.sh "$SOAK_BUNDLE_DIR/soak/bundle.json"
 
-      # The rows are the machine side the limits are held against; technician numbers are
-      # folded into the bundle and reported without a gate.
+      # The database's levels over the measured span join the bundle, so its marks are read off it.
+      - name: Fold the database's levels into the bundle
+        if: always() && steps.stack.outcome == 'success'
+        run: |
+          set -euo pipefail
+          BUNDLE="$SOAK_BUNDLE_DIR/soak/bundle.json"
+          [ -s "$BUNDLE" ] || exit 0
+          read -r FROM TO <<<"$(scripts/run-summary.sh window "load/profiles/soak.yaml" "$BUNDLE")"
+          scripts/database-levels.sh average /tmp/db-samples.tsv "$FROM" "$TO" >/tmp/db-levels.json
+          scripts/loadtest-bundle-merge.sh "$BUNDLE" --database /tmp/db-levels.json
+
+      # The rows are the machines, the technicians, the leak readings and the levels, each held to
+      # its limit.
       - name: Read the profile's limits against the run's own rows
         if: always() && steps.stack.outcome == 'success'
         run: |
@@ -200,10 +211,8 @@ jobs:
             echo "The leg wrote no rows, so its summary is the verdict above."
             exit 0
           fi
-          read -r FROM TO <<<"$(scripts/run-summary.sh window "load/profiles/soak.yaml" "$BUNDLE")"
-          scripts/database-levels.sh average /tmp/db-samples.tsv "$FROM" "$TO" >/tmp/db-levels.json
           scripts/run-summary.sh render --title "Endurance soak" --profile "load/profiles/soak.yaml" \
-            --rows "/tmp/soak-rows.json" --bundle "$BUNDLE" --database /tmp/db-levels.json >>"$GITHUB_STEP_SUMMARY"
+            --rows "/tmp/soak-rows.json" --bundle "$BUNDLE" >>"$GITHUB_STEP_SUMMARY"
 
       # Names what still points at the heaviest objects; runs after a failed walk, before teardown.
       # The core is encrypted before it is read, and the plain copy stays in the runner's temp dir.

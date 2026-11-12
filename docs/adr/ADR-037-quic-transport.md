@@ -17,6 +17,24 @@ enough to be worth doing often.
 [`server/go.mod`](../../server/go.mod). Agent certificates are issued at
 enrollment ([ADR-004](ADR-004-mutual-tls-enrollment.md)).
 
+**The server takes `quic-go` from a copy, pinned by commit, until a release
+carries three memory fixes.** The `replace` line in
+[`server/go.mod`](../../server/go.mod) names a copy under the project's own
+GitHub account, built on the release `go.mod` requires. On that release a
+connected machine held about 35 KB of the server's heap beside 12 KB of stack for
+its three goroutines, and 5,000 machines catching up left the server at a quarter
+processor with its memory near its limit and about half its processor collecting
+garbage. In the copy, each crypto stream drops what it sent once sent and a
+finished stream's receive queue; the server releases its TLS connection once the
+session ticket is sent, keeping the connection state, since a QUIC server reads no
+TLS message after the handshake and refuses one that arrives with the alert Go's
+TLS sends; and a connection's packet queue gives back what a burst grew it to once
+drained. With 2,000 idle connections in a process of their own, the heap per
+connection falls from 34.6 KB to 25.2 KB. The dependency check reads the copy's
+advisories under `quic-go` and the release the copy is built on, since
+`govulncheck` looks a replaced module up by the copy's own path
+([`golang.py`](../../scripts/dependency-fixes/golang.py)).
+
 **The agent opens the control stream and writes first.** The endpoint that opens
 a bidirectional stream has to write before the other side can accept it, so
 ownership follows from who has something to say first — and on a reconnect that

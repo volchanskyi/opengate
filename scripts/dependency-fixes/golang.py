@@ -2,11 +2,82 @@
 tests included, against the database the gauntlet's own scan fetches."""
 
 import os
+import re
 
 import fetch
 import osv
+import repo
 import severity
 from report import NEWER_LINE, Finding, Reading
+
+# A pseudo-version a commit after tag vX.Y.Z takes: vX.Y.(Z+1)-0.<time>-<hash>.
+PSEUDO_AFTER_TAG = re.compile(r"^v(\d+)\.(\d+)\.(\d+)-0\.\d{14}-[0-9a-f]{12}$")
+
+
+def _directives(text, verb):
+    """The argument words of each VERB directive in a go.mod, single-line and block forms."""
+    found, block = [], False
+    for raw in text.splitlines():
+        words = raw.split("//", 1)[0].split()
+        if not words:
+            continue
+        if block:
+            if words == [")"]:
+                block = False
+            else:
+                found.append(words)
+        elif words[0] == verb and words[1:] == ["("]:
+            block = True
+        elif words[0] == verb:
+            found.append(words[1:])
+    return found
+
+
+def _built_on(version):
+    """The release a copy's pseudo-version descends from, or the version itself when it is one."""
+    match = PSEUDO_AFTER_TAG.match(version)
+    if not match:
+        return version
+    major, minor, patch = match.groups()
+    return f"v{major}.{minor}.{int(patch) - 1}"
+
+
+def module_copies(text):
+    """Every module go.mod replaces with a copy under another path, as (module, release, copy,
+    copy version), the release being the one go.mod requires."""
+    required = {words[0]: words[1] for words in _directives(text, "require") if len(words) >= 2}
+    found = []
+    for words in _directives(text, "replace"):
+        if "=>" not in words:
+            continue
+        source, target = words[:words.index("=>")], words[words.index("=>") + 1:]
+        if not source or len(target) != 2 or target[0] == source[0]:
+            continue
+        module, (copy, copy_version) = source[0], target
+        release = required.get(module)
+        if release is None:
+            raise fetch.Unreadable(f"server/go.mod replaces {module} with {copy}, but requires no release of it")
+        if _built_on(copy_version) != release:
+            raise fetch.Unreadable(f"the copy {copy}@{copy_version} is built on {_built_on(copy_version)}, "
+                                   f"but server/go.mod requires {release} of {module}")
+        found.append((module, release, copy, copy_version))
+    return found
+
+
+def copies(root):
+    """The advisories of each module taken from a copy, read by the module and release the copy is
+    built on, since govulncheck looks a replaced module up by the copy's own path."""
+    found = module_copies(repo.text(root, "server/go.mod"))
+    by_module = {(module, release.lstrip("v")): (copy, version) for module, release, copy, version in found}
+    findings = []
+    for (_, module, release), record, fix in osv.check_packages(
+            [("Go", module, release.lstrip("v")) for module, release, _, _ in found]):
+        copy, version = by_module[(module, release)]
+        findings.append(Finding(
+            "go", f"server, copy {copy}@{version}", module, release, record["id"], fix, osv.summary(record),
+            f"rebuild the copy on {module} {fix} and repin its replace in server/go.mod",
+            aliases=osv.aliases(record)))
+    return findings
 
 
 def shipped_modules(root):
@@ -55,5 +126,6 @@ def read(root):
             remedy = f"cd server && go get {module}@v{fix} && go mod tidy"
         findings.append(Finding("go", "server", module, version.lstrip("v"), finding["osv"], fix,
                                 remedy=remedy))
+    findings += copies(root)
     mark_serious(root, findings)
     return Reading("Go modules", count, findings)

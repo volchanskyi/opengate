@@ -369,6 +369,27 @@ else
   fail "and says the declared fleet is not its denominator: $CHURN_ERR"
 fi
 
+# The run's own bundle adds the server's and database's levels, and the pace it delivered
+# against the one its profile planned.
+jq -n '{run: {commit: "deadbeef"}, target: {cpus: 0.25, memory_bytes: 402653184},
+  phases: [{name: "ramp", offered_agent_arrivals_per_second: 2, achieved_agent_arrivals_per_second: 2,
+            started_at: "2026-11-12T01:00:00Z", finished_at: "2026-11-12T01:01:00Z", target_busy_percent: 90},
+           {name: "steady", measured: true, offered_agent_arrivals_per_second: 1, achieved_agent_arrivals_per_second: 0.97,
+            started_at: "2026-11-12T01:01:00Z", finished_at: "2026-11-12T01:03:00Z", target_busy_percent: 30,
+            target_resident_bytes: 80530636}],
+  database_levels: {cpu_percent: 12, cpu_cap: "1 processor", memory_percent: 40, memory_cap: "1 GiB"}}' \
+  >"$WORK/bundle.json"
+OUT="$(
+  K6_SUMMARY_DIR="$WORK/k6" QUIC_OUTPUT_FILE="$WORK/quic.txt" GITHUB_SHA="deadbeef" LOADTEST_BUNDLE="$WORK/bundle.json" \
+    "$SUMMARIZE"
+)"
+assert_num_eq "the server's processor over the measured phase joins the rows" "30" \
+  "$(jq -r '.[] | select(.source == "service" and .scenario == "server") | .cpu_percent' <<<"$OUT")"
+assert_num_eq "so do the database's levels" "40" \
+  "$(jq -r '.[] | select(.source == "service" and .scenario == "database") | .memory_percent' <<<"$OUT")"
+assert_num_eq "the machines' pace is a share of the pace planned, across every phase that offered one" "0.985" \
+  "$(jq -r '.[] | select(.source == "quic" and .phase == "aggregate") | .rps_share_of_plan' <<<"$OUT")"
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

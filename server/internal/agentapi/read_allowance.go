@@ -2,6 +2,7 @@ package agentapi
 
 import (
 	"context"
+	"math"
 
 	"golang.org/x/sync/semaphore"
 )
@@ -10,10 +11,20 @@ const (
 	// maxMachineMessageBytes is the largest message a machine sends; a longer declared length is
 	// refused from the header, before anything is allocated for it.
 	maxMachineMessageBytes = 1 << 20
-	// readAllowanceBytes is what every machine connection together may hold read but not yet
-	// handled; a reader past it waits.
-	readAllowanceBytes = 32 << 20
+	// readAllowanceShare is the share of Go's memory limit every machine connection together may
+	// hold read but not yet handled: each byte held costs four to six while it is decoded.
+	readAllowanceShare = 0.05
+	// unlimitedReadAllowanceBytes is the allowance of a server Go sets no memory limit for.
+	unlimitedReadAllowanceBytes = 32 << 20
 )
+
+// readAllowanceFor is the read allowance under a Go memory limit, never below the largest message.
+func readAllowanceFor(memoryLimit int64) int64 {
+	if memoryLimit <= 0 || memoryLimit == math.MaxInt64 {
+		return unlimitedReadAllowanceBytes
+	}
+	return max(int64(float64(memoryLimit)*readAllowanceShare), maxMachineMessageBytes)
+}
 
 // readAllowance bounds the bytes all connections hold between reading a message and handling it.
 type readAllowance struct{ bytes *semaphore.Weighted }

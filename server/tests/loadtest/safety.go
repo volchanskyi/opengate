@@ -79,10 +79,18 @@ func RunPhasesWatched(profile *Profile, fleet Fleet, clock Clock, read SafetyRea
 	fmt.Printf("%s %d\n", walkStartedAnnouncement, clock.Now().Unix())
 
 	results := make([]PhaseResult, 0, len(profile.Phases))
+	timed := timedPhases(profile)
 	from := 0
+	// A ladder stops climbing at the first rung that gives, whose answer is then set, and walks on
+	// through the phases below its highest rung: the drain and the recovery.
+	highest, gave := 0, false
 	for i, phase := range profile.Phases {
+		if gave && phase.ConnectedAgents > highest {
+			continue
+		}
 		if i > 0 {
 			if err := CheckRoomToContinue(profile.Safety, read()); err != nil {
+				markFleetOnline(results, fleet, timed)
 				return results, fmt.Errorf("stopping before phase %q: %w", phase.Name, err)
 			}
 		}
@@ -91,10 +99,17 @@ func RunPhasesWatched(profile *Profile, fleet Fleet, clock Clock, read SafetyRea
 			return nil, fmt.Errorf("phase %q: %w", phase.Name, err)
 		}
 		if err := CheckRoomToContinue(profile.Safety, read()); err != nil {
-			return append(results, result), fmt.Errorf("stopping after phase %q: %w", phase.Name, err)
+			results = append(results, result)
+			markFleetOnline(results, fleet, timed)
+			return results, fmt.Errorf("stopping after phase %q: %w", phase.Name, err)
 		}
 		results = append(results, result)
 		from = result.AchievedConnectedAgents
+		if profile.GaveOut != nil && result.OfferedConnectedAgents > highest {
+			highest = result.OfferedConnectedAgents
+			gave = gaveOutBecause(*profile.GaveOut, result) != ""
+		}
 	}
+	markFleetOnline(results, fleet, timed)
 	return results, nil
 }

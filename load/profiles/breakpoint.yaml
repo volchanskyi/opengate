@@ -2,6 +2,8 @@
 # It runs on a disposable x86_64 runner stack, so results compare runs and claim no ARM64 capacity.
 schema_version: 1
 name: breakpoint
+# The ladder stops at the first rung that gives, so its walk is a load of its own.
+version: 2
 family: breakpoint
 environment: runner
 fixture: small
@@ -66,17 +68,168 @@ gave_out:
   target_busy_percent_above: 95
 
 gates:
-  # The limit names a machine-side measurement, since the arrival path is what the ladder climbs.
-  # The figure is a floor under a collapse of the arrival path, as failing under load is the finding.
+  # The rungs that held keep the ordinary promises; the rung that gave and the walk are watched.
+  - series: quic/quic-agents/aggregate
+    metric: error_rate
+    max: 0.05
+    blocking: false
   - series: quic/quic-agents/connect
     metric: latency_p95_ms
     max: 10000
     blocking: false
-
-# Each entry is a measurement this profile deliberately leaves without a limit.
-ungated:
-  # The aggregate error rate is the finding, because the ladder climbs until arrivals fail.
-  # The profile's max_error_rate holds the recovery phase, and rungs at or above the break are exempt.
-  - series: quic/quic-agents/aggregate
+  - series: quic/quic-agents/register
+    metric: latency_p50_ms
+    max: 100
+    blocking: false
+  - series: quic/quic-agents/register
+    metric: latency_p95_ms
+    max: 500
+    blocking: false
+  - series: quic/quic-agents/rungs-held
     metric: error_rate
-    reason: the walk climbs until arrivals fail, so its aggregate is the finding; safety.max_error_rate holds the recovery phase
+    max: 0
+    blocking: true
+  - series: quic/quic-agents/rungs-held
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: quic/quic-agents/rung-gave
+    metric: error_rate
+    max: 0
+    blocking: false
+  - series: quic/quic-agents/rung-gave
+    metric: latency_p95_ms
+    max: 500
+    blocking: false
+  - series: catchup/live/drain
+    metric: within_5s_share
+    min: 0.99
+    blocking: true
+  - series: k6/api-baseline/command_accept
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: k6/api-baseline/command_accept
+    metric: latency_p95_ms
+    max: 1000
+    blocking: true
+  - series: k6/api-baseline/command_accept
+    metric: error_rate
+    max: 0.01
+    blocking: true
+  - series: k6/api-baseline/device_detail
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: k6/api-baseline/device_detail
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: k6/api-baseline/device_detail
+    metric: error_rate
+    max: 0.01
+    blocking: true
+  - series: k6/api-baseline/device_list
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: k6/api-baseline/device_list
+    metric: latency_p95_ms
+    max: 300
+    blocking: true
+  - series: k6/api-baseline/device_list
+    metric: error_rate
+    max: 0.01
+    blocking: true
+  - series: k6/relay-throughput/relay
+    metric: latency_p50_ms
+    max: 400
+    blocking: true
+  - series: k6/relay-throughput/relay
+    metric: latency_p95_ms
+    max: 400
+    blocking: true
+  - series: k6/relay-throughput/relay
+    metric: error_rate
+    max: 0.01
+    blocking: true
+  - series: service/server/measured
+    metric: cpu_percent
+    max: 80
+    blocking: false
+  - series: service/server/measured
+    metric: memory_percent
+    max: 80
+    blocking: false
+  - series: service/database/measured
+    metric: cpu_percent
+    max: 80
+    blocking: false
+  - series: service/database/measured
+    metric: memory_percent
+    max: 80
+    blocking: false
+  - series: quic/register/step-500
+    metric: latency_p50_ms
+    max: 100
+    blocking: false
+  - series: quic/register/step-500
+    metric: latency_p95_ms
+    max: 500
+    blocking: false
+  - series: quic/register/step-1000
+    metric: latency_p50_ms
+    max: 100
+    blocking: false
+  - series: quic/register/step-1000
+    metric: latency_p95_ms
+    max: 500
+    blocking: false
+  - series: quic/register/step-2000
+    metric: latency_p50_ms
+    max: 100
+    blocking: false
+  - series: quic/register/step-2000
+    metric: latency_p95_ms
+    max: 500
+    blocking: false
+  - series: quic/register/step-4000
+    metric: latency_p50_ms
+    max: 100
+    blocking: false
+  - series: quic/register/step-4000
+    metric: latency_p95_ms
+    max: 500
+    blocking: false
+  - series: quic/register/step-8000
+    metric: latency_p50_ms
+    max: 100
+    blocking: false
+  - series: quic/register/step-8000
+    metric: latency_p95_ms
+    max: 500
+    blocking: false
+  - series: quic/register/step-16000
+    metric: latency_p50_ms
+    max: 100
+    blocking: false
+  - series: quic/register/step-16000
+    metric: latency_p95_ms
+    max: 500
+    blocking: false
+  - series: quic/register/drain
+    metric: latency_p50_ms
+    max: 100
+    blocking: false
+  - series: quic/register/drain
+    metric: latency_p95_ms
+    max: 500
+    blocking: false
+  - series: quic/register/recovery
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: quic/register/recovery
+    metric: latency_p95_ms
+    max: 500
+    blocking: true

@@ -28,14 +28,128 @@ safety:
   max_error_rate: 0.01
 
 gates:
-  # No latency limit varies with the rung, since the curve over processor counts is the result.
-  # The error limit is half of safety.max_error_rate, so a leg certified as measured never fails.
+  # A rung below one processor is starved on purpose, so its waits read as watched marks there.
   - series: quic/quic-agents/aggregate
     metric: error_rate
     max: 0.005
     blocking: true
-  # Loose enough that the slowest rung clears it, so it fires only on a leg that stopped working.
   - series: quic/quic-agents/connect
     metric: latency_p95_ms
-    max: 2000
+    max: 500
+    blocking_from_cpus: 1
+    blocking: true
+  - series: quic/quic-agents/register
+    metric: latency_p50_ms
+    max: 100
+    blocking_from_cpus: 1
+    blocking: true
+  - series: quic/quic-agents/register
+    metric: latency_p95_ms
+    max: 500
+    blocking_from_cpus: 1
+    blocking: true
+  - series: quic/quic-agents/wave
+    metric: arrival_share
+    min: 1
+    blocking: true
+  - series: quic/quic-agents/wave
+    metric: latency_p95_ms
+    max: 1000
+    blocking_from_cpus: 1
+    blocking: true
+  - series: catchup/live/drain
+    metric: within_5s_share
+    min: 0.99
+    blocking: true
+  - series: k6/api-baseline/command_accept
+    metric: latency_p50_ms
+    max: 100
+    blocking_from_cpus: 1
+    blocking: true
+  - series: k6/api-baseline/command_accept
+    metric: latency_p95_ms
+    max: 1000
+    blocking_from_cpus: 1
+    blocking: true
+  - series: k6/api-baseline/command_accept
+    metric: error_rate
+    max: 0.01
+    blocking: true
+  - series: k6/api-baseline/device_detail
+    metric: latency_p50_ms
+    max: 100
+    blocking_from_cpus: 1
+    blocking: true
+  - series: k6/api-baseline/device_detail
+    metric: latency_p95_ms
+    max: 500
+    blocking_from_cpus: 1
+    blocking: true
+  - series: k6/api-baseline/device_detail
+    metric: error_rate
+    max: 0.01
+    blocking: true
+  - series: k6/api-baseline/device_list
+    metric: latency_p50_ms
+    max: 100
+    blocking_from_cpus: 1
+    blocking: true
+  - series: k6/api-baseline/device_list
+    metric: latency_p95_ms
+    max: 300
+    blocking_from_cpus: 1
+    blocking: true
+  - series: k6/api-baseline/device_list
+    metric: error_rate
+    max: 0.01
+    blocking: true
+  - series: k6/relay-throughput/relay
+    metric: latency_p50_ms
+    max: 400
+    blocking_from_cpus: 1
+    blocking: true
+  - series: k6/relay-throughput/relay
+    metric: latency_p95_ms
+    max: 400
+    blocking_from_cpus: 1
+    blocking: true
+  - series: k6/relay-throughput/relay
+    metric: error_rate
+    max: 0.01
+    blocking: true
+  - series: service/server/measured
+    metric: cpu_percent
+    max: 80
+    blocking: false
+  - series: service/server/measured
+    metric: memory_percent
+    max: 80
+    blocking: false
+  - series: service/database/measured
+    metric: cpu_percent
+    max: 80
+    blocking: false
+  - series: service/database/measured
+    metric: memory_percent
+    max: 80
+    blocking: false
+  - series: quic/register/ramp
+    metric: latency_p50_ms
+    max: 100
+    blocking_from_cpus: 1
+    blocking: true
+  - series: quic/register/ramp
+    metric: latency_p95_ms
+    max: 500
+    blocking_from_cpus: 1
+    blocking: true
+  - series: quic/register/steady
+    metric: latency_p50_ms
+    max: 100
+    blocking_from_cpus: 1
+    blocking: true
+  - series: quic/register/steady
+    metric: latency_p95_ms
+    max: 500
+    blocking_from_cpus: 1
     blocking: true

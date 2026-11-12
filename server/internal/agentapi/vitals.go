@@ -52,14 +52,18 @@ func isAnomalyFamily(name string) bool { return anomalyFamilySet[name] }
 // vitalSeriesCap is the most central series one device may occupy.
 const vitalSeriesCap = 24
 
-// vitalDimSet is vitalDims as a lookup.
-var vitalDimSet = func() map[string]bool {
-	set := make(map[string]bool, len(vitalDims))
+// vitalLabels holds each vital dimension's label set, built once and shared read-only by every
+// reading of it, so a reading costs no map of its own.
+var vitalLabels = func() map[string]map[string]string {
+	labels := make(map[string]map[string]string, len(vitalDims))
 	for _, dim := range vitalDims {
-		set[dim] = true
+		labels[dim] = map[string]string{backfillDimLabel: dim}
 	}
-	return set
+	return labels
 }()
 
 // isVitalDim reports whether a dimension name is one the fleet agreed to store.
-func isVitalDim(name string) bool { return vitalDimSet[name] }
+func isVitalDim(name string) bool {
+	_, ok := vitalLabels[name]
+	return ok
+}

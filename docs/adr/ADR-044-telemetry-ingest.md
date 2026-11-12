@@ -95,7 +95,12 @@ before allocating for it
 ([`read_allowance.go`](../../server/internal/agentapi/read_allowance.go)); a
 reader past the allowance waits. Go's memory limit sits below the container's
 ([`memlimit.go`](../../server/internal/app/memlimit.go)), so the collector works
-to the limit rather than to twice the live heap. gRPC refuses an oversized
+to the limit rather than to twice the live heap, and the allowance is a share of
+that limit: a catch-up batch read costs about 3.3 bytes more for each byte while
+it is decoded, and with 5,000 machines connected the server holds about 250 MB of
+its 346 MiB limit, so a share that keeps a full allowance's four to six bytes a
+byte inside the rest grows with the server rather than being chosen for one size.
+Kafka bounds the bytes of requests it holds queued the same way. gRPC refuses an oversized
 message from its length header the same way. A machine's log answer pages itself
 to stay under the ceiling ([ADR-046](ADR-046-logs-stay-on-the-machine.md)).
 

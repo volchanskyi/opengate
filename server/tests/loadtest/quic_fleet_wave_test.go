@@ -43,8 +43,14 @@ func TestAWaveTimesEachMachineFromItsDialToOnline(t *testing.T) {
 	fleet := NewQUICFleet(dialledAgo{ago: 2 * time.Second}.start)
 	defer fleet.Stop()
 
+	asked := time.Now()
 	require.NoError(t, fleet.HoldConnected(0, 3))
 	wave := settledWave(t, fleet, 0, 3)
+	require.Len(t, wave.OnlineAt, 3, "each machine online says when it came online")
+	for _, at := range wave.OnlineAt {
+		assert.False(t, at.Before(asked), "a machine comes online after it was asked for")
+		assert.WithinDuration(t, time.Now(), at, 5*time.Second)
+	}
 
 	assert.Equal(t, 3, wave.Dialled)
 	require.Len(t, wave.Online, 3, "every machine dialled came online")

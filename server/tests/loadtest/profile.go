@@ -68,16 +68,20 @@ type Safety struct {
 
 // Profile is one runnable configuration.
 type Profile struct {
-	SchemaVersion int         `yaml:"schema_version"`
-	Name          string      `yaml:"name"`
-	Family        Family      `yaml:"family"`
-	Environment   Environment `yaml:"environment"`
-	Fixture       FixtureSize `yaml:"fixture"`
-	Phases        []Phase     `yaml:"phases"`
-	Safety        Safety      `yaml:"safety"`
-	Gates         []Gate      `yaml:"gates"`
-	Ungated       []Ungated   `yaml:"ungated"`
-	GaveOut       *GaveOut    `yaml:"gave_out"`
+	SchemaVersion int    `yaml:"schema_version"`
+	Name          string `yaml:"name"`
+	// Version names the load the profile offers: its phases, fixture and safety. It rises when the
+	// load changes, so a night is compared with the nights of the same load whatever its limits.
+	Version     int         `yaml:"version"`
+	Family      Family      `yaml:"family"`
+	Environment Environment `yaml:"environment"`
+	Fixture     FixtureSize `yaml:"fixture"`
+	Phases      []Phase     `yaml:"phases"`
+	Safety      Safety      `yaml:"safety"`
+	Gates       []Gate      `yaml:"gates"`
+	// Ungated is read only so a profile still declaring one is refused.
+	Ungated any      `yaml:"ungated"`
+	GaveOut *GaveOut `yaml:"gave_out"`
 	// Digest is the first twelve hex digits of the document's SHA-256.
 	Digest string `yaml:"-"`
 }
@@ -170,7 +174,12 @@ func (p *Profile) Validate() error {
 	problems = append(problems, p.validatePhases()...)
 	problems = append(problems, p.validateSafety()...)
 	problems = append(problems, p.validateGates()...)
-	problems = append(problems, p.validateUngated()...)
+	if p.Version < 0 {
+		problems = append(problems, fmt.Errorf("version %d is below one, and a load is versioned from one", p.Version))
+	}
+	if p.Ungated != nil {
+		problems = append(problems, errors.New("the profile declares ungated measurements, and every measurement carries a limit"))
+	}
 	problems = append(problems, p.validateGaveOut()...)
 
 	return errors.Join(problems...)
@@ -273,4 +282,9 @@ func (p *Profile) validateProcessorCeiling() []error {
 			p.Safety.MaxNodeCPUPercent)}
 	}
 	return nil
+}
+
+// LoadVersion is the version of the load the profile offers, one where the profile states none.
+func (p *Profile) LoadVersion() int {
+	return max(p.Version, 1)
 }

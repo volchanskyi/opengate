@@ -77,6 +77,15 @@ def steps_of(job):
     return [step for step in job.get("steps") or [] if isinstance(step, dict)]
 
 
+# A job calling a workflow of this repository runs that workflow's steps as its own.
+def called_steps(job):
+    uses = str(job.get("uses", "") or "")
+    target = uses.removeprefix("./.github/workflows/")
+    if target == uses or target not in DOCS:
+        return []
+    return [step for called in jobs_of(target).values() for step in steps_of(called)]
+
+
 def needs_of(job):
     needs = job.get("needs") or []
     return [needs] if isinstance(needs, str) else list(needs)
@@ -202,7 +211,7 @@ def job_status():
             if not ALWAYS.search(condition):
                 continue
             outliving += 1
-            sends = any(SENDER in str(s.get("run", "")) for s in steps_of(body))
+            sends = any(SENDER in str(s.get("run", "")) for s in steps_of(body) + called_steps(body))
             if not sends and not str(body.get("name", "")).startswith(CLEAN_UP):
                 report("outlives-cancel", f"{name}:{job} runs on after a cancel and neither alerts nor cleans up")
     reached("stated-status", below)
@@ -346,6 +355,28 @@ jobs:
     environment: observability
     steps:
       - run: echo observe
+  trend:
+    needs: [deploy]
+    if: always()
+    uses: ./.github/workflows/trend.yml
+  quiet:
+    needs: [deploy]
+    if: always()
+    uses: ./.github/workflows/quiet.yml
+YAML
+cat >"$DEMO/.github/workflows/trend.yml" <<'YAML'
+on: workflow_call
+jobs:
+  alert:
+    steps:
+      - run: scripts/telegram-alert.sh "x"
+YAML
+cat >"$DEMO/.github/workflows/quiet.yml" <<'YAML'
+on: workflow_call
+jobs:
+  publish:
+    steps:
+      - run: echo publish
 YAML
 cat >"$DEMO/.github/workflows/ci.yml" <<'YAML'
 on: push
@@ -523,7 +554,8 @@ judge stated-status "cd.yml:cluster reads success() of resolve, which can be ski
 cd.yml:drills reads success() of cluster, deploy, resolve, which can be skipped" \
   "each of N jobs below a job that can be skipped states the status it runs under"
 
-judge outlives-cancel "cd.yml:deploy runs on after a cancel and neither alerts nor cleans up" \
+judge outlives-cancel "cd.yml:deploy runs on after a cancel and neither alerts nor cleans up
+cd.yml:quiet runs on after a cancel and neither alerts nor cleans up" \
   "each of N jobs that run on after a cancel sends an alert or cleans up"
 
 judge scan-before-tag "images.yml tagged: 'Push' pushes under a tag before any scan
