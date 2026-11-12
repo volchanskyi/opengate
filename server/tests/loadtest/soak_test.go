@@ -137,7 +137,6 @@ func TestBackfillStormRoundTrip(t *testing.T) {
 	// The agent wrote a slot request followed by one batch per ack.
 	slotReq := readControl(t, codec, &agentToServer)
 	assert.Equal(t, protocol.MsgRequestBackfillSlot, slotReq.Type)
-	assert.Positive(t, slotReq.PendingSamples)
 	for i := 0; i < batches; i++ {
 		b := readControl(t, codec, &agentToServer)
 		assert.Equal(t, protocol.MsgMetricBackfillBatch, b.Type)
@@ -157,10 +156,4 @@ func TestBackfillStormDeferIsNotAnError(t *testing.T) {
 	sent, err := drainBackfill(context.Background(), codec, stream, loadOptions{backfillBatches: 3, backfillSamplesPerBatch: 10})
 	require.NoError(t, err)
 	assert.Zero(t, sent, "a deferred storm drains nothing")
-}
-
-func TestSafeUint64(t *testing.T) {
-	assert.Equal(t, uint64(42), safeUint64(42))
-	assert.Equal(t, uint64(0), safeUint64(0))
-	assert.Equal(t, uint64(0), safeUint64(-1))
 }

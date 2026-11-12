@@ -40,7 +40,7 @@ func TestAMachineBackFromAnOutageFillsItsChartWhereTheReadingsHappened(t *testin
 	admin := product.Administrator(contoso)
 	machine := catchUpMachine(product, admin, "contoso-laptop-11")
 
-	machine.Send(&protocol.ControlMessage{Type: protocol.MsgRequestBackfillSlot, PendingSamples: 2})
+	machine.Send(&protocol.ControlMessage{Type: protocol.MsgRequestBackfillSlot})
 	machine.Await(protocol.MsgGrantBackfill)
 
 	threeHoursAgo := time.Now().UTC().Truncate(time.Minute).Add(-3 * time.Hour)
@@ -117,7 +117,7 @@ func TestHistoryOlderThanTheServerKeepsIsAnsweredAndNotStored(t *testing.T) {
 	admin := product.Administrator(contoso)
 	machine := catchUpMachine(product, admin, "contoso-laptop-13")
 
-	machine.Send(&protocol.ControlMessage{Type: protocol.MsgRequestBackfillSlot, PendingSamples: 1})
+	machine.Send(&protocol.ControlMessage{Type: protocol.MsgRequestBackfillSlot})
 	machine.Await(protocol.MsgGrantBackfill)
 
 	monthAgo := time.Now().UTC().Truncate(time.Minute).Add(-31 * 24 * time.Hour)

@@ -41,11 +41,11 @@ PYEOF
 }
 
 run_hook() {
-  local hook="$1" envelope="$2"
+  local hook="$1" envelope="$2" dir="${3:-$HOOKS_DIR}"
   local stderr_file
   stderr_file="$(mktemp)"
   HOOK_EXIT=0
-  if printf '%s' "$envelope" | "$HOOKS_DIR/$hook" >/dev/null 2>"$stderr_file"; then
+  if printf '%s' "$envelope" | "$dir/$hook" >/dev/null 2>"$stderr_file"; then
     HOOK_EXIT=0
   else
     HOOK_EXIT=$?
@@ -55,6 +55,8 @@ run_hook() {
 }
 
 REPO=""
+OUTSIDE=""
+# Each file named after the repo is copied into its first commit.
 make_repo() {
   REPO="$(mktemp -d)"
   cd "$REPO"
@@ -62,10 +64,22 @@ make_repo() {
   git config user.email "test@example.com"
   git config user.name "Test User"
   echo "base" >base.txt
-  git add base.txt
+  local installed
+  for installed in "$@"; do
+    mkdir -p "$(dirname "$installed")"
+    cp "$PROJECT_ROOT/$installed" "$installed"
+  done
+  git add -A
   git commit --quiet -m "init"
   git checkout --quiet -b feat/test
 }
+
+# The test-first hooks judge the project they are installed in, so their cases run a copy
+# installed in the case's repo.
+TDD_HOOK_FILES=(.claude/hooks/pretooluse-tdd-gate.sh .claude/hooks/pretooluse-bash-source-write-guard.sh
+  .claude/hooks/lib/common.sh scripts/tdd-check.sh)
+make_tdd_repo() { make_repo "${TDD_HOOK_FILES[@]}"; }
+run_tdd_hook() { run_hook "$1" "$2" "$REPO/.claude/hooks"; }
 
 cleanup_repo() {
   if [ -n "${REPO:-}" ]; then
@@ -76,6 +90,10 @@ cleanup_repo() {
   if [ -n "${REMOTE:-}" ]; then
     rm -rf "$REMOTE"
     REMOTE=""
+  fi
+  if [ -n "${OUTSIDE:-}" ]; then
+    rm -rf "$OUTSIDE"
+    OUTSIDE=""
   fi
   return 0
 }
@@ -101,109 +119,161 @@ assert_stderr_contains() {
 echo
 echo "## pretooluse-tdd-gate.sh"
 
-make_repo
+make_tdd_repo
 envelope="$(build_envelope Bash '{"command":"ls"}')"
-run_hook pretooluse-tdd-gate.sh "$envelope"
+run_tdd_hook pretooluse-tdd-gate.sh "$envelope"
 assert_exit "Bash tool: allows (not Write/Edit)" 0
 cleanup_repo
 
-make_repo
+make_tdd_repo
 envelope="$(build_envelope Edit '{"file_path":"docs/Home.md","old_string":"a","new_string":"b"}')"
-run_hook pretooluse-tdd-gate.sh "$envelope"
+run_tdd_hook pretooluse-tdd-gate.sh "$envelope"
 assert_exit "Edit docs/Home.md: allow (not source)" 0
 cleanup_repo
 
-make_repo
+make_tdd_repo
 envelope="$(build_envelope Edit '{"file_path":"server/internal/api/openapi_gen.go","old_string":"a","new_string":"b"}')"
-run_hook pretooluse-tdd-gate.sh "$envelope"
+run_tdd_hook pretooluse-tdd-gate.sh "$envelope"
 assert_exit "Edit openapi_gen.go: allow (generated)" 0
 cleanup_repo
 
-make_repo
+make_tdd_repo
 envelope="$(build_envelope Edit '{"file_path":"server/internal/api/handlers.go","old_string":"a","new_string":"b"}')"
-run_hook pretooluse-tdd-gate.sh "$envelope"
+run_tdd_hook pretooluse-tdd-gate.sh "$envelope"
 assert_exit "Edit handlers.go on fresh branch: BLOCK" 2
 assert_stderr_contains "Edit handlers.go: stderr cites TDD" "TDD"
 cleanup_repo
 
-make_repo
+make_tdd_repo
 mkdir -p server/internal/api
 echo "package api" >server/internal/api/foo_test.go
 envelope="$(build_envelope Edit '{"file_path":"server/internal/api/handlers.go","old_string":"a","new_string":"b"}')"
-run_hook pretooluse-tdd-gate.sh "$envelope"
+run_tdd_hook pretooluse-tdd-gate.sh "$envelope"
 assert_exit "Edit handlers.go with untracked _test.go: allow" 0
 cleanup_repo
 
-make_repo
+make_tdd_repo
 mkdir -p server/internal/api
 echo "package api" >server/internal/api/foo_test.go
 git add server/internal/api/foo_test.go
 git commit --quiet -m "add test"
 envelope="$(build_envelope Edit '{"file_path":"server/internal/api/handlers.go","old_string":"a","new_string":"b"}')"
-run_hook pretooluse-tdd-gate.sh "$envelope"
+run_tdd_hook pretooluse-tdd-gate.sh "$envelope"
 assert_exit "Edit handlers.go with committed test: allow" 0
 cleanup_repo
 
-make_repo
+make_tdd_repo
 envelope="$(build_envelope Write '{"file_path":"server/internal/api/new.go","content":"package api"}')"
-run_hook pretooluse-tdd-gate.sh "$envelope"
+run_tdd_hook pretooluse-tdd-gate.sh "$envelope"
 assert_exit "Write new.go on fresh branch: BLOCK" 2
 cleanup_repo
 
-make_repo
+make_tdd_repo
 envelope="$(build_envelope Edit '{"file_path":"server/internal/api/handlers.go","old_string":"a","new_string":"b"}')"
 HOOK_EXIT=0
 HOOK_STDERR=""
 stderr_file="$(mktemp)"
-if printf '%s' "$envelope" | OPENGATE_HOOK_BYPASS=tdd-test-first "$HOOKS_DIR/pretooluse-tdd-gate.sh" >/dev/null 2>"$stderr_file"; then HOOK_EXIT=0; else HOOK_EXIT=$?; fi
+if printf '%s' "$envelope" | OPENGATE_HOOK_BYPASS=tdd-test-first "$REPO/.claude/hooks/pretooluse-tdd-gate.sh" >/dev/null 2>"$stderr_file"; then HOOK_EXIT=0; else HOOK_EXIT=$?; fi
 HOOK_STDERR="$(cat "$stderr_file")"
 rm -f "$stderr_file"
 assert_exit "OPENGATE_HOOK_BYPASS ignored: still BLOCK" 2
 cleanup_repo
 
+make_tdd_repo
+OUTSIDE="$(mktemp -d)"
+envelope="$(build_envelope Write "{\"file_path\":\"$OUTSIDE/src/main.rs\",\"content\":\"fn main() {}\"}")"
+run_tdd_hook pretooluse-tdd-gate.sh "$envelope"
+assert_exit "Write a source file outside the project on a fresh branch: allow" 0
+cleanup_repo
+
+make_tdd_repo
+mkdir -p server/internal/api
+echo "package api" >server/internal/api/foo_test.go
+OUTSIDE="$(mktemp -d)"
+cd "$OUTSIDE"
+envelope="$(build_envelope Edit "{\"file_path\":\"$REPO/server/internal/api/handlers.go\",\"old_string\":\"a\",\"new_string\":\"b\"}")"
+run_tdd_hook pretooluse-tdd-gate.sh "$envelope"
+assert_exit "Edit handlers.go from a shell outside the project, test present: allow" 0
+cleanup_repo
+
+make_tdd_repo
+OUTSIDE="$(mktemp -d)"
+cd "$OUTSIDE"
+envelope="$(build_envelope Edit "{\"file_path\":\"$REPO/server/internal/api/handlers.go\",\"old_string\":\"a\",\"new_string\":\"b\"}")"
+run_tdd_hook pretooluse-tdd-gate.sh "$envelope"
+assert_exit "Edit handlers.go from a shell outside the project on a fresh branch: BLOCK" 2
+cleanup_repo
+
 echo
 echo "## pretooluse-bash-source-write-guard.sh"
 
-make_repo
+make_tdd_repo
 envelope="$(build_envelope Bash '{"command":"ls -la"}')"
-run_hook pretooluse-bash-source-write-guard.sh "$envelope"
+run_tdd_hook pretooluse-bash-source-write-guard.sh "$envelope"
 assert_exit "Bash 'ls -la': allow" 0
 cleanup_repo
 
-make_repo
+make_tdd_repo
 envelope="$(build_envelope Bash '{"command":"echo package > server/internal/foo/new.go"}')"
-run_hook pretooluse-bash-source-write-guard.sh "$envelope"
+run_tdd_hook pretooluse-bash-source-write-guard.sh "$envelope"
 assert_exit "Bash 'echo > new.go' on fresh branch: BLOCK" 2
 cleanup_repo
 
-make_repo
+make_tdd_repo
 envelope="$(build_envelope Bash '{"command":"sed -i s/old/new/ server/internal/api/handlers.go"}')"
-run_hook pretooluse-bash-source-write-guard.sh "$envelope"
+run_tdd_hook pretooluse-bash-source-write-guard.sh "$envelope"
 assert_exit "Bash 'sed -i ... handlers.go' on fresh branch: BLOCK" 2
 cleanup_repo
 
-make_repo
+make_tdd_repo
 envelope="$(build_envelope Bash '{"command":"echo ok > /tmp/scratch.txt"}')"
-run_hook pretooluse-bash-source-write-guard.sh "$envelope"
+run_tdd_hook pretooluse-bash-source-write-guard.sh "$envelope"
 assert_exit "Bash 'echo > /tmp/scratch.txt': allow" 0
 cleanup_repo
 
-make_repo
+make_tdd_repo
 envelope="$(build_envelope Bash '{"command":"echo hi > docs/notes.md"}')"
-run_hook pretooluse-bash-source-write-guard.sh "$envelope"
+run_tdd_hook pretooluse-bash-source-write-guard.sh "$envelope"
 assert_exit "Bash 'echo > docs/notes.md': allow (not source)" 0
 cleanup_repo
 
-make_repo
+make_tdd_repo
 mkdir -p server/internal/api
 echo "package api" >server/internal/api/foo_test.go
 envelope="$(build_envelope Bash '{"command":"echo package > server/internal/api/new.go"}')"
-run_hook pretooluse-bash-source-write-guard.sh "$envelope"
+run_tdd_hook pretooluse-bash-source-write-guard.sh "$envelope"
 assert_exit "Bash 'echo > new.go' with test present: allow" 0
 cleanup_repo
 
+make_tdd_repo
+OUTSIDE="$(mktemp -d)"
+cd "$OUTSIDE"
+git init --quiet
+envelope="$(build_envelope Bash '{"command":"echo fn > main.rs"}')"
+run_tdd_hook pretooluse-bash-source-write-guard.sh "$envelope"
+assert_exit "Bash 'echo > main.rs' in another repo, project branch fresh: allow" 0
+cleanup_repo
+
+make_tdd_repo
+OUTSIDE="$(mktemp -d)"
+cd "$OUTSIDE"
+envelope="$(build_envelope Bash "{\"command\":\"echo package > $REPO/server/internal/api/new.go\"}")"
+run_tdd_hook pretooluse-bash-source-write-guard.sh "$envelope"
+assert_exit "Bash write of a project source from a shell outside it on a fresh branch: BLOCK" 2
+cleanup_repo
+
+make_tdd_repo
+mkdir -p server/internal/api
+echo "package api" >server/internal/api/foo_test.go
+OUTSIDE="$(mktemp -d)"
+cd "$OUTSIDE"
+envelope="$(build_envelope Bash "{\"command\":\"echo package > $REPO/server/internal/api/new.go\"}")"
+run_tdd_hook pretooluse-bash-source-write-guard.sh "$envelope"
+assert_exit "Bash write of a project source from a shell outside it, test present: allow" 0
+cleanup_repo
+
 # A test is on the branch, so the marker rule answers every shape of marker write, not TDD.
-make_repo
+make_tdd_repo
 mkdir -p server/internal/api
 echo "package api" >server/internal/api/foo_test.go
 marker_cmds=(
@@ -219,7 +289,7 @@ marker_cmds=(
 )
 for marker_cmd in "${marker_cmds[@]}"; do
   envelope="$(build_envelope Bash "$(python3 -c 'import json,sys; print(json.dumps({"command": sys.argv[1]}))' "$marker_cmd")")"
-  run_hook pretooluse-bash-source-write-guard.sh "$envelope"
+  run_tdd_hook pretooluse-bash-source-write-guard.sh "$envelope"
   assert_exit "Bash [$marker_cmd]: BLOCK" 2
 done
 assert_stderr_contains "marker shell write: stderr cites the writer" "refactor-gate.sh"
@@ -227,7 +297,7 @@ assert_stderr_contains "marker shell write: stderr cites the writer" "refactor-g
 for allowed_cmd in 'cat .claude/.markers/refactor.head' 'ls -la .claude/.markers 2>/dev/null' \
   'scripts/refactor-gate.sh finish' './scripts/precommit-gauntlet.sh > /tmp/gauntlet.log 2>&1'; do
   envelope="$(build_envelope Bash "$(python3 -c 'import json,sys; print(json.dumps({"command": sys.argv[1]}))' "$allowed_cmd")")"
-  run_hook pretooluse-bash-source-write-guard.sh "$envelope"
+  run_tdd_hook pretooluse-bash-source-write-guard.sh "$envelope"
   assert_exit "Bash [$allowed_cmd]: allow" 0
 done
 cleanup_repo

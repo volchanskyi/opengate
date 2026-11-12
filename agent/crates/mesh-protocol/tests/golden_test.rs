@@ -562,10 +562,7 @@ fn golden_control_frame_device_logs_error() {
 
 #[test]
 fn golden_control_frame_request_backfill_slot() {
-    let msg = ControlMessage::RequestBackfillSlot {
-        pending_samples: 123456,
-        oldest_ts: 1700000000,
-    };
+    let msg = ControlMessage::RequestBackfillSlot;
     let frame = Frame::Control(msg);
     let encoded = frame.encode().unwrap();
     golden_check("control_request_backfill_slot.bin", &encoded);

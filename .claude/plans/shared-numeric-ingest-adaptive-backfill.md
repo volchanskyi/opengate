@@ -1019,6 +1019,48 @@ place (Ivan, 2026-11-11).
 - **The dependency check read a 127-file release commit as two answers**:
   paginated, gh repeats a commit once per hundred files; a commit is read
   unpaginated (commit 2).
+- **The machine's catch-up read what its own records already answered**
+  (third-party review, 2026-11-11; Ivan chose the fix). The start-up check
+  decoded every unsent reading to count them; every batch searched again from
+  the bottom of its age band; time with no readings was never marked done; both
+  reads held the store lock the once-a-second recorder waits on; the confirmed
+  list kept every span and loaded in time squared. Now a catch-up keeps its
+  place for the session and the start-up check's batch is sent first; empty time
+  up to the newest committed minute is marked done; the lock covers taking the
+  view; the list keeps 30 days and loads in one pass; `RequestBackfillSlot`
+  carries no fields, and an older agent's counts still decode. Found on the way
+  and fixed with it, each with a test that failed on `f25263a2`: a band's walk
+  started off its grid, so the bucket after an empty slice was never read; and
+  the store reads `[start, end)` where the walk assumed `[start, end]`, so each
+  batch's last minute lost its 59th second and the bucket at an empty slice's
+  end went unread (the tests' fake read both ends; it reads as the store does
+  now). Measuring it showed the store's raw read decoding every raw block the
+  series holds, whatever span it asked for, so each read cost 0.8 ms per day of
+  history kept, and an alert's 16 evidence reads ran on the recorder; Ivan
+  chose to fix it in this change. Each raw block is now labelled with its
+  earliest and latest second and a read opens only the blocks reaching into
+  it (format 2; an older store is labelled once at open). Readings
+  (workstation, release, median of three; counts are exact):
+
+  | Case | Reads, whole catch-up | Readings decoded | Total time | Longest lock hold | Next reconnect |
+  |---|---|---|---|---|---|
+  | One-hour gap (3 days kept) | 18,148 → 9,074 | 96,122 → 48,100 | 64 → 6 ms | 32 → 0.02 ms | 0 reads |
+  | A week offline | 983,437 → 9,750 | 4,785,677 → 2,382,471 | 4.36 s → 85 ms | 1.90 s → 0.07 ms | 0 reads |
+  | Office desktop, 3 min owed | 12,116 → 5,902 | 61,399 → 21,372 | 4.88 s → 16 ms | 1.84 s → 0.03 ms | 91 reads, 0.18 ms |
+  | Office desktop, nothing owed | 5,889 → 5,889 | 19,006 → 19,032 | 1.76 s → 17 ms | 1.76 s → 0.04 ms | 91 reads, 0.19 ms |
+
+  The start-up check alone went from 9,074–9,776 reads to 13 where the newest
+  band holds the backlog. The office desktop's next reconnect reads only the
+  six hours after its newest reading, which stay owed until a reading lands
+  after them. One 60 s raw read of one metric costs 0.03 ms with 1 to 28 days
+  kept (0.8 to 21 ms before). Store benchmarks, `f25263a2` → this change: a
+  commit window 768 → 742 µs, an hour's raw read 315 → 98 µs, a reopen 2.63 →
+  2.44 ms. The recorder test holds two days of backlog: the fixed loop's
+  longest wait stays under a millisecond, and with a full pass back under the
+  lock it waited 615 ms, past its quarter-second limit.
+- **The test-first gate judged files outside the repo** (2026-11-11, Ivan): both
+  hooks judge only paths inside the project and read the branch from the
+  project directory; the hook tests run a copy installed in each case's repo.
 
 ### Planned
 

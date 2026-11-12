@@ -1,18 +1,13 @@
-//! The tier walk: recent-first, then oldest-first per tier, skipping every span the server
-//! confirmed and every minute that has not ended, never one time at two resolutions.
-
-use std::collections::BTreeMap;
+//! The tier walk: recent-first, then oldest-first per tier on its own grid, skipping confirmed
+//! spans and running minutes, never one time at two resolutions.
 
 use edge_tsdb::confirmed::ConfirmedRanges;
-use edge_tsdb::{SeriesId, Tier, TsdbError};
+use edge_tsdb::{SeriesId, TsdbError};
 use mesh_protocol::{BackfillSample, BackfillTier};
 
-use super::{
-    roll_to_60s, BackfillConfig, BucketReduction, TierReader, HOUR_STEP, MIN_STEP, RECENT_STEP,
-};
-use crate::ml::store_sink::{
-    series_dim_name, series_max_dim_name, series_reduction, WindowReduction,
-};
+use super::{BackfillConfig, TierReader};
+
+mod read;
 
 /// A batch of pre-rolled samples for one tier, ascending by timestamp, ending at bucket `cursor`.
 /// Its ack confirms `[start, end)`: the span the drain scanned for it, empty stretches included.
@@ -25,8 +20,9 @@ pub struct PlannedBatch {
     pub end: i64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum Phase {
+    #[default]
     Recent,
     Mid,
     Old,
@@ -52,6 +48,14 @@ impl Phase {
     }
 }
 
+/// Where a drain stands: its age band and the next bucket it reads, `None` at the band's floor.
+/// A catch-up keeps it from batch to batch, so each stretch is read once per session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct DrainPosition {
+    phase: Phase,
+    pos: Option<i64>,
+}
+
 /// A recent-first drain over a [`TierReader`]; `next_batch` yields batches until `None`.
 pub struct BackfillDrain<'a, R: TierReader> {
     reader: &'a R,
@@ -59,9 +63,10 @@ pub struct BackfillDrain<'a, R: TierReader> {
     cfg: BackfillConfig,
     series: &'a [SeriesId],
     confirmed: &'a ConfirmedRanges,
-    phase: Phase,
-    pos: i64,
-    pos_ready: bool,
+    at: DrainPosition,
+    /// Empty time ending after this stays owed: a reading not yet committed is newer.
+    settled: i64,
+    empty: Vec<(i64, i64)>,
 }
 
 impl<'a, R: TierReader> BackfillDrain<'a, R> {
@@ -79,187 +84,114 @@ impl<'a, R: TierReader> BackfillDrain<'a, R> {
             cfg,
             series,
             confirmed,
-            phase: Phase::Recent,
-            pos: 0,
-            pos_ready: false,
+            at: DrainPosition::default(),
+            settled: i64::MIN,
+            empty: Vec::new(),
         }
     }
 
-    /// Samples one bucket yields across the series: an average plus a maximum where one exists.
-    fn samples_per_bucket(&self) -> usize {
-        self.series
-            .iter()
-            .map(|&series| {
-                usize::from(series_dim_name(series).is_some())
-                    + usize::from(series_max_dim_name(series).is_some())
-            })
-            .sum::<usize>()
-            .max(1)
+    /// Carries on from `at`, where an earlier drain of the same catch-up stopped.
+    #[must_use]
+    pub fn resume(mut self, at: DrainPosition) -> Self {
+        self.at = at;
+        self
     }
 
-    fn buckets_per_batch(&self) -> i64 {
-        let per = self.cfg.max_batch_samples / self.samples_per_bucket();
-        per.max(1) as i64
+    /// Records each stretch it reads with nothing left to send, cut at `settled`, the newest
+    /// committed minute; [`Self::take_empty`] hands them over to be confirmed.
+    #[must_use]
+    pub fn marking_empty_until(mut self, settled: i64) -> Self {
+        self.settled = settled;
+        self
     }
 
-    fn band(&self, phase: Phase) -> (i64, i64, i64) {
-        match phase {
-            // The newest bucket is the last whole minute: a minute still running is never sent.
-            Phase::Recent => (
-                self.now - self.cfg.recent_secs,
-                self.now - RECENT_STEP,
-                RECENT_STEP,
-            ),
-            Phase::Mid => (
-                self.now - self.cfg.mid_secs,
-                self.now - self.cfg.recent_secs,
-                MIN_STEP,
-            ),
-            Phase::Old => (
-                self.now - self.cfg.retention_secs,
-                self.now - self.cfg.mid_secs,
-                HOUR_STEP,
-            ),
-            // An empty interval: no timestamp is both above `i64::MAX` and below `i64::MIN`.
-            Phase::Done => (i64::MAX, i64::MIN, RECENT_STEP),
+    /// Where the next batch starts.
+    #[must_use]
+    pub fn position(&self) -> DrainPosition {
+        self.at
+    }
+
+    /// The empty stretches found since the last call, coalesced and ascending within a band.
+    pub fn take_empty(&mut self) -> Vec<(i64, i64)> {
+        std::mem::take(&mut self.empty)
+    }
+
+    fn mark_empty(&mut self, start: i64, end: i64) {
+        let end = end.min(self.settled);
+        if start >= end {
+            return;
         }
-    }
-
-    /// Whether a bucket may ship in the current phase: ended, unconfirmed, and for a rollup
-    /// entirely in its band so no time ships at two resolutions.
-    fn emit_ok(&self, ts: i64, step: i64) -> bool {
-        let (lo, hi, _) = self.band(self.phase);
-        let in_band = match self.phase {
-            Phase::Recent => ts >= lo && ts <= hi,
-            Phase::Mid | Phase::Old => ts >= lo && ts + step <= hi,
-            Phase::Done => false,
-        };
-        in_band && ts + step <= self.now && !self.confirmed.covers(ts, ts + step)
+        match self.empty.last_mut() {
+            Some(last) if last.1 == start => last.1 = end,
+            _ => self.empty.push((start, end)),
+        }
     }
 
     /// Produces the next batch, or `None` when drained; the caller records each confirmation.
     pub fn next_batch(&mut self) -> Result<Option<PlannedBatch>, TsdbError> {
         loop {
-            let Some(tier) = self.phase.tier() else {
+            let Some(tier) = self.at.phase.tier() else {
                 return Ok(None);
             };
-            let (band_lo, band_hi, step) = self.band(self.phase);
+            let (band_lo, band_hi, step) = self.band(self.at.phase);
 
-            if !self.pos_ready {
-                self.pos = band_lo;
-                self.pos_ready = true;
-            }
+            // Every position sits on the band's grid, so no bucket falls between two slices.
+            let mut pos = self.at.pos.unwrap_or_else(|| ceil_to(band_lo, step));
             // A confirmed span is skipped whole, to the first bucket at or after its end.
-            while let Some(end) = self.confirmed.span_end_at(self.pos) {
-                self.pos = end.div_euclid(step) * step + if end % step == 0 { 0 } else { step };
+            while let Some(end) = self.confirmed.span_end_at(pos) {
+                pos = ceil_to(end, step);
             }
+            self.at.pos = Some(pos);
 
-            if self.pos > band_hi {
+            if pos > band_hi {
                 self.advance_phase();
                 continue;
             }
 
-            let scanned_from = self.pos;
-            let read_end = (self.pos + step * self.buckets_per_batch()).min(band_hi);
-            let buckets = self.read_buckets(tier, step, self.pos, read_end)?;
+            let read_end = (pos + step * self.buckets_per_batch()).min(band_hi);
+            let (buckets, owed_elsewhere) = self.read_buckets(tier, step, pos, read_end)?;
 
             if buckets.is_empty() {
-                // An evicted or empty slice is skipped past the scanned window.
+                // A slice with nothing left to send is done; a reading the band cannot send and
+                // the server has not confirmed keeps it owed.
+                if !owed_elsewhere {
+                    let end = (read_end + step).min(self.band_end(self.at.phase));
+                    self.mark_empty(pos, end);
+                }
                 if read_end >= band_hi {
                     self.advance_phase();
                 } else {
-                    self.pos = read_end + step;
+                    self.at.pos = Some(read_end + step);
                 }
                 continue;
             }
 
             let cursor = *buckets.keys().next_back().expect("non-empty");
-            let mut samples = Vec::new();
-            for (ts, dims) in buckets {
-                for (series, avg, max) in dims {
-                    if let Some(name) = series_dim_name(series) {
-                        samples.push(BackfillSample {
-                            name: name.to_string(),
-                            ts,
-                            value: avg,
-                        });
-                    }
-                    if let Some(name) = series_max_dim_name(series) {
-                        samples.push(BackfillSample {
-                            name: name.to_string(),
-                            ts,
-                            value: max,
-                        });
-                    }
-                }
-            }
-            self.pos = cursor + step;
+            self.at.pos = Some(cursor + step);
             return Ok(Some(PlannedBatch {
                 tier,
-                samples,
+                samples: read::named_samples(buckets),
                 cursor,
-                start: scanned_from.min(cursor),
+                start: pos.min(cursor),
                 end: cursor + step,
             }));
         }
     }
 
     fn advance_phase(&mut self) {
-        self.phase = self.phase.next();
-        self.pos_ready = false;
+        self.at = DrainPosition {
+            phase: self.at.phase.next(),
+            pos: None,
+        };
     }
+}
 
-    /// Reads `[start, end]` for `tier` into per-bucket `(series, avg, max)` triples, capped to
-    /// `buckets_per_batch` buckets; rollup tiers take `max` from the stored bucket.
-    fn read_buckets(
-        &self,
-        tier: BackfillTier,
-        step: i64,
-        start: i64,
-        end: i64,
-    ) -> Result<BTreeMap<i64, Vec<BucketReduction>>, TsdbError> {
-        let mut acc: BTreeMap<i64, Vec<BucketReduction>> = BTreeMap::new();
-        for &series in self.series {
-            let reduction = series_reduction(series);
-            let points: Vec<(i64, f64, f64)> = match tier {
-                // A 60 s window starting at `end` holds readings up to a minute past it.
-                BackfillTier::Recent60s => roll_to_60s(
-                    &self
-                        .reader
-                        .range_raw(series, start, end + RECENT_STEP - 1)?,
-                    reduction,
-                ),
-                BackfillTier::Rollup1m => self
-                    .reader
-                    .range_tier(series, Tier::T1, start, end)?
-                    .into_iter()
-                    .map(|p| {
-                        let value = match reduction {
-                            WindowReduction::Mean => p.avg,
-                            WindowReduction::Last => p.last,
-                        };
-                        (p.bucket, value, p.max)
-                    })
-                    .collect(),
-                BackfillTier::Rollup1h => self
-                    .reader
-                    .range_tier(series, Tier::T2, start, end)?
-                    .into_iter()
-                    .map(|p| (p.bucket, p.avg, p.max))
-                    .collect(),
-                _ => Vec::new(),
-            };
-            for (ts, avg, max) in points {
-                if self.emit_ok(ts, step) {
-                    acc.entry(ts).or_default().push((series, avg, max));
-                }
-            }
-        }
-        // The map is cut at the first bucket past the cap.
-        let cap = self.buckets_per_batch() as usize;
-        if let Some(&first_dropped) = acc.keys().nth(cap) {
-            acc.split_off(&first_dropped);
-        }
-        Ok(acc)
+/// The first multiple of `step` at or after `ts`.
+fn ceil_to(ts: i64, step: i64) -> i64 {
+    let floor = ts.div_euclid(step) * step;
+    if floor == ts {
+        ts
+    } else {
+        floor + step
     }
 }

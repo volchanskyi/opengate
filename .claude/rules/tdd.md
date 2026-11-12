@@ -13,6 +13,8 @@ Test both scenarios: positive cases and error handling.
   unstaged, or untracked.
 - Once a test change exists anywhere on the branch, the gate is silent for the
   rest of the branch's life.
+- The gate judges only files inside the project, and reads the project's branch
+  whatever directory the shell stands in.
 - Classifier: [`scripts/tdd-check.sh`](../../scripts/tdd-check.sh).
 
 ## Worked examples

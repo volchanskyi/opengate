@@ -5,13 +5,24 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 func TestGoldenControlRequestBackfillSlot(t *testing.T) {
 	msg := decodeControlFrame(t, "control_request_backfill_slot.bin")
 	assert.Equal(t, MsgRequestBackfillSlot, msg.Type)
-	assert.Equal(t, uint64(123456), msg.PendingSamples)
-	assert.Equal(t, int64(1700000000), msg.OldestTS)
+}
+
+func TestAnOlderAgentsSlotRequestWithItsBacklogCountsStillDecodes(t *testing.T) {
+	payload, err := msgpack.Marshal(map[string]any{
+		"type":            string(MsgRequestBackfillSlot),
+		"pending_samples": uint64(123456),
+		"oldest_ts":       int64(1700000000),
+	})
+	require.NoError(t, err)
+	msg, err := (&Codec{}).DecodeControl(payload)
+	require.NoError(t, err)
+	assert.Equal(t, MsgRequestBackfillSlot, msg.Type)
 }
 
 func TestGoldenControlGrantBackfill(t *testing.T) {

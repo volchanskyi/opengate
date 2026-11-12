@@ -1,7 +1,7 @@
 //! Reconnect-backfill loop: drains the history the server never confirmed, one answered batch at a
 //! time, and answers deep-history pulls; store access runs on blocking threads.
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use rand::RngExt;
@@ -9,8 +9,8 @@ use rand::RngExt;
 use crate::clock::unix_now;
 use edge_tsdb::TsdbError;
 use mesh_agent_core::ml::backfill::{
-    answer_local_history, confirm, forget_after, migrate_cursors, pace_delay, pending_hint,
-    BackfillConfig, BackfillDrain, ConfirmedStore,
+    answer_local_history, confirm, forget_after, migrate_cursors, pace_delay, settled_until,
+    BackfillConfig, BackfillDrain, ConfirmedStore, DrainPosition, PlannedBatch,
 };
 use mesh_agent_core::ml::store_sink::{dim_series, LocalStoreSink, BACKFILL_SERIES};
 use mesh_protocol::{BackfillTier, ControlMessage};
@@ -64,6 +64,15 @@ enum Phase {
     Quiescent,
 }
 
+/// A catch-up's own clock and place, kept from batch to batch so each stretch is read once.
+#[derive(Default)]
+struct Session {
+    now: i64,
+    at: DrainPosition,
+    /// The batch the start-up check found, sent first once the slot is granted.
+    first: Option<PlannedBatch>,
+}
+
 /// Drives reconnect backfill for one agent over its live control stream.
 pub(crate) struct BackfillCoordinator {
     store: Arc<Mutex<LocalStoreSink>>,
@@ -72,6 +81,7 @@ pub(crate) struct BackfillCoordinator {
     in_flight: Option<InFlight>,
     /// Answers missed in a row for the batch in flight.
     misses: u32,
+    session: Session,
 }
 
 impl BackfillCoordinator {
@@ -82,44 +92,71 @@ impl BackfillCoordinator {
             phase: Phase::Idle,
             in_flight: None,
             misses: 0,
+            session: Session::default(),
         }
     }
 
     /// Begins a backfill cycle for a new session and returns the `RequestBackfillSlot` to send,
-    /// or `None` when no history is pending.
+    /// or `None` when no batch is owed.
     pub(crate) async fn start_session(&mut self) -> Option<ControlMessage> {
         self.phase = Phase::Idle;
         self.in_flight = None;
         self.misses = 0;
-        let cfg = self.cfg;
-        let now = unix_now();
-        let hint = self
-            .write_store(move |sink| {
-                if migrate_cursors(sink.store_mut(), now, cfg)? {
-                    tracing::info!("backfill: watermarks read into confirmed spans");
-                }
-                let snap = sink.snapshot()?;
-                let confirmed = sink.store().load_confirmed()?;
-                pending_hint(&snap, now, cfg, &BACKFILL_SERIES, &confirmed)
-            })
-            .await;
-        let (pending, oldest) = match hint {
-            Ok(hint) => hint,
-            Err(e) => {
-                tracing::warn!(error = %e, "backfill: pending-hint read failed");
-                self.phase = Phase::Quiescent;
-                return None;
-            }
+        self.session = Session {
+            now: unix_now(),
+            ..Session::default()
         };
-        if pending == 0 {
-            self.phase = Phase::Quiescent;
-            return None;
+        match self.plan(true).await {
+            Ok(Some(batch)) => {
+                self.session.first = Some(batch);
+                self.phase = Phase::AwaitingGrant;
+                Some(ControlMessage::RequestBackfillSlot)
+            }
+            Ok(None) => {
+                self.phase = Phase::Quiescent;
+                None
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "backfill: start-up read failed");
+                self.phase = Phase::Quiescent;
+                None
+            }
         }
-        self.phase = Phase::AwaitingGrant;
-        Some(ControlMessage::RequestBackfillSlot {
-            pending_samples: pending,
-            oldest_ts: oldest,
-        })
+    }
+
+    /// Finds the session's next batch from where the last one stopped and confirms the empty time
+    /// read on the way, holding the store lock to take the view and to confirm, never to read.
+    async fn plan(&mut self, migrate: bool) -> Result<Option<PlannedBatch>, TsdbError> {
+        let (cfg, now, at) = (self.cfg, self.session.now, self.session.at);
+        let horizon = self.horizon();
+        let (batch, at) = self
+            .with_store(move |store| {
+                let (snap, confirmed) = {
+                    let mut sink = lock(store);
+                    if migrate && migrate_cursors(sink.store_mut(), now, cfg)? {
+                        tracing::info!("backfill: watermarks read into confirmed spans");
+                    }
+                    (sink.snapshot()?, sink.store().load_confirmed()?)
+                };
+                let settled = settled_until(&snap, &BACKFILL_SERIES)?;
+                let mut drain = BackfillDrain::new(&snap, now, cfg, &BACKFILL_SERIES, &confirmed)
+                    .resume(at)
+                    .marking_empty_until(settled);
+                let batch = drain.next_batch()?;
+                let (empty, at) = (drain.take_empty(), drain.position());
+                if !empty.is_empty() {
+                    confirm(lock(store).store_mut(), &empty, horizon)?;
+                }
+                Ok((batch, at))
+            })
+            .await?;
+        self.session.at = at;
+        Ok(batch)
+    }
+
+    /// The oldest time catch-up can still send; confirmations that ended before it are dropped.
+    fn horizon(&self) -> i64 {
+        unix_now() - self.cfg.retention_secs
     }
 
     /// Holds the grant and enters the draining phase.
@@ -164,15 +201,10 @@ impl BackfillCoordinator {
             // resumes with what the server has not confirmed.
             return self.start_session().await;
         }
-        let cfg = self.cfg;
-        let now = unix_now();
-        let planned = self
-            .read_store(move |sink| {
-                let snap = sink.snapshot()?;
-                let confirmed = sink.store().load_confirmed()?;
-                BackfillDrain::new(&snap, now, cfg, &BACKFILL_SERIES, &confirmed).next_batch()
-            })
-            .await;
+        let planned = match self.session.first.take() {
+            Some(batch) => Ok(Some(batch)),
+            None => self.plan(false).await,
+        };
         match planned {
             Ok(Some(batch)) => {
                 self.phase = Phase::Draining {
@@ -232,9 +264,9 @@ impl BackfillCoordinator {
             return Duration::ZERO;
         };
         self.misses = 0;
-        let (start, end) = (batch.start, batch.end);
+        let (span, horizon) = ((batch.start, batch.end), self.horizon());
         if let Err(e) = self
-            .write_store(move |sink| confirm(sink.store_mut(), start, end))
+            .write_store(move |sink| confirm(sink.store_mut(), &[span], horizon))
             .await
         {
             tracing::warn!(error = %e, "backfill: confirmation persist failed");
@@ -251,8 +283,9 @@ impl BackfillCoordinator {
     /// Confirms the minute a live window stamped `ts` covers, which catch-up then skips.
     pub(crate) async fn on_live_confirmed(&mut self, ts: i64) {
         let minute = ts.div_euclid(60) * 60;
+        let horizon = self.horizon();
         if let Err(e) = self
-            .write_store(move |sink| confirm(sink.store_mut(), minute, minute + 60))
+            .write_store(move |sink| confirm(sink.store_mut(), &[(minute, minute + 60)], horizon))
             .await
         {
             tracing::warn!(error = %e, "backfill: live confirmation persist failed");
@@ -345,58 +378,58 @@ impl BackfillCoordinator {
         matches!(self.phase, Phase::Draining { .. })
     }
 
-    /// Runs a store write on a blocking thread so a redb commit never stalls the control loop.
+    /// Runs `f` with the shared store on a blocking thread, so neither a redb commit nor a long
+    /// read stalls the control loop; `f` takes the lock for as long as it needs it.
+    async fn with_store<F, T>(&self, f: F) -> Result<T, TsdbError>
+    where
+        F: FnOnce(&Mutex<LocalStoreSink>) -> Result<T, TsdbError> + Send + 'static,
+        T: Send + 'static,
+    {
+        let store = Arc::clone(&self.store);
+        match tokio::task::spawn_blocking(move || f(&store)).await {
+            Ok(res) => res,
+            Err(e) => {
+                tracing::warn!(error = %e, "backfill: store task panicked");
+                Err(TsdbError::Io(std::io::Error::other("store task panicked")))
+            }
+        }
+    }
+
+    /// Runs a store write holding the lock throughout.
     async fn write_store<F, T>(&self, f: F) -> Result<T, TsdbError>
     where
         F: FnOnce(&mut LocalStoreSink) -> Result<T, TsdbError> + Send + 'static,
         T: Send + 'static,
     {
-        let store = Arc::clone(&self.store);
-        match tokio::task::spawn_blocking(move || {
-            let mut sink = store.lock().expect("store mutex poisoned");
-            f(&mut sink)
-        })
-        .await
-        {
-            Ok(res) => res,
-            Err(e) => {
-                tracing::warn!(error = %e, "backfill: store write task panicked");
-                Err(TsdbError::Io(std::io::Error::other(
-                    "store write task panicked",
-                )))
-            }
-        }
+        self.with_store(move |store| f(&mut lock(store))).await
     }
 
-    /// Runs a read-only store closure on a blocking thread so a cold-cache redb read never
-    /// stalls the async control loop.
+    /// Runs a read-only store closure holding the lock throughout.
     async fn read_store<F, T>(&self, f: F) -> Result<T, TsdbError>
     where
         F: FnOnce(&LocalStoreSink) -> Result<T, TsdbError> + Send + 'static,
         T: Send + 'static,
     {
-        let store = Arc::clone(&self.store);
-        match tokio::task::spawn_blocking(move || {
-            let sink = store.lock().expect("store mutex poisoned");
-            f(&sink)
-        })
-        .await
-        {
-            Ok(res) => res,
-            Err(e) => {
-                tracing::warn!(error = %e, "backfill: store read task panicked");
-                Err(TsdbError::Io(std::io::Error::other(
-                    "store read task panicked",
-                )))
-            }
-        }
+        self.with_store(move |store| f(&lock(store))).await
     }
+}
+
+/// Takes the store lock; a poisoned lock fails the blocking task holding it.
+fn lock(store: &Mutex<LocalStoreSink>) -> MutexGuard<'_, LocalStoreSink> {
+    store.lock().expect("store mutex poisoned")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use edge_tsdb::Durability;
+
+    /// Hours of unsent history in the recorder test: a read holding the store lock over two
+    /// days holds it past half a second.
+    const HOURS_OFFLINE: i64 = 48;
+
+    /// The recorder's longest acceptable wait for the store: a quarter of its one-second beat.
+    const RECORDER_WAIT: Duration = Duration::from_millis(250);
     use mesh_agent_core::ml::sampler::MetricSample;
 
     fn sample(cpu: f32) -> MetricSample {
@@ -416,6 +449,19 @@ mod tests {
             disk_queue_depth: Some(0.0),
             processes: Vec::new(),
         }
+    }
+
+    /// A store holding one reading a second over each `[start, end)`, committed.
+    fn recorded_store(stretches: &[(i64, i64)]) -> Arc<Mutex<LocalStoreSink>> {
+        let path = tempfile::tempdir().expect("tempdir").keep();
+        let mut sink = LocalStoreSink::open(&path, 256 * 1024 * 1024, 3_600).expect("open");
+        for &(start, end) in stretches {
+            for ts in start..end {
+                sink.record(ts, &sample(50.0), false).expect("record");
+            }
+        }
+        sink.flush(Durability::Full).expect("flush");
+        Arc::new(Mutex::new(sink))
     }
 
     fn seeded_store(now: i64, n: i64) -> Arc<Mutex<LocalStoreSink>> {
@@ -449,13 +495,7 @@ mod tests {
         let mut c = BackfillCoordinator::new(store);
 
         match c.start_session().await {
-            Some(ControlMessage::RequestBackfillSlot {
-                pending_samples,
-                oldest_ts,
-            }) => {
-                assert!(pending_samples > 0);
-                assert!(oldest_ts > 0);
-            }
+            Some(ControlMessage::RequestBackfillSlot) => {}
             other => panic!("expected RequestBackfillSlot, got {other:?}"),
         }
 
@@ -668,7 +708,7 @@ mod tests {
         assert!(
             matches!(
                 c.start_session().await,
-                Some(ControlMessage::RequestBackfillSlot { .. })
+                Some(ControlMessage::RequestBackfillSlot)
             ),
             "the forgotten minutes are caught up again"
         );
@@ -712,8 +752,95 @@ mod tests {
         // Deadline already in the past: the next drive re-requests a slot.
         c.on_grant(100, now - 1);
         match c.next_batch().await {
-            Some(ControlMessage::RequestBackfillSlot { .. }) => {}
+            Some(ControlMessage::RequestBackfillSlot) => {}
             other => panic!("expected a re-slot request, got {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn a_reconnect_with_nothing_owed_marks_its_empty_time_done() {
+        let minute = unix_now().div_euclid(60) * 60;
+        let on = [
+            (minute - 7_200, minute - 5_400),
+            (minute - 1_800, minute - 600),
+        ];
+        let store = recorded_store(&on);
+        confirm(store.lock().unwrap().store_mut(), &on, i64::MIN).unwrap();
+        let mut c = BackfillCoordinator::new(Arc::clone(&store));
+
+        assert!(c.start_session().await.is_none(), "nothing is owed");
+        let confirmed = store.lock().unwrap().store().confirmed().unwrap();
+        assert!(
+            confirmed.covers(minute - 5_400, minute - 1_800),
+            "the hour the machine was off is done once read: {:?}",
+            confirmed.spans()
+        );
+    }
+
+    #[tokio::test]
+    async fn confirmations_older_than_thirty_days_are_forgotten() {
+        let minute = unix_now().div_euclid(60) * 60;
+        let month_ago = minute - 40 * 86_400;
+        let store = recorded_store(&[(minute - 60, minute)]);
+        confirm(
+            store.lock().unwrap().store_mut(),
+            &[(month_ago, month_ago + 600)],
+            i64::MIN,
+        )
+        .unwrap();
+        let mut c = BackfillCoordinator::new(Arc::clone(&store));
+
+        c.on_live_confirmed(minute - 60).await;
+
+        let confirmed = store.lock().unwrap().store().confirmed().unwrap();
+        assert_eq!(confirmed.spans(), &[(minute - 60, minute)]);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_recorder_waits_under_a_quarter_second_for_the_store_during_a_catch_up() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::time::Instant;
+
+        let minute = unix_now().div_euclid(60) * 60;
+        let store = recorded_store(&[(minute - HOURS_OFFLINE * 3_600, minute)]);
+        let stop = Arc::new(AtomicBool::new(false));
+        // Records as the once-a-second sampler does, every 10 ms, and keeps its longest wait.
+        let recorder = {
+            let (store, stop) = (Arc::clone(&store), Arc::clone(&stop));
+            std::thread::spawn(move || {
+                let mut longest = Duration::ZERO;
+                while !stop.load(Ordering::Relaxed) {
+                    let asked = Instant::now();
+                    let mut sink = store.lock().unwrap();
+                    longest = longest.max(asked.elapsed());
+                    sink.record(unix_now(), &sample(50.0), false).unwrap();
+                    drop(sink);
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                longest
+            })
+        };
+
+        let mut c = BackfillCoordinator::new(Arc::clone(&store));
+        assert!(
+            c.start_session().await.is_some(),
+            "the offline hours are owed"
+        );
+        c.on_grant(0, unix_now() + 3_600);
+        let mut batches = 0;
+        while let Some(ControlMessage::MetricBackfillBatch { tier, cursor, .. }) =
+            c.next_batch().await
+        {
+            c.on_ack(tier, cursor).await;
+            batches += 1;
+        }
+        stop.store(true, Ordering::Relaxed);
+        let longest = recorder.join().unwrap();
+
+        assert!(batches > 1, "the catch-up spans several batches");
+        assert!(
+            longest < RECORDER_WAIT,
+            "the recorder waited {longest:?} for the store during a catch-up"
+        );
     }
 }

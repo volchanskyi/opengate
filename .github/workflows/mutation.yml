@@ -132,6 +132,7 @@ jobs:
           # Each Rust shard id names the behavior it measures, and its rebuilds stay inside one crate.
           # The split lives in scripts/lib/mutation-shards.sh.
           - { language: rust, shard: rust-core-ml-backfill-drain }
+          - { language: rust, shard: rust-core-ml-backfill-reads }
           - { language: rust, shard: rust-core-ml-backfill-tiers }
           - { language: rust, shard: rust-core-ml-sampling }
           - { language: rust, shard: rust-core-ml-host-sources }

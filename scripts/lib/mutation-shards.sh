@@ -12,6 +12,7 @@ mutation_rust_shards() {
   # keeps a string by that name, and ShellCheck follows the source.
   local ids=(
     rust-core-ml-backfill-drain
+    rust-core-ml-backfill-reads
     rust-core-ml-backfill-tiers
     rust-core-ml-sampling
     rust-core-ml-host-sources
@@ -46,7 +47,8 @@ mutation_rust_shards() {
 # The cargo package a shard mutates; cargo-mutants runs only that package's tests.
 mutation_rust_shard_package() {
   case "$1" in
-    rust-core-ml-backfill-drain | rust-core-ml-backfill-tiers) echo "mesh-agent-core" ;;
+    rust-core-ml-backfill-drain | rust-core-ml-backfill-reads) echo "mesh-agent-core" ;;
+    rust-core-ml-backfill-tiers) echo "mesh-agent-core" ;;
     rust-core-ml-sampling | rust-core-ml-host-sources | rust-core-ml-store-sink) echo "mesh-agent-core" ;;
     rust-core-ml-analysis | rust-core-ml-redaction) echo "mesh-agent-core" ;;
     rust-core-alerts-retro-plan | rust-core-alerts-retro-scan) echo "mesh-agent-core" ;;
@@ -73,6 +75,9 @@ mutation_rust_shard_units() {
   case "$1" in
     rust-core-ml-backfill-drain)
       echo "file:crates/mesh-agent-core/src/ml/backfill/drain.rs"
+      ;;
+    rust-core-ml-backfill-reads)
+      echo "file:crates/mesh-agent-core/src/ml/backfill/drain/read.rs"
       ;;
     rust-core-ml-backfill-tiers)
       echo "file:crates/mesh-agent-core/src/ml/backfill/mod.rs"

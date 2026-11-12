@@ -4,7 +4,7 @@ import "github.com/vmihailenco/msgpack/v5"
 
 // controlFieldCount is the number of msgpack-encoded fields ControlMessage declares; the
 // positionally indexed controlFieldPresence and encodeControlField must track the struct.
-const controlFieldCount = 107
+const controlFieldCount = 105
 
 // Each put* helper writes one map entry through the encoder method the reflection encoder picks
 // for that Go type, keeping the integer widths and so the bytes identical.
@@ -126,92 +126,90 @@ func (m *ControlMessage) controlFieldPresence() [controlFieldCount]bool {
 	present[18] = len(m.AlertRules) != 0
 	present[19] = len(m.RuleCoverage) != 0
 	present[20] = m.DeviceHourlyCeiling != 0
-	present[21] = m.PendingSamples != 0
-	present[22] = m.OldestTS != 0
-	present[23] = m.Rate != 0
-	present[24] = m.Deadline != 0
-	present[25] = m.RetryAfter != 0
-	present[26] = m.Tier != ""
-	present[27] = len(m.BackfillSamples) != 0
-	present[28] = m.Cursor != 0
-	present[29] = m.Dim != ""
-	present[30] = m.FromTS != 0
-	present[31] = m.ToTS != 0
-	present[32] = m.MaxPoints != 0
-	present[33] = len(m.HistoryPoints) != 0
-	present[34] = m.Truncated != nil
-	present[35] = m.Token != ""
-	present[36] = m.RelayURL != ""
-	present[37] = m.Reason != ""
-	present[38] = m.Permissions != nil
-	present[39] = len(m.IceServers) != 0
-	present[40] = m.Version != ""
-	present[41] = m.URL != ""
-	present[42] = m.SHA256 != ""
-	present[43] = m.Signature != ""
-	present[44] = m.Success != nil
-	present[45] = m.AckError != ""
-	present[46] = m.SDP != ""
-	present[47] = m.Candidate != ""
-	present[48] = m.Mid != ""
-	present[49] = m.Received != 0
-	present[50] = m.X != 0
-	present[51] = m.Y != 0
-	present[52] = m.Button != ""
-	present[53] = m.Pressed != nil
-	present[54] = m.Key != ""
-	present[55] = m.Cols != 0
-	present[56] = m.Rows != 0
-	present[57] = m.Path != ""
-	present[58] = len(m.Entries) != 0
-	present[59] = m.More
-	present[60] = m.TotalSize != 0
-	present[61] = m.Text != ""
-	present[62] = m.Sender != ""
-	present[63] = m.CPUModel != ""
-	present[64] = m.CPUCores != 0
-	present[65] = m.RAMTotalMB != 0
-	present[66] = m.DiskTotalMB != 0
-	present[67] = m.DiskFreeMB != 0
-	present[68] = len(m.NetworkInterfaces) != 0
-	present[69] = m.SystemUUID != ""
-	present[70] = m.AMTAvailable != nil
-	present[71] = m.AMTVersion != ""
-	present[72] = m.LogLevel != ""
-	present[73] = m.TimeFrom != ""
-	present[74] = m.TimeTo != ""
-	present[75] = m.Search != ""
-	present[76] = m.LogOffset != 0
-	present[77] = m.LogLimit != 0
-	present[78] = m.Source != ""
-	present[79] = m.Unit != ""
-	present[80] = len(m.LogEntries) != 0
-	present[81] = m.TotalCount != 0
-	present[82] = m.HasMore != nil
-	present[83] = len(m.AvailableUnits) != 0
-	present[84] = len(m.Ports) != 0
-	present[85] = len(m.Services) != 0
-	present[86] = len(m.DBEngines) != 0
-	present[87] = len(m.Containers) != 0
-	present[88] = len(m.Packages) != 0
-	present[89] = m.Enabled != nil
-	present[90] = m.AlertID != ""
-	present[91] = m.RuleID != ""
-	present[92] = m.RuleVersion != 0
-	present[93] = m.Severity != nil
-	present[94] = m.Metric != ""
-	present[95] = m.Value != nil
-	present[96] = m.WindowStartTS != 0
-	present[97] = m.WindowEndTS != 0
-	present[98] = m.ObservedTS != 0
-	present[99] = m.Backfilled != nil
-	present[100] = m.EvidenceCodec != ""
-	present[101] = len(m.Evidence) != 0
-	present[102] = len(m.CSR) != 0
-	present[103] = len(m.Cert) != 0
-	present[104] = m.CABundle != ""
-	present[105] = m.ReceivedScreen != 0
-	present[106] = m.ReceivedFiles != 0
+	present[21] = m.Rate != 0
+	present[22] = m.Deadline != 0
+	present[23] = m.RetryAfter != 0
+	present[24] = m.Tier != ""
+	present[25] = len(m.BackfillSamples) != 0
+	present[26] = m.Cursor != 0
+	present[27] = m.Dim != ""
+	present[28] = m.FromTS != 0
+	present[29] = m.ToTS != 0
+	present[30] = m.MaxPoints != 0
+	present[31] = len(m.HistoryPoints) != 0
+	present[32] = m.Truncated != nil
+	present[33] = m.Token != ""
+	present[34] = m.RelayURL != ""
+	present[35] = m.Reason != ""
+	present[36] = m.Permissions != nil
+	present[37] = len(m.IceServers) != 0
+	present[38] = m.Version != ""
+	present[39] = m.URL != ""
+	present[40] = m.SHA256 != ""
+	present[41] = m.Signature != ""
+	present[42] = m.Success != nil
+	present[43] = m.AckError != ""
+	present[44] = m.SDP != ""
+	present[45] = m.Candidate != ""
+	present[46] = m.Mid != ""
+	present[47] = m.Received != 0
+	present[48] = m.X != 0
+	present[49] = m.Y != 0
+	present[50] = m.Button != ""
+	present[51] = m.Pressed != nil
+	present[52] = m.Key != ""
+	present[53] = m.Cols != 0
+	present[54] = m.Rows != 0
+	present[55] = m.Path != ""
+	present[56] = len(m.Entries) != 0
+	present[57] = m.More
+	present[58] = m.TotalSize != 0
+	present[59] = m.Text != ""
+	present[60] = m.Sender != ""
+	present[61] = m.CPUModel != ""
+	present[62] = m.CPUCores != 0
+	present[63] = m.RAMTotalMB != 0
+	present[64] = m.DiskTotalMB != 0
+	present[65] = m.DiskFreeMB != 0
+	present[66] = len(m.NetworkInterfaces) != 0
+	present[67] = m.SystemUUID != ""
+	present[68] = m.AMTAvailable != nil
+	present[69] = m.AMTVersion != ""
+	present[70] = m.LogLevel != ""
+	present[71] = m.TimeFrom != ""
+	present[72] = m.TimeTo != ""
+	present[73] = m.Search != ""
+	present[74] = m.LogOffset != 0
+	present[75] = m.LogLimit != 0
+	present[76] = m.Source != ""
+	present[77] = m.Unit != ""
+	present[78] = len(m.LogEntries) != 0
+	present[79] = m.TotalCount != 0
+	present[80] = m.HasMore != nil
+	present[81] = len(m.AvailableUnits) != 0
+	present[82] = len(m.Ports) != 0
+	present[83] = len(m.Services) != 0
+	present[84] = len(m.DBEngines) != 0
+	present[85] = len(m.Containers) != 0
+	present[86] = len(m.Packages) != 0
+	present[87] = m.Enabled != nil
+	present[88] = m.AlertID != ""
+	present[89] = m.RuleID != ""
+	present[90] = m.RuleVersion != 0
+	present[91] = m.Severity != nil
+	present[92] = m.Metric != ""
+	present[93] = m.Value != nil
+	present[94] = m.WindowStartTS != 0
+	present[95] = m.WindowEndTS != 0
+	present[96] = m.ObservedTS != 0
+	present[97] = m.Backfilled != nil
+	present[98] = m.EvidenceCodec != ""
+	present[99] = len(m.Evidence) != 0
+	present[100] = len(m.CSR) != 0
+	present[101] = len(m.Cert) != 0
+	present[102] = m.CABundle != ""
+	present[103] = m.ReceivedScreen != 0
+	present[104] = m.ReceivedFiles != 0
 	return present
 }
 
@@ -221,21 +219,21 @@ func (m *ControlMessage) encodeControlField(enc *msgpack.Encoder, i int) error {
 	switch {
 	case i <= 7:
 		return m.encodeEnvelopeField(enc, i)
-	case i <= 34:
+	case i <= 32:
 		return m.encodeTelemetryField(enc, i)
-	case i <= 45:
+	case i <= 43:
 		return m.encodeSessionField(enc, i)
-	case i <= 62:
+	case i <= 60:
 		return m.encodeInteractionField(enc, i)
-	case i <= 71:
+	case i <= 69:
 		return m.encodeHardwareField(enc, i)
-	case i <= 88:
+	case i <= 86:
 		return m.encodeInventoryField(enc, i)
-	case i <= 101:
+	case i <= 99:
 		return m.encodeAlertField(enc, i)
-	case i <= 104:
+	case i <= 102:
 		return m.encodeCertificateField(enc, i)
-	case i <= 106:
+	case i <= 104:
 		return m.encodeChannelCountField(enc, i)
 	}
 	return nil
@@ -264,7 +262,7 @@ func (m *ControlMessage) encodeEnvelopeField(enc *msgpack.Encoder, i int) error 
 	return nil
 }
 
-// encodeTelemetryField writes one of fields 8–34: vitals, summaries, breaches and windows.
+// encodeTelemetryField writes one of fields 8–32: vitals, summaries, breaches and windows.
 func (m *ControlMessage) encodeTelemetryField(enc *msgpack.Encoder, i int) error {
 	switch i {
 	case 8:
@@ -294,226 +292,222 @@ func (m *ControlMessage) encodeTelemetryField(enc *msgpack.Encoder, i int) error
 	case 20:
 		return putUint32(enc, "device_hourly_ceiling", m.DeviceHourlyCeiling)
 	case 21:
-		return putUint64(enc, "pending_samples", m.PendingSamples)
-	case 22:
-		return putInt64(enc, "oldest_ts", m.OldestTS)
-	case 23:
 		return putUint32(enc, "rate", m.Rate)
-	case 24:
+	case 22:
 		return putInt64(enc, "deadline", m.Deadline)
-	case 25:
+	case 23:
 		return putUint32(enc, "retry_after", m.RetryAfter)
-	case 26:
+	case 24:
 		return putString(enc, "tier", string(m.Tier))
-	case 27:
+	case 25:
 		return putValue(enc, "samples", m.BackfillSamples)
-	case 28:
+	case 26:
 		return putInt64(enc, "cursor", m.Cursor)
-	case 29:
+	case 27:
 		return putString(enc, "dim", string(m.Dim))
-	case 30:
+	case 28:
 		return putInt64(enc, "from_ts", m.FromTS)
-	case 31:
+	case 29:
 		return putInt64(enc, "to_ts", m.ToTS)
-	case 32:
+	case 30:
 		return putUint32(enc, "max_points", m.MaxPoints)
-	case 33:
+	case 31:
 		return putValue(enc, "points", m.HistoryPoints)
-	case 34:
+	case 32:
 		return putBool(enc, "truncated", *m.Truncated)
 	}
 	return nil
 }
 
-// encodeSessionField writes one of fields 35–45: enrolment, relay and update delivery.
+// encodeSessionField writes one of fields 33–43: enrolment, relay and update delivery.
 func (m *ControlMessage) encodeSessionField(enc *msgpack.Encoder, i int) error {
 	switch i {
-	case 35:
+	case 33:
 		return putString(enc, "token", string(m.Token))
-	case 36:
+	case 34:
 		return putString(enc, "relay_url", string(m.RelayURL))
-	case 37:
+	case 35:
 		return putString(enc, "reason", string(m.Reason))
-	case 38:
+	case 36:
 		return putValue(enc, "permissions", m.Permissions)
-	case 39:
+	case 37:
 		return putValue(enc, "ice_servers", m.IceServers)
-	case 40:
+	case 38:
 		return putString(enc, "version", string(m.Version))
-	case 41:
+	case 39:
 		return putString(enc, "url", string(m.URL))
-	case 42:
+	case 40:
 		return putString(enc, "sha256", string(m.SHA256))
-	case 43:
+	case 41:
 		return putString(enc, "signature", string(m.Signature))
-	case 44:
+	case 42:
 		return putBool(enc, "success", *m.Success)
-	case 45:
+	case 43:
 		return putString(enc, "error", string(m.AckError))
 	}
 	return nil
 }
 
-// encodeInteractionField writes one of fields 46–62: screen, input, terminal, files and chat.
+// encodeInteractionField writes one of fields 44–60: screen, input, terminal, files and chat.
 func (m *ControlMessage) encodeInteractionField(enc *msgpack.Encoder, i int) error {
 	switch i {
-	case 46:
+	case 44:
 		return putString(enc, "sdp", string(m.SDP))
-	case 47:
+	case 45:
 		return putString(enc, "candidate", string(m.Candidate))
-	case 48:
+	case 46:
 		return putString(enc, "mid", string(m.Mid))
-	case 49:
+	case 47:
 		return putUint64(enc, "received", m.Received)
-	case 50:
+	case 48:
 		return putUint16(enc, "x", m.X)
-	case 51:
+	case 49:
 		return putUint16(enc, "y", m.Y)
-	case 52:
+	case 50:
 		return putString(enc, "button", string(m.Button))
-	case 53:
+	case 51:
 		return putBool(enc, "pressed", *m.Pressed)
-	case 54:
+	case 52:
 		return putString(enc, "key", string(m.Key))
-	case 55:
+	case 53:
 		return putUint16(enc, "cols", m.Cols)
-	case 56:
+	case 54:
 		return putUint16(enc, "rows", m.Rows)
-	case 57:
+	case 55:
 		return putString(enc, "path", string(m.Path))
-	case 58:
+	case 56:
 		return putValue(enc, "entries", m.Entries)
-	case 59:
+	case 57:
 		return putBool(enc, "more", m.More)
-	case 60:
+	case 58:
 		return putUint64(enc, "total_size", m.TotalSize)
-	case 61:
+	case 59:
 		return putString(enc, "text", string(m.Text))
-	case 62:
+	case 60:
 		return putString(enc, "sender", string(m.Sender))
 	}
 	return nil
 }
 
-// encodeHardwareField writes one of fields 63–71: what the machine is made of.
+// encodeHardwareField writes one of fields 61–69: what the machine is made of.
 func (m *ControlMessage) encodeHardwareField(enc *msgpack.Encoder, i int) error {
 	switch i {
-	case 63:
+	case 61:
 		return putString(enc, "cpu_model", string(m.CPUModel))
-	case 64:
+	case 62:
 		return putUint32(enc, "cpu_cores", m.CPUCores)
-	case 65:
+	case 63:
 		return putUint64(enc, "ram_total_mb", m.RAMTotalMB)
-	case 66:
+	case 64:
 		return putUint64(enc, "disk_total_mb", m.DiskTotalMB)
-	case 67:
+	case 65:
 		return putUint64(enc, "disk_free_mb", m.DiskFreeMB)
-	case 68:
+	case 66:
 		return putValue(enc, "network_interfaces", m.NetworkInterfaces)
-	case 69:
+	case 67:
 		return putString(enc, "system_uuid", string(m.SystemUUID))
-	case 70:
+	case 68:
 		return putBool(enc, "amt_available", *m.AMTAvailable)
-	case 71:
+	case 69:
 		return putString(enc, "amt_version", string(m.AMTVersion))
 	}
 	return nil
 }
 
-// encodeInventoryField writes one of fields 72–88: logs and the machine's software inventory.
+// encodeInventoryField writes one of fields 70–86: logs and the machine's software inventory.
 func (m *ControlMessage) encodeInventoryField(enc *msgpack.Encoder, i int) error {
 	switch i {
-	case 72:
+	case 70:
 		return putString(enc, "log_level", string(m.LogLevel))
-	case 73:
+	case 71:
 		return putString(enc, "time_from", string(m.TimeFrom))
-	case 74:
+	case 72:
 		return putString(enc, "time_to", string(m.TimeTo))
-	case 75:
+	case 73:
 		return putString(enc, "search", string(m.Search))
-	case 76:
+	case 74:
 		return putUint32(enc, "log_offset", m.LogOffset)
-	case 77:
+	case 75:
 		return putUint32(enc, "log_limit", m.LogLimit)
-	case 78:
+	case 76:
 		return putString(enc, "source", string(m.Source))
-	case 79:
+	case 77:
 		return putString(enc, "unit", string(m.Unit))
-	case 80:
+	case 78:
 		return putValue(enc, "log_entries", m.LogEntries)
-	case 81:
+	case 79:
 		return putUint32(enc, "total_count", m.TotalCount)
-	case 82:
+	case 80:
 		return putBool(enc, "has_more", *m.HasMore)
-	case 83:
+	case 81:
 		return putValue(enc, "available_units", m.AvailableUnits)
-	case 84:
+	case 82:
 		return putValue(enc, "ports", m.Ports)
-	case 85:
+	case 83:
 		return putValue(enc, "services", m.Services)
-	case 86:
+	case 84:
 		return putValue(enc, "db_engines", m.DBEngines)
-	case 87:
+	case 85:
 		return putValue(enc, "containers", m.Containers)
-	case 88:
+	case 86:
 		return putValue(enc, "packages", m.Packages)
 	}
 	return nil
 }
 
-// encodeAlertField writes one of fields 89–101: one alert and the evidence frozen with it.
+// encodeAlertField writes one of fields 87–99: one alert and the evidence frozen with it.
 func (m *ControlMessage) encodeAlertField(enc *msgpack.Encoder, i int) error {
 	switch i {
-	case 89:
+	case 87:
 		return putBool(enc, "enabled", *m.Enabled)
-	case 90:
+	case 88:
 		return putString(enc, "alert_id", string(m.AlertID))
-	case 91:
+	case 89:
 		return putString(enc, "rule_id", string(m.RuleID))
-	case 92:
+	case 90:
 		return putUint32(enc, "rule_version", m.RuleVersion)
-	case 93:
+	case 91:
 		return putString(enc, "severity", string(*m.Severity))
-	case 94:
+	case 92:
 		return putString(enc, "metric", string(m.Metric))
-	case 95:
+	case 93:
 		return putFloat64(enc, "value", *m.Value)
-	case 96:
+	case 94:
 		return putInt64(enc, "window_start_ts", m.WindowStartTS)
-	case 97:
+	case 95:
 		return putInt64(enc, "window_end_ts", m.WindowEndTS)
-	case 98:
+	case 96:
 		return putInt64(enc, "observed_ts", m.ObservedTS)
-	case 99:
+	case 97:
 		return putBool(enc, "backfilled", *m.Backfilled)
-	case 100:
+	case 98:
 		return putString(enc, "evidence_codec", string(m.EvidenceCodec))
-	case 101:
+	case 99:
 		return putBytes(enc, "evidence", m.Evidence)
 	}
 	return nil
 }
 
-// encodeCertificateField writes one of fields 102–104: a certificate request, a certificate, and
+// encodeCertificateField writes one of fields 100–102: a certificate request, a certificate, and
 // the trust bundle.
 func (m *ControlMessage) encodeCertificateField(enc *msgpack.Encoder, i int) error {
 	switch i {
-	case 102:
+	case 100:
 		return putBytes(enc, "csr", m.CSR)
-	case 103:
+	case 101:
 		return putBytes(enc, "cert", m.Cert)
-	case 104:
+	case 102:
 		return putString(enc, "ca_bundle", m.CABundle)
 	}
 	return nil
 }
 
-// encodeChannelCountField writes one of fields 105–106: the direct link's screen and files counts.
+// encodeChannelCountField writes one of fields 103–104: the direct link's screen and files counts.
 func (m *ControlMessage) encodeChannelCountField(enc *msgpack.Encoder, i int) error {
 	switch i {
-	case 105:
+	case 103:
 		return putUint64(enc, "received_screen", m.ReceivedScreen)
-	case 106:
+	case 104:
 		return putUint64(enc, "received_files", m.ReceivedFiles)
 	}
 	return nil

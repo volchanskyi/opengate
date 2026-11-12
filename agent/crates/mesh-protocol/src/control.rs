@@ -721,14 +721,9 @@ pub enum ControlMessage {
         summaries: Vec<HealthSummary>,
     },
 
-    /// Agent → Server: request an admission slot to drain persisted history, with backlog hints
-    /// (pending count, oldest timestamp).
-    RequestBackfillSlot {
-        #[serde(default)]
-        pending_samples: u64,
-        #[serde(default)]
-        oldest_ts: i64,
-    },
+    /// Agent → Server: request an admission slot to drain persisted history, sent once a batch
+    /// is owed.
+    RequestBackfillSlot,
 
     /// Server → Agent: admission granted at `rate` samples/sec until `deadline` (unix seconds).
     /// Gated by the Backfill capability.

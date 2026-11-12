@@ -42,7 +42,7 @@ func testScheduler() (*BackfillScheduler, *atomic.Value, *time.Time) {
 // granted returns a fresh machine of the customer holding a grant.
 func granted(s *BackfillScheduler, customer uuid.UUID) uuid.UUID {
 	machine := uuid.New()
-	s.RequestSlot(machine, customer, SlotRequest{})
+	s.RequestSlot(machine, customer)
 	return machine
 }
 
@@ -78,7 +78,7 @@ func sendFull(s *BackfillScheduler, machine, customer uuid.UUID, key string, ans
 func TestEveryRequestIsGrantedAndAGrantHoldsNoPlace(t *testing.T) {
 	s, _, _ := testScheduler()
 	for range 50 {
-		decision := s.RequestSlot(uuid.New(), uuid.New(), SlotRequest{})
+		decision := s.RequestSlot(uuid.New(), uuid.New())
 		assert.NotZero(t, decision.Deadline)
 	}
 	assert.Zero(t, s.ActiveCount(), "a grant is permission, not a place in the queue")
@@ -104,7 +104,7 @@ func TestARenewedGrantOutlivesItsFirstDeadlineAndAnUnrenewedOneBesideItDoesNot(t
 	ttl := schedCfg().GrantTTL
 
 	*cur = cur.Add(ttl / 2)
-	s.RequestSlot(renewing, customer, SlotRequest{})
+	s.RequestSlot(renewing, customer)
 	*cur = cur.Add(ttl/2 + time.Second)
 
 	assert.Equal(t, BackfillNoGrant, sendFull(s, lapsing, customer, "k", nil).Reason,
@@ -190,12 +190,12 @@ func TestInNormalModeACustomerIsHeldToItsShare(t *testing.T) {
 func TestTheGrantPaceIsTheBudgetSharedAmongTheMachinesCatchingUp(t *testing.T) {
 	s, _, _ := testScheduler()
 	cfg := schedCfg()
-	first := s.RequestSlot(uuid.New(), uuid.New(), SlotRequest{})
+	first := s.RequestSlot(uuid.New(), uuid.New())
 	assert.Equal(t, cfg.MaxGrantRate, first.Rate, "one machine alone may go as fast as a grant allows")
 
 	var last BackfillDecision
 	for range 999 {
-		last = s.RequestSlot(uuid.New(), uuid.New(), SlotRequest{})
+		last = s.RequestSlot(uuid.New(), uuid.New())
 	}
 	assert.Equal(t, uint32(cfg.BaseBudgetSamplesPerSec/1000), last.Rate,
 		"a thousand machines share the budget with no floor above their share")

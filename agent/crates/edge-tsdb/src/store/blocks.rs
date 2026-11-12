@@ -5,8 +5,9 @@ use std::collections::BTreeMap;
 
 use redb::{Database, ReadTransaction, ReadableDatabase, ReadableTable, TableDefinition};
 
+use super::raw::{label_unlabelled, RawTables};
 use super::Tier;
-use crate::compact::{decode_compact, encode_compact_scaled};
+use crate::compact::encode_compact_scaled;
 use crate::config::Durability;
 use crate::error::{Result, TsdbError};
 use crate::sample::{Sample, SeriesId};
@@ -16,8 +17,8 @@ use crate::tier::{
 };
 
 /// On-disk format version. Bumped when the schema changes; [`super::LocalTsdb::open`]
-/// migrates an older store forward and refuses a newer one.
-pub(super) const CURRENT_FORMAT: u64 = 1;
+/// migrates an older store forward and refuses a newer one. Format 2 labels raw blocks.
+pub(super) const CURRENT_FORMAT: u64 = 2;
 
 /// Fixed 1 Hz sampler cadence assumed by the implicit-timestamp T0 codec.
 const STEP_SECS: i64 = 1;
@@ -36,7 +37,7 @@ const TIER_DEFLATE: u8 = 1;
 /// A `(series, timestamp) -> block bytes` tier table (T0/T1/T2 share this shape).
 pub(super) type BlockTable = TableDefinition<'static, (u32, i64), &'static [u8]>;
 /// An open handle to a [`BlockTable`] within a write transaction.
-type OpenBlockTable<'txn> = redb::Table<'txn, (u32, i64), &'static [u8]>;
+pub(super) type OpenBlockTable<'txn> = redb::Table<'txn, (u32, i64), &'static [u8]>;
 
 pub(super) const META: TableDefinition<&str, u64> = TableDefinition::new("meta");
 pub(super) const META_VERSION: &str = "format_version";
@@ -46,7 +47,6 @@ pub(super) const T2: BlockTable = TableDefinition::new("t2_hour");
 pub(super) const CURSOR: TableDefinition<u32, i64> = TableDefinition::new("cursor");
 /// Confirmed spans, `start → end` in seconds.
 pub(super) const CONFIRMED: TableDefinition<i64, i64> = TableDefinition::new("confirmed");
-
 pub(super) fn re<E: std::fmt::Display>(e: E) -> TsdbError {
     TsdbError::Redb(e.to_string())
 }
@@ -100,10 +100,12 @@ pub(super) fn read_stored_version(db: &Database) -> Result<Option<u64>> {
     }
 }
 
-/// Stamps a store with [`CURRENT_FORMAT`] in one transaction; blocks name their own codec and
-/// scale, so the stamp is the whole upgrade.
-pub(super) fn stamp_current_format(db: &Database) -> Result<()> {
-    let wt = db.begin_write().map_err(re)?;
+/// Brings a store to [`CURRENT_FORMAT`] in one transaction: labels every raw block an older
+/// format left unlabelled, then stamps the version. Blocks name their own codec and scale.
+pub(super) fn upgrade_format(db: &Database) -> Result<()> {
+    let mut wt = db.begin_write().map_err(re)?;
+    wt.set_durability(redb::Durability::Immediate).map_err(re)?;
+    label_unlabelled(&wt)?;
     {
         let mut meta = wt.open_table(META).map_err(re)?;
         meta.insert(META_VERSION, &CURRENT_FORMAT).map_err(re)?;
@@ -164,13 +166,13 @@ pub(super) fn write_all(
     default_scale: Option<i64>,
     mut logical: u64,
 ) -> Result<u64> {
-    let mut t0 = wt.open_table(T0).map_err(re)?;
+    let mut raw = RawTables::open(wt)?;
     let mut t1 = wt.open_table(T1).map_err(re)?;
     let mut t2 = wt.open_table(T2).map_err(re)?;
     for (series, os) in open.iter_mut() {
         let series = *series;
         let scale = scales.get(&series).copied().or(default_scale);
-        write_t0_blocks(&mut t0, series, os, scale, &mut logical)?;
+        write_t0_blocks(&mut raw, series, os, scale, &mut logical)?;
         let new: Vec<Sample> = std::mem::take(&mut os.unrolled);
         if !new.is_empty() {
             merge_tier_writes(
@@ -187,25 +189,21 @@ pub(super) fn write_all(
     Ok(logical)
 }
 
-/// Write a series' sealed + tail T0 blocks into the open T0 table.
+/// Write a series' sealed + tail T0 blocks, each labelled with its span.
 fn write_t0_blocks(
-    t0: &mut OpenBlockTable<'_>,
+    raw: &mut RawTables<'_>,
     series: SeriesId,
     os: &mut OpenSeries,
     scale: Option<i64>,
     logical: &mut u64,
 ) -> Result<()> {
     for (first_ts, block) in os.sealed.drain(..) {
-        upsert_block(
-            t0,
-            (series, first_ts),
-            &encode_t0_block(&block, scale),
-            logical,
-        )?;
+        let bytes = encode_t0_block(&block, scale);
+        raw.put((series, first_ts), &bytes, &block, logical)?;
     }
     if !os.tail.is_empty() {
         let bytes = encode_t0_block(&os.tail, scale);
-        upsert_block(t0, (series, os.tail_first_ts), &bytes, logical)?;
+        raw.put((series, os.tail_first_ts), &bytes, &os.tail, logical)?;
     }
     Ok(())
 }
@@ -231,7 +229,7 @@ fn merge_tier_writes(
 }
 
 /// Insert `bytes` at `key`, folding the replaced value's length into `logical`.
-fn upsert_block(
+pub(super) fn upsert_block(
     table: &mut OpenBlockTable<'_>,
     key: (u32, i64),
     bytes: &[u8],
@@ -251,7 +249,7 @@ pub(super) fn evict_blocks(
     newest_t0: Option<(i64, SeriesId)>,
     mut logical: u64,
 ) -> Result<u64> {
-    let mut t0 = wt.open_table(T0).map_err(re)?;
+    let mut raw = RawTables::open(wt)?;
     let mut t1 = wt.open_table(T1).map_err(re)?;
     let mut t2 = wt.open_table(T2).map_err(re)?;
     for c in cands {
@@ -260,7 +258,7 @@ pub(super) fn evict_blocks(
         }
         let is_newest_raw = c.rank == 2 && newest_t0 == Some((c.ts, c.series));
         if !is_newest_raw {
-            logical -= remove_ranked(&mut t0, &mut t1, &mut t2, &c)?;
+            logical -= remove_ranked(&mut raw, &mut t1, &mut t2, &c)?;
         }
     }
     Ok(logical)
@@ -268,7 +266,7 @@ pub(super) fn evict_blocks(
 
 /// Remove one candidate block from its tier table, returning the bytes reclaimed.
 fn remove_ranked(
-    t0: &mut OpenBlockTable<'_>,
+    raw: &mut RawTables<'_>,
     t1: &mut OpenBlockTable<'_>,
     t2: &mut OpenBlockTable<'_>,
     c: &Cand,
@@ -276,7 +274,7 @@ fn remove_ranked(
     let removed = match c.rank {
         0 => t2.remove((c.series, c.ts)).map_err(re)?,
         1 => t1.remove((c.series, c.ts)).map_err(re)?,
-        _ => t0.remove((c.series, c.ts)).map_err(re)?,
+        _ => return raw.remove((c.series, c.ts)),
     };
     Ok(removed.map(|g| g.value().len() as u64).unwrap_or(0))
 }
@@ -323,25 +321,6 @@ fn deflate_one(
         upsert_block(table, key, &newv, logical)?;
     }
     Ok(())
-}
-
-pub(super) fn read_raw(
-    rt: &ReadTransaction,
-    series: SeriesId,
-    start: i64,
-    end: i64,
-) -> Result<Vec<(Sample, bool)>> {
-    let mut out = Vec::new();
-    for block in series_blocks(rt, T0, series, i64::MIN, i64::MAX)? {
-        let (samples, bits) = decode_compact(&block)?;
-        for (s, a) in samples.into_iter().zip(bits) {
-            if (start..end).contains(&s.ts) {
-                out.push((s, a));
-            }
-        }
-    }
-    out.sort_by_key(|(s, _)| s.ts);
-    Ok(out)
 }
 
 /// Reads one rollup tier over `start..end`, decoding only the blocks that can hold a bucket in it.

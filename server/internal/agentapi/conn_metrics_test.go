@@ -60,8 +60,7 @@ func TestBackfillDecisionIsObserved(t *testing.T) {
 	ac.metrics = m
 
 	require.NoError(t, ac.handleRequestBackfillSlot(&protocol.ControlMessage{
-		Type:           protocol.MsgRequestBackfillSlot,
-		PendingSamples: 5000,
+		Type: protocol.MsgRequestBackfillSlot,
 	}))
 
 	assert.InDelta(t, 1, testutil.ToFloat64(m.EdgeBackfillAnswersTotal.WithLabelValues("granted")), 0)

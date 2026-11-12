@@ -190,10 +190,7 @@ func (a *AgentConn) handleRequestBackfillSlot(msg *protocol.ControlMessage) erro
 		return nil
 	}
 
-	decision := a.scheduler.RequestSlot(a.DeviceID, a.customer(), SlotRequest{
-		PendingSamples: msg.PendingSamples,
-		OldestTS:       msg.OldestTS,
-	})
+	decision := a.scheduler.RequestSlot(a.DeviceID, a.customer())
 	if a.metrics != nil {
 		a.metrics.ObserveBackfillGrant(decision.Rate)
 	}

@@ -47,7 +47,7 @@ func ingestConn(t *testing.T, tenant uuid.UUID, writer ReadingWriter, capable bo
 		scheduler: NewBackfillScheduler(DefaultBackfillSchedulerConfig(), nil, nil, nil),
 		logger:    testLogger(),
 	}
-	ac.scheduler.RequestSlot(ac.DeviceID, ac.customer(), SlotRequest{})
+	ac.scheduler.RequestSlot(ac.DeviceID, ac.customer())
 	if capable {
 		ac.Capabilities = []protocol.AgentCapability{protocol.CapBackfill}
 	}
@@ -75,9 +75,7 @@ func TestHandleRequestBackfillSlot_GrantsAndBooksNoPlace(t *testing.T) {
 	ac, buf := backfillConn(t, s, tenant, true)
 
 	require.NoError(t, ac.handleRequestBackfillSlot(&protocol.ControlMessage{
-		Type:           protocol.MsgRequestBackfillSlot,
-		PendingSamples: 5000,
-		OldestTS:       1_699_000_000,
+		Type: protocol.MsgRequestBackfillSlot,
 	}))
 
 	reply := readReply(t, ac, buf)

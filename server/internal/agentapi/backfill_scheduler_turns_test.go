@@ -56,7 +56,7 @@ func grantAll(s *BackfillScheduler, machines map[uuid.UUID][]uuid.UUID) []uuid.U
 	for customer, owned := range machines {
 		order = append(order, customer)
 		for _, machine := range owned {
-			s.RequestSlot(machine, customer, SlotRequest{})
+			s.RequestSlot(machine, customer)
 		}
 	}
 	return order

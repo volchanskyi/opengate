@@ -82,8 +82,6 @@ PYEOF
 
 [ -n "$candidates" ] || exit 0
 
-repo_root="$(project_root)"
-
 # Marker writes are refused before any source check.
 while IFS=$'\t' read -r _ raw; do
   case "$raw" in
@@ -97,18 +95,7 @@ done <<<"$candidates"
 while IFS=$'\t' read -r kind raw; do
   [ "$kind" = "W" ] || continue
   [ -n "$raw" ] || continue
-  case "$raw" in
-    /*) abs="$raw" ;;
-    *) abs="$PWD/$raw" ;;
-  esac
-  abs="$(python3 -c 'import os,sys; print(os.path.normpath(sys.argv[1]))' "$abs")"
-
-  case "$abs" in
-    "$repo_root"/*) : ;;
-    *) continue ;;
-  esac
-
-  rel="${abs#"$repo_root"/}"
+  rel="$(project_relative_path "$raw")" || continue
 
   if ! is_source_path "$rel"; then
     continue

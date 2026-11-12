@@ -11,14 +11,22 @@ pub struct ConfirmedRanges {
 }
 
 impl ConfirmedRanges {
-    /// Builds the ranges from stored spans, coalescing any that touch.
+    /// Builds the ranges from stored spans in one sorted pass, coalescing any that touch.
     #[must_use]
     pub fn from_spans(spans: impl IntoIterator<Item = (i64, i64)>) -> Self {
-        let mut ranges = Self::default();
-        for (start, end) in spans {
-            ranges.add(start, end);
+        let mut whole: Vec<(i64, i64)> = spans
+            .into_iter()
+            .filter_map(|(start, end)| whole_minutes(start, end))
+            .collect();
+        whole.sort_unstable();
+        let mut merged: Vec<(i64, i64)> = Vec::with_capacity(whole.len());
+        for (start, end) in whole {
+            match merged.last_mut() {
+                Some(last) if start <= last.1 => last.1 = last.1.max(end),
+                _ => merged.push((start, end)),
+            }
         }
-        ranges
+        Self { spans: merged }
     }
 
     /// The spans, ascending.
@@ -29,12 +37,9 @@ impl ConfirmedRanges {
 
     /// Confirms the whole minutes inside `[start, end)`, merging with the spans it touches.
     pub fn add(&mut self, start: i64, end: i64) {
-        let start = ceil_minute(start);
-        let end = end.div_euclid(MINUTE) * MINUTE;
-        if start >= end {
+        let Some((mut lo, mut hi)) = whole_minutes(start, end) else {
             return;
-        }
-        let (mut lo, mut hi) = (start, end);
+        };
         let mut kept = Vec::with_capacity(self.spans.len() + 1);
         for &(s, e) in &self.spans {
             if e < lo || s > hi {
@@ -58,6 +63,11 @@ impl ConfirmedRanges {
         });
     }
 
+    /// Forgets every span that ended at or before `t`; a span reaching past it is kept whole.
+    pub fn forget_before(&mut self, t: i64) {
+        self.spans.retain(|&(_, end)| end > t);
+    }
+
     /// Whether `[start, end)` lies inside one confirmed span.
     #[must_use]
     pub fn covers(&self, start: i64, end: i64) -> bool {
@@ -73,6 +83,12 @@ impl ConfirmedRanges {
             .find(|&&(s, e)| s <= ts && ts < e)
             .map(|&(_, e)| e)
     }
+}
+
+/// The whole minutes inside `[start, end)`, or `None` when it holds none.
+fn whole_minutes(start: i64, end: i64) -> Option<(i64, i64)> {
+    let (start, end) = (ceil_minute(start), end.div_euclid(MINUTE) * MINUTE);
+    (start < end).then_some((start, end))
 }
 
 /// The first minute boundary at or after `ts`.

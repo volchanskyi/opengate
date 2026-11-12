@@ -66,7 +66,7 @@ func NewBackfillScheduler(cfg BackfillSchedulerConfig, now func() time.Time, hea
 
 // RequestSlot grants a machine permission to send catch-up batches for its customer, or renews
 // the grant it holds. The grant takes no place in the queue; Admit decides per batch.
-func (s *BackfillScheduler) RequestSlot(machine, customer uuid.UUID, _ SlotRequest) BackfillDecision {
+func (s *BackfillScheduler) RequestSlot(machine, customer uuid.UUID) BackfillDecision {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

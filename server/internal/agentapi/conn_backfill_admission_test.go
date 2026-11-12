@@ -144,7 +144,7 @@ func TestAHeartbeatAndAnAlertBehindAHeldCatchUpBatchAreHandledAtOnce(t *testing.
 	ac.TenantID = tenant
 	ac.telemetry = writer
 	ac.scheduler = NewBackfillScheduler(DefaultBackfillSchedulerConfig(), nil, nil, nil)
-	ac.scheduler.RequestSlot(ac.DeviceID, uuid.Nil, SlotRequest{})
+	ac.scheduler.RequestSlot(ac.DeviceID, uuid.Nil)
 	ac.setMeta("linux", "amd64", "0.1.0", []protocol.AgentCapability{protocol.CapBackfill, protocol.CapAlerts})
 	var stream bytes.Buffer
 	ac.stream = &stream

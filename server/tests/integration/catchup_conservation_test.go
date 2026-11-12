@@ -168,10 +168,7 @@ func (e *catchUpEnv) runCatchUpSession(t *testing.T, ctx context.Context, siteID
 	})
 	drainRegisterHardwareRequest(t, stream)
 
-	sendControl(t, stream, &protocol.ControlMessage{
-		Type:           protocol.MsgRequestBackfillSlot,
-		PendingSamples: catchUpBatchesPerSession * catchUpReadingsPerBatch,
-	})
+	sendControl(t, stream, &protocol.ControlMessage{Type: protocol.MsgRequestBackfillSlot})
 	awaitControl(t, stream, protocol.MsgGrantBackfill)
 
 	start := time.Now().UTC().Truncate(time.Minute).Add(-time.Duration(catchUpBatchesPerSession) * time.Hour)

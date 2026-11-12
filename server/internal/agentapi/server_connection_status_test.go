@@ -132,7 +132,7 @@ func TestALateTeardownOfAReplacedConnectionKeepsTheReturningGrant(t *testing.T) 
 	departing := &AgentConn{DeviceID: deviceID}
 	env.srv.registerConn(context.Background(), departing, "contoso-workstation")
 	env.srv.registerConn(context.Background(), &AgentConn{DeviceID: deviceID}, "contoso-workstation")
-	env.srv.scheduler.RequestSlot(deviceID, uuid.New(), SlotRequest{})
+	env.srv.scheduler.RequestSlot(deviceID, uuid.New())
 
 	conn, stream := env.dial(t, uuid.New())
 	env.srv.unregisterConn(stream, conn, departing, "contoso-workstation", testLogger())
@@ -148,7 +148,7 @@ func TestTheCurrentConnectionLeavingDropsItsGrant(t *testing.T) {
 
 	current := &AgentConn{DeviceID: deviceID}
 	env.srv.registerConn(context.Background(), current, "contoso-workstation")
-	env.srv.scheduler.RequestSlot(deviceID, uuid.New(), SlotRequest{})
+	env.srv.scheduler.RequestSlot(deviceID, uuid.New())
 
 	conn, stream := env.dial(t, uuid.New())
 	env.srv.unregisterConn(stream, conn, current, "contoso-workstation", testLogger())

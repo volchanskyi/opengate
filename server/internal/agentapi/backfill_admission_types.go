@@ -25,12 +25,6 @@ type BackfillSchedulerConfig struct {
 	LowMark  float64
 }
 
-// SlotRequest carries the agent's backlog hints from RequestBackfillSlot.
-type SlotRequest struct {
-	PendingSamples uint64
-	OldestTS       int64
-}
-
 // BackfillDecision is the scheduler's grant: the pace a machine sends at and when the grant
 // ends unless renewed.
 type BackfillDecision struct {

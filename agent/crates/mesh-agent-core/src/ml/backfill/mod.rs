@@ -14,11 +14,11 @@ use super::store_sink::WindowReduction;
 
 mod drain;
 
-pub use drain::{BackfillDrain, PlannedBatch};
+pub use drain::{BackfillDrain, DrainPosition, PlannedBatch};
 
 /// Read side of the local store that the backfill engine drains.
 pub trait TierReader {
-    /// Committed T0 raw samples with the anomaly bit over `[start, end]`, ascending.
+    /// Committed T0 raw samples with the anomaly bit over `[start, end)`, ascending.
     fn range_raw(
         &self,
         series: SeriesId,
@@ -26,7 +26,7 @@ pub trait TierReader {
         end: i64,
     ) -> Result<Vec<(Sample, bool)>, TsdbError>;
 
-    /// Committed rollup-tier points over `[start, end]`, ascending by bucket.
+    /// Committed rollup-tier points with a bucket in `[start, end)`, ascending by bucket.
     fn range_tier(
         &self,
         series: SeriesId,
@@ -165,10 +165,18 @@ impl ConfirmedStore for LocalTsdb {
     }
 }
 
-/// Records that the server stores `[start, end)`.
-pub fn confirm<C: ConfirmedStore>(store: &mut C, start: i64, end: i64) -> Result<(), TsdbError> {
+/// Records that the server stores, or needs nothing from, each of `spans`, and forgets every span
+/// that ended by `horizon`, so the list holds only time catch-up can still send.
+pub fn confirm<C: ConfirmedStore>(
+    store: &mut C,
+    spans: &[(i64, i64)],
+    horizon: i64,
+) -> Result<(), TsdbError> {
     let mut ranges = store.load_confirmed()?;
-    ranges.add(start, end);
+    for &(start, end) in spans {
+        ranges.add(start, end);
+    }
+    ranges.forget_before(horizon);
     store.save_confirmed(&ranges)
 }
 
@@ -209,24 +217,16 @@ pub fn migrate_cursors<C: ConfirmedStore>(
     Ok(true)
 }
 
-/// The pending sample count and oldest pending timestamp (`0` when none), from a throwaway drain.
-pub fn pending_hint<R: TierReader>(
-    reader: &R,
-    now: i64,
-    cfg: BackfillConfig,
-    series: &[SeriesId],
-    confirmed: &ConfirmedRanges,
-) -> Result<(u64, i64), TsdbError> {
-    let mut drain = BackfillDrain::new(reader, now, cfg, series, confirmed);
-    let mut pending: u64 = 0;
-    let mut oldest = i64::MAX;
-    while let Some(batch) = drain.next_batch()? {
-        for s in &batch.samples {
-            pending += 1;
-            oldest = oldest.min(s.ts);
+/// The start of the newest minute the snapshot holds a committed reading for across `series`,
+/// or `i64::MIN` when it holds none; a reading not yet committed is newer.
+pub fn settled_until(snapshot: &TsdbSnapshot, series: &[SeriesId]) -> Result<i64, TsdbError> {
+    let mut newest = i64::MIN;
+    for &s in series {
+        if let Some((_, last)) = snapshot.tier_span(s, Tier::T1)? {
+            newest = newest.max(last);
         }
     }
-    Ok((pending, if pending == 0 { 0 } else { oldest }))
+    Ok(newest)
 }
 
 /// The delay keeping `sample_count` samples within `rate` samples/sec; rate `0` or an empty
@@ -239,7 +239,7 @@ pub fn pace_delay(sample_count: usize, rate: u32) -> Duration {
     Duration::from_secs_f64(sample_count as f64 / f64::from(rate))
 }
 
-/// Returns 1 s raw points for `series` over `[from, to]`, capped at `max_points`, and whether
+/// Returns 1 s raw points for `series` over `[from, to)`, capped at `max_points`, and whether
 /// the window was truncated.
 pub fn answer_local_history<R: TierReader>(
     reader: &R,

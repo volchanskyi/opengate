@@ -8,15 +8,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// safeUint64 narrows a non-negative int to uint64, clamping negatives to 0 so
-// the conversion cannot wrap (gosec G115).
-func safeUint64(v int) uint64 {
-	if v <= 0 {
-		return 0
-	}
-	return uint64(v)
-}
-
 // buildBackfillSamples builds n historical samples at 10 s spacing from startTS, cycling the
 // default host dims with strictly increasing timestamps.
 func buildBackfillSamples(n int, startTS int64) []protocol.BackfillSample {
@@ -31,14 +22,9 @@ func buildBackfillSamples(n int, startTS int64) []protocol.BackfillSample {
 	return samples
 }
 
-// buildBackfillSlotRequest asks the server-coordinated scheduler for a drain
-// slot, carrying the backlog hints the scheduler biases on.
-func buildBackfillSlotRequest(pending uint64, oldest int64) *protocol.ControlMessage {
-	return &protocol.ControlMessage{
-		Type:           protocol.MsgRequestBackfillSlot,
-		PendingSamples: pending,
-		OldestTS:       oldest,
-	}
+// buildBackfillSlotRequest asks the server-coordinated scheduler for a drain slot.
+func buildBackfillSlotRequest() *protocol.ControlMessage {
+	return &protocol.ControlMessage{Type: protocol.MsgRequestBackfillSlot}
 }
 
 // buildBackfillBatch builds one tiered backfill batch that keeps each sample's timestamp and
@@ -89,13 +75,7 @@ func drainBackfill(ctx context.Context, codec *protocol.Codec, stream soakStream
 	if len(batches) == 0 {
 		return 0, nil
 	}
-	pending := 0
-	for _, batch := range batches {
-		pending += len(batch)
-	}
-	oldest := batches[0][0].TS
-
-	granted, err := awaitSlot(ctx, codec, stream, opts, safeUint64(pending), oldest)
+	granted, err := awaitSlot(ctx, codec, stream, opts)
 	if err != nil || !granted {
 		return 0, err
 	}
@@ -118,7 +98,7 @@ func drainBackfill(ctx context.Context, codec *protocol.Codec, stream soakStream
 		if !opts.retryDeferred || deferrals > maxDeferrals || !waitToAskAgain(ctx, retryAfter) {
 			return stored, nil
 		}
-		if granted, err = awaitSlot(ctx, codec, stream, opts, safeUint64(pending), oldest); err != nil || !granted {
+		if granted, err = awaitSlot(ctx, codec, stream, opts); err != nil || !granted {
 			return stored, err
 		}
 	}
@@ -131,12 +111,9 @@ func drainBackfill(ctx context.Context, codec *protocol.Codec, stream soakStream
 
 // awaitSlot asks the scheduler for a drain slot and reports whether this machine may drain.
 // A persistent machine waits out each retry time and asks again, up to maxDeferrals.
-func awaitSlot(
-	ctx context.Context, codec *protocol.Codec, stream soakStream,
-	opts loadOptions, pending uint64, oldest int64,
-) (bool, error) {
+func awaitSlot(ctx context.Context, codec *protocol.Codec, stream soakStream, opts loadOptions) (bool, error) {
 	for asked := 0; ; asked++ {
-		reqPayload, err := codec.EncodeControl(buildBackfillSlotRequest(pending, oldest))
+		reqPayload, err := codec.EncodeControl(buildBackfillSlotRequest())
 		if err != nil {
 			return false, fmt.Errorf("encode slot request: %w", err)
 		}

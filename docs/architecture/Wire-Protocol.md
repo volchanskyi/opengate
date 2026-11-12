@@ -455,8 +455,10 @@ capability. Current additive gates:
 | `Alerts` | _(no server-to-agent message)_ |
 | `DirectChannels` | _(no server-to-agent message)_ |
 
-Catch-up is one exchange under `Backfill`. A `RequestBackfillSlot` is answered
-`GrantBackfill`, a pace and a deadline. Each `MetricBackfillBatch` is answered
+Catch-up is one exchange under `Backfill`. A `RequestBackfillSlot`, which carries
+no fields and is sent once the agent finds a batch owed, is answered
+`GrantBackfill`, a pace and a deadline; the server reads an older agent's request,
+which carried a sample count and an oldest time, the same way. Each `MetricBackfillBatch` is answered
 once: `MetricBackfillAck`, echoing its tier and cursor, when every reading was
 stored or deliberately filtered, and `DeferBackfill` with a `retry_after`
 otherwise, after which the agent sends the same batch again

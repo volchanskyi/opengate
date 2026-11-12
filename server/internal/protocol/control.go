@@ -210,8 +210,6 @@ type ControlMessage struct {
 	DeviceHourlyCeiling uint32 `msgpack:"device_hourly_ceiling,omitempty"`
 
 	// Reconnect-backfill scheduler and tiered replay.
-	PendingSamples  uint64           `msgpack:"pending_samples,omitempty"`
-	OldestTS        int64            `msgpack:"oldest_ts,omitempty"`
 	Rate            uint32           `msgpack:"rate,omitempty"`
 	Deadline        int64            `msgpack:"deadline,omitempty"`
 	RetryAfter      uint32           `msgpack:"retry_after,omitempty"`

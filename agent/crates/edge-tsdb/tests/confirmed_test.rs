@@ -53,6 +53,43 @@ fn forgetting_after_a_time_cuts_back_to_the_minute_holding_it() {
 }
 
 #[test]
+fn building_from_unordered_spans_matches_adding_them_one_by_one() {
+    let spans = [
+        (T + 5 * MIN, T + 9 * MIN),
+        (T, T + MIN),
+        (T + 6 * MIN, T + 7 * MIN),
+        (T + 10, T + 4 * MIN + 30),
+        (T + 12 * MIN + 1, T + 12 * MIN + 59),
+    ];
+    let mut added = ConfirmedRanges::default();
+    for (start, end) in spans {
+        added.add(start, end);
+    }
+    let built = ConfirmedRanges::from_spans(spans);
+    assert_eq!(built, added);
+    assert_eq!(
+        built.spans(),
+        &[(T, T + 4 * MIN), (T + 5 * MIN, T + 9 * MIN)]
+    );
+}
+
+#[test]
+fn forgetting_before_a_time_drops_the_spans_that_ended_by_it() {
+    let mut ranges = ConfirmedRanges::default();
+    ranges.add(T, T + 10 * MIN);
+    ranges.add(T + 20 * MIN, T + 30 * MIN);
+    ranges.add(T + 40 * MIN, T + 50 * MIN);
+    ranges.forget_before(T + 25 * MIN);
+    assert_eq!(
+        ranges.spans(),
+        &[(T + 20 * MIN, T + 30 * MIN), (T + 40 * MIN, T + 50 * MIN)],
+        "a span reaching past the horizon is kept whole"
+    );
+    ranges.forget_before(T + 30 * MIN);
+    assert_eq!(ranges.spans(), &[(T + 40 * MIN, T + 50 * MIN)]);
+}
+
+#[test]
 fn covers_and_span_end_read_the_spans() {
     let mut ranges = ConfirmedRanges::default();
     ranges.add(T, T + 3 * MIN);
