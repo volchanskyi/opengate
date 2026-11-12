@@ -10,8 +10,6 @@ import (
 	"math"
 	"net/http"
 	"net/url"
-	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -27,9 +25,6 @@ var (
 	ErrReservedLabel = errors.New("reserved telemetry label")
 	// ErrInvalidValue is returned for a value the store refuses: not a number, or infinite.
 	ErrInvalidValue = errors.New("invalid telemetry value")
-
-	metricNameRE = regexp.MustCompile(`^[a-zA-Z_:][a-zA-Z0-9_:]*$`)
-	labelNameRE  = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 )
 
 // matchParam is VictoriaMetrics' series-selector query argument.
@@ -187,60 +182,33 @@ func ScopeSelector(selector string, tenantID uuid.UUID) (string, error) {
 // CheckSample reports whether the store accepts sample on its own: a valid metric name, a finite
 // value, and label names that are valid and leave the server's own labels alone.
 func CheckSample(sample Sample) error {
-	if !metricNameRE.MatchString(sample.Name) {
+	if !validMetricName(sample.Name) {
 		return fmt.Errorf("invalid metric name %q", sample.Name)
 	}
 	if math.IsNaN(sample.Value) || math.IsInf(sample.Value, 0) {
 		return fmt.Errorf("%w for %s", ErrInvalidValue, sample.Name)
 	}
 	for k := range sample.Labels {
-		if k == "tenant_id" || k == "device_id" || k == environmentLabel {
+		if k == tenantLabel || k == deviceLabel || k == environmentLabel {
 			return fmt.Errorf("%w: %s", ErrReservedLabel, k)
 		}
-		if !labelNameRE.MatchString(k) {
+		if !validLabelName(k) {
 			return fmt.Errorf("invalid label name %q", k)
 		}
 	}
 	return nil
 }
 
+// writePrometheusSample appends one reading's line to b under the machine's tenant and device.
 func writePrometheusSample(b *bytes.Buffer, tenantID uuid.UUID, deviceID uuid.UUID, sample Sample) error {
-	if err := CheckSample(sample); err != nil {
+	line, _, err := appendSample(b.AvailableBuffer(), nil, Scope{Tenant: tenantID, Device: deviceID}, sample)
+	if err != nil {
 		return err
 	}
-	if sample.TS.IsZero() {
-		sample.TS = time.Now()
-	}
-
-	labels := make(map[string]string, len(sample.Labels)+2)
-	labels["tenant_id"] = tenantID.String()
-	labels["device_id"] = deviceID.String()
-	for k, v := range sample.Labels {
-		labels[k] = v
-	}
-
-	keys := make([]string, 0, len(labels))
-	for k := range labels {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	b.WriteString(sample.Name)
-	b.WriteByte('{')
-	for i, k := range keys {
-		if i > 0 {
-			b.WriteByte(',')
-		}
-		fmt.Fprintf(b, `%s="%s"`, k, escapeLabelValue(labels[k]))
-	}
-	fmt.Fprintf(b, "} %s %d\n",
-		strconv.FormatFloat(sample.Value, 'g', -1, 64),
-		sample.TS.UTC().UnixMilli())
+	b.Write(line)
 	return nil
 }
 
 func escapeLabelValue(v string) string {
-	v = strings.ReplaceAll(v, `\`, `\\`)
-	v = strings.ReplaceAll(v, "\n", `\n`)
-	return strings.ReplaceAll(v, `"`, `\"`)
+	return string(appendEscaped(nil, v))
 }

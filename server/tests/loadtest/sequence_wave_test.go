@@ -93,7 +93,9 @@ func TestAPhaseThatIsNotMeasuredRecordsNoWave(t *testing.T) {
 		assert.Nil(t, result.WaveOnlineShare, "%s marks no measured phase", result.Name)
 		assert.Nil(t, result.WaveOnlineP95Ms, "%s marks no measured phase", result.Name)
 	}
-	assert.Empty(t, fleet.waveAsked, "nothing waits on a wave nobody judges")
+	for i := 1; i < len(results); i++ {
+		assert.Equal(t, results[i-1].FinishedAt, results[i].StartedAt, "nothing waits on a wave nobody judges")
+	}
 }
 
 func TestAMeasuredPhaseThatDialledNobodyRecordsNoWave(t *testing.T) {

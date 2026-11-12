@@ -402,6 +402,17 @@ assert_eq "the probe's readings sit under store_probe" "10500 0.1" \
 run_merge "$WORK/bundle.json" --probe "$WORK/probe.json"
 assert_eq "an empty probe reading fails" "1" "$STATUS"
 
+# The database's levels ride the bundle, so its limits are read off the evidence they judge.
+printf '{"cpu_percent": 41.5, "cpu_cap": "1 processor", "memory_percent": 22, "memory_cap": "1 GiB"}' \
+  >"$WORK/database.json"
+run_merge "$WORK/bundle.json" --database "$WORK/database.json"
+assert_eq "the database's levels merge" "0" "$STATUS"
+assert_eq "and sit under database_levels" "41.5 22" \
+  "$(jq -r '.database_levels | "\(.cpu_percent) \(.memory_percent)"' "$WORK/bundle.json")"
+: >"$WORK/database.json"
+run_merge "$WORK/bundle.json" --database "$WORK/database.json"
+assert_eq "an empty database reading fails" "1" "$STATUS"
+
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then
   printf 'Failures:\n' >&2

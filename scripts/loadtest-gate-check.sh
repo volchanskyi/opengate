@@ -22,12 +22,16 @@ breaches_for() {
   jq -r --argjson gates "$gates" '
     . as $rows
     | $gates[]
+    | select(.follows == null)
     | . as $gate
     | ($gate.series | split("/")) as $parts
     | ($rows | map(select(
         .source == $parts[0] and .scenario == $parts[1] and .phase == $parts[2]
       ))) as $matched
-    | (if $gate.blocking then "blocking" else "advisory" end) as $kind
+    # A rung starved of processor on purpose reads a failing limit as a watched mark.
+    | ($gate.blocking and ($gate.blocking_from_cpus == null
+        or (($matched[0].target_cpus // $gate.blocking_from_cpus) >= $gate.blocking_from_cpus))) as $enforced
+    | (if $enforced then "blocking" else "advisory" end) as $kind
     | if ($matched | length) == 0 then
         "\($kind)\t\($gate.series) \($gate.metric) is limited, and no row for it ever arrived — a limit on a measurement nothing produced reads as a limit nothing can breach"
       else

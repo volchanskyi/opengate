@@ -179,6 +179,63 @@ else
   fail "and the push says the fleet was left out (out=[$out])"
 fi
 
+# The server's and database's levels, each a share of its own allowance over the measured phases.
+bundle "$WORK/levels/peak" peak valid 9.9 3.3 2 0
+jq '.target = {cpus: 1, memory_bytes: 402653184}
+  | .phases = [{name: "wave", measured: true, target_busy_percent: 42.5, target_resident_bytes: 201326592}]
+  | .database_levels = {cpu_percent: 31.25, memory_percent: 12.5}' \
+  "$WORK/levels/peak/bundle.json" >"$WORK/levels.json"
+mv "$WORK/levels.json" "$WORK/levels/peak/bundle.json"
+run_push "$WORK/levels/peak/bundle.json" >/dev/null 2>&1
+pushed="$(cat "$WORK/pushed")"
+check "the server's processor level is pushed under its scenario" \
+  'perf_cpu_percent{env="ci",leg="peak",phase="measured",scenario="server",workload="peak/1/d1"} 42.5 1790689000000'
+check "and its memory level" \
+  'perf_memory_percent{env="ci",leg="peak",phase="measured",scenario="server",workload="peak/1/d1"} 50 1790689000000'
+check "beside the database's" \
+  'perf_cpu_percent{env="ci",leg="peak",phase="measured",scenario="database",workload="peak/1/d1"} 31.25 1790689000000'
+
+# The breakpoint's capacity is the machines it held, pushed so a night is read against its own.
+bundle "$WORK/ladder/breakpoint" breakpoint valid 120 20 30 0
+jq '.run.profile_version = 2 | .runner = {processor_model: "AMD EPYC 9V74 80-Core Processor"}
+  | .phases = [] | .breaking_point = {held_agents: 4000, gave_at: "step-8000"}' \
+  "$WORK/ladder/breakpoint/bundle.json" >"$WORK/ladder.json"
+mv "$WORK/ladder.json" "$WORK/ladder/breakpoint/bundle.json"
+run_push "$WORK/ladder/breakpoint/bundle.json" >/dev/null 2>&1
+pushed="$(cat "$WORK/pushed")"
+check "the breakpoint's held machines are pushed beside its chip" \
+  'perf_breakpoint_held_agents{env="ci",leg="breakpoint",phase="ladder",processor="AMD EPYC 9V74 80-Core Processor",workload="breakpoint/2/d1"} 4000 1790689000000'
+
+# A scaling rung pushes whether it kept the profile's ordinary sign-in promise, and a sweep whose
+# every rung measured pushes the smallest share that kept it.
+sweep() { # cpus p50 p95 [verdict]
+  local cpus="$1" p50="$2" p95="$3" verdict="${4:-valid}"
+  bundle "$WORK/sweep/scaling-$cpus" scaling "$verdict" "$p95" "$p50" 20 0
+  jq --argjson cpus "$cpus" '.target = {cpus: $cpus, memory_bytes: 402653184}' \
+    "$WORK/sweep/scaling-$cpus/bundle.json" >"$WORK/rung.json"
+  mv "$WORK/rung.json" "$WORK/sweep/scaling-$cpus/bundle.json"
+}
+sweep 0.25 15387 51049
+sweep 0.5 4 415
+sweep 1 3 5
+sweep 2 3 5
+run_push "$WORK"/sweep/scaling-*/bundle.json >/dev/null 2>&1
+pushed="$(cat "$WORK/pushed")"
+check "a rung that missed the sign-in promise is pushed as missed" \
+  'perf_signin_promise_kept{env="ci",leg="scaling-0.25",phase="register",workload="scaling/1/d1"} 0 1790689000000'
+check "and one that kept it as kept" \
+  'perf_signin_promise_kept{env="ci",leg="scaling-0.5",phase="register",workload="scaling/1/d1"} 1 1790689000000'
+check "the sweep's sizing figure is the smallest share that kept it" \
+  'perf_scaling_sizing_cpus{env="ci",workload="scaling/1"} 0.5 1790689000000'
+sweep 0.5 4 415 invalid
+run_push "$WORK"/sweep/scaling-*/bundle.json >/dev/null 2>&1
+pushed="$(cat "$WORK/pushed")"
+if grep -qF 'perf_scaling_sizing_cpus' <<<"$pushed"; then
+  fail "a sweep missing a rung pushes no sizing figure (pushed=[$pushed])"
+else
+  pass "a sweep missing a rung pushes no sizing figure, since a hole would read as a larger one"
+fi
+
 if out="$(run_push "$WORK/perf-bundles/spike/bundle.json" 2>&1)"; then
   fail "a night with nothing measured is refused (out=[$out])"
 else

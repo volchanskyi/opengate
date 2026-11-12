@@ -99,3 +99,5 @@ require (
 	golang.org/x/text v0.43.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )
+
+replace github.com/quic-go/quic-go => github.com/volchanskyi/quic-go v0.65.1-0.20261112174820-596200699324

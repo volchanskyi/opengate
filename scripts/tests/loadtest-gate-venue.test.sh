@@ -43,13 +43,24 @@ jobs_naming() {
   ' "$1"
 }
 
-# The k6 source is the browser side; the quic source is the machine-side harness binary, whose
-# catch-up client -backfill-gap starts is the catchup source.
+# called_by prints the text of every workflow of this repository the jobs call.
+called_by() {
+  local path
+  while IFS= read -r path; do
+    [ -f "$REPO_ROOT/$path" ] && cat "$REPO_ROOT/$path"
+  done < <(sed -n 's|^[[:space:]]*uses:[[:space:]]*\./\(\.github/workflows/[A-Za-z0-9_.-]*\)[[:space:]]*$|\1|p' <<<"$1" | sort -u)
+  return 0
+}
+
+# The k6 source is the browser side; the quic source is the harness, whose catch-up client is the
+# catchup source and its leak snapshots the leak source; a called leg walks catch-up when asked.
 sources_run_by() {
-  local jobs="$1"
-  grep -qE 'loadtest-k6-(run|alongside)\.sh|k6 run' <<<"$jobs" && echo k6
-  grep -qE '/tmp/loadtest\b|loadtest-quic-(run|incluster)\.sh' <<<"$jobs" && echo quic
-  grep -qE -- '-backfill-gap=' <<<"$jobs" && echo catchup
+  local jobs="$1" called
+  called="$(called_by "$jobs")"
+  grep -qE 'loadtest-k6-(run|alongside)\.sh|k6 run' <<<"$jobs$called" && echo k6
+  grep -qE '/tmp/loadtest\b|loadtest-quic-(run|incluster)\.sh' <<<"$jobs$called" && echo quic
+  grep -qE -- '-backfill-gap=|^[[:space:]]+catch-up:[[:space:]]*true[[:space:]]*$' <<<"$jobs" && echo catchup
+  grep -qE -- '-leak-snapshot-every=' <<<"$jobs$called" && echo leak
   return 0
 }
 
@@ -76,6 +87,10 @@ for profile in "$PROFILE_DIR"/*.yaml; do
   while IFS= read -r series; do
     [ -n "$series" ] || continue
     source="${series%%/*}"
+    # The harness counts live readings on every walk, and the stack it walks reads its own levels.
+    case "$series" in
+      catchup/live/* | service/*) source=quic ;;
+    esac
     grep -qxF "$source" <<<"$available" || bad="$bad $series"
   done < <(profile_gates "$profile" | jq -r '.[].series' | sort -u)
 

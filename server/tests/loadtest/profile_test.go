@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -253,4 +254,30 @@ safety: {max_node_memory_percent: 90, max_error_rate: 0.01}
 	require.NoError(t, err)
 	assert.InDelta(t, 0.0, p.Safety.MaxNodeCPUPercent, 0, "no ceiling is declared where none applies")
 	assert.InDelta(t, 90.0, p.Safety.MaxNodeMemoryPercent, 0)
+}
+
+func TestAProfileStatesTheVersionOfItsLoadOneWhereItSaysNone(t *testing.T) {
+	unversioned, err := ParseProfile([]byte(minimalProfile))
+	require.NoError(t, err)
+	versioned, err := ParseProfile([]byte(strings.Replace(minimalProfile, "name: normal", "name: normal\nversion: 3", 1)))
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, unversioned.LoadVersion())
+	assert.Equal(t, 3, versioned.LoadVersion())
+}
+
+func TestALoadVersionBelowOneIsRefused(t *testing.T) {
+	_, err := ParseProfile([]byte(strings.Replace(minimalProfile, "name: normal", "name: normal\nversion: -1", 1)))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "version")
+}
+
+func TestARunNamesTheVersionOfTheLoadItWalked(t *testing.T) {
+	profile, err := ParseProfile([]byte(strings.Replace(minimalProfile, "name: normal", "name: normal\nversion: 2", 1)))
+	require.NoError(t, err)
+
+	identity := runIdentity(runBundleInputs{Profile: profile, Commit: "abc"}, time.Now())
+
+	assert.Equal(t, 2, identity.ProfileVersion)
 }

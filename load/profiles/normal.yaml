@@ -34,24 +34,19 @@ safety:
   max_error_rate: 0.01
 
 # A blocking row fails the night, and a non-blocking row only reports.
-# Every measurement the summarizer emits appears here or under `ungated:`.
+# Every measurement the summarizer emits carries a limit here.
 
 gates:
   # A fleet glance, a machine's page and a sent instruction are each timed on their own below.
 
   - series: k6/api-baseline/http
     metric: latency_p50_ms
-    max: 200
+    max: 100
     blocking: true
-  - series: k6/api-baseline/http
-    metric: latency_p95_ms
-    max: 200
-    blocking: true
-  # The tightened target, watched until the spread narrows under separate allocations.
   - series: k6/api-baseline/http
     metric: latency_p95_ms
     max: 100
-    blocking: false
+    blocking: true
   - series: k6/api-baseline/http
     metric: latency_p99_ms
     max: 400
@@ -146,13 +141,8 @@ gates:
     blocking: true
   - series: k6/relay-throughput/relay
     metric: latency_p95_ms
-    max: 400
-    blocking: true
-  # Past this a session stops feeling like a conversation; watched until the relay path holds it.
-  - series: k6/relay-throughput/relay
-    metric: latency_p95_ms
     max: 150
-    blocking: false
+    blocking: true
   - series: k6/relay-throughput/relay
     metric: latency_p99_ms
     max: 700
@@ -208,40 +198,48 @@ gates:
     max: 0
     blocking: true
 
-  # A generator that falls behind offers less work, and dropped iterations count that shortfall.
-  # The blocking row tolerates a few late iterations; the advisory row is the target.
-  - series: k6/api-baseline/http
-    metric: dropped_iterations
-    max: 50
-    blocking: true
+  # A generator that falls behind offers less work, and dropped iterations count that shortfall,
+  # so every planned iteration starts on time.
   - series: k6/api-baseline/http
     metric: dropped_iterations
     max: 0
-    blocking: false
-  - series: k6/concurrent-agents/http
-    metric: dropped_iterations
-    max: 50
     blocking: true
   - series: k6/concurrent-agents/http
     metric: dropped_iterations
     max: 0
-    blocking: false
-
-# Measurements this profile has looked at and deliberately left alone.
-ungated:
-  # The median sits at or below the 95th percentile, so a middle-case ceiling above the
-  # tail's limit can never fire.
+    blocking: true
+  # Each page reacts within 100 ms in the ordinary case, the wait a person reads as instant.
   - series: k6/api-baseline/device_list
     metric: latency_p50_ms
-    reason: the tail is held to 300 ms, so a middle-case ceiling above that can never fire
+    max: 100
+    blocking: true
   - series: k6/api-baseline/device_detail
     metric: latency_p50_ms
-    reason: the tail is held to 500 ms, so a middle-case ceiling above that can never fire
+    max: 100
+    blocking: true
   - series: k6/api-baseline/command_accept
     metric: latency_p50_ms
-    reason: the tail is held to 1000 ms, so a middle-case ceiling above that can never fire
-  # Machines arrive at the profile's own pace, so the rate measures the profile; the error rate
-  # and the registration timings above catch a machine that did not arrive.
+    max: 100
+    blocking: true
+  # The night offers the pace its profile plans, or it measured a lighter load than it claims.
   - series: quic/quic-agents/aggregate
-    metric: rps
-    reason: a walked profile paces its own arrivals, so the rate measures the profile rather than the server
+    metric: rps_share_of_plan
+    min: 0.99
+    blocking: true
+  # The server and the database keep a fifth of their allowance free, watched night against night.
+  - series: service/server/measured
+    metric: cpu_percent
+    max: 80
+    blocking: false
+  - series: service/server/measured
+    metric: memory_percent
+    max: 80
+    blocking: false
+  - series: service/database/measured
+    metric: cpu_percent
+    max: 80
+    blocking: false
+  - series: service/database/measured
+    metric: memory_percent
+    max: 80
+    blocking: false

@@ -323,3 +323,58 @@ func TestAProfileThatAsksNoCapacityQuestionKeepsItsCeiling(t *testing.T) {
 
 	assert.Equal(t, ResultInvalid, verdict.Result)
 }
+
+func TestALadderStopsClimbingAtTheFirstRungThatGivesThenDrainsAndRecovers(t *testing.T) {
+	target := &countingTarget{seconds: []float64{0, 1, 1, 3, 3, 3.2, 3.2, 3.6}}
+	busy := TargetBusy{ReadCPUSeconds: target.read, Allowance: 1}
+	rung := func(name string, agents int) Phase {
+		return Phase{Name: name, Duration: Duration{Duration: 2 * time.Second}, ConnectedAgents: agents}
+	}
+	profile := &Profile{
+		SchemaVersion: profileSchemaVersion,
+		Name:          "ladder",
+		Family:        FamilyBreakpoint,
+		Environment:   EnvRunner,
+		Fixture:       FixtureSmall,
+		GaveOut:       &GaveOut{TargetBusyPercentAbove: 95},
+		Phases: []Phase{
+			rung("step-10", 10), rung("step-20", 20), rung("step-40", 40), rung("drain", 0), rung("recovery", 10),
+		},
+	}
+
+	results, err := RunPhasesWatched(profile, &recordingFleet{}, &testClock{now: time.Now()}, alwaysRoomToRun, PhaseReadings{Busy: busy})
+
+	require.NoError(t, err)
+	names := make([]string, 0, len(results))
+	for _, phase := range results {
+		names = append(names, phase.Name)
+	}
+	assert.Equal(t, []string{"step-10", "step-20", "drain", "recovery"}, names)
+	answer := FindBreakingPoint(profile.GaveOut, results)
+	require.NotNil(t, answer)
+	assert.Equal(t, "step-10", answer.HeldAt)
+	assert.Equal(t, "step-20", answer.GaveAt)
+}
+
+func TestALadderThatHoldsClimbsToItsTop(t *testing.T) {
+	target := &countingTarget{seconds: []float64{0, 1, 1, 2, 2, 3, 3, 3.2}}
+	busy := TargetBusy{ReadCPUSeconds: target.read, Allowance: 1}
+	rung := func(name string, agents int) Phase {
+		return Phase{Name: name, Duration: Duration{Duration: 2 * time.Second}, ConnectedAgents: agents}
+	}
+	profile := &Profile{
+		SchemaVersion: profileSchemaVersion,
+		Name:          "ladder",
+		Family:        FamilyBreakpoint,
+		Environment:   EnvRunner,
+		Fixture:       FixtureSmall,
+		GaveOut:       &GaveOut{TargetBusyPercentAbove: 95},
+		Phases:        []Phase{rung("step-10", 10), rung("step-20", 20), rung("step-40", 40), rung("drain", 0)},
+	}
+
+	results, err := RunPhasesWatched(profile, &recordingFleet{}, &testClock{now: time.Now()}, alwaysRoomToRun, PhaseReadings{Busy: busy})
+
+	require.NoError(t, err)
+	assert.Len(t, results, 4)
+	assert.Empty(t, FindBreakingPoint(profile.GaveOut, results).GaveAt)
+}

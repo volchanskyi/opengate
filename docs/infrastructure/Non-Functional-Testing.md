@@ -223,14 +223,14 @@ package's tests.
 | Family | Venue | Driven by | Why there |
 |---|---|---|---|
 | [Normal](../../load/profiles/normal.yaml) | Staging, nightly | [`load-test.yml`](../../.github/workflows/load-test.yml) | the everyday shape on the hardware production runs on, against a server reserving and capped at exactly what production is |
-| [Peak](../../load/profiles/peak.yaml) | GitHub-hosted runner, nightly | [`perf-stack.yml`](../../.github/workflows/perf-stack.yml) | the busiest ordinary morning is two thousand machines, and the cluster node has 150 millicores left to reserve |
-| [Spike](../../load/profiles/spike.yaml) | GitHub-hosted runner, nightly | [`perf-stack.yml`](../../.github/workflows/perf-stack.yml) | a site whose link came back is the same two thousand, arriving at once |
-| [Breakpoint](../../load/profiles/breakpoint.yaml) | GitHub-hosted runner, nightly | [`perf-stack.yml`](../../.github/workflows/perf-stack.yml) | a capacity test that stops short of the capacity measures nothing, and saturating the cluster node throttles production's own probes |
-| [Volume 500](../../load/profiles/volume-500.yaml) | GitHub-hosted runner, nightly | [`perf-stack.yml`](../../.github/workflows/perf-stack.yml) | staging's database shares the node root with production; a runner brings its own disk |
-| [Volume 2,000](../../load/profiles/volume-2000.yaml) | GitHub-hosted runner, nightly | [`perf-stack.yml`](../../.github/workflows/perf-stack.yml) | the middle point of the sweep: the legs differ in machines enrolled, because the fixture names do not differ in how much data they hold |
-| [Volume 8,000](../../load/profiles/volume-8000.yaml) | GitHub-hosted runner, nightly | [`perf-stack.yml`](../../.github/workflows/perf-stack.yml) | the far point, four times the largest fixture any name plans |
-| [Scaling](../../load/profiles/scaling.yaml) | GitHub-hosted runner, nightly | [`perf-stack.yml`](../../.github/workflows/perf-stack.yml) | the sweep needs four or five processor points and the cluster offers one |
-| [Catch-up](../../load/profiles/catch-up.yaml) | GitHub's ARM runner, nightly | [`perf-stack.yml`](../../.github/workflows/perf-stack.yml) | a spike of its own: the whole fleet back after an hour away, at production's limits on production's processor family, which the cluster node has no room to host beside production |
+| [Peak](../../load/profiles/peak.yaml) | GitHub-hosted runner, nightly | [`perf-shapes.yml`](../../.github/workflows/perf-shapes.yml) | the busiest ordinary morning is two thousand machines, and the cluster node has 150 millicores left to reserve |
+| [Spike](../../load/profiles/spike.yaml) | GitHub-hosted runner, nightly | [`perf-shapes.yml`](../../.github/workflows/perf-shapes.yml) | a site whose link came back is the same two thousand, arriving at once |
+| [Breakpoint](../../load/profiles/breakpoint.yaml) | GitHub-hosted runner, nightly | [`perf-shapes.yml`](../../.github/workflows/perf-shapes.yml) | a capacity test that stops short of the capacity measures nothing, and saturating the cluster node throttles production's own probes |
+| [Volume 500](../../load/profiles/volume-500.yaml) | GitHub-hosted runner, nightly | [`perf-volume.yml`](../../.github/workflows/perf-volume.yml) | staging's database shares the node root with production; a runner brings its own disk |
+| [Volume 2,000](../../load/profiles/volume-2000.yaml) | GitHub-hosted runner, nightly | [`perf-volume.yml`](../../.github/workflows/perf-volume.yml) | the middle point of the sweep: the legs differ in machines enrolled, because the fixture names do not differ in how much data they hold |
+| [Volume 8,000](../../load/profiles/volume-8000.yaml) | GitHub-hosted runner, nightly | [`perf-volume.yml`](../../.github/workflows/perf-volume.yml) | the far point, four times the largest fixture any name plans |
+| [Scaling](../../load/profiles/scaling.yaml) | GitHub-hosted runner, nightly | [`perf-scaling.yml`](../../.github/workflows/perf-scaling.yml) | the sweep needs four or five processor points and the cluster offers one |
+| [Catch-up](../../load/profiles/catch-up.yaml) | GitHub's ARM runner, nightly | [`perf-catchup.yml`](../../.github/workflows/perf-catchup.yml) | a spike of its own: the whole fleet back after an hour away, at production's limits on production's processor family, which the cluster node has no room to host beside production |
 | [Soak](../../load/profiles/soak.yaml) | GitHub-hosted runner, weekly | [`soak.yml`](../../.github/workflows/soak.yml) | the run owns the machine and destroys it, which is what makes following a held object with a debugger possible at all |
 
 Every row names a workflow that runs it, and
@@ -634,8 +634,7 @@ verdict that decides whether the night enters the trend at all.
 
 ### The catch-up leg
 
-The `catch-up` job of
-[`perf-stack.yml`](../../.github/workflows/perf-stack.yml) runs on GitHub's ARM
+[`perf-catchup.yml`](../../.github/workflows/perf-catchup.yml) runs its leg on GitHub's ARM
 runner with the server and the metrics store at production's limits and the
 store at production's settings
 ([`docker-compose.perf-catchup.yml`](../../deploy/docker-compose.perf-catchup.yml)),
@@ -677,12 +676,16 @@ carries. It reads, in order:
 
 The fleet's gates in the profile fail the night: live readings stored within
 5 seconds, every machine's hour filled within fifteen minutes of the fleet's
-return, and the busy morning's connection limits, read against the run's own rows
-by [`perf-bundle-limits.sh`](../../scripts/perf-bundle-limits.sh). The store
-probe is a published reading: [`perf-catchup-gate.sh`](../../scripts/perf-catchup-gate.sh)
-reports it against its marks and fails only when the probe wrote nothing, and its
-rate and live timing reach the Performance Stack Trends dashboard beside the
-fleet's figures. The probe's readings are written into the leg's uploaded
+return, 95% of the returning fleet online within 3 minutes of the return's start
+and every machine within 5, none refused, and the busy morning's connection
+limits, read against the run's own rows by
+[`perf-bundle-limits.sh`](../../scripts/perf-bundle-limits.sh). The harness times
+a phase's fleet online only where a limit names it, once the walk ends, so a
+machine that came online after the phase closed still counts; a machine's own
+sign-in time in the wave is watched. The store
+probe's marks sit in the same profile and read pass/over; the night fails only
+when a probe did not run its fifteen minutes. Its rate and live timing reach the
+Performance Stack Trends dashboard beside the fleet's figures. The probe's readings are written into the leg's uploaded
 bundle directory the moment it ends, and folded into the bundle after the walk
 whatever became of the server, so a server that dies in the fleet walk leaves
 the go/no-go its reading. The probe and the runner's benchmark are published
@@ -697,9 +700,14 @@ out.
 - **Bundle size** runs on every push and gates `merge-to-main` (size-limit gzip check)
 - **Load tests** walk the everyday profile against staging nightly, and on
   `workflow_dispatch` (not on every push)
-- **The performance stack** — the volume, scaling and three shape families on a
-  throwaway runner, and the catch-up leg on an ARM runner — runs nightly, last in
-  the order, after the twenty-job pool the earlier batches hold has drained
+- **The performance domains** — catch-up on an ARM runner, then the three shape
+  families, the volume sweep and the scaling sweep, each on throwaway runners —
+  run nightly, last in the order, after the twenty-job pool the earlier batches
+  hold has drained. Each domain is a workflow of its own, with its own slot,
+  concurrency group, regression gate and alert, its legs run by
+  [`perf-leg.yml`](../../.github/workflows/perf-leg.yml) and its night published,
+  gated and alerted on by [`perf-trend.yml`](../../.github/workflows/perf-trend.yml),
+  so one red leg turns only its own domain red
 - **The endurance soak** runs weekly, on a throwaway runner of its own
 
 The hour a cron names is not the hour a run starts: every scheduled run begins

@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"math"
 	"testing"
 	"time"
 
@@ -99,4 +100,22 @@ func TestAMessageHoldsItsShareOfTheAllowanceUntilItsHandlerReturns(t *testing.T)
 	whole, err := allowance.reserve(context.Background(), maxMachineMessageBytes)
 	require.NoError(t, err, "a handled message gives its share back")
 	whole()
+}
+
+func TestTheReadAllowanceIsAShareOfTheMemoryLimit(t *testing.T) {
+	cases := []struct {
+		name  string
+		limit int64
+		want  int64
+	}{
+		{"production's limit, 90% of 384 MiB", 362387865, 18119393},
+		{"a small limit still reads the largest message", 8 << 20, maxMachineMessageBytes},
+		{"no limit set keeps the fixed allowance", math.MaxInt64, unlimitedReadAllowanceBytes},
+		{"a limit that reads as nothing keeps the fixed allowance", 0, unlimitedReadAllowanceBytes},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, readAllowanceFor(tc.limit))
+		})
+	}
 }

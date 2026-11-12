@@ -30,23 +30,112 @@ safety:
   max_error_rate: 0.01
 
 gates:
-  # The evidence bundle judges a leg, so limits name machine-side measurements only.
-  # Registration is the write more data slows, timed by the server where the device row lands.
+  # The machines, the technicians beside them and the parts that serve both, each held to its promise.
   - series: quic/quic-agents/aggregate
     metric: error_rate
     max: 0
     blocking: true
-  # The median is the write itself, while the tail at this fleet size is a queue that varies per run.
-  # Across five nights the median read 220 to 255 ms, so 500 ms leaves room without going slack.
-  - series: quic/quic-agents/register
-    metric: latency_p50_ms
+  - series: quic/quic-agents/connect
+    metric: latency_p95_ms
     max: 500
     blocking: true
-
-# Each entry is a measurement this profile deliberately leaves without a limit.
-ungated:
-  # At the venue's largest fleet the tail reads the target's processor queue, which varies per run.
-  # A ceiling above the histogram's last boundary is refused by loadtest-gate-series.test.sh.
+  - series: quic/quic-agents/register
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
   - series: quic/quic-agents/register
     metric: latency_p95_ms
-    reason: at the venue's largest fleet the tail is the queue rather than the write, and it does not reproduce between runs
+    max: 500
+    blocking: false
+  - series: quic/quic-agents/wave
+    metric: arrival_share
+    min: 1
+    blocking: true
+  - series: quic/quic-agents/wave
+    metric: latency_p95_ms
+    max: 1000
+    blocking: true
+  - series: catchup/live/drain
+    metric: within_5s_share
+    min: 0.99
+    blocking: true
+  - series: k6/api-baseline/command_accept
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: k6/api-baseline/command_accept
+    metric: latency_p95_ms
+    max: 1000
+    blocking: true
+  - series: k6/api-baseline/command_accept
+    metric: error_rate
+    max: 0.01
+    blocking: true
+  - series: k6/api-baseline/device_detail
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: k6/api-baseline/device_detail
+    metric: latency_p95_ms
+    max: 500
+    blocking: true
+  - series: k6/api-baseline/device_detail
+    metric: error_rate
+    max: 0.01
+    blocking: true
+  - series: k6/api-baseline/device_list
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: k6/api-baseline/device_list
+    metric: latency_p95_ms
+    max: 300
+    blocking: true
+  - series: k6/api-baseline/device_list
+    metric: error_rate
+    max: 0.01
+    blocking: true
+  - series: k6/relay-throughput/relay
+    metric: latency_p50_ms
+    max: 400
+    blocking: true
+  - series: k6/relay-throughput/relay
+    metric: latency_p95_ms
+    max: 400
+    blocking: true
+  - series: k6/relay-throughput/relay
+    metric: error_rate
+    max: 0.01
+    blocking: true
+  - series: service/server/measured
+    metric: cpu_percent
+    max: 80
+    blocking: false
+  - series: service/server/measured
+    metric: memory_percent
+    max: 80
+    blocking: false
+  - series: service/database/measured
+    metric: cpu_percent
+    max: 80
+    blocking: false
+  - series: service/database/measured
+    metric: memory_percent
+    max: 80
+    blocking: false
+  - series: quic/register/ramp
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: quic/register/ramp
+    metric: latency_p95_ms
+    max: 500
+    blocking: false
+  - series: quic/register/steady
+    metric: latency_p50_ms
+    max: 100
+    blocking: true
+  - series: quic/register/steady
+    metric: latency_p95_ms
+    max: 500
+    blocking: false

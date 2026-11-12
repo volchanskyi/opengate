@@ -102,6 +102,11 @@ gauntlet's first check after the prerequisites, and a step of CI's
   one with neither is listed. The same list excuses a hole in the image scan
   ([Container Images](Container-Images.md#vulnerability-scan)), and an entry
   lapses the way an npm exception does.
+- A dependency taken from a copy is read under the name and release the copy is
+  built on: a crate a `Cargo.lock` takes from git by its crates.io version, a Go
+  module `go.mod` replaces by the release it requires, since both scanners look
+  a copy up under its own name and find nothing. The remedy rebuilds the copy on
+  the fixed release.
 - A tool, chart or provider is judged by what it is built from as well: its own
   newest patch release building past an affected module is the fix.
 - An image is judged against the newest patch tag of the same shape built for
@@ -364,7 +369,7 @@ ingress controller's cluster-wide read of secrets — is stated in
 | `chi/v5` | HTTP router |
 | `golang-jwt/v5` | JWT authentication |
 | `golang-migrate/v4` | Database migrations |
-| `quic-go` v0.59 | QUIC transport for agent connections |
+| `quic-go`, from a copy pinned in [`server/go.mod`](../../server/go.mod) ([ADR-037](../adr/ADR-037-quic-transport.md)) | QUIC transport for agent connections |
 | `jackc/pgx/v5` | Pure-Go PostgreSQL driver (stdlib adapter used by `database/sql`) |
 | `vmihailenco/msgpack/v5` | MessagePack codec |
 

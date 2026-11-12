@@ -21,9 +21,38 @@ values.
 that only report.** Two ceilings on one measurement means one of them is
 decorative.
 
-**Every measurement the extraction produces carries a decision** — a limit, or
-an explicit note that it is reported only. A number with no decision attached is
-a number nobody reads.
+**Every row of every summary carries an expected value against its actual.** A
+limit either fails the night, or, declared `blocking: false`, is watched: past it
+the row reads over and the night goes on. A profile that declares a measurement
+`ungated` is refused by the harness
+([`profile.go`](../../server/tests/loadtest/profile.go)), so no row reads "no
+limit". A number with no expected value is a number nobody reads. A slowest-tail
+(p99) line is watched and every other limit fails the night, except where a rule
+below names a watched one. A limit can be watched below a processor share
+(`blocking_from_cpus`), as on the scaling sweep's starved rungs, and can follow
+another limit (`follows`), reading pass or over beside it, as the catch-up's
+batches told to wait sit beside its fill promise.
+
+**A fleet arriving at once is held to its arrival, not to each machine.** When a
+whole site's machines come back together, the night holds 95% of them online
+within 3 minutes of the return's start and every one within 5, none refused, and
+watches each machine's own sign-in. A server signs a returning fleet in at a
+rate: at a quarter processor 5,000 machines came online at about 46 a second, the
+whole fleet in 198 s, with each machine's sign-in a median of 22 s. EMQX promises
+connections a second and Netdata's parent admits one child every few seconds;
+neither promises every client online within seconds of a whole fleet arriving.
+
+**The server's and the database's levels are watched at 80% of their own
+allowance.** Their processor and memory rows read pass/over against 80% of each
+one's own cap, and are compared with their own nights in the trend
+([ADR-038](./ADR-038-ci-trend-store.md)): a level moves with the runner as much as
+with the code, so it explains a night rather than deciding it.
+
+**A profile's version is its load's.** `version:` names what the profile offers —
+its phases, fixture and safety — and rises when that changes; its limits change
+without it. Past nights are matched by name and version, and
+[`profile-load-version.test.sh`](../../scripts/tests/profile-load-version.test.sh)
+pins each version's load, so a load changed without its version fails.
 
 **Limits are read where both halves of the night exist**, so a limit cannot be
 compared against a measurement taken somewhere else.
@@ -63,7 +92,7 @@ apart under identical load read tails of 5,773 and 9,443 ms — with the second'
 measurement — while their middle cases read 239 and 255, beside a 220 from a
 third. Nothing about the server moved between them. A ceiling wide enough not to
 fire on the tail's spread is one that cannot fire on anything, so the tail is
-declared ungated with that reason and the middle case carries the limit. What
+watched and the middle case carries the limit that fails the night. What
 the leg still owes at that ceiling is that its machines arrive, which its
 aggregate holds at nought, and the shape across the family's legs is what the
 family is for.
@@ -186,10 +215,10 @@ names the scenario
 ([`loadtest-k6-run.sh`](../../scripts/loadtest-k6-run.sh)).
 
 **A night's summary states each limit beside its reading.** Every bundle-based
-run — the load test, each performance-stack leg, the endurance run — and the
+run — the load test, each performance leg, the endurance run — and the
 network drill and the benchmark write one table of *measurement, expected,
 actual, result*, where the result is a pass, a failure (enforced) or an overrun
-(reported only)
+(watched)
 ([`run-summary.sh`](../../scripts/run-summary.sh),
 [`summary-table.sh`](../../scripts/lib/summary-table.sh)). Every run shows its
 error rate, and the server's and the database's average processor and memory use
@@ -229,7 +258,7 @@ fleet it reads. Measured apart on the workstation, it held 3.4 GB at the 4,000 r
 and passed 6 GB at 8,000, while the harness held 0.6 and 1.1 GB; inside one shared
 allowance every night read invalid on the generator rather than on the server. The leg gives the
 harness and the technicians a slice each
-([`perf-stack.yml`](../../.github/workflows/perf-stack.yml), the `breakpoint`
+([`perf-shapes.yml`](../../.github/workflows/perf-shapes.yml), the `breakpoint`
 entry), and the harness judges the technicians' slice by its own ceilings, so
 either running short invalidates the night. A visit times the whole device list
 and keeps none of its body. k6 and Gatling both treat a nearly saturated generator

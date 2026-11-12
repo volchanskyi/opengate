@@ -90,15 +90,16 @@ func (a *AgentConn) handleAgentMetricWindow(ctx context.Context, msg *protocol.C
 	samples := make([]telemetry.Sample, 0, len(msg.Dims))
 	unknown := 0
 	for _, dim := range msg.Dims {
-		if !isVitalDim(dim.Name) {
+		labels, vital := vitalLabels[dim.Name]
+		if !vital {
 			unknown++
 			continue
 		}
 		samples = append(samples, telemetry.Sample{
-			Name:   "opengate_edge_metric_avg",
+			Name:   backfillMetric,
 			Value:  dim.Avg,
 			TS:     ts,
-			Labels: map[string]string{"dim": dim.Name},
+			Labels: labels,
 		})
 	}
 	// The counter moves once per window however many dims were unlisted; the allowlist

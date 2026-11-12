@@ -29,9 +29,10 @@ func TestVitalDimsAreTheAgreedVocabulary(t *testing.T) {
 		"disk.queue_depth",
 	}, vitalDims, "the metric-window vocabulary")
 
-	require.Len(t, vitalDimSet, len(vitalDims), "no dim is listed twice")
+	require.Len(t, vitalLabels, len(vitalDims), "no dim is listed twice")
 	for _, dim := range vitalDims {
-		assert.True(t, vitalDimSet[dim], "%s is in the set the ingest path checks", dim)
+		assert.True(t, isVitalDim(dim), "%s is in the set the ingest path checks", dim)
+		assert.Equal(t, map[string]string{"dim": dim}, vitalLabels[dim], "%s labels its readings by name", dim)
 	}
 }
 

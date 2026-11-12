@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -149,7 +150,7 @@ func NewAgentServer(cfg AgentServerConfig) *AgentServer {
 		issuer:         cfg.Issuer,
 		logger:         cfg.Logger,
 		addrCh:         make(chan string, 1),
-		allowance:      newReadAllowance(readAllowanceBytes),
+		allowance:      newReadAllowance(readAllowanceFor(debug.SetMemoryLimit(-1))),
 	}
 	if cfg.Issuer != nil {
 		s.renewals = &renewals{

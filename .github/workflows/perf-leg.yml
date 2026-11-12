@@ -1,0 +1,435 @@
+name: Performance leg
+
+# One leg of a performance domain: bring the stack up on a runner of its own, walk a profile, read
+# the run's verdict and limits, and upload its bundle; the caller names the leg and its load.
+
+on:
+  workflow_call:
+    inputs:
+      leg:
+        description: "The leg's name, which names its bundle directory, artifact and trend series"
+        required: true
+        type: string
+      title:
+        description: "The leg's name in its summary"
+        required: true
+        type: string
+      profile:
+        description: "The profile the harness and the technicians walk"
+        required: true
+        type: string
+      agents:
+        description: "Machines in the leg's fleet"
+        required: true
+        type: string
+      hold:
+        description: "How long the harness holds the fleet"
+        required: true
+        type: string
+      minutes:
+        description: "The leg's job timeout"
+        required: true
+        type: number
+      arm:
+        description: "Runs the leg on GitHub's ARM runner"
+        required: false
+        type: boolean
+        default: false
+      server-cpus:
+        description: "The server's processor share"
+        required: false
+        type: string
+        default: '1.0'
+      server-memory:
+        description: "The server's memory limit, as compose spells it"
+        required: false
+        type: string
+        default: 1g
+      server-memory-bytes:
+        description: "The server's memory limit in bytes, which the harness records as the target's"
+        required: false
+        type: string
+        default: '1073741824'
+      generator-cpus:
+        description: "The harness's processor allowance"
+        required: false
+        type: string
+        default: '1.0'
+      generator-memory:
+        description: "The harness's memory allowance"
+        required: false
+        type: string
+        default: 10G
+      technician-cpus:
+        description: "A processor allowance of the technicians' own; empty shares the harness's"
+        required: false
+        type: string
+        default: ''
+      technician-memory:
+        description: "A memory allowance of the technicians' own, beside technician-cpus"
+        required: false
+        type: string
+        default: ''
+      weigh:
+        description: "Weighs the fixture the fleet built and folds the weight into the bundle"
+        required: false
+        type: boolean
+        default: false
+      catch-up:
+        description: "Runs the store probe first, and walks the fleet back after an hour away"
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      DOCKERHUB_USERNAME:
+        required: true
+      DOCKERHUB_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  leg:
+    name: ${{ inputs.title }}
+    runs-on: ${{ inputs.arm && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: ${{ inputs.minutes }}
+    env:
+      COMPOSE_FILE: deploy/docker-compose.perf.yml
+      CATCHUP_OVERRIDE: deploy/docker-compose.perf-catchup.yml
+      K6_VERSION: v1.6.1
+      K6_ARCH: ${{ inputs.arm && 'arm64' || 'amd64' }}
+      K6_SUMMARY_TREND_STATS: avg,min,med,p(50),p(95),p(99),max,count
+      PERF_BUNDLE_DIR: perf-bundles
+      LEG: ${{ inputs.leg }}
+      TITLE: ${{ inputs.title }}
+      PROFILE: ${{ inputs.profile }}
+      AGENTS: ${{ inputs.agents }}
+      HOLD: ${{ inputs.hold }}
+      CATCH_UP: ${{ inputs.catch-up }}
+      # The harness records these caps as the target's fingerprint, so they match the container.
+      PERF_SERVER_CPUS: ${{ inputs.server-cpus }}
+      PERF_SERVER_MEMORY: ${{ inputs.server-memory }}
+      PERF_SERVER_MEMORY_BYTES: ${{ inputs.server-memory-bytes }}
+      # The store at production's limits, which the probe reads its readings against.
+      PERF_METRICS_CPUS: '0.5'
+      PERF_METRICS_MEMORY: 512m
+      PERF_METRICS_MEMORY_BYTES: '536870912'
+      # An explicit generator allowance lets the harness measure its room against the allowance.
+      GENERATOR_CPUS: ${{ inputs.generator-cpus }}
+      GENERATOR_MEMORY: ${{ inputs.generator-memory }}
+      TECHNICIAN_CPUS: ${{ inputs.technician-cpus }}
+      TECHNICIAN_MEMORY: ${{ inputs.technician-memory }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-pinned-tools
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27'
+          cache-dependency-path: server/go.sum
+
+      # Docker Hub's anonymous pull rate is shared across a runner's network, so pulls use the mirror.
+      - uses: ./.github/actions/docker-hub-mirror
+        with:
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # The free disk column is what binds; the harness reads all three figures itself.
+      - name: Record what this runner actually is
+        run: |
+          set -euo pipefail
+          printf 'processors: %s\n' "$(nproc)"
+          printf 'processor:  %s\n' "$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -n 1)"
+          printf 'memory:     %s KB\n' "$(awk '/MemTotal/ {print $2}' /proc/meminfo)"
+          printf 'free disk:  %s KB\n' "$(df -k --output=avail / | tail -n1 | tr -d ' ')"
+
+      # The same fixed minute of work at a quarter processor, so a night on a different chip shows.
+      - name: Read the runner's fixed processor benchmark
+        if: inputs.catch-up
+        run: scripts/cpu-benchmark.sh /tmp/cpu-benchmark.json
+
+      # The transport asks for more receive buffer than a runner allows a socket.
+      - name: Give the machine-facing path production's buffers
+        run: scripts/perf-stack-quic.sh raise-buffers
+
+      # The catch-up leg runs the store and server at production's limits and settings.
+      - name: Bring the performance stack up
+        id: stack
+        run: |
+          set -euo pipefail
+          DOCKER_CONFIG="$(./scripts/docker-credstore-guard.sh)"
+          export DOCKER_CONFIG
+          STACK=(-f "$COMPOSE_FILE")
+          [ "$CATCH_UP" != true ] || STACK+=(-f "$CATCHUP_OVERRIDE")
+          scripts/perf-stack-pull.sh "$COMPOSE_FILE"
+          docker compose "${STACK[@]}" up --build --wait --wait-timeout 300
+          # The database's cgroup is sampled for the job's duration for the leg's summary.
+          DB_CGROUP="$(scripts/database-levels.sh cgroup-of opengate-perf-postgres)"
+          nohup scripts/database-levels.sh sample "$DB_CGROUP" /tmp/db-samples.tsv >/dev/null 2>&1 &
+
+      # The generator dials the name on the server's certificate, mapped to the container's address.
+      - name: Dial the server by its certificate's name
+        run: scripts/perf-stack-quic.sh map-server
+
+      # The fixture's weight is the difference between this baseline and the reading taken afterwards.
+      - name: Read the empty stack's size
+        if: inputs.weigh
+        run: |
+          set -euo pipefail
+          mkdir -p "$PERF_BUNDLE_DIR"
+          bash scripts/perf-weigh-fixture.sh baseline /tmp/fixture-baseline.json
+
+      # The k6 leg is the browser-side half of the load; the harness answers and echoes its sessions.
+      - name: Install k6
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            "https://github.com/grafana/k6/releases/download/${K6_VERSION}/k6-${K6_VERSION}-linux-${K6_ARCH}.tar.gz" \
+            | tar -xz -C /tmp
+          install -m 0755 "/tmp/k6-${K6_VERSION}-linux-${K6_ARCH}/k6" /tmp/k6
+
+      - name: Build the store probe
+        if: inputs.catch-up
+        run: go build -C server -trimpath -o /tmp/storeprobe ./tests/storeprobe/
+
+      # Production's store carries its scrape beside machine readings: about fourteen thousand
+      # series every fifteen seconds, which is also production's active series count.
+      - name: Start production's background load
+        if: inputs.catch-up
+        run: |
+          set -euo pipefail
+          nohup /tmp/storeprobe -mode=background -store=http://127.0.0.1:8428 -series=14400 -every=15s \
+            >/tmp/background.log 2>&1 &
+          echo "$!" >/tmp/background.pid
+          sleep 30
+
+      - name: Read a quiet minute
+        if: inputs.catch-up
+        run: |
+          /tmp/storeprobe -mode=quiet -store=http://127.0.0.1:8428 -quiet=60s \
+            -store-cpus="$PERF_METRICS_CPUS" -store-memory-bytes="$PERF_METRICS_MEMORY_BYTES" -out=/tmp/probe-quiet.json
+
+      - name: Probe the store with one catch-up sender
+        if: inputs.catch-up
+        run: |
+          /tmp/storeprobe -mode=probe -store=http://127.0.0.1:8428 -senders=1 -duration=15m \
+            -store-cpus="$PERF_METRICS_CPUS" -store-memory-bytes="$PERF_METRICS_MEMORY_BYTES" -out=/tmp/probe-one.json
+
+      - name: Probe the store with two catch-up senders
+        if: inputs.catch-up
+        run: |
+          /tmp/storeprobe -mode=probe -store=http://127.0.0.1:8428 -senders=2 -duration=15m \
+            -store-cpus="$PERF_METRICS_CPUS" -store-memory-bytes="$PERF_METRICS_MEMORY_BYTES" -out=/tmp/probe-two.json
+
+      # The kernel's account of the store decides whether it ran out of memory. The readings are
+      # written into the uploaded bundle directory, so the fleet walk after them cannot take them.
+      - name: Gather the store probe's readings
+        if: always() && steps.stack.outcome == 'success' && inputs.catch-up
+        run: |
+          set -euo pipefail
+          oom="$(docker inspect -f '{{.State.OOMKilled}}' opengate-perf-metrics)"
+          for part in quiet one two; do [ -s "/tmp/probe-$part.json" ] || echo '{}' >"/tmp/probe-$part.json"; done
+          mkdir -p "$PERF_BUNDLE_DIR/$LEG"
+          jq -n --argjson oom "$oom" --slurpfile quiet /tmp/probe-quiet.json \
+            --slurpfile one /tmp/probe-one.json --slurpfile two /tmp/probe-two.json \
+            '{oom_killed: $oom, quiet: $quiet[0], one_sender: $one[0], two_senders: $two[0]}' \
+            >"$PERF_BUNDLE_DIR/$LEG/store-probe.json"
+
+      # The store's log is read here, before the fleet's store replaces its container.
+      - name: Show the store's state
+        if: always() && steps.stack.outcome == 'success' && inputs.catch-up
+        run: |
+          scripts/perf-store-state.sh opengate-perf-metrics \
+            /tmp/probe-quiet.json /tmp/probe-one.json /tmp/probe-two.json
+
+      # The fleet meets a store holding only production's background, as production's does.
+      - name: Give the fleet a store of its own
+        if: inputs.catch-up
+        run: |
+          set -euo pipefail
+          DOCKER_CONFIG="$(./scripts/docker-credstore-guard.sh)"
+          export DOCKER_CONFIG
+          docker compose -f "$COMPOSE_FILE" -f "$CATCHUP_OVERRIDE" up --wait --wait-timeout 120 --force-recreate metrics
+
+      # The host's steal and the server's throttling are read either side of the walk.
+      - name: Read the runner's counters before the walk
+        run: |
+          set -euo pipefail
+          scripts/perf-runner-record.sh snapshot \
+            "$(scripts/database-levels.sh cgroup-of opengate-perf-server)" /tmp/runner-before.json
+
+      # On an empty stack the first account the server sees becomes its administrator. The
+      # technicians share the harness's allowance unless the leg gives them one the harness judges.
+      - name: Walk the profile, building its fleet first
+        id: walk
+        run: |
+          set -euo pipefail
+          mkdir -p "$PERF_BUNDLE_DIR" "$LOADTEST_K6_SUMMARY_DIR"
+          go build -C server -trimpath -o /tmp/loadtest ./tests/loadtest/
+          TECHNICIAN_SHARE=(scripts/loadtest-generator-share.sh "$GENERATOR_CPUS" "$GENERATOR_MEMORY" --)
+          TECHNICIAN_CGROUP=""
+          if [ -n "$TECHNICIAN_CPUS" ]; then
+            TECHNICIAN_SHARE=(scripts/loadtest-generator-share.sh --slice opengate-technicians.slice "$TECHNICIAN_CPUS" "$TECHNICIAN_MEMORY" --)
+            TECHNICIAN_CGROUP=opengate.slice/opengate-technicians.slice
+          fi
+          # The catch-up fleet is installed first and returns after an hour away, technicians beside it.
+          WALK=()
+          DESCRIPTION="compose stack, $PERF_SERVER_CPUS processors"
+          if [ "$CATCH_UP" = true ]; then
+            WALK=(-backfill-gap=1h -retry-deferred -enrol-first -live-every=60s)
+            DESCRIPTION="compose stack, production's limits, $PERF_SERVER_CPUS processors"
+          fi
+          "${TECHNICIAN_SHARE[@]}" scripts/loadtest-k6-alongside.sh /tmp/perf-quic.txt api-baseline relay-throughput &
+          K6_LEG=$!
+          # Exit 1 is a partly arrived fleet, which is a measurement; the verdict step judges it.
+          set +e
+          scripts/loadtest-quic-run.sh /tmp/perf-quic.txt -- \
+            scripts/loadtest-generator-share.sh "$GENERATOR_CPUS" "$GENERATOR_MEMORY" -- \
+            /tmp/loadtest \
+              -agents="$AGENTS" \
+              -technician-cgroup="$TECHNICIAN_CGROUP" \
+              -addr=server:9090 \
+              -target-net-counters="$PERF_TARGET_NET_COUNTERS" \
+              -default-telemetry \
+              "${WALK[@]}" \
+              -hold="$HOLD" \
+              -profile="$PROFILE" \
+              -commit="$GITHUB_SHA" \
+              -target-cpus="$PERF_SERVER_CPUS" \
+              -target-memory-bytes="$PERF_SERVER_MEMORY_BYTES" \
+              -target-description="$DESCRIPTION" \
+              -enroll-url=http://127.0.0.1:8080 \
+              -metrics-url=http://127.0.0.1:8081 \
+              -fixture-account=perf-admin@opengate-loadtest.invalid \
+              -fixture-password="$PERF_FIXTURE_PASSWORD" \
+              -fixture-bootstrap \
+              -fixture-seed=1 \
+              -relay-sessions \
+              -bundle="$PERF_BUNDLE_DIR/$LEG"
+          walk=$?
+          set -e
+          wait "$K6_LEG"
+          if [ "$walk" -gt 1 ]; then
+            echo "::error::the harness did not complete a run (exit $walk)." >&2
+            exit "$walk"
+          fi
+        env:
+          # The browser-side generator joins the same profile the harness walks.
+          LOADTEST_PROFILE: ${{ inputs.profile }}
+          LOADTEST_BASE_URL: http://127.0.0.1:8080
+          LOADTEST_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.leg }}
+          LOADTEST_K6_SUMMARY_DIR: /tmp/perf-k6
+          K6_BIN: /tmp/k6
+          # The stack is per-run and reachable only from the runner; the password is generated per run.
+          PERF_FIXTURE_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-Perf!
+
+      # The technician numbers are timed by a separate generator and merged into the leg's bundle.
+      - name: Fold the technician journeys into the leg
+        if: always() && steps.stack.outcome == 'success'
+        run: |
+          set -euo pipefail
+          scripts/loadtest-bundle-merge.sh "$PERF_BUNDLE_DIR/$LEG/bundle.json" \
+            --journeys /tmp/perf-k6/api-baseline.json \
+            --journeys /tmp/perf-k6/relay-throughput.json
+
+      # The probe ran before the walk, so its readings reach the bundle whatever the walk did.
+      - name: Fold the store probe's readings into the bundle
+        if: always() && steps.stack.outcome == 'success' && inputs.catch-up
+        run: |
+          scripts/loadtest-bundle-merge.sh "$PERF_BUNDLE_DIR/$LEG/bundle.json" \
+            --probe "$PERF_BUNDLE_DIR/$LEG/store-probe.json"
+
+      # Reported beside the leg's readings, so a slow night says whether the machine or the cap held
+      # it; a server that stopped during the walk took its cgroup with it, and the runner is still read.
+      - name: Record what the runner and the server's allowance did
+        if: always() && steps.stack.outcome == 'success'
+        run: |
+          set -euo pipefail
+          if [ "$(docker inspect -f '{{.State.Running}}' opengate-perf-server)" = true ]; then
+            scripts/perf-runner-record.sh snapshot \
+              "$(scripts/database-levels.sh cgroup-of opengate-perf-server)" /tmp/runner-after.json
+          else
+            scripts/perf-runner-record.sh snapshot --server-stopped /tmp/runner-after.json
+          fi
+          scripts/perf-runner-record.sh delta /tmp/runner-before.json /tmp/runner-after.json >/tmp/runner.json
+          if [ -s /tmp/cpu-benchmark.json ]; then
+            jq --slurpfile bench /tmp/cpu-benchmark.json \
+              '.cpu_benchmark_rounds_per_second = $bench[0].rounds_per_second' /tmp/runner.json >/tmp/runner-bench.json
+            mv /tmp/runner-bench.json /tmp/runner.json
+          fi
+          BUNDLE="$PERF_BUNDLE_DIR/$LEG/bundle.json"
+          if [ -s "$BUNDLE" ]; then
+            scripts/loadtest-bundle-merge.sh "$BUNDLE" --runner /tmp/runner.json
+          fi
+          jq -r '"Runner: \(.processor_model), steal \(.steal_percent)%; the server throttled in \(.server_throttled_periods) of \(.server_periods) periods (\(.server_throttled_ms) ms)\(if .cpu_benchmark_rounds_per_second then "; \(.cpu_benchmark_rounds_per_second | floor) benchmark rounds a second at a quarter processor" else "" end)"' \
+            /tmp/runner.json | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # The database's levels over the measured span join the bundle, so its marks are read off it.
+      - name: Fold the database's levels into the bundle
+        if: always() && steps.stack.outcome == 'success'
+        run: |
+          set -euo pipefail
+          BUNDLE="$PERF_BUNDLE_DIR/$LEG/bundle.json"
+          [ -s "$BUNDLE" ] || exit 0
+          read -r FROM TO <<<"$(scripts/run-summary.sh window "$PROFILE" "$BUNDLE")"
+          scripts/database-levels.sh average /tmp/db-samples.tsv "$FROM" "$TO" >/tmp/db-levels.json
+          scripts/loadtest-bundle-merge.sh "$BUNDLE" --database /tmp/db-levels.json
+
+      # A short receive buffer on either end means datagrams were lost before either process saw them.
+      - name: Refuse a run whose ends ran short of receive buffer
+        run: scripts/perf-stack-quic.sh check /tmp/perf-quic.txt
+
+      - name: Read the verdict the run wrote about itself
+        if: always() && steps.stack.outcome == 'success'
+        run: scripts/perf-bundle-verdict.sh "$PERF_BUNDLE_DIR/$LEG/bundle.json"
+
+      # The verdict says whether the run measured the system; the limits say whether it was fast enough.
+      - name: Read the profile's limits against the run's own rows
+        if: always() && steps.stack.outcome == 'success'
+        run: |
+          set -euo pipefail
+          scripts/perf-bundle-limits.sh "$PROFILE" "$PERF_BUNDLE_DIR/$LEG/bundle.json" /tmp/leg-rows.json
+
+      - name: Write the leg's summary
+        if: always() && steps.stack.outcome == 'success'
+        run: |
+          set -euo pipefail
+          BUNDLE="$PERF_BUNDLE_DIR/$LEG/bundle.json"
+          if [ ! -s "$BUNDLE" ] || [ ! -s /tmp/leg-rows.json ]; then
+            echo "The leg wrote no rows, so its summary is the verdict above."
+            exit 0
+          fi
+          scripts/run-summary.sh render --title "$TITLE" --profile "$PROFILE" \
+            --rows /tmp/leg-rows.json --bundle "$BUNDLE" >>"$GITHUB_STEP_SUMMARY"
+
+      # The fixture weight is folded into the bundle so it outlives the metrics store.
+      - name: Weigh what the fleet actually cost, and fold it into the evidence
+        if: always() && steps.stack.outcome == 'success' && inputs.weigh
+        run: |
+          set -euo pipefail
+          bash scripts/perf-weigh-fixture.sh weigh /tmp/fixture-baseline.json \
+            "$PERF_BUNDLE_DIR/fixture-weight.json"
+          cat "$PERF_BUNDLE_DIR/fixture-weight.json"
+          scripts/loadtest-bundle-merge.sh "$PERF_BUNDLE_DIR/$LEG/bundle.json" \
+            --weight "$PERF_BUNDLE_DIR/fixture-weight.json"
+
+      - name: Tear the stack down
+        if: always()
+        run: |
+          [ ! -s /tmp/background.pid ] || kill "$(cat /tmp/background.pid)" || true
+          DOCKER_CONFIG="$(./scripts/docker-credstore-guard.sh)"
+          export DOCKER_CONFIG
+          STACK=(-f "$COMPOSE_FILE")
+          [ "$CATCH_UP" != true ] || STACK+=(-f "$CATCHUP_OVERRIDE")
+          docker compose "${STACK[@]}" down -v
+
+      - name: Upload the leg's bundle
+        if: always() && steps.stack.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: perf-${{ inputs.leg }}
+          path: ${{ env.PERF_BUNDLE_DIR }}
+          if-no-files-found: error
+          retention-days: 90

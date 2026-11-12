@@ -1745,14 +1745,12 @@ dependencies = [
  "mesh-protocol",
  "mockito",
  "portable-pty",
- "quinn",
  "rand 0.10.3",
  "rcgen",
  "reqwest",
  "rmp-serde",
  "rtc",
  "rustls",
- "rustls-pemfile",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -1773,8 +1771,6 @@ dependencies = [
 name = "mesh-protocol"
 version = "0.15.4"
 dependencies = [
- "bytes",
- "chrono",
  "criterion",
  "flate2",
  "getrandom 0.4.3",

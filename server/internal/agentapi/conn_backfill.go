@@ -132,7 +132,8 @@ func (a *AgentConn) backfillSamples(msg *protocol.ControlMessage) []telemetry.Sa
 			continue
 		}
 		// A dimension outside the live vocabulary would open central series cardinality.
-		if !isVitalDim(s.Name) {
+		labels, vital := vitalLabels[s.Name]
+		if !vital {
 			unknown++
 			continue
 		}
@@ -140,7 +141,7 @@ func (a *AgentConn) backfillSamples(msg *protocol.ControlMessage) []telemetry.Sa
 			Name:   backfillMetric,
 			Value:  s.Value,
 			TS:     time.Unix(s.TS, 0).UTC(),
-			Labels: map[string]string{backfillDimLabel: s.Name},
+			Labels: labels,
 		})
 	}
 	// A batch counts once per drop reason however many samples it lost; the sample count rides the log.

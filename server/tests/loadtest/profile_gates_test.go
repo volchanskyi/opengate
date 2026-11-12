@@ -42,15 +42,6 @@ func gate(series, metric, direction string, value float64, failing bool) string 
 	}, "\n")
 }
 
-func exemption(series, metric, reason string) string {
-	return strings.Join([]string{
-		"  - series: " + series,
-		"    metric: " + metric,
-		"    reason: " + reason,
-		"",
-	}, "\n")
-}
-
 func apiLatency(failing bool, value float64) string {
 	return gate("k6/api-baseline/http", "latency_p95_ms", "max", value, failing)
 }
@@ -81,40 +72,66 @@ func TestALimitAboveAndALimitBelowAreNotADuplicate(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestAMeasurementLeftUnlimitedIsDeclaredWithItsReason(t *testing.T) {
-	p, err := ParseProfile([]byte(profileWith(apiLatency(true, 200),
-		exemption("k6/api-baseline/http", "rps", "the rate is the pacing this scenario asks for"))))
-	require.NoError(t, err)
-
-	require.Len(t, p.Ungated, 1)
-	assert.Equal(t, "k6/api-baseline/http", p.Ungated[0].Series)
-	assert.Equal(t, "rps", p.Ungated[0].Metric)
-	assert.NotEmpty(t, p.Ungated[0].Reason)
-}
-
-func TestAnUnlimitedMeasurementWithNoReasonIsRefused(t *testing.T) {
+func TestAProfileThatLeavesAMeasurementUnlimitedIsRefused(t *testing.T) {
 	_, err := ParseProfile([]byte(profileWith(apiLatency(true, 200),
-		"  - series: k6/api-baseline/http\n    metric: rps\n")))
+		"  - series: k6/api-baseline/http\n    metric: rps\n    reason: the rate is the pacing\n")))
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "reason")
+	assert.Contains(t, err.Error(), "every measurement carries a limit")
 }
 
-func TestAMeasurementCannotBeBothLimitedAndDeclaredUnlimited(t *testing.T) {
-	_, err := ParseProfile([]byte(profileWith(apiLatency(true, 200),
-		exemption("k6/api-baseline/http", "latency_p95_ms", "it is limited above, which is the contradiction"))))
+func followingDeferrals(follows string, extra string) string {
+	return gate("catchup/gaps/drain", "fill_seconds", "max", 960, true) + strings.Join([]string{
+		"  - series: catchup/batches/drain",
+		"    metric: deferred",
+		"    follows: " + follows,
+		"    blocking: false",
+		extra,
+	}, "\n")
+}
+
+func TestALimitMayFollowTheOutcomeOfAnotherLimit(t *testing.T) {
+	p, err := ParseProfile([]byte(profileWith(followingDeferrals("catchup/gaps/drain|fill_seconds", ""), "")))
+
+	require.NoError(t, err)
+	require.Len(t, p.Gates, 2)
+	assert.Equal(t, "catchup/gaps/drain|fill_seconds", p.Gates[1].Follows)
+}
+
+func TestAFollowingLimitNamesALimitOfItsOwnProfile(t *testing.T) {
+	_, err := ParseProfile([]byte(profileWith(followingDeferrals("catchup/gaps/drain|machines_caught_up", ""), "")))
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "both limited and declared unlimited")
+	assert.Contains(t, err.Error(), "follows catchup/gaps/drain|machines_caught_up, which no limit of this profile is")
 }
 
-func TestAProfileReportsWhichMeasurementsItHasDecided(t *testing.T) {
-	p, err := ParseProfile([]byte(profileWith(apiLatency(true, 200),
-		exemption("k6/api-baseline/http", "rps", "the rate is the pacing this scenario asks for"))))
-	require.NoError(t, err)
+func TestAFollowingLimitStatesNoFigureOfItsOwn(t *testing.T) {
+	_, err := ParseProfile([]byte(profileWith(
+		followingDeferrals("catchup/gaps/drain|fill_seconds", "    max: 10\n"), "")))
 
-	decided := p.DecidedMeasurements()
-	assert.True(t, decided["k6/api-baseline/http|latency_p95_ms"], "a limited measurement is decided")
-	assert.True(t, decided["k6/api-baseline/http|rps"], "a deliberately unlimited one is decided too")
-	assert.False(t, decided["k6/api-baseline/http|error_rate"], "one nobody has ruled on is not")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "follows another limit and states a figure of its own")
+}
+
+func TestALimitMayFailTheNightOnlyFromAProcessorShare(t *testing.T) {
+	p, err := ParseProfile([]byte(profileWith(
+		gate("quic/quic-agents/register", "latency_p95_ms", "max", 500, true)+"    blocking_from_cpus: 1\n", "")))
+
+	require.NoError(t, err)
+	require.NotNil(t, p.Gates[0].BlockingFromCPUs)
+	assert.InDelta(t, 1.0, *p.Gates[0].BlockingFromCPUs, 0)
+}
+
+func TestAProcessorShareBelowWhichALimitOnlyWatchesIsPositiveAndOnAFailingLimit(t *testing.T) {
+	for name, gates := range map[string]string{
+		"not positive": gate("quic/quic-agents/register", "latency_p95_ms", "max", 500, true) + "    blocking_from_cpus: 0\n",
+		"watched":      gate("quic/quic-agents/register", "latency_p95_ms", "max", 500, false) + "    blocking_from_cpus: 1\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := ParseProfile([]byte(profileWith(gates, "")))
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "blocking_from_cpus")
+		})
+	}
 }

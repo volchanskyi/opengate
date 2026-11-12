@@ -38,7 +38,7 @@ export TOOL_VERSION_STATICCHECK="0.8.2"
 # A commit: gosec's newest release reads only the export data Go 1.27.1 and older write.
 export TOOL_VERSION_GOSEC="2.29.1-0.20261012130337-71577268350e"
 export TOOL_VERSION_CARGO_NEXTEST="0.9.151"
-export TOOL_VERSION_CARGO_LLVM_COV="0.8.5"
+export TOOL_VERSION_CARGO_LLVM_COV="0.8.7"
 # The scan action takes the CLI version; make sonar and the CI fallback take the image, which
 # bundles the same CLI.
 export TOOL_VERSION_SONAR_SCANNER="8.1.0.6389"

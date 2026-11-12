@@ -1,0 +1,95 @@
+name: Performance scaling
+
+# The scaling sweep: the same fleet against the server at four processor shares, each on a runner
+# of its own, read together as a curve and each compared with its own nights.
+
+on:
+  schedule:
+    # The hour decides queue order: a scheduled run starts hours after the time it names.
+    - cron: '30 7 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: perf-scaling
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # The start time is taken once so every sample of the night carries the same date.
+  started:
+    name: Record when the run started
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      started_at: ${{ steps.started.outputs.at }}
+    steps:
+      - name: Record when the run started
+        id: started
+        run: echo "at=$(date -u +%s)" >>"$GITHUB_OUTPUT"
+
+  scaling:
+    name: Scaling sweep (${{ matrix.cpus }} processors)
+    strategy:
+      fail-fast: false
+      # The rungs sit below what the runner leaves after the database, metrics store and generator.
+      matrix:
+        cpus: ["0.25", "0.5", "1", "2"]
+    uses: ./.github/workflows/perf-leg.yml
+    with:
+      leg: scaling-${{ matrix.cpus }}
+      title: Scaling sweep (${{ matrix.cpus }} processors)
+      profile: load/profiles/scaling.yaml
+      agents: '2000'
+      hold: 5m
+      minutes: 45
+      server-cpus: ${{ matrix.cpus }}
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  # Compares the scaling legs. The curve is published and not gated: one night is one sample per rung.
+  scaling-curve:
+    name: Scaling sweep, read together
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    needs: scaling
+    # A leg that failed leaves a hole in the curve, which the script reports.
+    if: ${{ !cancelled() }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Collect every leg of the sweep
+        uses: actions/download-artifact@v8
+        with:
+          pattern: perf-scaling-*
+          path: perf-legs
+
+      - name: Publish the curve, and refuse a sweep that measured nothing
+        run: |
+          set -euo pipefail
+          scripts/perf-scaling-curve.sh perf-legs | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # Runs after a cancel or a timeout too, so a night that died is alerted on.
+  trend:
+    name: Alert if the run did not finish, and publish the trend
+    needs: [started, scaling, scaling-curve]
+    if: always()
+    uses: ./.github/workflows/perf-trend.yml
+    with:
+      domain: scaling
+      started-at: ${{ needs.started.outputs.started_at }}
+      results: >-
+        started=${{ needs.started.result }}
+        scaling=${{ needs.scaling.result }}
+        scaling-curve=${{ needs['scaling-curve'].result }}
+    secrets:
+      OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+      OCI_WORKFLOW_USER_OCID: ${{ secrets.OCI_WORKFLOW_USER_OCID }}
+      OCI_WORKFLOW_FINGERPRINT: ${{ secrets.OCI_WORKFLOW_FINGERPRINT }}
+      OCI_WORKFLOW_PRIVATE_KEY: ${{ secrets.OCI_WORKFLOW_PRIVATE_KEY }}
+      OCI_REGION: ${{ secrets.OCI_REGION }}
+      OKE_CLUSTER_ID: ${{ secrets.OKE_CLUSTER_ID }}
+      DEPLOY_TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
+      DEPLOY_TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}

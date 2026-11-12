@@ -15,6 +15,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
+	"github.com/volchanskyi/opengate/server/internal/telemetry"
 )
 
 func backfillConn(t *testing.T, s *BackfillScheduler, tenant uuid.UUID, capable bool) (*AgentConn, *bytes.Buffer) {
@@ -221,4 +222,23 @@ func TestHandleMetricBackfillBatch_IgnoredWithoutCapability(t *testing.T) {
 	require.NoError(t, ac.handleMetricBackfillBatch(tenantCtx(tenant), msg, 128))
 	assert.Empty(t, writer.calls, "no write for an agent without the Backfill capability")
 	assert.Zero(t, buf.Len(), "no ack either")
+}
+
+func TestAnHourOfCatchUpReadingsBecomesSamplesInOneAllocation(t *testing.T) {
+	ac, _ := ingestConn(t, uuid.New(), &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}, true)
+	now := time.Now().Unix()
+	readings := make([]protocol.BackfillSample, 60)
+	for i := range readings {
+		readings[i] = protocol.BackfillSample{Name: vitalDims[i%len(vitalDims)], Value: float64(i), TS: now - 3600 + int64(i)*60}
+	}
+	msg := &protocol.ControlMessage{Type: protocol.MsgMetricBackfillBatch, BackfillSamples: readings}
+
+	var samples []telemetry.Sample
+	allocs := testing.AllocsPerRun(50, func() { samples = ac.backfillSamples(msg) })
+
+	assert.LessOrEqual(t, allocs, 1.0)
+	require.Len(t, samples, len(readings))
+	for i, sample := range samples {
+		assert.Equal(t, map[string]string{backfillDimLabel: readings[i].Name}, sample.Labels)
+	}
 }

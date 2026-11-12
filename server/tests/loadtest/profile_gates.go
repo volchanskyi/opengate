@@ -15,32 +15,16 @@ type Gate struct {
 	// Blocking makes a breach fail the run; otherwise it is reported as a finding.
 	// A measurement carries at most one blocking gate per direction and any number of marks.
 	Blocking bool `yaml:"blocking"`
+	// BlockingFromCPUs keeps a blocking gate a watched mark on a target given fewer processors,
+	// a rung starved on purpose to draw a curve.
+	BlockingFromCPUs *float64 `yaml:"blocking_from_cpus"`
+	// Follows names another gate's measurement as series|metric; this gate's measurement reads
+	// pass or over with that gate's outcome and states no figure of its own.
+	Follows string `yaml:"follows"`
 }
 
 // Measurement is the series and metric a gate names, as one key.
 func (g Gate) Measurement() string { return g.Series + "|" + g.Metric }
-
-// Ungated is a measurement deliberately left without a limit, with the reason it is.
-type Ungated struct {
-	Series string `yaml:"series"`
-	Metric string `yaml:"metric"`
-	Reason string `yaml:"reason"`
-}
-
-// Measurement is the series and metric this declaration covers.
-func (u Ungated) Measurement() string { return u.Series + "|" + u.Metric }
-
-// DecidedMeasurements is every measurement this profile limits or declares ungated.
-func (p *Profile) DecidedMeasurements() map[string]bool {
-	decided := make(map[string]bool, len(p.Gates)+len(p.Ungated))
-	for _, gate := range p.Gates {
-		decided[gate.Measurement()] = true
-	}
-	for _, ungated := range p.Ungated {
-		decided[ungated.Measurement()] = true
-	}
-	return decided
-}
 
 func (p *Profile) validateGates() []error {
 	var problems []error
@@ -54,10 +38,7 @@ func (p *Profile) validateGates() []error {
 		if gate.Metric == "" {
 			problems = append(problems, fmt.Errorf("gate %d names no metric", i))
 		}
-		if gate.Max == nil && gate.Min == nil {
-			problems = append(problems, fmt.Errorf("gate %d (%s) declares neither max or min, so nothing can breach it",
-				i, gate.Series))
-		}
+		problems = append(problems, p.validateGateShape(i, gate)...)
 		if !gate.Blocking {
 			continue
 		}
@@ -83,31 +64,34 @@ func (p *Profile) validateGates() []error {
 	return problems
 }
 
-// validateUngated requires a measurement and a reason, and rejects one that also carries a limit.
-func (p *Profile) validateUngated() []error {
+// validateGateShape requires a figure or a gate to follow, never both, and a processor share
+// only on a failing gate.
+func (p *Profile) validateGateShape(i int, gate Gate) []error {
 	var problems []error
-	limited := make(map[string]bool, len(p.Gates))
-	for _, gate := range p.Gates {
-		limited[gate.Measurement()] = true
+	switch {
+	case gate.Follows != "" && (gate.Max != nil || gate.Min != nil):
+		problems = append(problems, fmt.Errorf("gate %d (%s %s) follows another limit and states a figure of its own",
+			i, gate.Series, gate.Metric))
+	case gate.Follows != "" && !p.limits(gate.Follows):
+		problems = append(problems, fmt.Errorf("gate %d (%s %s) follows %s, which no limit of this profile is",
+			i, gate.Series, gate.Metric, gate.Follows))
+	case gate.Follows == "" && gate.Max == nil && gate.Min == nil:
+		problems = append(problems, fmt.Errorf("gate %d (%s) declares neither max or min, so nothing can breach it",
+			i, gate.Series))
 	}
-
-	for i, ungated := range p.Ungated {
-		if ungated.Series == "" {
-			problems = append(problems, fmt.Errorf("ungated %d names no series", i))
-		}
-		if ungated.Metric == "" {
-			problems = append(problems, fmt.Errorf("ungated %d names no metric", i))
-		}
-		if ungated.Reason == "" {
-			problems = append(problems, fmt.Errorf(
-				"ungated %d (%s %s) states no reason — an exemption nobody can review is one nobody ever removes",
-				i, ungated.Series, ungated.Metric))
-		}
-		if limited[ungated.Measurement()] {
-			problems = append(problems, fmt.Errorf(
-				"%s %s is both limited and declared unlimited, and which of the two is meant is not for a reader to guess",
-				ungated.Series, ungated.Metric))
-		}
+	if gate.BlockingFromCPUs != nil && (*gate.BlockingFromCPUs <= 0 || !gate.Blocking) {
+		problems = append(problems, fmt.Errorf(
+			"gate %d (%s %s) sets blocking_from_cpus, which a failing gate takes as a positive share", i, gate.Series, gate.Metric))
 	}
 	return problems
+}
+
+// limits reports whether a gate of this profile with a figure names the measurement.
+func (p *Profile) limits(measurement string) bool {
+	for _, gate := range p.Gates {
+		if gate.Measurement() == measurement && gate.Follows == "" {
+			return true
+		}
+	}
+	return false
 }

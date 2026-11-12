@@ -91,8 +91,9 @@ func (c TargetCensus) read() CensusReading {
 // PhaseReadings is everything a phase reads at its boundaries: target busy-ness and census,
 // generator room, and dropped datagrams.
 type PhaseReadings struct {
-	Busy      TargetBusy
-	Census    TargetCensus
-	Generator GeneratorRoom
-	Network   NetworkDrops
+	Busy         TargetBusy
+	Census       TargetCensus
+	Generator    GeneratorRoom
+	Network      NetworkDrops
+	Registration PhaseRegistration
 }

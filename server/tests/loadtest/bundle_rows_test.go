@@ -53,13 +53,19 @@ func TestABundleBecomesTheRowsTheEvaluatorReads(t *testing.T) {
 	rows := rowsFromRealBundle(t)
 
 	byPhase := map[string]canonicalRow{}
+	var levels []string
 	for _, row := range rows {
+		if row.Source == "service" {
+			levels = append(levels, row.Scenario)
+			continue
+		}
 		assert.Equal(t, "quic", row.Source)
 		assert.Equal(t, "quic-agents", row.Scenario)
 		byPhase[row.Phase] = row
 	}
 
 	assert.ElementsMatch(t, []string{"aggregate", "connect", "register"}, keysOf(byPhase))
+	assert.ElementsMatch(t, []string{"server", "database"}, levels, "the levels ride with the machines' rows")
 
 	require.NotNil(t, byPhase["aggregate"].ErrorRate)
 	assert.InDelta(t, 1.0/3.0, *byPhase["aggregate"].ErrorRate, 0.0001)

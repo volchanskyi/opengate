@@ -19,12 +19,11 @@ const bundleFileName = "bundle.json"
 type RunIdentity struct {
 	ID     string `json:"id"`
 	Commit string `json:"commit"`
-	// ProfileName and ProfileVersion together say what was asked for, because a profile is
-	// edited in place.
+	// ProfileName and ProfileVersion together name the load asked for, so a night is compared
+	// with the nights of the same load whatever its limits.
 	ProfileName    string `json:"profile_name"`
 	ProfileVersion int    `json:"profile_version"`
-	// ProfileDigest names the profile file's bytes, so an edit that keeps the version starts a
-	// trend of its own.
+	// ProfileDigest names the profile file's bytes, limits included, as a record of the file read.
 	ProfileDigest string      `json:"profile_digest"`
 	Family        Family      `json:"family"`
 	Environment   Environment `json:"environment"`
@@ -72,6 +71,11 @@ type PhaseResult struct {
 	Name       string    `json:"name"`
 	StartedAt  time.Time `json:"started_at"`
 	FinishedAt time.Time `json:"finished_at"`
+	// Measured is the profile marking the phase as the one its levels and limits are read over.
+	Measured bool `json:"measured,omitempty"`
+	// RegisterP50Ms and RegisterP95Ms are the server's own timing of the sign-ins in this phase.
+	RegisterP50Ms *float64 `json:"register_p50_ms,omitempty"`
+	RegisterP95Ms *float64 `json:"register_p95_ms,omitempty"`
 
 	// The harness dials the machines, so it states both the offered and the achieved rate.
 	OfferedAgentArrivalsPerSecond  float64 `json:"offered_agent_arrivals_per_second"`
@@ -112,8 +116,16 @@ type PhaseResult struct {
 
 	// The two terms bound how far the run's count and the target's count may differ: the
 	// target's answer describes an instant between the counts before and after the question.
-	ConnectedAgentsBeforeCensus int   `json:"connected_agents_before_census,omitempty"`
-	DeparturesDuringCensus      int64 `json:"departures_during_census,omitempty"`
+	ConnectedAgentsBeforeCensus int `json:"connected_agents_before_census,omitempty"`
+
+	// FleetOnlineP95Seconds and FleetOnlineAllSeconds are how long after the phase began 95% of
+	// the machines it asked for, and every one, had come online; absent where too few ever did.
+	FleetOnlineP95Seconds *float64 `json:"fleet_online_p95_seconds,omitempty"`
+	FleetOnlineAllSeconds *float64 `json:"fleet_online_all_seconds,omitempty"`
+
+	// askedFrom and askedTo mark the machines the phase asked for, timed once the walk ends.
+	askedFrom, askedTo     int
+	DeparturesDuringCensus int64 `json:"departures_during_census,omitempty"`
 
 	LatencyP50Ms float64 `json:"latency_p50_ms,omitempty"`
 	LatencyP95Ms float64 `json:"latency_p95_ms,omitempty"`

@@ -65,7 +65,7 @@ flowchart LR
   Grafana -- staging's machine readings --> StagingVM
   Grafana -- LogQL --> Loki
   Grafana -- alerts --> Telegram[Telegram Bot API]
-  Nightly[Benchmark / mutation / PMAT / drift / load-test / drill / perf-stack / soak workflows] -- kubectl VM push --> VM
+  Nightly[Benchmark / mutation / PMAT / drift / load-test / drill / performance / soak workflows] -- kubectl VM push --> VM
   External[External uptime SaaS] -- public probes --> Ingress[Public HTTPS / QUIC / MPS]
 ```
 
@@ -542,7 +542,11 @@ Numeric CI trend workflows write Prometheus samples to VictoriaMetrics:
 - [`network-drill.yml`](../../.github/workflows/network-drill.yml) →
   [`scripts/network-drill-regression-check.sh`](../../scripts/network-drill-regression-check.sh) →
   [`scripts/network-drill-vm-push.sh`](../../scripts/network-drill-vm-push.sh)
-- [`perf-stack.yml`](../../.github/workflows/perf-stack.yml) and
+- [`perf-scaling.yml`](../../.github/workflows/perf-scaling.yml),
+  [`perf-volume.yml`](../../.github/workflows/perf-volume.yml),
+  [`perf-shapes.yml`](../../.github/workflows/perf-shapes.yml) and
+  [`perf-catchup.yml`](../../.github/workflows/perf-catchup.yml), each through
+  [`perf-trend.yml`](../../.github/workflows/perf-trend.yml), and
   [`soak.yml`](../../.github/workflows/soak.yml) →
   [`scripts/perf-regression-check.sh`](../../scripts/perf-regression-check.sh) →
   [`scripts/perf-vm-push.sh`](../../scripts/perf-vm-push.sh)

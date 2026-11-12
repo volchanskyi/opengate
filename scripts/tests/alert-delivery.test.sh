@@ -69,6 +69,22 @@ scheduled = 0
 senders = 0
 applier_callers = []
 
+
+# A job calling a workflow of this repository runs that workflow's jobs, so their sends are its own.
+def called(job):
+    uses = str(job.get("uses", "") or "")
+    if not uses.startswith("./.github/workflows/"):
+        return {}
+    doc = yaml.safe_load((repo / uses).read_text(encoding="utf-8")) or {}
+    return {name: body for name, body in (doc.get("jobs", {}) or {}).items() if isinstance(body, dict)}
+
+
+def called_sends(job):
+    for called_name, called_job in called(job).items():
+        for step in called_job.get("steps", []) or []:
+            if isinstance(step, dict) and SENDER in str(step.get("run", "") or ""):
+                yield called_name, step, str(step.get("if", "") or called_job.get("if", "") or "")
+
 for path in sorted(workflows.glob("*.yml")):
     doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     # `on` is YAML 1.1's boolean true, which is how PyYAML reads an unquoted key.
@@ -83,6 +99,14 @@ for path in sorted(workflows.glob("*.yml")):
         if not isinstance(job, dict):
             continue
         job_if = str(job.get("if", "") or "")
+        # A called send is reached after a dead run only when the call and the send both outlive it.
+        for called_name, step, condition in called_sends(job):
+            found_sender = True
+            if "always()" not in job_if or "always()" not in condition:
+                findings.append(
+                    f"{path.name}:{job_name}: the alert it calls in {called_name} is conditioned on "
+                    f"[{job_if or 'nothing'}] and [{condition or 'nothing'}], which a dead run never reaches"
+                )
         for step in job.get("steps", []) or []:
             if not isinstance(step, dict):
                 continue
@@ -151,6 +175,8 @@ for path in sorted(workflows.glob("*.yml")):
             sends = [s for s in steps if SENDER in str(s.get("run", "") or "")
                      and "always()" in str(s.get("if", "") or job.get("if", "") or "")]
             named_sends += sum(1 for s in sends if s.get("name") == "Send Telegram alert")
+            named_sends += sum(1 for _, s, condition in called_sends(job)
+                               if s.get("name") == "Send Telegram alert" and "always()" in condition)
             alert_only = bool(sends) and job.get("needs") and all(
                 s in sends or str(s.get("uses", "")).startswith(("actions/checkout", "./.github/actions/setup-pinned-tools"))
                 for s in steps
@@ -234,6 +260,9 @@ for path in sorted(pathlib.Path(sys.argv[1]).glob("*.yml")):
     text = {name: yaml.safe_dump(job) for name, job in jobs.items()}
     verdicts = {m for body in text.values() for m in re.findall(r"needs\.([\w-]+)\.result", body)}
     for name, job in jobs.items():
+        # A call runs no step of its own; the called workflow's jobs are judged where they are written.
+        if str(job.get("uses", "")).startswith("./.github/workflows/"):
+            continue
         secrets = set(re.findall(r"secrets\.([A-Z0-9_]+)", text[name]))
         if not secrets & TELEGRAM:
             continue
