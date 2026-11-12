@@ -229,8 +229,11 @@ type Bundle struct {
 	Journeys          []JourneyResult `json:"journeys"`
 	Observations      []Observation   `json:"observations"`
 	GeneratorHeadroom Headroom        `json:"generator_headroom"`
-	Cleanup           CleanupProof    `json:"cleanup"`
-	Verdict           Verdict         `json:"verdict"`
+	// TechnicianHeadroom is the technicians' own allowance, judged as the generator's is; absent
+	// where the two share one.
+	TechnicianHeadroom *Headroom    `json:"technician_headroom,omitempty"`
+	Cleanup            CleanupProof `json:"cleanup"`
+	Verdict            Verdict      `json:"verdict"`
 	// BreakingPoint is where the ladder broke, for a profile that declared what breaking means.
 	BreakingPoint *BreakingPoint `json:"breaking_point,omitempty"`
 	// Leak is what grew inside the target across the run. Absent for a run not asked to watch,
@@ -245,9 +248,9 @@ type Bundle struct {
 	// CatchUp is how the server answered the run's catch-up batches. Absent where no machine sent
 	// one.
 	CatchUp *CatchUpCount `json:"catch_up,omitempty"`
-	// LiveDelay is how long the watched machines' live minutes took to become readable in the
-	// store. Absent where no watch ran.
-	LiveDelay *LiveDelay `json:"live_delay,omitempty"`
+	// LiveAcceptance is how many live readings the server received and its store accepted within
+	// 5 s, by the server's own metric. Absent where the server's metrics were not read.
+	LiveAcceptance *LiveAcceptance `json:"live_acceptance,omitempty"`
 }
 
 // WriteTo validates the bundle and writes it into dir, returning the path. An incomplete bundle

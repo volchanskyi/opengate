@@ -2,6 +2,7 @@
 //! every alert either limit drops.
 
 use mesh_agent_core::alerts::{AlertOrigin, AlertSeverity, AlertSink, EdgeAlert, PushOutcome};
+use mesh_protocol::AlertAnswerReason;
 
 const SECOND: i64 = 1_000_000;
 const HOUR: i64 = 3_600 * SECOND;
@@ -268,27 +269,27 @@ fn a_ceiling_of_nothing_is_ignored() {
 }
 
 #[test]
-fn alerts_handed_back_after_a_failed_send_are_queued_again() {
+fn alerts_left_unanswered_are_queued_again() {
     let sink = roomy();
     for id in ["first", "second", "third"] {
         sink.push(alert(id), 0);
     }
 
-    let mut drained = sink.drain();
-    let sent = drained.remove(0);
-    assert_eq!(sent.rule_id, "first");
-    sink.return_unsent(drained);
+    let offers = sink.offer();
+    assert_eq!(offers[0].alert.rule_id, "first");
+    sink.answer(&offers[0].id, AlertAnswerReason::Stored);
+    sink.reoffer_awaiting();
 
     let rule_ids: Vec<String> = sink.drain().into_iter().map(|a| a.rule_id).collect();
     assert_eq!(
         rule_ids,
         vec!["second".to_string(), "third".to_string()],
-        "what did not go stays queued, in the order it was raised"
+        "what was not answered stays queued, in the order it was raised"
     );
 }
 
 #[test]
-fn handing_an_alert_back_does_not_spend_the_allowance_twice() {
+fn offering_an_alert_again_does_not_spend_the_allowance_twice() {
     let sink = AlertSink::new(64, 3);
     for id in ["a", "b", "c"] {
         sink.push(alert(id), 0);
@@ -299,39 +300,40 @@ fn handing_an_alert_back_does_not_spend_the_allowance_twice() {
         "three is the whole allowance"
     );
 
-    sink.return_unsent(sink.drain());
+    let _offers = sink.offer();
+    sink.reoffer_awaiting();
 
     assert_eq!(sink.stats().queued, 3, "all three are held again");
     assert_eq!(
         sink.stats().suppressed_by_ceiling,
         1,
-        "and the hand-back cost nothing further"
+        "and the offer again cost nothing further"
     );
 }
 
 #[test]
-fn alerts_handed_back_go_in_front_of_what_arrived_meanwhile() {
+fn alerts_offered_again_go_in_front_of_what_arrived_meanwhile() {
     let sink = roomy();
     sink.push(alert("older"), 0);
-    let unsent = sink.drain();
+    let _offers = sink.offer();
     sink.push(alert("newer"), 0);
 
-    sink.return_unsent(unsent);
+    sink.reoffer_awaiting();
 
     let rule_ids: Vec<String> = sink.drain().into_iter().map(|a| a.rule_id).collect();
     assert_eq!(rule_ids, vec!["older".to_string(), "newer".to_string()]);
 }
 
 #[test]
-fn a_hand_back_past_the_bound_still_gives_way_at_the_old_end() {
+fn unanswered_alerts_past_the_bound_give_way_at_the_old_end() {
     let sink = AlertSink::new(2, 20);
     sink.push(alert("one"), 0);
     sink.push(alert("two"), 0);
-    let unsent = sink.drain();
+    let _offers = sink.offer();
     sink.push(alert("three"), 0);
     sink.push(alert("four"), 0);
 
-    sink.return_unsent(unsent);
+    sink.reoffer_awaiting();
 
     let rule_ids: Vec<String> = sink.drain().into_iter().map(|a| a.rule_id).collect();
     assert_eq!(
@@ -344,4 +346,123 @@ fn a_hand_back_past_the_bound_still_gives_way_at_the_old_end() {
         2,
         "and what the bound cost is counted rather than lost quietly"
     );
+}
+
+fn rule_ids(offers: &[mesh_agent_core::alerts::Offer]) -> Vec<String> {
+    offers.iter().map(|o| o.alert.rule_id.clone()).collect()
+}
+
+#[test]
+fn an_offered_alert_waits_for_its_answer_under_a_fresh_id() {
+    let sink = roomy();
+    sink.push(alert("disk-critical"), 0);
+    sink.push(alert("cpu-saturated"), SECOND);
+
+    let offers = sink.offer();
+    assert_eq!(rule_ids(&offers), vec!["disk-critical", "cpu-saturated"]);
+    assert_ne!(
+        offers[0].id, offers[1].id,
+        "each offer has an id of its own"
+    );
+    assert!(
+        sink.offer().is_empty(),
+        "an offered alert is not offered twice"
+    );
+    let stats = sink.stats();
+    assert_eq!(stats.queued, 0);
+    assert_eq!(stats.awaiting, 2, "both wait for an answer");
+}
+
+#[test]
+fn stored_and_refused_for_good_end_an_alert() {
+    let sink = roomy();
+    sink.push(alert("disk-critical"), 0);
+    sink.push(alert("bad-rule"), SECOND);
+    let offers = sink.offer();
+
+    sink.answer(&offers[0].id, AlertAnswerReason::Stored);
+    sink.answer(&offers[1].id, AlertAnswerReason::RefusedForGood);
+
+    assert_eq!(sink.stats().awaiting, 0);
+    sink.reoffer_awaiting();
+    assert!(
+        sink.offer().is_empty(),
+        "an answered alert is never offered again"
+    );
+}
+
+#[test]
+fn try_again_puts_the_alert_back_first_in_line() {
+    let sink = roomy();
+    sink.push(alert("disk-critical"), 0);
+    let first = sink.offer();
+    sink.push(alert("cpu-saturated"), SECOND);
+
+    sink.answer(&first[0].id, AlertAnswerReason::TryAgain);
+
+    assert_eq!(
+        rule_ids(&sink.offer()),
+        vec!["disk-critical", "cpu-saturated"],
+        "the alert to try again goes out before the ones raised after it"
+    );
+}
+
+#[test]
+fn a_new_session_offers_every_unanswered_alert_again_oldest_first() {
+    let sink = roomy();
+    sink.push(alert("disk-critical"), 0);
+    sink.push(alert("cpu-saturated"), SECOND);
+    let offered = sink.offer();
+    sink.push(alert("memory-low"), 2 * SECOND);
+
+    sink.reoffer_awaiting();
+
+    let again = sink.offer();
+    assert_eq!(
+        rule_ids(&again),
+        vec!["disk-critical", "cpu-saturated", "memory-low"]
+    );
+    assert!(
+        again.iter().all(|o| offered.iter().all(|p| p.id != o.id)),
+        "an alert offered again carries a new id, so a late answer to the old one changes nothing"
+    );
+}
+
+#[test]
+fn an_answer_for_an_id_the_sink_does_not_hold_changes_nothing() {
+    let sink = roomy();
+    sink.push(alert("disk-critical"), 0);
+    let offers = sink.offer();
+
+    sink.answer("an-id-from-another-session", AlertAnswerReason::Stored);
+    sink.answer("an-id-from-another-session", AlertAnswerReason::TryAgain);
+
+    assert_eq!(sink.stats().awaiting, 1);
+    assert_eq!(sink.stats().queued, 0);
+    sink.answer(&offers[0].id, AlertAnswerReason::Stored);
+    assert_eq!(sink.stats().awaiting, 0);
+}
+
+#[test]
+fn alerts_awaiting_an_answer_count_against_the_capacity() {
+    let sink = AlertSink::new(3, 20);
+    sink.push(alert("rule-0"), 0);
+    sink.push(alert("rule-1"), SECOND);
+    let _offered = sink.offer();
+    for i in 2..5 {
+        sink.push(alert(&format!("rule-{i}")), i * SECOND);
+    }
+
+    let stats = sink.stats();
+    assert_eq!(
+        stats.queued + stats.awaiting,
+        3,
+        "the sink holds at most its capacity"
+    );
+    assert_eq!(
+        stats.dropped_oldest, 2,
+        "the two oldest are dropped and counted"
+    );
+    sink.reoffer_awaiting();
+    assert_eq!(rule_ids(&sink.offer()), vec!["rule-2", "rule-3", "rule-4"]);
 }

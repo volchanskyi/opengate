@@ -1,24 +1,27 @@
 //! Drives the `ml::backfill` engine against an in-memory `TierReader`: tier mapping, ordering,
-//! cursor resume, retention clamp and clock-skew bounds.
+//! confirmed spans skipped, retention clamp, and no minute sent before it ends.
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 
+use edge_tsdb::confirmed::ConfirmedRanges;
 use edge_tsdb::tier::TierPoint;
 use edge_tsdb::{Sample, SeriesId, Tier, TsdbError};
 use mesh_agent_core::ml::backfill::{
-    answer_local_history, load_cursors, pace_delay, pending_hint, record_ack, tier_cursor_key,
-    BackfillConfig, BackfillCursors, BackfillDrain, CursorStore, TierReader, TIER_CURSOR_RECENT60S,
-    TIER_CURSOR_ROLLUP1H, TIER_CURSOR_ROLLUP1M,
+    answer_local_history, confirm, forget_after, migrate_cursors, pace_delay, settled_until,
+    BackfillConfig, BackfillDrain, ConfirmedStore, DrainPosition, PlannedBatch, TierReader,
+    TIER_CURSOR_RECENT60S, TIER_CURSOR_ROLLUP1H, TIER_CURSOR_ROLLUP1M,
 };
 use mesh_protocol::BackfillTier;
 
-/// In-memory `TierReader` holding per-series T0 raw and T1/T2 rollup points; range reads are
-/// inclusive of `[start, end]`.
+/// In-memory `TierReader` holding per-series T0 raw and T1/T2 rollup points; a range read covers
+/// `[start, end)`, as the store's does, and each read's range is logged.
 #[derive(Default)]
 struct FakeReader {
     raw: BTreeMap<SeriesId, Vec<(Sample, bool)>>,
     t1: BTreeMap<SeriesId, Vec<TierPoint>>,
     t2: BTreeMap<SeriesId, Vec<TierPoint>>,
+    reads: RefCell<Vec<(i64, i64)>>,
 }
 
 impl FakeReader {
@@ -58,12 +61,13 @@ impl TierReader for FakeReader {
         start: i64,
         end: i64,
     ) -> Result<Vec<(Sample, bool)>, TsdbError> {
+        self.reads.borrow_mut().push((start, end));
         Ok(self
             .raw
             .get(&series)
             .map(|v| {
                 v.iter()
-                    .filter(|(s, _)| s.ts >= start && s.ts <= end)
+                    .filter(|(s, _)| s.ts >= start && s.ts < end)
                     .copied()
                     .collect()
             })
@@ -82,11 +86,12 @@ impl TierReader for FakeReader {
             Tier::T2 => &self.t2,
             _ => unreachable!("edge-tsdb has only T1/T2 rollup tiers"),
         };
+        self.reads.borrow_mut().push((start, end));
         Ok(src
             .get(&series)
             .map(|v| {
                 v.iter()
-                    .filter(|p| p.bucket >= start && p.bucket <= end)
+                    .filter(|p| p.bucket >= start && p.bucket < end)
                     .copied()
                     .collect()
             })
@@ -100,27 +105,90 @@ fn cfg(max_batch: usize) -> BackfillConfig {
         retention_secs: 10_000,
         recent_secs: 100,
         mid_secs: 1_000,
-        future_skew_secs: 60,
         max_batch_samples: max_batch,
     }
 }
 
-const NOW: i64 = 100_000;
+/// A minute boundary, so the minute before it has just ended.
+const NOW: i64 = 100_020;
 const CPU: SeriesId = 0;
+
+/// Two hours on the store's hour grid, inside the hour band of [`wide_cfg`].
+const HOUR_A: i64 = 86_400;
+const HOUR_B: i64 = 93_600;
+
+/// [`cfg`] with an hour band reaching back to 80,020, wide enough for both hours.
+fn wide_cfg(max_batch: usize) -> BackfillConfig {
+    BackfillConfig {
+        retention_secs: 20_000,
+        ..cfg(max_batch)
+    }
+}
 
 fn drain_all<R: TierReader>(
     reader: &R,
     now: i64,
     cfg: BackfillConfig,
     series: &[SeriesId],
-    cursors: BackfillCursors,
-) -> Vec<mesh_agent_core::ml::backfill::PlannedBatch> {
-    let mut drain = BackfillDrain::new(reader, now, cfg, series, cursors);
+    confirmed: &ConfirmedRanges,
+) -> Vec<PlannedBatch> {
+    let mut drain = BackfillDrain::new(reader, now, cfg, series, confirmed);
     let mut out = Vec::new();
     while let Some(batch) = drain.next_batch().expect("drain must not error") {
         out.push(batch);
     }
     out
+}
+
+/// Every batch of a session as the agent sends them: a drain begun afresh for each batch at the
+/// position the last one stopped at, each batch confirmed before the next.
+fn drain_resumed<R: TierReader>(
+    reader: &R,
+    now: i64,
+    cfg: BackfillConfig,
+    series: &[SeriesId],
+    confirmed: &mut ConfirmedRanges,
+) -> Vec<PlannedBatch> {
+    let mut at = DrainPosition::default();
+    let mut out = Vec::new();
+    loop {
+        let mut drain = BackfillDrain::new(reader, now, cfg, series, confirmed).resume(at);
+        let batch = drain.next_batch().expect("drain must not error");
+        at = drain.position();
+        let Some(batch) = batch else {
+            return out;
+        };
+        confirmed.add(batch.start, batch.end);
+        out.push(batch);
+    }
+}
+
+/// A whole drain that marks empty time done up to `settled`, with every batch and every empty
+/// stretch it found confirmed.
+fn drain_marking(
+    reader: &FakeReader,
+    cfg: BackfillConfig,
+    settled: i64,
+    confirmed: &mut ConfirmedRanges,
+) -> Vec<PlannedBatch> {
+    let mut drain =
+        BackfillDrain::new(reader, NOW, cfg, &[CPU], confirmed).marking_empty_until(settled);
+    let mut batches = Vec::new();
+    while let Some(batch) = drain.next_batch().expect("drain must not error") {
+        batches.push(batch);
+    }
+    let empty = drain.take_empty();
+    for (start, end) in batches.iter().map(|b| (b.start, b.end)).chain(empty) {
+        confirmed.add(start, end);
+    }
+    batches
+}
+
+fn tiers_and_times(batches: &[PlannedBatch]) -> Vec<(BackfillTier, i64)> {
+    batches
+        .iter()
+        .flat_map(|b| b.samples.iter().map(move |s| (b.tier, s.ts)))
+        .collect()
 }
 
 #[test]
@@ -131,10 +199,10 @@ fn recent_first_then_older_tiers_in_order() {
     }
     r.push_tier(CPU, Tier::T1, NOW - 900, 40.0);
     r.push_tier(CPU, Tier::T1, NOW - 300, 41.0);
-    r.push_tier(CPU, Tier::T2, NOW - 9000, 30.0);
-    r.push_tier(CPU, Tier::T2, NOW - 5400, 31.0);
+    r.push_tier(CPU, Tier::T2, HOUR_A, 30.0);
+    r.push_tier(CPU, Tier::T2, HOUR_B, 31.0);
 
-    let batches = drain_all(&r, NOW, cfg(1000), &[CPU], BackfillCursors::default());
+    let batches = drain_all(&r, NOW, wide_cfg(1000), &[CPU], &ConfirmedRanges::default());
 
     let tiers: Vec<BackfillTier> = batches.iter().map(|b| b.tier).collect();
     let first_1m = tiers.iter().position(|t| *t == BackfillTier::Rollup1m);
@@ -169,22 +237,19 @@ fn recent_first_then_older_tiers_in_order() {
         .iter()
         .flat_map(|b| b.samples.iter().map(|s| s.ts))
         .collect();
-    assert!(ts_seen.contains(&(NOW - 9000)));
-    assert!(ts_seen.contains(&(NOW - 5400)));
+    assert!(ts_seen.contains(&HOUR_A));
+    assert!(ts_seen.contains(&HOUR_B));
 }
 
 #[test]
-fn resumes_after_cursor_without_reemitting() {
+fn skips_what_the_server_confirmed() {
     let mut r = FakeReader::default();
     r.push_tier(CPU, Tier::T1, NOW - 900, 40.0);
     r.push_tier(CPU, Tier::T1, NOW - 600, 41.0);
     r.push_tier(CPU, Tier::T1, NOW - 300, 42.0);
 
-    let cursors = BackfillCursors {
-        rollup1m: Some(NOW - 600),
-        ..Default::default()
-    };
-    let batches = drain_all(&r, NOW, cfg(1000), &[CPU], cursors);
+    let confirmed = ConfirmedRanges::from_spans([(NOW - 960, NOW - 540)]);
+    let batches = drain_all(&r, NOW, cfg(1000), &[CPU], &confirmed);
     let ts_seen: Vec<i64> = batches
         .iter()
         .flat_map(|b| b.samples.iter().map(|s| s.ts))
@@ -192,7 +257,54 @@ fn resumes_after_cursor_without_reemitting() {
     assert_eq!(
         ts_seen,
         vec![NOW - 300, NOW - 300],
-        "only buckets strictly after the cursor, as avg + max"
+        "only buckets the server never confirmed, as avg + max"
+    );
+}
+
+#[test]
+fn a_confirmed_minute_is_never_sent_again_unless_the_server_asks() {
+    let mut r = FakeReader::default();
+    for ts in (NOW - 120)..NOW {
+        r.push_raw(CPU, ts, 50.0);
+    }
+    let mut confirmed = ConfirmedRanges::default();
+    for batch in drain_all(&r, NOW, cfg(1000), &[CPU], &confirmed) {
+        confirmed.add(batch.start, batch.end);
+    }
+    assert!(
+        drain_all(&r, NOW, cfg(1000), &[CPU], &confirmed).is_empty(),
+        "every acked span stays sent"
+    );
+
+    confirmed.forget_after(NOW - 60);
+    let again: Vec<i64> = drain_all(&r, NOW, cfg(1000), &[CPU], &confirmed)
+        .iter()
+        .flat_map(|b| b.samples.iter().map(|s| s.ts))
+        .collect();
+    assert_eq!(
+        again,
+        vec![NOW - 60, NOW - 60],
+        "what the server asks for again is sent again"
+    );
+}
+
+#[test]
+fn a_batch_confirms_the_span_it_was_drawn_from() {
+    let mut r = FakeReader::default();
+    r.push_tier(CPU, Tier::T1, NOW - 600, 41.0);
+    let batches = drain_all(&r, NOW, cfg(1000), &[CPU], &ConfirmedRanges::default());
+    let minute = batches
+        .iter()
+        .find(|b| b.tier == BackfillTier::Rollup1m)
+        .expect("the minute tier ships");
+    assert!(
+        minute.start <= NOW - 600,
+        "the span starts at or before its first bucket"
+    );
+    assert_eq!(
+        minute.end,
+        NOW - 600 + 60,
+        "and ends where its last bucket does"
     );
 }
 
@@ -201,7 +313,7 @@ fn rollup_max_dim_carries_the_stored_extremum_not_the_average() {
     let mut r = FakeReader::default();
     r.push_tier_max(CPU, Tier::T1, NOW - 300, 26.7, 100.0);
 
-    let batches = drain_all(&r, NOW, cfg(1000), &[CPU], BackfillCursors::default());
+    let batches = drain_all(&r, NOW, cfg(1000), &[CPU], &ConfirmedRanges::default());
     let seen: Vec<(String, f64)> = batches
         .iter()
         .flat_map(|b| b.samples.iter().map(|s| (s.name.clone(), s.value)))
@@ -223,7 +335,7 @@ fn recent_tier_max_dim_is_the_largest_raw_sample_in_the_minute() {
         r.push_raw(CPU, ts, if (20..25).contains(&i) { 100.0 } else { 20.0 });
     }
 
-    let batches = drain_all(&r, NOW, cfg(1000), &[CPU], BackfillCursors::default());
+    let batches = drain_all(&r, NOW, cfg(1000), &[CPU], &ConfirmedRanges::default());
     let seen: Vec<(String, f64)> = batches
         .iter()
         .flat_map(|b| b.samples.iter().map(|s| (s.name.clone(), s.value)))
@@ -253,7 +365,7 @@ fn clamps_out_of_retention_and_bounds_wild_clocks() {
         r.push_raw(CPU, ts, 50.0);
     }
 
-    let batches = drain_all(&r, NOW, cfg(1000), &[CPU], BackfillCursors::default());
+    let batches = drain_all(&r, NOW, cfg(1000), &[CPU], &ConfirmedRanges::default());
     let ts_seen: Vec<i64> = batches
         .iter()
         .flat_map(|b| b.samples.iter().map(|s| s.ts))
@@ -273,13 +385,13 @@ fn clamps_out_of_retention_and_bounds_wild_clocks() {
 }
 
 #[test]
-fn drain_is_idempotent_from_the_same_cursors() {
+fn drain_is_idempotent_over_the_same_confirmations() {
     let mut r = FakeReader::default();
     r.push_tier(CPU, Tier::T1, NOW - 900, 40.0);
     r.push_tier(CPU, Tier::T1, NOW - 300, 41.0);
 
-    let a = drain_all(&r, NOW, cfg(1000), &[CPU], BackfillCursors::default());
-    let b = drain_all(&r, NOW, cfg(1000), &[CPU], BackfillCursors::default());
+    let a = drain_all(&r, NOW, cfg(1000), &[CPU], &ConfirmedRanges::default());
+    let b = drain_all(&r, NOW, cfg(1000), &[CPU], &ConfirmedRanges::default());
     let flat =
         |v: &[mesh_agent_core::ml::backfill::PlannedBatch]| -> Vec<(BackfillTier, i64, f64)> {
             v.iter()
@@ -294,7 +406,7 @@ fn drain_is_idempotent_from_the_same_cursors() {
     assert_eq!(
         flat(&a),
         flat(&b),
-        "replay from the same cursors is deterministic"
+        "replay over the same confirmations is deterministic"
     );
 }
 
@@ -304,7 +416,7 @@ fn batches_respect_the_sample_cap() {
     for i in 0..10 {
         r.push_tier(CPU, Tier::T1, NOW - 900 + i * 60, 40.0 + i as f64);
     }
-    let batches = drain_all(&r, NOW, cfg(3), &[CPU], BackfillCursors::default());
+    let batches = drain_all(&r, NOW, cfg(3), &[CPU], &ConfirmedRanges::default());
     assert!(
         batches.len() > 1,
         "a large backlog must split into multiple batches"
@@ -320,103 +432,135 @@ fn batches_respect_the_sample_cap() {
 }
 
 #[derive(Default)]
-struct FakeCursors(BTreeMap<SeriesId, i64>);
+struct FakeStore {
+    confirmed: ConfirmedRanges,
+    cursors: BTreeMap<SeriesId, i64>,
+}
 
-impl CursorStore for FakeCursors {
-    fn load_cursor(&self, key: SeriesId) -> Result<Option<i64>, TsdbError> {
-        Ok(self.0.get(&key).copied())
+impl ConfirmedStore for FakeStore {
+    fn load_confirmed(&self) -> Result<ConfirmedRanges, TsdbError> {
+        Ok(self.confirmed.clone())
     }
 
-    fn save_cursor(&mut self, key: SeriesId, ts: i64) -> Result<(), TsdbError> {
-        self.0.insert(key, ts);
+    fn save_confirmed(&mut self, ranges: &ConfirmedRanges) -> Result<(), TsdbError> {
+        self.confirmed = ranges.clone();
+        Ok(())
+    }
+
+    fn load_cursor(&self, key: SeriesId) -> Result<Option<i64>, TsdbError> {
+        Ok(self.cursors.get(&key).copied())
+    }
+
+    fn remove_cursor(&mut self, key: SeriesId) -> Result<(), TsdbError> {
+        self.cursors.remove(&key);
         Ok(())
     }
 }
 
 #[test]
-fn tier_cursor_keys_are_distinct_and_reserved() {
-    let keys = [
-        tier_cursor_key(BackfillTier::Recent60s).unwrap(),
-        tier_cursor_key(BackfillTier::Rollup1m).unwrap(),
-        tier_cursor_key(BackfillTier::Rollup1h).unwrap(),
-    ];
-    assert_eq!(
-        keys,
-        [
-            TIER_CURSOR_RECENT60S,
-            TIER_CURSOR_ROLLUP1M,
-            TIER_CURSOR_ROLLUP1H
-        ]
-    );
-    let mut sorted = keys.to_vec();
-    sorted.sort_unstable();
-    sorted.dedup();
-    assert_eq!(sorted.len(), 3, "the three tier keys are distinct");
-    for k in keys {
-        assert!(k > 1_000, "tier keys sit far above real series ids");
-    }
-    // The keys are a durable on-disk address.
-    assert_eq!(
-        keys,
-        [SeriesId::MAX, SeriesId::MAX - 1, SeriesId::MAX - 2],
-        "the three watermarks sit at the very top of the series-id space"
-    );
+fn confirmations_accumulate_and_a_resend_request_forgets_after_its_time() {
+    let mut store = FakeStore::default();
+    confirm(&mut store, &[(NOW - 600, NOW - 300)], NOW - 10_000).unwrap();
+    confirm(&mut store, &[(NOW - 300, NOW - 60)], NOW - 10_000).unwrap();
+    assert_eq!(store.confirmed.spans(), &[(NOW - 600, NOW - 60)]);
+
+    forget_after(&mut store, NOW - 420).unwrap();
+    assert_eq!(store.confirmed.spans(), &[(NOW - 600, NOW - 420)]);
 }
 
 #[test]
-fn ack_persists_the_matching_tier_watermark_only() {
-    let mut c = FakeCursors::default();
-    assert_eq!(load_cursors(&c).unwrap().recent60s, None);
+fn an_older_agents_watermarks_become_confirmed_spans_once() {
+    let mut store = FakeStore::default();
+    store.cursors.insert(TIER_CURSOR_RECENT60S, NOW - 120);
+    store.cursors.insert(TIER_CURSOR_ROLLUP1M, NOW - 600);
+    let cfg = cfg(1000);
 
-    record_ack(&mut c, BackfillTier::Rollup1m, NOW - 300).unwrap();
-    let cursors = load_cursors(&c).unwrap();
-    assert_eq!(cursors.rollup1m, Some(NOW - 300), "acked tier advanced");
-    assert_eq!(cursors.recent60s, None, "other tiers untouched");
-    assert_eq!(cursors.rollup1h, None);
+    assert!(migrate_cursors(&mut store, NOW, cfg).unwrap());
+    assert!(
+        store.cursors.is_empty(),
+        "the watermarks are gone once read"
+    );
+    assert!(
+        store.confirmed.covers(NOW - 120, NOW - 60),
+        "the recent tier up to its watermark"
+    );
+    assert!(
+        store.confirmed.covers(NOW - 900, NOW - 540),
+        "the minute tier up to its watermark"
+    );
+    assert!(
+        !store.confirmed.covers(NOW - 60, NOW),
+        "nothing after the watermarks"
+    );
+    let migrated = store.confirmed.clone();
 
-    record_ack(&mut c, BackfillTier::Rollup1m, NOW - 60).unwrap();
-    assert_eq!(load_cursors(&c).unwrap().rollup1m, Some(NOW - 60));
+    assert!(
+        !migrate_cursors(&mut store, NOW, cfg).unwrap(),
+        "the migration runs once"
+    );
+    assert_eq!(store.confirmed, migrated);
+    let _ = TIER_CURSOR_ROLLUP1H;
 }
 
 #[test]
-fn cursors_round_trip_through_a_real_store() {
-    use edge_tsdb::{LocalTsdb, TsdbConfig};
+fn confirmations_round_trip_through_a_real_store_and_the_watermarks_leave_it() {
+    use edge_tsdb::{Durability, LocalTsdb, TsdbConfig};
 
     let dir = tempfile::tempdir().unwrap();
     let mut store = LocalTsdb::open(dir.path(), TsdbConfig::default()).unwrap();
-    record_ack(&mut store, BackfillTier::Recent60s, 12_340).unwrap();
-    record_ack(&mut store, BackfillTier::Rollup1h, 9_000).unwrap();
+    store
+        .set_cursor(TIER_CURSOR_ROLLUP1H, NOW - 7_200, Durability::Full)
+        .unwrap();
+    assert!(migrate_cursors(&mut store, NOW, cfg(1000)).unwrap());
+    confirm(&mut store, &[(NOW - 120, NOW - 60)], NOW - 10_000).unwrap();
 
-    let cursors = load_cursors(&store).unwrap();
-    assert_eq!(cursors.recent60s, Some(12_340));
-    assert_eq!(cursors.rollup1h, Some(9_000));
-    assert_eq!(cursors.rollup1m, None);
+    let confirmed = ConfirmedStore::load_confirmed(&store).unwrap();
+    assert!(confirmed.covers(NOW - 120, NOW - 60));
+    assert!(confirmed.covers(NOW - 7_200, NOW - 3_600));
+    assert_eq!(store.cursor(TIER_CURSOR_ROLLUP1H).unwrap(), None);
+    assert_eq!(store.cursor(CPU).unwrap(), None, "series 0 is untouched");
+}
 
+#[test]
+fn confirming_forgets_spans_that_ended_before_the_horizon() {
+    let mut store = FakeStore::default();
+    confirm(&mut store, &[(NOW - 9_000, NOW - 8_400)], NOW - 10_000).unwrap();
+    confirm(
+        &mut store,
+        &[(NOW - 600, NOW - 300), (NOW - 240, NOW - 180)],
+        NOW - 8_000,
+    )
+    .unwrap();
     assert_eq!(
-        store.cursor(CPU).unwrap(),
-        None,
-        "series 0 cursor untouched"
+        store.confirmed.spans(),
+        &[(NOW - 600, NOW - 300), (NOW - 240, NOW - 180)],
+        "a span that ended before the horizon is dropped, the rest kept"
     );
 }
 
 #[test]
-fn pending_hint_counts_backlog_and_reports_oldest() {
-    let mut r = FakeReader::default();
-    r.push_tier(CPU, Tier::T1, NOW - 900, 40.0);
-    r.push_tier(CPU, Tier::T1, NOW - 300, 41.0);
-    r.push_tier(CPU, Tier::T2, NOW - 5400, 30.0);
+fn the_settled_time_is_the_newest_minute_the_store_has_committed() {
+    use edge_tsdb::{Durability, LocalTsdb, TsdbConfig};
 
-    let (pending, oldest) =
-        pending_hint(&r, NOW, cfg(1000), &[CPU], BackfillCursors::default()).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = LocalTsdb::open(dir.path(), TsdbConfig::default()).unwrap();
     assert_eq!(
-        pending, 6,
-        "three pending buckets across the tiers, each an avg and a max"
+        settled_until(&store.snapshot().unwrap(), &[CPU, 1]).unwrap(),
+        i64::MIN,
+        "an empty store has settled nothing"
     );
-    assert_eq!(oldest, NOW - 5400, "oldest pending bucket is the T2 point");
-
-    let empty = FakeReader::default();
-    let (n, ts) = pending_hint(&empty, NOW, cfg(1000), &[CPU], BackfillCursors::default()).unwrap();
-    assert_eq!((n, ts), (0, 0));
+    for ts in 1_000_000..1_000_090 {
+        store.append(CPU, Sample::new(ts, 25.0), false).unwrap();
+    }
+    store.commit(Durability::Full).unwrap();
+    for ts in 1_000_090..1_000_200 {
+        store.append(CPU, Sample::new(ts, 25.0), false).unwrap();
+    }
+    assert_eq!(
+        settled_until(&store.snapshot().unwrap(), &[CPU, 1]).unwrap(),
+        1_000_080,
+        "the newest committed minute; a reading not yet committed is newer"
+    );
 }
 
 #[test]
@@ -439,8 +583,17 @@ fn drains_a_real_local_store_snapshot() {
     }
     store.commit(Durability::Full).unwrap();
     let snap = store.snapshot().unwrap();
+    let none = ConfirmedRanges::default();
 
-    let mut drain = BackfillDrain::new(&snap, now, cfg(1000), &[CPU], BackfillCursors::default());
+    let mut running = BackfillDrain::new(&snap, now, cfg(1000), &[CPU], &none);
+    assert_eq!(
+        running.next_batch().unwrap(),
+        None,
+        "the window 999,960 is still running at 1,000,000, so it is not sent"
+    );
+
+    let ended = 1_000_020i64;
+    let mut drain = BackfillDrain::new(&snap, ended, cfg(1000), &[CPU], &none);
     let mut dims = Vec::new();
     while let Some(b) = drain.next_batch().unwrap() {
         assert_eq!(b.tier, BackfillTier::Recent60s);
@@ -484,7 +637,7 @@ fn the_recent_floor_keeps_an_older_raw_sample_out_of_the_recent_tier() {
     r.push_raw(CPU, NOW - 150, 42.0);
     r.push_raw(CPU, NOW - 30, 43.0);
 
-    let batches = drain_all(&r, NOW, cfg(1000), &[CPU], BackfillCursors::default());
+    let batches = drain_all(&r, NOW, cfg(1000), &[CPU], &ConfirmedRanges::default());
     let recent: Vec<i64> = batches
         .iter()
         .filter(|b| b.tier == BackfillTier::Recent60s)
@@ -503,7 +656,7 @@ fn the_minute_floor_leaves_older_buckets_to_the_hour_tier() {
     r.push_tier(CPU, Tier::T1, NOW - 5_000, 40.0);
     r.push_tier(CPU, Tier::T1, NOW - 300, 41.0);
 
-    let batches = drain_all(&r, NOW, cfg(1000), &[CPU], BackfillCursors::default());
+    let batches = drain_all(&r, NOW, cfg(1000), &[CPU], &ConfirmedRanges::default());
     let minute: Vec<i64> = batches
         .iter()
         .filter(|b| b.tier == BackfillTier::Rollup1m)
@@ -517,29 +670,24 @@ fn the_minute_floor_leaves_older_buckets_to_the_hour_tier() {
 }
 
 #[test]
-fn a_bucket_exactly_on_the_recent_ceiling_still_ships() {
+fn the_last_ended_minute_ships_and_the_running_one_does_not() {
     let now = 100_020i64;
-    let cfg = BackfillConfig {
-        retention_secs: 10_000,
-        recent_secs: 120,
-        mid_secs: 1_000,
-        future_skew_secs: 60,
-        max_batch_samples: 2,
-    };
-    let ceiling = now + cfg.future_skew_secs;
-
     let mut r = FakeReader::default();
-    r.push_raw(CPU, ceiling - 60, 10.0);
-    r.push_raw(CPU, ceiling, 11.0);
+    r.push_raw(CPU, now - 60, 10.0);
+    r.push_raw(CPU, now, 11.0);
+    r.push_raw(CPU, now + 3_600, 12.0);
 
-    let batches = drain_all(&r, now, cfg, &[CPU], BackfillCursors::default());
-    let seen: Vec<i64> = batches
+    let seen: Vec<i64> = drain_all(&r, now, cfg(1000), &[CPU], &ConfirmedRanges::default())
         .iter()
         .flat_map(|b| b.samples.iter().map(|s| s.ts))
         .collect();
     assert!(
-        seen.contains(&ceiling),
-        "the bucket on the ceiling is inside the band: {seen:?}"
+        seen.contains(&(now - 60)),
+        "the minute that just ended ships: {seen:?}"
+    );
+    assert!(
+        !seen.iter().any(|&ts| ts >= now),
+        "a running or future minute never ships: {seen:?}"
     );
 }
 
@@ -550,7 +698,7 @@ fn a_batch_reads_a_bounded_window_rather_than_the_whole_band() {
         r.push_tier(CPU, Tier::T1, NOW - 960 + i * 300, 40.0 + i as f64);
     }
 
-    let batches = drain_all(&r, NOW, cfg(6), &[CPU], BackfillCursors::default());
+    let batches = drain_all(&r, NOW, cfg(6), &[CPU], &ConfirmedRanges::default());
     let first = batches
         .iter()
         .find(|b| b.tier == BackfillTier::Rollup1m)
@@ -574,21 +722,16 @@ fn a_batch_reads_a_bounded_window_rather_than_the_whole_band() {
 }
 
 #[test]
-fn the_recent_and_hour_tiers_resume_from_their_own_watermarks() {
+fn the_recent_and_hour_tiers_each_skip_their_confirmed_spans() {
     let mut r = FakeReader::default();
     for ts in 99_900..100_020 {
         r.push_raw(CPU, ts, 25.0);
     }
-    r.push_tier(CPU, Tier::T2, NOW - 9_000, 30.0);
-    r.push_tier(CPU, Tier::T2, NOW - 5_400, 31.0);
+    r.push_tier(CPU, Tier::T2, HOUR_A, 30.0);
+    r.push_tier(CPU, Tier::T2, HOUR_B, 31.0);
 
-    let cursors = BackfillCursors {
-        recent60s: Some(99_900),
-        rollup1h: Some(NOW - 9_000),
-        ..Default::default()
-    };
-    let batches = drain_all(&r, NOW, cfg(1000), &[CPU], cursors);
-
+    let confirmed = ConfirmedRanges::from_spans([(99_840, 99_960), (80_020, HOUR_A + 3_600)]);
+    let batches = drain_all(&r, NOW, wide_cfg(1000), &[CPU], &confirmed);
     let by_tier = |tier: BackfillTier| -> Vec<i64> {
         batches
             .iter()
@@ -599,12 +742,12 @@ fn the_recent_and_hour_tiers_resume_from_their_own_watermarks() {
     assert_eq!(
         by_tier(BackfillTier::Recent60s),
         vec![99_960, 99_960],
-        "the recent tier resumes strictly after its own watermark, as avg + max"
+        "the recent tier ships the minute after its confirmed span, as avg + max"
     );
     assert_eq!(
         by_tier(BackfillTier::Rollup1h),
-        vec![NOW - 5_400, NOW - 5_400],
-        "the hour tier resumes strictly after its own watermark, as avg + max"
+        vec![HOUR_B, HOUR_B],
+        "the hour tier ships the hour after its confirmed span, as avg + max"
     );
 }
 
@@ -637,7 +780,7 @@ fn drains_the_rollup_tiers_from_a_real_local_store_snapshot() {
     store.commit(Durability::Full).unwrap();
     let snap = store.snapshot().unwrap();
 
-    let batches = drain_all(&snap, now, cfg(1000), &[CPU], BackfillCursors::default());
+    let batches = drain_all(&snap, now, cfg(1000), &[CPU], &ConfirmedRanges::default());
     let by_tier = |tier: BackfillTier| -> Vec<i64> {
         batches
             .iter()
@@ -665,7 +808,6 @@ fn a_bucket_straddling_the_recent_floor_does_not_ship_at_full_resolution() {
         retention_secs: 10_000,
         recent_secs: 90,
         mid_secs: 1_000,
-        future_skew_secs: 60,
         max_batch_samples: 1_000,
     };
     let floor = now - cfg.recent_secs;
@@ -674,7 +816,7 @@ fn a_bucket_straddling_the_recent_floor_does_not_ship_at_full_resolution() {
     let mut r = FakeReader::default();
     r.push_raw(CPU, floor + 5, 42.0);
 
-    let batches = drain_all(&r, now, cfg, &[CPU], BackfillCursors::default());
+    let batches = drain_all(&r, now, cfg, &[CPU], &ConfirmedRanges::default());
     let recent: Vec<i64> = batches
         .iter()
         .filter(|b| b.tier == BackfillTier::Recent60s)
@@ -699,7 +841,7 @@ fn history_older_than_the_central_stores_thirty_days_is_never_planned() {
         now,
         BackfillConfig::default(),
         &[CPU],
-        BackfillCursors::default(),
+        &ConfirmedRanges::default(),
     );
     let ts_seen: Vec<i64> = batches
         .iter()
@@ -712,5 +854,197 @@ fn history_older_than_the_central_stores_thirty_days_is_never_planned() {
     assert!(
         ts_seen.contains(&(now - 29 * DAY)),
         "a 29-day-old minute is sent: {ts_seen:?}"
+    );
+}
+
+#[test]
+fn a_catch_up_carried_on_from_its_position_reads_each_stretch_once() {
+    let mut r = FakeReader::default();
+    for ts in (NOW - 90)..NOW {
+        r.push_raw(CPU, ts, 50.0);
+    }
+    for i in 0..8 {
+        r.push_tier(CPU, Tier::T1, NOW - 900 + i * 60, 40.0 + i as f64);
+    }
+    r.push_tier(CPU, Tier::T2, 93_600, 30.0);
+
+    let whole = drain_all(&r, NOW, cfg(4), &[CPU], &ConfirmedRanges::default());
+    let whole_reads = r.reads.take().len();
+    let resumed = drain_resumed(&r, NOW, cfg(4), &[CPU], &mut ConfirmedRanges::default());
+
+    assert!(whole.len() > 3, "the backlog spans several batches");
+    assert_eq!(resumed, whole, "the same batches, in the same order");
+    assert_eq!(
+        r.reads.take().len(),
+        whole_reads,
+        "each stretch is read once over the session"
+    );
+}
+
+#[test]
+fn a_reconnect_with_nothing_owed_reads_only_time_after_the_newest_reading() {
+    let mut r = FakeReader::default();
+    r.push_tier(CPU, Tier::T1, NOW - 300, 41.0);
+    let settled = NOW - 300;
+    let mut confirmed = ConfirmedRanges::default();
+    let sent = drain_marking(&r, cfg(2), settled, &mut confirmed);
+    assert_eq!(
+        tiers_and_times(&sent),
+        vec![(BackfillTier::Rollup1m, NOW - 300); 2]
+    );
+    r.reads.take();
+
+    assert!(
+        drain_all(&r, NOW, cfg(2), &[CPU], &confirmed).is_empty(),
+        "nothing is owed"
+    );
+    let reread: Vec<(i64, i64)> = r
+        .reads
+        .take()
+        .into_iter()
+        .filter(|&(_, end)| end < settled)
+        .collect();
+    assert!(
+        reread.is_empty(),
+        "empty time before the newest reading is done once read: {reread:?}"
+    );
+}
+
+#[test]
+fn empty_time_beside_confirmed_readings_is_marked_done() {
+    let mut r = FakeReader::default();
+    r.push_tier(CPU, Tier::T1, NOW - 600, 41.0);
+    let mut confirmed = ConfirmedRanges::from_spans([(NOW - 600, NOW - 540)]);
+    drain_marking(&r, cfg(1000), NOW - 300, &mut confirmed);
+    assert!(
+        confirmed.covers(NOW - 960, NOW - 300),
+        "the empty time on both sides of the confirmed minute, up to the newest reading"
+    );
+}
+
+#[test]
+fn empty_time_after_the_newest_committed_reading_stays_owed() {
+    let mut r = FakeReader::default();
+    r.push_tier(CPU, Tier::T1, NOW - 600, 41.0);
+    let mut confirmed = ConfirmedRanges::default();
+    drain_marking(&r, cfg(2), NOW - 600, &mut confirmed);
+    assert!(
+        !confirmed.covers(NOW - 480, NOW - 420),
+        "a reading not yet committed may still land after the newest committed one"
+    );
+
+    r.push_tier(CPU, Tier::T1, NOW - 480, 42.0);
+    assert_eq!(
+        tiers_and_times(&drain_all(&r, NOW, cfg(2), &[CPU], &confirmed)),
+        vec![(BackfillTier::Rollup1m, NOW - 480); 2],
+        "and is sent once it lands"
+    );
+}
+
+#[test]
+fn a_bucket_just_past_an_empty_slice_is_still_read() {
+    let mut r = FakeReader::default();
+    r.push_tier(CPU, Tier::T2, HOUR_A, 30.0);
+    r.push_tier(CPU, Tier::T1, 99_120, 40.0);
+    let shipped = tiers_and_times(&drain_all(
+        &r,
+        NOW,
+        wide_cfg(2),
+        &[CPU],
+        &ConfirmedRanges::default(),
+    ));
+    assert!(
+        shipped.contains(&(BackfillTier::Rollup1h, HOUR_A)),
+        "the hour after the first empty slice: {shipped:?}"
+    );
+    assert!(
+        shipped.contains(&(BackfillTier::Rollup1m, 99_120)),
+        "the minute after the first empty slice: {shipped:?}"
+    );
+}
+
+#[test]
+fn a_bucket_reaching_past_its_band_is_not_taken_for_empty_time() {
+    let mut r = FakeReader::default();
+    r.push_tier(CPU, Tier::T2, 97_200, 30.0);
+    let mut confirmed = ConfirmedRanges::default();
+    let sent = drain_marking(&r, cfg(2), NOW - 60, &mut confirmed);
+    assert!(
+        sent.is_empty(),
+        "the hour reaches past the band's top today"
+    );
+
+    let later = NOW + 2_000;
+    assert!(
+        tiers_and_times(&drain_all(&r, later, cfg(2), &[CPU], &confirmed))
+            .contains(&(BackfillTier::Rollup1h, 97_200)),
+        "it ships once it lies inside its band"
+    );
+}
+
+#[test]
+fn a_minutes_last_second_counts_in_its_caught_up_maximum() {
+    use edge_tsdb::{Durability, LocalTsdb, TsdbConfig};
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = LocalTsdb::open(dir.path(), TsdbConfig::default()).unwrap();
+    let window = 999_960i64;
+    for ts in window..window + 60 {
+        let value = if ts == window + 59 { 99.0 } else { 25.0 };
+        store.append(CPU, Sample::new(ts, value), false).unwrap();
+    }
+    store.commit(Durability::Full).unwrap();
+    let snap = store.snapshot().unwrap();
+
+    let batches = drain_all(
+        &snap,
+        window + 60,
+        cfg(1000),
+        &[CPU],
+        &ConfirmedRanges::default(),
+    );
+    let max = batches
+        .iter()
+        .flat_map(|b| &b.samples)
+        .find(|s| s.name == "cpu.total.max")
+        .map(|s| s.value);
+    assert_eq!(
+        max,
+        Some(99.0),
+        "the reading at the minute's last second is read"
+    );
+}
+
+#[test]
+fn a_real_store_minute_just_past_an_empty_slice_ships_and_stays_owed_until_sent() {
+    use edge_tsdb::{Durability, LocalTsdb, TsdbConfig};
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = LocalTsdb::open(dir.path(), TsdbConfig::default()).unwrap();
+    let minute = 99_120i64;
+    for ts in minute..minute + 60 {
+        store.append(CPU, Sample::new(ts, 40.0), false).unwrap();
+    }
+    store.commit(Durability::Full).unwrap();
+    let snap = store.snapshot().unwrap();
+    let mut confirmed = ConfirmedRanges::default();
+
+    let mut drain =
+        BackfillDrain::new(&snap, NOW, cfg(2), &[CPU], &confirmed).marking_empty_until(minute);
+    let mut shipped = Vec::new();
+    while let Some(batch) = drain.next_batch().unwrap() {
+        shipped.extend(batch.samples.iter().map(|s| (batch.tier, s.ts)));
+    }
+    let empty = drain.take_empty();
+    assert!(
+        shipped.contains(&(BackfillTier::Rollup1m, minute)),
+        "the minute after the first empty slice: {shipped:?}"
+    );
+    for (start, end) in empty {
+        confirmed.add(start, end);
+    }
+    assert!(
+        !confirmed.covers(minute, minute + 60),
+        "empty time never takes in a minute with readings"
     );
 }

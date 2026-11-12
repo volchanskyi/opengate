@@ -124,3 +124,66 @@ func TestTheDeviceStatusGateIsDroppedWhenNobodyHoldsIt(t *testing.T) {
 	assert.Empty(t, srv.statusGate.inFlight(),
 		"a device nobody is transitioning holds no gate")
 }
+
+func TestALateTeardownOfAReplacedConnectionKeepsTheReturningGrant(t *testing.T) {
+	env := newAcceptEnv(t)
+	deviceID := protocol.DeviceID(uuid.New())
+
+	departing := &AgentConn{DeviceID: deviceID}
+	env.srv.registerConn(context.Background(), departing, "contoso-workstation")
+	env.srv.registerConn(context.Background(), &AgentConn{DeviceID: deviceID}, "contoso-workstation")
+	env.srv.scheduler.RequestSlot(deviceID, uuid.New())
+
+	conn, stream := env.dial(t, uuid.New())
+	env.srv.unregisterConn(stream, conn, departing, "contoso-workstation", testLogger())
+
+	admission := env.srv.scheduler.Admit(CatchUpBatch{Device: deviceID, Key: "minute-1", Size: 1})
+	assert.Equal(t, Admitted, admission.Verdict,
+		"the returning connection keeps the catch-up grant it took (refused: %q)", admission.Reason)
+}
+
+func TestTheCurrentConnectionLeavingDropsItsGrant(t *testing.T) {
+	env := newAcceptEnv(t)
+	deviceID := protocol.DeviceID(uuid.New())
+
+	current := &AgentConn{DeviceID: deviceID}
+	env.srv.registerConn(context.Background(), current, "contoso-workstation")
+	env.srv.scheduler.RequestSlot(deviceID, uuid.New())
+
+	conn, stream := env.dial(t, uuid.New())
+	env.srv.unregisterConn(stream, conn, current, "contoso-workstation", testLogger())
+
+	admission := env.srv.scheduler.Admit(CatchUpBatch{Device: deviceID, Key: "minute-1", Size: 1})
+	assert.Equal(t, BackfillNoGrant, admission.Reason, "a machine that left holds no catch-up grant")
+}
+
+func TestALateTeardownOfAReplacedConnectionKeepsTheReturningRuleCoverage(t *testing.T) {
+	env := newAcceptEnv(t)
+	deviceID := protocol.DeviceID(uuid.New())
+
+	departing := &AgentConn{DeviceID: deviceID}
+	env.srv.registerConn(context.Background(), departing, "contoso-workstation")
+	env.srv.registerConn(context.Background(), &AgentConn{DeviceID: deviceID}, "contoso-workstation")
+	env.srv.coverage.Report(deviceID, []protocol.RuleCoverage{{RuleID: "disk-critical", State: protocol.RuleCoverageActive}})
+
+	conn, stream := env.dial(t, uuid.New())
+	env.srv.unregisterConn(stream, conn, departing, "contoso-workstation", testLogger())
+
+	assert.Equal(t, 1, env.srv.coverage.Aggregate(1, nil)["disk-critical"].Active,
+		"the returning connection's rule coverage outlives the teardown of the one it replaced")
+}
+
+func TestTheCurrentConnectionLeavingForgetsItsRuleCoverage(t *testing.T) {
+	env := newAcceptEnv(t)
+	deviceID := protocol.DeviceID(uuid.New())
+
+	current := &AgentConn{DeviceID: deviceID}
+	env.srv.registerConn(context.Background(), current, "contoso-workstation")
+	env.srv.coverage.Report(deviceID, []protocol.RuleCoverage{{RuleID: "disk-critical", State: protocol.RuleCoverageActive}})
+
+	conn, stream := env.dial(t, uuid.New())
+	env.srv.unregisterConn(stream, conn, current, "contoso-workstation", testLogger())
+
+	assert.Zero(t, env.srv.coverage.Aggregate(1, nil)["disk-critical"].Active,
+		"a machine that left is unknown to the rule coverage")
+}

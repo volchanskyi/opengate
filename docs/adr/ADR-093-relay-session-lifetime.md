@@ -45,10 +45,13 @@ what the fixed code reads.
 
 [`mps_conservation_test.go`](../../server/tests/integration/mps_conservation_test.go)
 holds Intel AMT requests the same way, a third of them answered, a third stalled
-after the channel opens and a third never confirmed. The relay and the Intel AMT
-path are what the conservation tests drive; the agent's QUIC path has no
-conservation test of its own, and the static rule below fires on a new
-long-lived connection path before a test has to.
+after the channel opens and a third never confirmed.
+[`catchup_conservation_test.go`](../../server/tests/integration/catchup_conservation_test.go)
+holds catch-up sessions on the agent's QUIC path the same way: each a machine
+that connects, is granted catch-up, sends its batches through the numeric writer
+to the store one answer at a time, and leaves. The relay, the Intel AMT path and
+catch-up are what the conservation tests drive, and the static rule below fires
+on a new long-lived connection path before a test has to.
 
 A static rule
 ([`hijacked-request-context.yaml`](../../policy/semgrep/resources/hijacked-request-context.yaml))

@@ -12,7 +12,7 @@ import (
 )
 
 // handleRegister completes enrollment and records the server-side duration, which spans the
-// device row write and bringing the device online.
+// device row write that brings the device online.
 func (a *AgentConn) handleRegister(ctx context.Context, msg *protocol.ControlMessage) error {
 	start := time.Now()
 	err := a.register(ctx, msg)
@@ -47,12 +47,9 @@ func (a *AgentConn) register(ctx context.Context, msg *protocol.ControlMessage) 
 		Status:       device.StatusOnline,
 	}
 
+	// The row is what makes a machine exist for the product, so a failed write ends registration.
 	if err := a.devices.Upsert(ctx, d); err != nil {
 		return fmt.Errorf("upsert device: %w", err)
-	}
-
-	if err := a.devices.SetStatus(ctx, a.DeviceID, device.StatusOnline); err != nil {
-		return fmt.Errorf("set device online: %w", err)
 	}
 
 	a.logger.Info("agent registered",
@@ -82,5 +79,8 @@ func (a *AgentConn) register(ctx context.Context, msg *protocol.ControlMessage) 
 		}
 	}
 	a.offerRenewal(ctx)
+	if a.registered != nil {
+		a.registered(a)
+	}
 	return nil
 }

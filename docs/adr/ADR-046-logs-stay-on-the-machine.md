@@ -32,6 +32,17 @@ authorisation headers, key-value credentials, cloud keys and private keys even
 when the agent's own redaction is off. Two independent guards, because one of
 them being wrong is the case worth surviving.
 
+**An answer pages itself under the message ceiling.** The server reads no machine
+message longer than the largest one a machine sends
+([ADR-044](ADR-044-telemetry-ingest.md)), and a thousand long lines can run to
+several mebibytes. The machine stops adding lines once the answer nears the
+ceiling, cutting a single line too long for it, and says more remain
+([`device_logs.rs`](../../agent/crates/mesh-agent/src/device_logs.rs)); the log
+view's next page starts after the lines it received
+([`LogExplorer.tsx`](../../web/src/features/devices/LogExplorer.tsx)). Raising
+the ceiling to fit a full answer was not taken: it would raise the bytes every
+machine connection may hold before the server reads them.
+
 **Host logs are read through the operating system's own tools** — `journalctl`
 with JSON output on Linux, and the agent's own rotated files for its own logs.
 No log library is linked into the agent, which keeps a copyleft dependency out

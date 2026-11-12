@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-# Judges the store probe in a catch-up leg's bundle against the go/no-go marks the jq below holds,
-# each mark a missed one names.
+# Reports the store probe in a catch-up leg's bundle against the marks the go/no-go held it to,
+# naming each mark it missed as a warning; the profile's own limits are what fail the night.
 #
 # Usage: scripts/perf-catchup-gate.sh BUNDLE
 #
 # Exit codes:
-#   0  go
-#   1  no-go, each missed mark named
+#   0  the probe was read, every missed mark named
 #   2  the bundle holds no probe reading
 set -euo pipefail
 
@@ -49,9 +48,8 @@ fi
 
 if [ -n "$missed" ]; then
   while IFS= read -r line; do
-    echo "::error::no-go: $line"
+    echo "::warning::store probe below its mark: $line"
   done <<<"$missed"
-  exit 1
 fi
 jq -r '.store_probe as $p
-  | "go: the store took \($p.one_sender.catch_up.readings_per_second | floor) readings a second with one sender for \($p.one_sender.duration_seconds | floor) s, \($p.one_sender.live.within_five_seconds) of \($p.one_sender.live.requests) live requests within 5 s; quiet minute \($p.quiet.cpu_share * 100 | floor)% processor, \($p.quiet.memory_share * 100 | floor)% memory"' "$BUNDLE"
+  | "store probe: the store took \($p.one_sender.catch_up.readings_per_second | floor) readings a second with one sender for \($p.one_sender.duration_seconds | floor) s, \($p.one_sender.live.within_five_seconds) of \($p.one_sender.live.requests) live requests within 5 s; quiet minute \($p.quiet.cpu_share * 100 | floor)% processor, \($p.quiet.memory_share * 100 | floor)% memory"' "$BUNDLE"

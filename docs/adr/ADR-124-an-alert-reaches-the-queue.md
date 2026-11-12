@@ -16,12 +16,25 @@ indistinguishable from an estate where nothing is ever wrong.
 
 ## Decision
 
-**The machine hands its queue over on its heartbeat.** One alert at a time, and
-a send that fails hands back what did not go — including the one that failed —
-so the reconnect offers them again. The queue's own eviction is unchanged by
-that: the undelivered alerts are the older ones, so a hand-back that overflows
-loses them rather than what the machine is doing now. A reconnect that delivered
-a stale backlog in preference to the present would answer the wrong question.
+**The machine offers its queue on its heartbeat and keeps each alert until it
+is answered.** One alert at a time; an offered alert waits under the id it was
+sent with ([`sink.rs`](../../agent/crates/mesh-agent-core/src/alerts/sink.rs)).
+The server answers every alert from a machine that advertises `AlertAnswers`
+exactly once, with `AlertAnswer`: `Stored` once the row is written or found
+already written, `RefusedForGood` for an alert that would be refused the same way
+every time — a bad shape, a rule it does not ship or that is stopped, a time
+outside the window, unreadable evidence, a customer over its hourly ceiling — and
+`TryAgain` for one that might pass later: a missing customer, a failed write, no
+free persist slot. `Stored` and `RefusedForGood` end the alert; `TryAgain` puts it
+back at the front of the queue for the next heartbeat, and a new session offers
+every alert still waiting. A word the machine does not know reads as `TryAgain`,
+so an answer a later server adds keeps the alert rather than losing it. A send
+that fails on a closed connection is dropped by the server, and the machine
+offers again on reconnect. Queue and waiting alerts share the queue's capacity,
+oldest dropped and counted: the undelivered alerts are the older ones, and a
+reconnect that delivered a stale backlog in preference to the present would
+answer the wrong question. A machine without the capability is served as before:
+a send that fails hands back what did not go.
 
 **A re-delivery resolves to the row already written.** The identity is the
 machine, the rule, the rule's revision and the window it fired for, and none of

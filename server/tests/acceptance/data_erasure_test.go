@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/volchanskyi/opengate/server/internal/app"
+	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
@@ -26,7 +27,6 @@ func TestDeletingAMachineRemovesItAndStopsTrustingItsAgent(t *testing.T) {
 
 	reportedAt := time.Now().UTC().Truncate(time.Second).Add(-2 * time.Minute)
 	machine.report(reportedAt, protocol.MetricDim{Name: "cpu.total", Avg: 33.5})
-	machine.settle()
 	from, to := reportedAt.Add(-5*time.Minute), reportedAt.Add(5*time.Minute)
 	admin.awaitReading(product, machine.DeviceID, from, to, "cpu.total")
 
@@ -126,6 +126,7 @@ var sweepingOften = app.BackgroundSchedule{
 	SessionSweep:     time.Hour,
 	SessionGrace:     time.Hour,
 	IncidentSweep:    time.Hour,
+	PresenceSweep:    time.Hour,
 	RetentionSweep:   time.Hour,
 	RetentionHorizon: 365 * 24 * time.Hour,
 }
@@ -155,7 +156,6 @@ func TestAnotherEnvironmentsMachinesKeepTheirReadingsThroughThisServersSweep(t *
 			[]string{"contoso-prod-01", "contoso-stage-01"}[i])
 		machine.AwaitOnline()
 		machine.report(reportedAt, protocol.MetricDim{Name: "cpu.total", Avg: 12.5})
-		machine.settle()
 		admin.awaitReading(product, machine.DeviceID, from, to, "cpu.total")
 		both = append(both, installation{product, admin, machine})
 	}
@@ -167,5 +167,27 @@ func TestAnotherEnvironmentsMachinesKeepTheirReadingsThroughThisServersSweep(t *
 			require.NotEmpty(t, each.admin.readings(each.machine.DeviceID, from, to, "cpu.total").values("cpu.total"),
 				"each installation's sweep leaves the other installation's machine its readings")
 		}
+	}
+}
+
+func TestReadingsQueuedWhenAMachineIsErasedNeverReachTheStore(t *testing.T) {
+	t.Parallel()
+
+	product := newProduct(t, WithNumericTelemetry())
+	contoso := product.arrangeCustomer("Contoso")
+	admin := product.Administrator(contoso)
+	machine := product.Machine(admin.mintEnrolmentToken("Head Office").Token, "contoso-desk-07")
+	machine.AwaitOnline()
+
+	// The window waits up to a second in the writer's queue, which the erasure lands inside.
+	minute := time.Now().UTC().Truncate(time.Minute).Add(-time.Minute)
+	machine.report(minute, protocol.MetricDim{Name: "cpu.total", Avg: 52})
+	require.Equal(t, http.StatusNoContent, admin.Delete("/api/v1/devices/"+machine.DeviceID.String()).Status)
+
+	from, to := minute.Add(-5*time.Minute), minute.Add(5*time.Minute)
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		product.publishReadings()
+		assert.Zero(t, product.seriesHeld(dbtx.DefaultTenantID, machine.DeviceID, from, to),
+			"nothing the machine sent before its erasure is in the store after it")
 	}
 }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/volchanskyi/opengate/server/internal/alerts"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
+	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
@@ -51,9 +52,11 @@ type AlertRecorder interface {
 }
 
 // handleAgentAlert admits one alert and returns nil for a refused one, keeping the channel open.
+// A machine that reads answers gets exactly one for every alert it offers.
 func (a *AgentConn) handleAgentAlert(ctx context.Context, msg *protocol.ControlMessage, payloadLen int) error {
 	if payloadLen > maxAlertPayloadBytes {
 		a.dropTelemetry(alertDropPayloadTooLarge, "bytes", payloadLen, "max", maxAlertPayloadBytes)
+		a.answerAlert(msg.AlertID, protocol.AlertAnswerRefusedForGood)
 		return nil
 	}
 	// Everything below either stores the alert or files exactly one typed drop.
@@ -61,14 +64,51 @@ func (a *AgentConn) handleAgentAlert(ctx context.Context, msg *protocol.ControlM
 
 	alert, ok := a.validatedAlert(msg)
 	if !ok {
+		a.answerAlert(msg.AlertID, protocol.AlertAnswerRefusedForGood)
 		return nil
 	}
 
 	// The write goes to a bounded slot so the read loop never waits on the store.
-	a.persistTelemetry(ctx, 1, func(jobCtx context.Context, _ dbtx.Tenant) error {
-		return a.storeAlert(jobCtx, alert)
+	started := a.persistTelemetry(ctx, 1, func(jobCtx context.Context, _ dbtx.Tenant) error {
+		answer, err := a.storeAlert(jobCtx, alert)
+		a.answerAlert(msg.AlertID, answer)
+		return err
 	})
+	if !started {
+		a.answerAlert(msg.AlertID, protocol.AlertAnswerTryAgain)
+	}
 	return nil
+}
+
+// answerAlert tells a machine that reads answers what became of the alert it offered as id. A
+// send that fails is dropped: the machine offers every unanswered alert again on reconnect.
+func (a *AgentConn) answerAlert(id string, answer protocol.AlertAnswerReason) {
+	if a.requireCapability(protocol.CapAlertAnswers) != nil {
+		return
+	}
+	if err := a.sendControl(&protocol.ControlMessage{
+		Type:    protocol.MsgAlertAnswer,
+		AlertID: id,
+		Reason:  string(answer),
+	}); err != nil {
+		a.logger.Debug("alert answer not sent", "device_id", a.DeviceID, "alert_id", id, "error", err)
+		return
+	}
+	if a.metrics != nil {
+		a.metrics.ObserveAlertAnswer(alertAnswerLabel(answer))
+	}
+}
+
+// alertAnswerLabel is the counter's spelling of an answer.
+func alertAnswerLabel(answer protocol.AlertAnswerReason) string {
+	switch answer {
+	case protocol.AlertAnswerStored:
+		return appmetrics.AlertAnswerStored
+	case protocol.AlertAnswerRefusedForGood:
+		return appmetrics.AlertAnswerRefusedForGood
+	default:
+		return appmetrics.AlertAnswerTryAgain
+	}
 }
 
 // validatedAlert turns a control message into the alert to store, or files one typed drop.
@@ -129,26 +169,30 @@ func (a *AgentConn) validatedAlert(msg *protocol.ControlMessage) (alerts.Alert, 
 	}, true
 }
 
-// storeAlert resolves the machine's customer and files the alert, counting the outcome.
+// storeAlert resolves the machine's customer, files the alert and returns the machine's answer.
 // A returned error hands the accounting back to the persist path, which counts the message as lost.
-func (a *AgentConn) storeAlert(ctx context.Context, alert alerts.Alert) error {
+func (a *AgentConn) storeAlert(ctx context.Context, alert alerts.Alert) (protocol.AlertAnswerReason, error) {
 	// A missing store is counted as a lost message, like a store that refused.
 	if a.alertStore == nil {
-		return errNoAlertStore
+		return protocol.AlertAnswerTryAgain, errNoAlertStore
 	}
-	// Incident scoping keys are the customer's, so an unresolved customer drops the alert.
+	// Incident scoping keys are the customer's, so an unresolved customer drops the alert; the
+	// customer resolves later, so the machine offers it again.
 	alert.OrganizationID = a.settingsScope(ctx).OrganizationID
 	if alert.OrganizationID == uuid.Nil {
 		a.dropTelemetry(alertDropOrganizationUnknown, "device_id", a.DeviceID)
-		return nil
+		return protocol.AlertAnswerTryAgain, nil
 	}
 
 	outcome, err := a.alertStore.Record(ctx, alert, a.groupingFor(alert.RuleID))
 	if err != nil {
-		return err
+		return protocol.AlertAnswerTryAgain, err
 	}
 	a.observeAlertOutcome(outcome, alert)
-	return nil
+	if outcome == alerts.CeilingSuppressed {
+		return protocol.AlertAnswerRefusedForGood, nil
+	}
+	return protocol.AlertAnswerStored, nil
 }
 
 // groupingFor reads a rule's room scope and hold from its definition; an unknown rule gets the

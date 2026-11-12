@@ -32,7 +32,6 @@ func TestOneValueThatIsNotANumberCostsOnlyItself(t *testing.T) {
 			{Name: "net.rx_bps", Avg: 4096},
 		},
 	}, 256))
-	ac.flushTelemetry(tenantCtx(tenant))
 
 	call := receiveTelemetryCall(t, writer.calls)
 	names := make([]string, 0, len(call.samples))
@@ -56,7 +55,6 @@ func TestAWindowOfOnlyBadValuesWritesNothing(t *testing.T) {
 		TS:   time.Now().Unix(),
 		Dims: []protocol.MetricDim{{Name: "cpu.total", Avg: math.NaN()}},
 	}, 256))
-	ac.flushTelemetry(tenantCtx(tenant))
 
 	assert.Empty(t, writer.calls)
 	assert.InDelta(t, 1, testutil.ToFloat64(m.EdgeTelemetryDropsTotal.WithLabelValues("invalid_value")), 0)

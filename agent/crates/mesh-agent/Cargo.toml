@@ -10,6 +10,7 @@ name = "mesh-agent"
 path = "src/main.rs"
 
 [dependencies]
+rmp-serde.workspace = true
 mesh-agent-core = { path = "../mesh-agent-core" }
 mesh-protocol = { path = "../mesh-protocol" }
 platform-linux = { path = "../platform-linux" }
@@ -43,7 +44,6 @@ rcgen.workspace = true
 tempfile.workspace = true
 mockito.workspace = true
 uuid.workspace = true
-rmp-serde.workspace = true
 
 [lints]
 workspace = true

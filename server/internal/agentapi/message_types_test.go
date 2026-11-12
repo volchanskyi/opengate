@@ -32,7 +32,8 @@ var allControlMessageTypes = []protocol.ControlMessageType{
 	protocol.MsgGrantBackfill, protocol.MsgDeferBackfill, protocol.MsgMetricBackfillBatch,
 	protocol.MsgMetricBackfillAck, protocol.MsgRequestLocalHistory, protocol.MsgLocalHistoryResponse,
 	protocol.MsgDiscoveryReport, protocol.MsgPushAlertRules, protocol.MsgSetMaintenanceMode,
-	protocol.MsgMaintenanceApplied, protocol.MsgAgentAlert, protocol.MsgRenewCertificate,
+	protocol.MsgMaintenanceApplied, protocol.MsgAgentAlert, protocol.MsgAlertAnswer, protocol.MsgLiveWindowStored,
+	protocol.MsgRenewCertificate,
 	protocol.MsgCertificateSigningRequest, protocol.MsgCertificateIssued, protocol.MsgCertificateRefused,
 	protocol.MsgCertificateInstalled, protocol.MsgTrustBundle,
 }

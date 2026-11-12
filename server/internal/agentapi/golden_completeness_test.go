@@ -31,6 +31,7 @@ var reverseGoldenBySendMethod = map[string][]string{
 	"SendCertificateIssued":  {"go_control_certificate_issued.bin"},
 	"SendCertificateRefused": {"go_control_certificate_refused.bin", "go_control_certificate_refused_min.bin"},
 	"SendTrustBundle":        {"go_control_trust_bundle.bin"},
+	"SendResendRequest":      {"go_control_defer_backfill_since.bin"},
 }
 
 // reverseGoldenByInlineWrite names the goldens of variants written through sendControl
@@ -41,6 +42,8 @@ var reverseGoldenByInlineWrite = map[string][]string{
 		"go_control_grant_backfill.bin",
 		"go_control_defer_backfill.bin",
 	},
+	"answerAlert":       {"go_control_alert_answer.bin"},
+	"confirmLiveWindow": {"go_control_live_window_stored.bin"},
 }
 
 func goldenDir() string {

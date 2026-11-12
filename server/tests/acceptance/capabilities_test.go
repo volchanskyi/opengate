@@ -35,6 +35,7 @@ var capabilityOutcomes = map[string][]string{
 		"TestTheDashboardAgreesWithTheDeviceList",
 		"TestATechnicianSeesOneCustomersMachinesAtATime",
 		"TestNotAssignedListsOnlyTheMachinesWithNoSite",
+		"TestAMachineThatDisconnectsShowsOfflineWithTheTimeItLeft",
 	},
 	"Remote-Sessions.md": {
 		"TestATechnicianOpensATerminalAndTheMachineIsToldToStartIt",
@@ -52,6 +53,8 @@ var capabilityOutcomes = map[string][]string{
 		"TestTheHelperOnTheMachinesPortTellsAnAskerTheAddressItAskedFrom",
 	},
 	"Device-Health.md": {
+		"TestALiveMinuteReachesTheChartWithoutWaitingForAHeartbeat",
+		"TestAMachineIsToldEachMinuteItSentWasStored",
 		"TestAMachineReportsAMinuteAndTheTechnicianReadsItBack",
 		"TestReadingsThatArriveWithNothingInThemAreAccountedFor",
 		"TestAReadingFromAMachineWithAWrongClockIsStillKept",
@@ -66,6 +69,8 @@ var capabilityOutcomes = map[string][]string{
 		"TestARuleReachesAMachineAndItsBreachComesBackAsAnAlert",
 		"TestAFailureThatCrossesNoLineStillReachesTheQueue",
 		"TestAFindingOutOfHistoryBelongsWhereItHappened",
+		"TestAMachineIsToldItsAlertWasStoredAndAnOfferAgainLandsOnce",
+		"TestAnAlertForARuleTheServerDoesNotShipIsRefusedForGood",
 	},
 	"Rule-Administration.md": {
 		"TestATunedThresholdReachesOneCustomerAndNotTheOther",
@@ -102,6 +107,7 @@ var capabilityOutcomes = map[string][]string{
 		"TestAMachineDeletedWhileOffIsToldToRemoveItselfWhenItReturns",
 		"TestAMachineDeletedLongAgoIsStillToldToRemoveItself",
 		"TestAnotherEnvironmentsMachinesKeepTheirReadingsThroughThisServersSweep",
+		"TestReadingsQueuedWhenAMachineIsErasedNeverReachTheStore",
 	},
 }
 

@@ -211,6 +211,31 @@ pub enum AlertSeverity {
     Critical,
 }
 
+/// What the server did with an offered alert. A word this build does not know reads as
+/// `TryAgain`, so the agent keeps the alert through an answer added later.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+#[non_exhaustive]
+pub enum AlertAnswerReason {
+    /// Stored, or already stored from an earlier offer: the alert is done.
+    Stored,
+    /// Refused in a way an offer again would meet the same way: the alert is done.
+    RefusedForGood,
+    /// Not stored this time: the alert is offered again.
+    #[default]
+    TryAgain,
+}
+
+impl<'de> Deserialize<'de> for AlertAnswerReason {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let word = String::deserialize(deserializer)?;
+        Ok(match word.as_str() {
+            "Stored" => Self::Stored,
+            "RefusedForGood" => Self::RefusedForGood,
+            _ => Self::TryAgain,
+        })
+    }
+}
+
 /// One dimension the device's own correlation engine ranked at the moment an
 /// alert fired, and how badly it broke pattern.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -696,14 +721,9 @@ pub enum ControlMessage {
         summaries: Vec<HealthSummary>,
     },
 
-    /// Agent → Server: request an admission slot to drain persisted history, with backlog hints
-    /// (pending count, oldest timestamp).
-    RequestBackfillSlot {
-        #[serde(default)]
-        pending_samples: u64,
-        #[serde(default)]
-        oldest_ts: i64,
-    },
+    /// Agent → Server: request an admission slot to drain persisted history, sent once a batch
+    /// is owed.
+    RequestBackfillSlot,
 
     /// Server → Agent: admission granted at `rate` samples/sec until `deadline` (unix seconds).
     /// Gated by the Backfill capability.
@@ -714,15 +734,17 @@ pub enum ControlMessage {
         deadline: i64,
     },
 
-    /// Server → Agent: admission deferred; retry after `retry_after` seconds plus agent jitter.
-    /// Gated by the Backfill capability.
+    /// Server → Agent: retry after `retry_after` seconds plus jitter; a non-zero `since_ts`
+    /// (ResendRequests capability) asks for everything after that second again. Backfill-gated.
     DeferBackfill {
         #[serde(default)]
         retry_after: u32,
+        #[serde(default, skip_serializing_if = "is_default")]
+        since_ts: i64,
     },
 
     /// Agent → Server: pre-rolled samples for one tier; `cursor` is the newest bucket timestamp,
-    /// and the watermark advances only after the matching `MetricBackfillAck`.
+    /// and the batch's range counts as confirmed only after the matching `MetricBackfillAck`.
     MetricBackfillBatch {
         #[serde(default)]
         tier: BackfillTier,
@@ -732,7 +754,7 @@ pub enum ControlMessage {
         cursor: i64,
     },
 
-    /// Server → Agent: durability ack that advances the per-tier watermark to `cursor`.
+    /// Server → Agent: the batch ending at `cursor` is stored, which confirms its range.
     /// Gated by the Backfill capability.
     MetricBackfillAck {
         #[serde(default)]
@@ -850,6 +872,22 @@ pub enum ControlMessage {
         /// Compressed [`AlertEvidence`]; empty when the device had nothing to attach.
         #[serde(default, with = "serde_bytes", skip_serializing_if = "Vec::is_empty")]
         evidence: Vec<u8>,
+    },
+
+    /// Server → Agent: the live window stamped `ts` is stored, every reading of it accepted or
+    /// deliberately refused. Gated by the LiveConfirmations capability.
+    LiveWindowStored {
+        #[serde(default)]
+        ts: i64,
+    },
+
+    /// Server → Agent: what became of the alert offered under `alert_id`. Gated by the
+    /// AlertAnswers capability.
+    AlertAnswer {
+        #[serde(default)]
+        alert_id: String,
+        #[serde(default)]
+        reason: AlertAnswerReason,
     },
 
     /// Server → Agent: asks for a certificate request under a new key; `reason` names why, e.g.

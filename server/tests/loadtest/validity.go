@@ -61,7 +61,10 @@ type RunInputs struct {
 	ProducedScenarios []string
 
 	Headroom Headroom
-	Phases   []PhaseResult
+	// Technicians is the technicians' own allowance, judged by the generator's ceilings; nil where
+	// they share the generator's.
+	Technicians *Headroom
+	Phases      []PhaseResult
 
 	// Target is the target's state before and after the run and the work between; zero means unread.
 	Target TargetConservation
@@ -133,7 +136,8 @@ func invalidReasons(in RunInputs, verdict Verdict) []string {
 		reasons = append(reasons,
 			"the generator was not measured, and a run that cannot say how much room its own generator had cannot say what its numbers are about")
 	}
-	reasons = append(reasons, generatorReasons(in.Headroom)...)
+	reasons = append(reasons, generatorReasons("generator", in.Headroom)...)
+	reasons = append(reasons, technicianReasons(in.Technicians)...)
 
 	// A target gone before the end leaves the later readings describing nothing that ran.
 	if in.Target.StoppedAnswering() {
@@ -156,9 +160,21 @@ func invalidReasons(in RunInputs, verdict Verdict) []string {
 	return reasons
 }
 
-// generatorReasons collects the ways a run measured its own generator.
-// Only the generator's own allowance gates; a shared box's reading describes the pair.
-func generatorReasons(headroom Headroom) []string {
+// technicianReasons judges the technicians' own allowance by the generator's ceilings; an allowance
+// named and never read invalidates, as an unmeasured generator does.
+func technicianReasons(headroom *Headroom) []string {
+	if headroom == nil {
+		return nil
+	}
+	if !headroom.Measured {
+		return []string{"the technician generator was not measured, so how much room its own allowance had is unknown"}
+	}
+	return generatorReasons("technician generator", *headroom)
+}
+
+// generatorReasons collects the ways a run measured the generator it names.
+// Only a generator's own allowance gates; a shared box's reading describes the pair.
+func generatorReasons(name string, headroom Headroom) []string {
 	if !headroom.Measured || headroom.Scope != headroomScopeGenerator {
 		return nil
 	}
@@ -166,18 +182,18 @@ func generatorReasons(headroom Headroom) []string {
 	var reasons []string
 	if headroom.CPUHeadroomPercent < minGeneratorCPUHeadroomPercent {
 		reasons = append(reasons, fmt.Sprintf(
-			"generator had %.1f%% processor headroom (floor %.0f%%), so the run measured the generator",
-			headroom.CPUHeadroomPercent, minGeneratorCPUHeadroomPercent))
+			"%s had %.1f%% processor headroom (floor %.0f%%), so the run measured the %s",
+			name, headroom.CPUHeadroomPercent, minGeneratorCPUHeadroomPercent, name))
 	}
 	if headroom.MemoryUsedPercent > maxGeneratorMemoryUsedPercent {
 		reasons = append(reasons, fmt.Sprintf(
-			"generator memory reached %.1f%% (ceiling %.0f%%), so the run measured the generator",
-			headroom.MemoryUsedPercent, maxGeneratorMemoryUsedPercent))
+			"%s memory reached %.1f%% (ceiling %.0f%%), so the run measured the %s",
+			name, headroom.MemoryUsedPercent, maxGeneratorMemoryUsedPercent, name))
 	}
 	if headroom.CPURefusedPercent != nil && *headroom.CPURefusedPercent > maxGeneratorCPURefusedPercent {
 		reasons = append(reasons, fmt.Sprintf(
-			"generator was refused the processor for %.1f%% of the run (ceiling %.0f%%), so its latencies carry its own wait",
-			*headroom.CPURefusedPercent, maxGeneratorCPURefusedPercent))
+			"%s was refused the processor for %.1f%% of the run (ceiling %.0f%%), so its latencies carry its own wait",
+			name, *headroom.CPURefusedPercent, maxGeneratorCPURefusedPercent))
 	}
 	return reasons
 }

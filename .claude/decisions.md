@@ -37,10 +37,10 @@
 | 041 | Forced row-level security is the tenant wall, driven by the token through one scoped transaction | [ADR-041](../docs/adr/ADR-041-postgres-row-level-security.md) |
 | 042 | An unknown control message is ignored rather than fatal, and new ones are gated on a declared capability | [ADR-042](../docs/adr/ADR-042-control-protocol-compatibility.md) |
 | 043 | The device detects its own problems — an always-on sampler, plus threshold rules with hysteresis | [ADR-043](../docs/adr/ADR-043-on-device-detection.md) |
-| 044 | The server writes telemetry and resolves the tenant from the connection; agents hold no store credential | [ADR-044](../docs/adr/ADR-044-telemetry-ingest.md) |
-| 046 | Logs stay on the machine: brokered on demand, bounded, redacted twice, audited, never stored centrally | [ADR-046](../docs/adr/ADR-046-logs-stay-on-the-machine.md) |
+| 044 | The server writes telemetry from the connection's tenant through one writer, live and catch-up apart; each hand-off answered after the store, catch-up admitted by queue fill, lost writes asked again | [ADR-044](../docs/adr/ADR-044-telemetry-ingest.md) |
+| 046 | Logs stay on the machine: brokered on demand, bounded, paged under the message ceiling, redacted twice, audited, never stored centrally | [ADR-046](../docs/adr/ADR-046-logs-stay-on-the-machine.md) |
 | 047 | Telemetry charts run on one thin uPlot adapter, split into its own budgeted bundle | [ADR-047](../docs/adr/ADR-047-telemetry-charts.md) |
-| 052 | The agent keeps its own tiered store on redb, behind a durable cursor and a disk cap | [ADR-052](../docs/adr/ADR-052-agent-local-store.md) |
+| 052 | The agent keeps its own tiered store on redb, with the ranges the server confirmed and a disk cap | [ADR-052](../docs/adr/ADR-052-agent-local-store.md) |
 | 054 | Erasure is immediate and tombstone-first; alerts and closed incidents are swept at a year, aged on receipt | [ADR-054](../docs/adr/ADR-054-data-lifecycle.md) |
 | 055 | No fault code in the shipped binary; faults come from a test harness and from tooling outside the process | [ADR-055](../docs/adr/ADR-055-fault-injection.md) |
 | 056 | Maintenance mode is a desired state on the device row, and collectors are otherwise always on | [ADR-056](../docs/adr/ADR-056-maintenance-mode.md) |
@@ -73,9 +73,10 @@
 | 121 | Signed over-the-air agent updates, pushed by the server, verified and rolled back by the agent | [ADR-121](../docs/adr/ADR-121-agent-auto-update.md) |
 | 122 | A mutation shard walks the narrowest path holding its own units; a leg publishes its score alone, held to a committed floor | [ADR-122](../docs/adr/ADR-122-mutation-walk-and-legs.md) |
 | 123 | An alert channel is proven by a delivered message, sent from a job of its own; the cluster's monitoring configuration is rendered, applied and read back | [ADR-123](../docs/adr/ADR-123-alert-delivery.md) |
-| 124 | An alert a machine raises reaches the queue: drained on the heartbeat, re-offered after a failed send, and a rule change reaching machines already connected | [ADR-124](../docs/adr/ADR-124-an-alert-reaches-the-queue.md) |
+| 124 | An alert a machine raises reaches the queue: offered on the heartbeat, kept until the server answers it, and a rule change reaching machines already connected | [ADR-124](../docs/adr/ADR-124-an-alert-reaches-the-queue.md) |
 | 125 | A comment is a short positive statement about its code, checked at write time and on every commit; repeated code is read from the scanner's report for every file | [ADR-125](../docs/adr/ADR-125-comments-and-repeated-code.md) |
 | 126 | Every dependency is checked before a commit for a hole a patch release fixes; an npm advisory with no patch fix may be excepted until a review date, and the exception lapses on its own | [ADR-126](../docs/adr/ADR-126-advisory-exceptions-lapse.md) |
 | 127 | A session moves to a direct link when the networks allow and loses nothing moving back; downloads stream, one at a time | [ADR-127](../docs/adr/ADR-127-direct-link.md) |
 | 128 | A machine's identity survives a reinstall, renews from day 60 of 90, is admitted expired only to renew or be removed, and is signed by a master key only the server can read | [ADR-128](../docs/adr/ADR-128-machine-identity-lifecycle.md) |
 | 129 | A workflow reports only work that happened — status read with errexit off, each job's status stated, only alerts outlive a cancel — and hands scripts their inputs named and as values | [ADR-129](../docs/adr/ADR-129-workflow-verdicts-and-inputs.md) |
+| 130 | Presence is the connection: status written on connect and disconnect, last-seen refreshed in bulk by a sweep, and a failed status write never ends a connection | [ADR-130](../docs/adr/ADR-130-presence-written-on-change.md) |

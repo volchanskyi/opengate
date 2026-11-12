@@ -5,13 +5,24 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 func TestGoldenControlRequestBackfillSlot(t *testing.T) {
 	msg := decodeControlFrame(t, "control_request_backfill_slot.bin")
 	assert.Equal(t, MsgRequestBackfillSlot, msg.Type)
-	assert.Equal(t, uint64(123456), msg.PendingSamples)
-	assert.Equal(t, int64(1700000000), msg.OldestTS)
+}
+
+func TestAnOlderAgentsSlotRequestWithItsBacklogCountsStillDecodes(t *testing.T) {
+	payload, err := msgpack.Marshal(map[string]any{
+		"type":            string(MsgRequestBackfillSlot),
+		"pending_samples": uint64(123456),
+		"oldest_ts":       int64(1700000000),
+	})
+	require.NoError(t, err)
+	msg, err := (&Codec{}).DecodeControl(payload)
+	require.NoError(t, err)
+	assert.Equal(t, MsgRequestBackfillSlot, msg.Type)
 }
 
 func TestGoldenControlGrantBackfill(t *testing.T) {
@@ -19,6 +30,19 @@ func TestGoldenControlGrantBackfill(t *testing.T) {
 	assert.Equal(t, MsgGrantBackfill, msg.Type)
 	assert.Equal(t, uint32(500), msg.Rate)
 	assert.Equal(t, int64(1700003600), msg.Deadline)
+}
+
+func TestGoldenControlAlertAnswer(t *testing.T) {
+	msg := decodeControlFrame(t, "control_alert_answer.bin")
+	assert.Equal(t, MsgAlertAnswer, msg.Type)
+	assert.Equal(t, "6f0e1c2a-8d3b-4a5e-9f7c-1b2d3e4f5a6b", msg.AlertID)
+	assert.Equal(t, string(AlertAnswerRefusedForGood), msg.Reason)
+}
+
+func TestGoldenControlLiveWindowStored(t *testing.T) {
+	msg := decodeControlFrame(t, "control_live_window_stored.bin")
+	assert.Equal(t, MsgLiveWindowStored, msg.Type)
+	assert.Equal(t, int64(1_700_000_040), msg.TS)
 }
 
 func TestGoldenControlDeferBackfill(t *testing.T) {

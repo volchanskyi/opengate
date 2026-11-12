@@ -91,11 +91,16 @@ func (v *VMClient) WriteSamples(ctx context.Context, tenantID uuid.UUID, deviceI
 			return err
 		}
 	}
+	return v.Import(ctx, body.Bytes())
+}
+
+// Import posts readings already in Prometheus exposition text, stamped with the environment.
+func (v *VMClient) Import(ctx context.Context, body []byte) error {
 	target := v.baseURL + "/api/v1/import/prometheus"
 	if v.namespace != "" {
 		target += "?" + url.Values{"extra_label": {environmentLabel + "=" + v.namespace}}.Encode()
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, &body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("build vm import request: %w", err)
 	}

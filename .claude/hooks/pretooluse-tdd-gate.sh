@@ -15,14 +15,17 @@ esac
 
 path="${HOOK_TOOL_INPUT_FILE_PATH:-}"
 [ -n "$path" ] || exit 0
+rel="$(project_relative_path "$path")" || exit 0
 
-if ! is_source_path "$path"; then
+if ! is_source_path "$rel"; then
   exit 0
 fi
 
 if branch_has_test_change; then
   exit 0
 fi
+
+cd "$PROJECT_ROOT"
 
 base="$(git merge-base HEAD origin/dev 2>/dev/null \
   || git merge-base HEAD dev 2>/dev/null \

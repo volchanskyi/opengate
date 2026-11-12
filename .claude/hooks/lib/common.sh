@@ -61,8 +61,24 @@ is_source_path() {
   "$TDD_CHECK" is-source "$1"
 }
 
+# Prints PATH relative to the project, a relative PATH read from the working directory, and fails
+# for a path outside the project.
+project_relative_path() {
+  local abs
+  case "$1" in
+    /*) abs="$1" ;;
+    *) abs="$PWD/$1" ;;
+  esac
+  abs="$(python3 -c 'import os,sys; print(os.path.normpath(sys.argv[1]))' "$abs")"
+  case "$abs" in
+    "$PROJECT_ROOT"/*) printf '%s\n' "${abs#"$PROJECT_ROOT"/}" ;;
+    *) return 1 ;;
+  esac
+}
+
+# Reads the project's branch whatever directory the shell stands in.
 branch_has_test_change() {
-  "$TDD_CHECK" has-test-change
+  (cd "$PROJECT_ROOT" && "$TDD_CHECK" has-test-change)
 }
 
 _log_event() {

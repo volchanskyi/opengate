@@ -118,7 +118,6 @@ func TestAgentConn_HandleAgentHealthSummary_IngestsBreachesOnly(t *testing.T) {
 		},
 	})
 	require.NoError(t, ac.handleControl(dbtx.WithDefaultTenant(context.Background(), false)))
-	ac.flushTelemetry(dbtx.WithDefaultTenant(context.Background(), false))
 
 	call := receiveTelemetryCall(t, writer.calls)
 	require.Len(t, call.samples, 1)
@@ -142,7 +141,6 @@ func TestAgentConn_HandleAgentHealthSummary_ResolvesLegacyBreachMetricNames(t *t
 		},
 	})
 	require.NoError(t, ac.handleControl(dbtx.WithDefaultTenant(context.Background(), false)))
-	ac.flushTelemetry(dbtx.WithDefaultTenant(context.Background(), false))
 
 	call := receiveTelemetryCall(t, writer.calls)
 	require.Len(t, call.samples, 2)
@@ -182,7 +180,6 @@ func TestAgentConn_HandleAgentHealthSummary_IngestsAnomalyAndBreaches(t *testing
 		},
 	})
 	require.NoError(t, ac.handleControl(dbtx.WithDefaultTenant(context.Background(), false)))
-	ac.flushTelemetry(dbtx.WithDefaultTenant(context.Background(), false))
 
 	call := receiveTelemetryCall(t, writer.calls)
 	require.Len(t, call.samples, 2)
@@ -205,7 +202,6 @@ func TestAgentConn_HandleAgentHealthSummary_DropsUnknownBreachMetric(t *testing.
 		},
 	})
 	require.NoError(t, ac.handleControl(dbtx.WithDefaultTenant(context.Background(), false)))
-	ac.flushTelemetry(dbtx.WithDefaultTenant(context.Background(), false))
 
 	call := receiveTelemetryCall(t, writer.calls)
 	require.Len(t, call.samples, 1)

@@ -43,7 +43,6 @@ func familyIngest(
 	ac.metrics = m
 
 	require.NoError(t, handle(ac, tenantCtx(tenant), msg, payloadLen))
-	ac.flushTelemetry(tenantCtx(tenant))
 
 	return (<-writer.calls).samples, m
 }

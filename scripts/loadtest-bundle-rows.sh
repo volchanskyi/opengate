@@ -39,11 +39,24 @@ rows_from() {
          else ($base + {phase: "wave", arrival_share: $value.wave_online_share}
                      + (if $value.wave_online_p95_ms == null then {}
                         else {latency_p95_ms: $value.wave_online_p95_ms} end))
+         end),
+        # The catch-up promises: live readings within 5 s by the count the server keeps, a reading never
+        # stored a miss, and every machine caught up by when.
+        (if .live_acceptance == null then empty
+         else ($base + {source: "catchup", scenario: "live", phase: "drain",
+                        within_5s_share: (if (.live_acceptance.received // 0) > 0
+                          then .live_acceptance.within_five_seconds / .live_acceptance.received
+                          else 0 end)})
+         end),
+        (if .catch_up == null then empty
+         else ($base + {source: "catchup", scenario: "gaps", phase: "drain",
+                        machines_caught_up: (.catch_up.complete // 0),
+                        fill_seconds: .catch_up.last_stored_seconds})
          end)
       ]
     | map(select(
         (.error_rate != null) or (.latency_p50_ms != null) or (.latency_p95_ms != null)
-        or (.arrival_share != null)
+        or (.arrival_share != null) or (.within_5s_share != null) or (.machines_caught_up != null)
       ))
   ' "$1"
 }

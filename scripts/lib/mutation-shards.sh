@@ -12,6 +12,7 @@ mutation_rust_shards() {
   # keeps a string by that name, and ShellCheck follows the source.
   local ids=(
     rust-core-ml-backfill-drain
+    rust-core-ml-backfill-reads
     rust-core-ml-backfill-tiers
     rust-core-ml-sampling
     rust-core-ml-host-sources
@@ -46,7 +47,8 @@ mutation_rust_shards() {
 # The cargo package a shard mutates; cargo-mutants runs only that package's tests.
 mutation_rust_shard_package() {
   case "$1" in
-    rust-core-ml-backfill-drain | rust-core-ml-backfill-tiers) echo "mesh-agent-core" ;;
+    rust-core-ml-backfill-drain | rust-core-ml-backfill-reads) echo "mesh-agent-core" ;;
+    rust-core-ml-backfill-tiers) echo "mesh-agent-core" ;;
     rust-core-ml-sampling | rust-core-ml-host-sources | rust-core-ml-store-sink) echo "mesh-agent-core" ;;
     rust-core-ml-analysis | rust-core-ml-redaction) echo "mesh-agent-core" ;;
     rust-core-alerts-retro-plan | rust-core-alerts-retro-scan) echo "mesh-agent-core" ;;
@@ -73,6 +75,9 @@ mutation_rust_shard_units() {
   case "$1" in
     rust-core-ml-backfill-drain)
       echo "file:crates/mesh-agent-core/src/ml/backfill/drain.rs"
+      ;;
+    rust-core-ml-backfill-reads)
+      echo "file:crates/mesh-agent-core/src/ml/backfill/drain/read.rs"
       ;;
     rust-core-ml-backfill-tiers)
       echo "file:crates/mesh-agent-core/src/ml/backfill/mod.rs"
@@ -416,13 +421,13 @@ mutation_go_shard_units() {
       echo "file:internal/api/handlers_updates.go file:internal/api/handlers_purge.go"
       ;;
     go-agentapi-connection)
-      echo "file:internal/agentapi/conn.go file:internal/agentapi/conn_register.go file:internal/agentapi/conn_guard.go file:internal/agentapi/conn_maintenance.go file:internal/agentapi/server.go file:internal/agentapi/server_connection.go file:internal/agentapi/deregister.go"
+      echo "file:internal/agentapi/conn.go file:internal/agentapi/conn_requests.go file:internal/agentapi/conn_register.go file:internal/agentapi/conn_guard.go file:internal/agentapi/conn_maintenance.go file:internal/agentapi/server.go file:internal/agentapi/server_connection.go file:internal/agentapi/deregister.go file:internal/agentapi/presence_sweep.go file:internal/agentapi/read_allowance.go"
       ;;
     go-agentapi-handshake)
       echo "file:internal/agentapi/handshaker.go file:internal/agentapi/errors.go file:internal/agentapi/admission.go file:internal/agentapi/conn_restricted.go file:internal/agentapi/renewal.go file:internal/agentapi/renewal_sweep.go"
       ;;
     go-agentapi-backfill)
-      echo "file:internal/agentapi/backfill_scheduler.go file:internal/agentapi/conn_backfill.go"
+      echo "file:internal/agentapi/backfill_scheduler.go file:internal/agentapi/backfill_rotation.go file:internal/agentapi/backfill_admission_types.go file:internal/agentapi/backfill_pace.go file:internal/agentapi/conn_backfill.go file:internal/agentapi/resend.go"
       ;;
     go-agentapi-edge-telemetry)
       echo "file:internal/agentapi/conn_discovery.go file:internal/agentapi/conn_telemetry.go file:internal/agentapi/conn_accounting.go file:internal/agentapi/conn_coverage.go file:internal/agentapi/conn_logs.go file:internal/agentapi/conn_history.go file:internal/agentapi/conn_hardware.go file:internal/agentapi/alert_breach.go file:internal/agentapi/alert_rules.go file:internal/agentapi/conn_alerts.go file:internal/agentapi/alert_rules_catalogue.go file:internal/agentapi/vitals.go"

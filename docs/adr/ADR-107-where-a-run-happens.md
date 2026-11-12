@@ -56,6 +56,21 @@ server's certificate mapped to the container's own address
 which still got less buffer than it asked for fails. The runner's ceiling was
 read on the relayed path and stands until a run on this one walks the rung.
 
+**The ARM runner's processor is a newer chip than production's, and the gap is
+stated rather than corrected for.** The catch-up job holds the server and store
+to production's processor limits on GitHub's ARM runner, an Arm Neoverse N2,
+where production's node is a Neoverse N1. The same minute of hashing and
+compression at a quarter processor
+([`cpubench`](../../server/tests/cpubench/)) read 846 and 855 rounds a second on
+the production node, in two runs from a pod in staging's namespace, and 1,220 to
+1,261 on the runner, so a processor limit on the runner buys 1.43 to 1.49 times
+the work it buys in production. A figure the job reads near its line is read
+with that margin in mind: it holds on the runner and may not hold in production.
+The node is measured once, since it is the one customers run on, and the runner
+every night beside the processor model it reports
+([`cpu-benchmark.sh`](../../scripts/cpu-benchmark.sh)), so a night on different
+hardware shows in the trend.
+
 **Every time limit around a run is derived from the run's own length** — how
 long the pod lives, how long the verdict is waited for, how long the credential
 lasts. Three limits shorter than the work are three ways to lose a night's

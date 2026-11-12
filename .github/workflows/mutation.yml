@@ -91,7 +91,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           toolchain: ${{ env.RUST_VERSION }}
-      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+      - uses: Swatinem/rust-cache@c8037a86dde8214a8310e9f54a8fc61ab362aa31 # v2
         with:
           workspaces: agent
           cache-on-failure: true
@@ -132,6 +132,7 @@ jobs:
           # Each Rust shard id names the behavior it measures, and its rebuilds stay inside one crate.
           # The split lives in scripts/lib/mutation-shards.sh.
           - { language: rust, shard: rust-core-ml-backfill-drain }
+          - { language: rust, shard: rust-core-ml-backfill-reads }
           - { language: rust, shard: rust-core-ml-backfill-tiers }
           - { language: rust, shard: rust-core-ml-sampling }
           - { language: rust, shard: rust-core-ml-host-sources }
@@ -274,7 +275,7 @@ jobs:
         if: matrix.language == 'rust'
         with:
           toolchain: ${{ env.RUST_VERSION }}
-      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+      - uses: Swatinem/rust-cache@c8037a86dde8214a8310e9f54a8fc61ab362aa31 # v2
         if: matrix.language == 'rust'
         with:
           workspaces: agent

@@ -2,6 +2,7 @@
 //! committed in one `redb` transaction so a chunk and its rollups land or roll back together.
 
 mod blocks;
+mod raw;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -13,13 +14,15 @@ use crate::error::{Result, TsdbError};
 use crate::sample::{Sample, SeriesId};
 use crate::tier::TierPoint;
 
+use crate::confirmed::ConfirmedRanges;
 #[cfg(feature = "cold-deflate")]
 use blocks::deflate_cold_blocks;
 use blocks::{
-    evict_blocks, map_durability, read_raw, read_stored_version, read_tier, read_tier_span,
-    scan_logical, stamp_current_format, write_all, BlockTable, Cand, OpenSeries, CURRENT_FORMAT,
-    CURSOR, T0, T0_BLOCK_SAMPLES, T1, T2,
+    evict_blocks, map_durability, read_stored_version, read_tier, read_tier_span, scan_logical,
+    upgrade_format, write_all, BlockTable, Cand, OpenSeries, CONFIRMED, CURRENT_FORMAT, CURSOR, T0,
+    T0_BLOCK_SAMPLES, T1, T2,
 };
+use raw::{read_raw, T0_BY_END, T0_SPAN};
 
 /// The two downsampled rollup tiers the store serves alongside T0 raw.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,7 +71,7 @@ impl LocalTsdb {
             });
         }
         if stored.is_none_or(|v| v < CURRENT_FORMAT) {
-            stamp_current_format(&db)?;
+            upgrade_format(&db)?;
         }
 
         let logical_bytes = scan_logical(&db)?;
@@ -198,6 +201,56 @@ impl LocalTsdb {
         Ok(())
     }
 
+    /// Removes the durable backfill cursor for `series`; an unset one is left as it is.
+    pub fn remove_cursor(&mut self, series: SeriesId, durability: Durability) -> Result<()> {
+        let mut wt = self.db.begin_write().map_err(blocks::re)?;
+        wt.set_durability(map_durability(durability))
+            .map_err(blocks::re)?;
+        {
+            let mut t = wt.open_table(CURSOR).map_err(blocks::re)?;
+            t.remove(series).map_err(blocks::re)?;
+        }
+        wt.commit().map_err(blocks::re)?;
+        Ok(())
+    }
+
+    /// The spans the server has confirmed it stores.
+    pub fn confirmed(&self) -> Result<ConfirmedRanges> {
+        let rt = self.db.begin_read().map_err(blocks::re)?;
+        let table = match rt.open_table(CONFIRMED) {
+            Ok(t) => t,
+            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(ConfirmedRanges::default()),
+            Err(e) => return Err(blocks::re(e)),
+        };
+        let mut spans = Vec::new();
+        for entry in table.iter().map_err(blocks::re)? {
+            let (start, end) = entry.map_err(blocks::re)?;
+            spans.push((start.value(), end.value()));
+        }
+        Ok(ConfirmedRanges::from_spans(spans))
+    }
+
+    /// Replaces the confirmed spans; a save without durability is made durable by the store's
+    /// next durable commit.
+    pub fn save_confirmed(
+        &mut self,
+        ranges: &ConfirmedRanges,
+        durability: Durability,
+    ) -> Result<()> {
+        let mut wt = self.db.begin_write().map_err(blocks::re)?;
+        wt.set_durability(map_durability(durability))
+            .map_err(blocks::re)?;
+        wt.delete_table(CONFIRMED).map_err(blocks::re)?;
+        {
+            let mut t = wt.open_table(CONFIRMED).map_err(blocks::re)?;
+            for &(start, end) in ranges.spans() {
+                t.insert(start, end).map_err(blocks::re)?;
+            }
+        }
+        wt.commit().map_err(blocks::re)?;
+        Ok(())
+    }
+
     /// Opens a consistent MVCC read snapshot that concurrent writes do not affect.
     pub fn snapshot(&self) -> Result<TsdbSnapshot> {
         Ok(TsdbSnapshot {
@@ -230,7 +283,7 @@ impl LocalTsdb {
         Ok(())
     }
 
-    /// Purges every tier, rollup, cursor and in-memory buffer on deprovision.
+    /// Purges every tier, rollup, cursor, confirmation and in-memory buffer on deprovision.
     pub fn purge(&mut self) -> Result<()> {
         let mut wt = self.db.begin_write().map_err(blocks::re)?;
         wt.set_durability(redb::Durability::Immediate)
@@ -238,7 +291,10 @@ impl LocalTsdb {
         for def in [T0, T1, T2] {
             wt.delete_table(def).map_err(blocks::re)?;
         }
+        wt.delete_table(T0_SPAN).map_err(blocks::re)?;
+        wt.delete_table(T0_BY_END).map_err(blocks::re)?;
         wt.delete_table(CURSOR).map_err(blocks::re)?;
+        wt.delete_table(CONFIRMED).map_err(blocks::re)?;
         wt.commit().map_err(blocks::re)?;
         self.open.clear();
         self.logical_bytes = 0;
@@ -325,6 +381,7 @@ impl TsdbSnapshot {
 #[cfg(test)]
 mod tests {
     use super::blocks::{META, META_VERSION};
+    use super::raw::{T0_BY_END, T0_SPAN};
     use super::{read_stored_version, LocalTsdb, CURRENT_FORMAT, T0_BLOCK_SAMPLES};
     use crate::config::{Durability, TsdbConfig};
     use crate::error::TsdbError;
@@ -359,6 +416,35 @@ mod tests {
         assert_eq!(db.format_version(), CURRENT_FORMAT);
         // Raw samples survive a migration.
         assert_eq!(db.range_raw(0, i64::MIN, i64::MAX).unwrap().len(), 100);
+    }
+
+    #[test]
+    fn a_store_written_before_block_spans_reads_the_same_once_upgraded() {
+        let dir = tempfile::tempdir().unwrap();
+        {
+            let mut db = LocalTsdb::open(dir.path(), TsdbConfig::default()).unwrap();
+            for i in 0..7_000 {
+                db.append(0, Sample::new(1_000 + i, i as f64), false)
+                    .unwrap();
+            }
+            db.commit(Durability::Full).unwrap();
+            let wt = db.db.begin_write().unwrap();
+            wt.delete_table(T0_SPAN).unwrap();
+            wt.delete_table(T0_BY_END).unwrap();
+            {
+                let mut m = wt.open_table(META).unwrap();
+                m.insert(META_VERSION, &(CURRENT_FORMAT - 1)).unwrap();
+            }
+            wt.commit().unwrap();
+        }
+        let db = LocalTsdb::open(dir.path(), TsdbConfig::default()).unwrap();
+        assert_eq!(db.format_version(), CURRENT_FORMAT);
+        assert_eq!(db.range_raw(0, 1_000, 8_000).unwrap().len(), 7_000);
+        assert_eq!(
+            db.range_raw(0, 4_000, 4_010).unwrap().len(),
+            10,
+            "a read inside a block the upgrade labelled"
+        );
     }
 
     #[test]

@@ -29,29 +29,36 @@ import (
 
 // AgentServer accepts QUIC connections from agents and manages their lifecycle.
 type AgentServer struct {
-	cert           *cert.Manager
-	devices        device.Repository
-	hardware       device.HardwareRepository
-	deviceUpdates  updater.DeviceUpdateRepository
-	telemetry      telemetry.NumericWriter
-	inventory      inventory.Repository
-	relay          *relay.Relay
-	notifier       notifications.Notifier
-	scheduler      *BackfillScheduler
-	alertRules     AlertRuleProvider
-	alertStore     AlertRecorder
-	ruleCatalog    *rules.Catalogue
-	coverage       *RuleCoverageStore
-	ruleCoverage   UnsupportedCoverageStore
-	fleetCoverage  InstallCounter
-	settings       settings.Reader
-	metrics        *appmetrics.Metrics
-	helper         *stunhelper.Helper
-	quicHost       string   // extra DNS SAN for the server certificate
-	conns          sync.Map // map[protocol.DeviceID]*AgentConn
-	statusGate     deviceStatusGate
-	count          atomic.Int64
-	tombstones     sync.Map // map[protocol.DeviceID]struct{} — deleted devices (in-memory deny-list)
+	cert          *cert.Manager
+	devices       device.Repository
+	hardware      device.HardwareRepository
+	deviceUpdates updater.DeviceUpdateRepository
+	telemetry     ReadingWriter
+	inventory     inventory.Repository
+	relay         *relay.Relay
+	notifier      notifications.Notifier
+	scheduler     *BackfillScheduler
+	alertRules    AlertRuleProvider
+	alertStore    AlertRecorder
+	ruleCatalog   *rules.Catalogue
+	coverage      *RuleCoverageStore
+	ruleCoverage  UnsupportedCoverageStore
+	fleetCoverage InstallCounter
+	settings      settings.Reader
+	metrics       *appmetrics.Metrics
+	helper        *stunhelper.Helper
+	quicHost      string   // extra DNS SAN for the server certificate
+	conns         sync.Map // map[protocol.DeviceID]*AgentConn
+	statusGate    deviceStatusGate
+	count         atomic.Int64
+	tombstones    sync.Map // map[protocol.DeviceID]struct{} — deleted devices (in-memory deny-list)
+	// seenTenants holds every tenant a machine has connected in since start-up, so the presence
+	// sweep reconciles a tenant whose last machine left while its offline write failed.
+	seenTenants sync.Map // map[uuid.UUID]struct{}
+	// resend remembers the last store restart, which a machine offline then is told at connect.
+	resend resendState
+	// allowance bounds what every connection together holds read and not yet handled.
+	allowance      *readAllowance
 	tombstoneStore tombstoneLoader
 	// issuer records and renews machine certificates; admission reads its ledger.
 	issuer   *devicecert.Issuer
@@ -72,11 +79,12 @@ type AgentServerConfig struct {
 	Devices       device.Repository
 	Hardware      device.HardwareRepository
 	DeviceUpdates updater.DeviceUpdateRepository
-	Telemetry     telemetry.NumericWriter
-	Inventory     inventory.Repository
-	Relay         *relay.Relay
-	Notifier      notifications.Notifier
-	Metrics       *appmetrics.Metrics
+	// Telemetry takes every reading machines send; optional, nil drops them uncounted.
+	Telemetry ReadingWriter
+	Inventory inventory.Repository
+	Relay     *relay.Relay
+	Notifier  notifications.Notifier
+	Metrics   *appmetrics.Metrics
 	// Helper answers address requests on the QUIC port; nil leaves non-QUIC packets unread.
 	Helper   *stunhelper.Helper
 	QuicHost string
@@ -107,6 +115,14 @@ type AgentServerConfig struct {
 	Issuer *devicecert.Issuer
 }
 
+// catchUpFill reads the writer's catch-up queue, or reports it empty when no writer is wired.
+func catchUpFill(writer ReadingWriter) func() float64 {
+	if writer == nil {
+		return nil
+	}
+	return func() float64 { return writer.Fill(telemetry.ClassCatchUp) }
+}
+
 // NewAgentServer creates a new AgentServer.
 func NewAgentServer(cfg AgentServerConfig) *AgentServer {
 	s := &AgentServer{
@@ -118,7 +134,7 @@ func NewAgentServer(cfg AgentServerConfig) *AgentServer {
 		inventory:      cfg.Inventory,
 		relay:          cfg.Relay,
 		notifier:       cfg.Notifier,
-		scheduler:      NewBackfillScheduler(DefaultBackfillSchedulerConfig(), nil, nil),
+		scheduler:      NewBackfillScheduler(DefaultBackfillSchedulerConfig(), nil, nil, catchUpFill(cfg.Telemetry)),
 		alertRules:     resolveAlertRuleProvider(cfg.AlertRules),
 		alertStore:     cfg.AlertStore,
 		ruleCatalog:    cfg.RuleCatalogue,
@@ -133,6 +149,7 @@ func NewAgentServer(cfg AgentServerConfig) *AgentServer {
 		issuer:         cfg.Issuer,
 		logger:         cfg.Logger,
 		addrCh:         make(chan string, 1),
+		allowance:      newReadAllowance(readAllowanceBytes),
 	}
 	if cfg.Issuer != nil {
 		s.renewals = &renewals{
@@ -151,6 +168,10 @@ func (s *AgentServer) isTombstoned(id protocol.DeviceID) bool {
 	_, ok := s.tombstones.Load(id)
 	return ok
 }
+
+// Erased reports whether a device is on the deny-list, which the numeric writer reads just
+// before each request so nothing reaches the store for a machine after its erasure.
+func (s *AgentServer) Erased(id protocol.DeviceID) bool { return s.isTombstoned(id) }
 
 // closeSuperseded closes every live connection presenting one of the given certificates.
 func (s *AgentServer) closeSuperseded(prints []certledger.Fingerprint) {

@@ -4,6 +4,7 @@
 pub mod bitio;
 pub mod compact;
 pub mod config;
+pub mod confirmed;
 #[cfg(feature = "cold-deflate")]
 pub mod deflate;
 pub mod error;

@@ -62,7 +62,7 @@ export default function (data) {
 
   // Spread the device reads across the sites in the fleet
   const idx = Math.floor(Math.random() * data.siteIds.length);
-  const devices = http.get(devicesUrl(BASE_URL, data.siteIds[idx]), { headers });
+  const devices = http.get(devicesUrl(BASE_URL, data.siteIds[idx]), { headers, responseType: "none" });
   check(devices, { "devices ok": (r) => r.status === 200 });
 
   // List sessions (even if empty)

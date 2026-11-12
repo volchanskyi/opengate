@@ -2,109 +2,107 @@ package agentapi
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
-	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-type stubStatusDevices struct {
-	device.Repository
-}
-
-func (stubStatusDevices) SetStatus(context.Context, device.DeviceID, device.DeviceStatus) error {
-	return nil
-}
-
-func TestAgentConn_CoalescesHeartbeatBurstIntoOneWrite(t *testing.T) {
+func TestEachLiveMessageReachesTheWriterAsItArrivesWithoutAHeartbeat(t *testing.T) {
 	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 4)}
 	ac, buf := newTestAgentConn(t, uuid.New(), nil)
 	ac.telemetry = writer
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
 	now := time.Now().Unix()
 
-	const windows = 6
-	for i := 0; i < windows; i++ {
+	for i := range 2 {
 		writeControlMsg(t, ac.codec, buf, &protocol.ControlMessage{
 			Type: protocol.MsgAgentMetricWindow,
-			// Spread by the interval floor so every window is accepted.
 			TS:   now + int64(i)*minTelemetryIntervalSeconds,
 			Dims: []protocol.MetricDim{{Name: "cpu.total", Avg: float64(i)}},
 		})
 	}
 	writeControlMsg(t, ac.codec, buf, &protocol.ControlMessage{
-		Type:            protocol.MsgAgentHealthSummary,
-		TS:              now + windows*minTelemetryIntervalSeconds,
-		NodeAnomalyRate: 0.42,
-		SamplerVersion:  "s1",
+		Type: protocol.MsgAgentHealthSummary, TS: now, NodeAnomalyRate: 0.42, SamplerVersion: "s1",
 	})
-	for i := 0; i < windows+1; i++ {
+	for range 3 {
 		require.NoError(t, ac.handleControl(ctx))
 	}
-	require.Empty(t, writer.calls)
 
-	ac.flushTelemetry(ctx)
-	call := receiveTelemetryCall(t, writer.calls)
-	assert.Equal(t, int64(1), writer.count.Load(), "the whole burst is exactly one write")
-
-	var gotAnomaly bool
-	for _, s := range call.samples {
-		if s.Name == "opengate_edge_node_anomaly_rate" {
-			gotAnomaly = true
-			assert.InDelta(t, 0.42, s.Value, 0.0001)
-		}
+	assert.Equal(t, int64(3), writer.count.Load(), "every message is handed over on arrival")
+	for range 3 {
+		call := receiveTelemetryCall(t, writer.calls)
+		assert.Equal(t, ac.DeviceID, call.deviceID)
 	}
-	assert.True(t, gotAnomaly, "the tail-ordered health summary is persisted, not dropped")
-	assert.Zero(t, ac.DroppedTelemetryCount(), "coalescing drops nothing")
+	assert.Zero(t, ac.DroppedTelemetryCount())
 }
 
-func TestAgentConn_HeartbeatFlushesBufferedTelemetry(t *testing.T) {
+func TestAHeartbeatHandsNothingToTheWriter(t *testing.T) {
 	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
 	ac, buf := newTestAgentConn(t, uuid.New(), nil)
 	ac.telemetry = writer
-	ac.devices = stubStatusDevices{}
-	ctx := dbtx.WithDefaultTenant(context.Background(), false)
-
 	writeControlMsg(t, ac.codec, buf, &protocol.ControlMessage{
-		Type:            protocol.MsgAgentHealthSummary,
-		TS:              time.Now().Unix(),
-		NodeAnomalyRate: 0.5,
-		SamplerVersion:  "s1",
+		Type: protocol.MsgAgentHeartbeat, Timestamp: time.Now().Unix(),
 	})
-	require.NoError(t, ac.handleControl(ctx))
-	require.Empty(t, writer.calls, "summary is buffered, not written")
 
-	writeControlMsg(t, ac.codec, buf, &protocol.ControlMessage{
-		Type:      protocol.MsgAgentHeartbeat,
-		Timestamp: time.Now().Unix(),
-	})
-	require.NoError(t, ac.handleControl(ctx))
-
-	call := receiveTelemetryCall(t, writer.calls)
-	require.NotEmpty(t, call.samples)
+	require.NoError(t, ac.handleControl(dbtx.WithDefaultTenant(context.Background(), false)))
+	assert.Zero(t, writer.count.Load())
 }
 
-func TestAgentConn_TeardownFlushPersistsBufferedTelemetry(t *testing.T) {
+// windowConn is a connection with the given capabilities whose writes the test reads back.
+func windowConn(t *testing.T, writer *recordingTelemetryWriter, caps ...protocol.AgentCapability) (*AgentConn, *sentStream) {
+	t.Helper()
+	stream := &sentStream{}
+	ac := &AgentConn{DeviceID: uuid.New(), stream: stream, codec: &protocol.Codec{}, telemetry: writer, logger: testLogger()}
+	ac.setMeta("linux", "amd64", "0.1.0", caps)
+	return ac, stream
+}
+
+func liveWindow(ts int64) *protocol.ControlMessage {
+	return &protocol.ControlMessage{
+		Type: protocol.MsgAgentMetricWindow, TS: ts,
+		Dims: []protocol.MetricDim{{Name: "cpu.total", Avg: 31}},
+	}
+}
+
+func TestAStoredLiveWindowIsConfirmedWithItsOwnStamp(t *testing.T) {
 	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
-	ac, buf := newTestAgentConn(t, uuid.New(), nil)
-	ac.telemetry = writer
-	ctx := dbtx.WithDefaultTenant(context.Background(), false)
+	ac, stream := windowConn(t, writer, protocol.CapLiveConfirmations)
+	ts := time.Now().Unix() - 30
 
-	writeControlMsg(t, ac.codec, buf, &protocol.ControlMessage{
-		Type:            protocol.MsgAgentHealthSummary,
-		TS:              time.Now().Unix(),
-		NodeAnomalyRate: 0.7,
-		SamplerVersion:  "s1",
-	})
-	require.NoError(t, ac.handleControl(ctx))
-	require.Empty(t, writer.calls)
+	require.NoError(t, ac.handleAgentMetricWindow(dbtx.WithDefaultTenant(context.Background(), false), liveWindow(ts), 256))
 
-	// runControlLoop defers this exact call on teardown.
-	ac.flushTelemetry(context.WithoutCancel(ctx))
-	require.NotEmpty(t, receiveTelemetryCall(t, writer.calls).samples)
+	msgs, err := stream.controls()
+	require.NoError(t, err)
+	require.Len(t, msgs, 1, "one confirmation per stored window")
+	assert.Equal(t, protocol.MsgLiveWindowStored, msgs[0].Type)
+	assert.Equal(t, ts, msgs[0].TS, "the confirmation names the window as the machine stamped it")
+}
+
+func TestAWindowTheStoreDidNotTakeIsNotConfirmed(t *testing.T) {
+	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1), fail: errors.New("store down")}
+	ac, stream := windowConn(t, writer, protocol.CapLiveConfirmations)
+
+	require.NoError(t, ac.handleAgentMetricWindow(dbtx.WithDefaultTenant(context.Background(), false),
+		liveWindow(time.Now().Unix()), 256))
+
+	assert.Zero(t, stream.sent(), "an unconfirmed minute is sent again by catch-up")
+	assert.Equal(t, uint64(1), ac.DroppedTelemetryCount())
+}
+
+func TestAMachineThatDoesNotReadConfirmationsIsSentNone(t *testing.T) {
+	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
+	ac, stream := windowConn(t, writer)
+
+	require.NoError(t, ac.handleAgentMetricWindow(dbtx.WithDefaultTenant(context.Background(), false),
+		liveWindow(time.Now().Unix()), 256))
+
+	receiveTelemetryCall(t, writer.calls)
+	assert.Zero(t, stream.sent(), "an older agent is served exactly as before")
 }

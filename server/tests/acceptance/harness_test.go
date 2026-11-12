@@ -193,6 +193,17 @@ func (p *Product) publishReadings() {
 	require.NoError(p.t, p.readingStore.Flush(context.Background()))
 }
 
+// seriesHeld counts the series the store holds for one machine over a window, read past the
+// product's own API so an erased machine's readings are still visible to the test.
+func (p *Product) seriesHeld(tenant uuid.UUID, device uuid.UUID, from, to time.Time) int {
+	p.t.Helper()
+	require.NotNil(p.t, p.readingStore, "the product runs without a metrics store")
+	series, err := p.readingStore.Export(context.Background(), tenant,
+		`{device_id="`+device.String()+`"}`, from, to)
+	require.NoError(p.t, err)
+	return len(series)
+}
+
 // arrangeTenantContext is the database context of the arrangement helpers.
 func arrangeTenantContext() context.Context {
 	return dbtx.WithDefaultTenant(context.Background(), false)

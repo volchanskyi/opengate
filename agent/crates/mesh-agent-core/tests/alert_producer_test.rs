@@ -82,7 +82,11 @@ impl Machine {
     }
 
     fn drains(&self) -> Vec<ControlMessage> {
-        self.queue.drain().iter().map(alert_message).collect()
+        self.queue
+            .offer()
+            .iter()
+            .map(|offer| alert_message(&offer.id, &offer.alert))
+            .collect()
     }
 }
 
@@ -245,8 +249,9 @@ fn an_alert_offered_again_after_a_failed_send_is_the_same_alert() {
         machine.reads(&second_at(91.4), START + second);
     }
 
-    let unsent = machine.queue.drain();
-    machine.queue.return_unsent(unsent);
+    let first = machine.drains();
+    assert_eq!(first.len(), 1);
+    machine.queue.reoffer_awaiting();
 
     let again = machine.drains();
     assert_eq!(again.len(), 1);

@@ -78,6 +78,14 @@ const (
 	// about why it fired, since the server holds no high-resolution history.
 	MsgAgentAlert ControlMessageType = "AgentAlert"
 
+	// MsgLiveWindowStored tells a machine advertising CapLiveConfirmations that the live window
+	// stamped TS is stored.
+	MsgLiveWindowStored ControlMessageType = "LiveWindowStored"
+
+	// MsgAlertAnswer tells a machine advertising CapAlertAnswers what became of one offered alert:
+	// AlertID names the offer and Reason carries one AlertAnswerReason.
+	MsgAlertAnswer ControlMessageType = "AlertAnswer"
+
 	// Certificate renewal over the live connection, and the trust bundle whose arrival tells the
 	// agent the server accepted its identity.
 	MsgRenewCertificate          ControlMessageType = "RenewCertificate"
@@ -86,6 +94,19 @@ const (
 	MsgCertificateRefused        ControlMessageType = "CertificateRefused"
 	MsgCertificateInstalled      ControlMessageType = "CertificateInstalled"
 	MsgTrustBundle               ControlMessageType = "TrustBundle"
+)
+
+// AlertAnswerReason is what the server did with an offered alert, serialized as the Rust
+// AlertAnswerReason variant name; the agent reads a word it does not know as a try-again.
+type AlertAnswerReason string
+
+const (
+	// AlertAnswerStored means the alert is stored, now or by an earlier offer.
+	AlertAnswerStored AlertAnswerReason = "Stored"
+	// AlertAnswerRefusedForGood means an offer again would be refused the same way.
+	AlertAnswerRefusedForGood AlertAnswerReason = "RefusedForGood"
+	// AlertAnswerTryAgain means the alert was not stored this time and is offered again.
+	AlertAnswerTryAgain AlertAnswerReason = "TryAgain"
 )
 
 // AlertSeverity is how bad an alert is, serialized as the Rust AlertSeverity variant name.
@@ -189,8 +210,6 @@ type ControlMessage struct {
 	DeviceHourlyCeiling uint32 `msgpack:"device_hourly_ceiling,omitempty"`
 
 	// Reconnect-backfill scheduler and tiered replay.
-	PendingSamples  uint64           `msgpack:"pending_samples,omitempty"`
-	OldestTS        int64            `msgpack:"oldest_ts,omitempty"`
 	Rate            uint32           `msgpack:"rate,omitempty"`
 	Deadline        int64            `msgpack:"deadline,omitempty"`
 	RetryAfter      uint32           `msgpack:"retry_after,omitempty"`

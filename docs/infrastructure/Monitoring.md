@@ -345,8 +345,8 @@ watch the platform alone.
 Edge-Sentinel telemetry runs on every enrolled device. The control-plane holds
 its budgets under that load: control-plane query p99 stays within ~20% of the
 telemetry-free baseline, VM active-series cardinality and disk growth track the
-avg-only model, and the reconnect-storm scheduler drains gradually without
-starving live traffic. Those budgets are exercised by the load harness and
+avg-only model, and a fleet-wide catch-up, admitted by the numeric writer's own
+queue fill, never holds a live reading back. Those budgets are exercised by the load harness and
 watched on the dashboard below.
 
 The load driver is the QUIC agent load harness
@@ -360,8 +360,9 @@ time, sending a batch the server defers again after a fresh grant. Run it throug
 the Docker/e2e stack lifecycle, never bare tooling.
 
 The server instruments the ingest path so it stays observable: accepted
-telemetry, server-side drops by typed reason, agent-clock corrections and the
-catch-up answers by kind. Those series, the closed ledger the
+telemetry, server-side drops by typed reason, agent-clock corrections, the
+catch-up answers by kind, and the numeric writer's readings by outcome, queue
+fill, store requests and time to acceptance, per class. Those series, the closed ledger the
 first two form and the full reason vocabulary are in
 [Metrics Reference](../architecture/Metrics-Reference.md#telemetry-ingest); what
 a reading means for a machine is in

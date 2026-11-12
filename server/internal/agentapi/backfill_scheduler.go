@@ -1,208 +1,264 @@
 package agentapi
 
 import (
-	"math"
+	"container/list"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/volchanskyi/opengate/server/internal/telemetry"
 )
 
-// BackfillScheduler grants catch-up permission and admits each catch-up batch under global and
-// per-tenant caps on batches being written; all methods are safe for concurrent use.
+// BackfillScheduler grants catch-up permission and admits each batch by the fill of the writer's
+// catch-up queue, shared between customers; all methods are safe for concurrent use.
 type BackfillScheduler struct {
 	mu       sync.Mutex
 	cfg      BackfillSchedulerConfig
 	now      func() time.Time
 	headroom func() float64
-	// grants maps each machine holding permission to its deadline; a grant holds no place.
-	grants       map[uuid.UUID]time.Time
-	places       int
-	tenantPlaces map[uuid.UUID]int
-	// firstDefer records when each deferred machine was first told to wait, which drives aging.
-	firstDefer map[uuid.UUID]time.Time
+	fill     func() float64
+
+	grants map[uuid.UUID]grant
+	// soonest is at or before every grant's deadline, so nothing expires before it.
+	soonest   time.Time
+	inflight  map[uuid.UUID]*CatchUpBatch
+	customers map[uuid.UUID]*customerTurns
+	held      int
+	throttled bool
+
+	// drainRate is the measured bytes a second the queue writes, which sets a refusal's wait.
+	drainRate    float64
+	drained      int
+	drainedSince time.Time
 }
 
-// BackfillSchedulerConfig tunes the admission control.
-type BackfillSchedulerConfig struct {
-	// MaxConcurrent caps the catch-up batches being written at once across every machine.
-	MaxConcurrent int
-	// PerTenantMax caps the catch-up batches being written at once within one tenant.
-	PerTenantMax int
-	// BaseBudgetSamplesPerSec is the total ingest budget at full headroom.
-	BaseBudgetSamplesPerSec int
-	// MinGrantRate / MaxGrantRate bound a single grant's samples/sec.
-	MinGrantRate uint32
-	MaxGrantRate uint32
-	// GrantTTL is how long a grant stays valid unless the machine asks again.
-	GrantTTL time.Duration
-	// DeferBackoff is the base retry interval for a deferred batch;
-	// aging shortens it toward minRetryAfter.
-	DeferBackoff time.Duration
+// grant is one machine's permission to catch up and the customer it catches up for.
+type grant struct {
+	deadline time.Time
+	customer uuid.UUID
 }
 
-// SlotRequest carries the agent's backlog hints from RequestBackfillSlot.
-type SlotRequest struct {
-	PendingSamples uint64
-	OldestTS       int64
-}
-
-// BackfillDecision is the scheduler's grant: the pace a machine sends at and when the grant
-// ends unless renewed.
-type BackfillDecision struct {
-	Rate     uint32
-	Deadline int64
-}
-
-// BackfillAdmission is the scheduler's answer to one catch-up batch: a place to write it, or
-// a deferral with the reason and the retry time.
-type BackfillAdmission struct {
-	Admitted   bool
-	Reason     string
-	RetryAfter uint32
-}
-
-// The reasons a catch-up batch is deferred before its write.
-const (
-	// BackfillNoGrant is a batch from a machine holding no live grant.
-	BackfillNoGrant = "no_grant"
-	// BackfillBusy is a batch arriving while the global or the tenant's places are all taken.
-	BackfillBusy = "busy"
-)
-
-// minRetryAfter is the floor a deferred agent is ever asked to wait.
-const minRetryAfter = time.Second
-
-// DefaultBackfillSchedulerConfig returns the single-node defaults: a per-tenant cap below the
-// global cap and a conservative ingest budget.
-func DefaultBackfillSchedulerConfig() BackfillSchedulerConfig {
-	return BackfillSchedulerConfig{
-		MaxConcurrent:           8,
-		PerTenantMax:            4,
-		BaseBudgetSamplesPerSec: 20_000,
-		MinGrantRate:            500,
-		MaxGrantRate:            5_000,
-		GrantTTL:                60 * time.Second,
-		DeferBackoff:            30 * time.Second,
-	}
-}
-
-// NewBackfillScheduler builds a scheduler with an injectable clock and headroom signal in 0..1;
-// nil selects the wall clock and full headroom.
-func NewBackfillScheduler(cfg BackfillSchedulerConfig, now func() time.Time, headroom func() float64) *BackfillScheduler {
+// NewBackfillScheduler builds a scheduler with an injectable clock, a headroom signal in 0..1 and
+// the catch-up queue's fill; nil selects the wall clock, full headroom and an empty queue.
+func NewBackfillScheduler(cfg BackfillSchedulerConfig, now func() time.Time, headroom, fill func() float64) *BackfillScheduler {
 	if now == nil {
 		now = time.Now
 	}
 	if headroom == nil {
 		headroom = func() float64 { return 1.0 }
 	}
+	if fill == nil {
+		fill = func() float64 { return 0 }
+	}
 	return &BackfillScheduler{
 		cfg:          cfg,
 		now:          now,
 		headroom:     headroom,
-		grants:       make(map[uuid.UUID]time.Time),
-		tenantPlaces: make(map[uuid.UUID]int),
-		firstDefer:   make(map[uuid.UUID]time.Time),
+		fill:         fill,
+		grants:       make(map[uuid.UUID]grant),
+		inflight:     make(map[uuid.UUID]*CatchUpBatch),
+		customers:    make(map[uuid.UUID]*customerTurns),
+		drainRate:    float64(cfg.BaseBudgetSamplesPerSec * encodedReadingBytes),
+		drainedSince: now(),
 	}
 }
 
-// RequestSlot grants agentID permission to send catch-up batches, or renews the grant it holds.
-// The grant takes no place: a place is taken per batch, by Admit.
-func (s *BackfillScheduler) RequestSlot(agentID, _ uuid.UUID, _ SlotRequest) BackfillDecision {
+// RequestSlot grants a machine permission to send catch-up batches for its customer, or renews
+// the grant it holds. The grant takes no place in the queue; Admit decides per batch.
+func (s *BackfillScheduler) RequestSlot(machine, customer uuid.UUID) BackfillDecision {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	now := s.now()
 	s.reap(now)
 	deadline := now.Add(s.cfg.GrantTTL)
-	s.grants[agentID] = deadline
+	if held, ok := s.grants[machine]; ok && held.customer != customer {
+		s.drop(machine)
+	}
+	turns, ok := s.customers[customer]
+	if !ok {
+		turns = &customerTurns{asked: list.New(), askedPos: map[uuid.UUID]*list.Element{}, seq: map[uuid.UUID]int{}}
+		s.customers[customer] = turns
+	}
+	if _, renewing := s.grants[machine]; !renewing {
+		turns.machines++
+	}
+	s.grants[machine] = grant{deadline: deadline, customer: customer}
+	if s.soonest.IsZero() || deadline.Before(s.soonest) {
+		s.soonest = deadline
+	}
 	return BackfillDecision{Rate: s.rate(), Deadline: deadline.Unix()}
 }
 
-// Admit takes a place for one of agentID's batches in tenant and returns the function that gives
-// it back; a refused batch, or any batch on a nil scheduler, gets none.
-func (s *BackfillScheduler) Admit(agentID, tenant uuid.UUID) (func(), BackfillAdmission) {
+// Admit decides one batch. An admitted batch holds its place until Complete; a nil scheduler
+// admits nothing.
+func (s *BackfillScheduler) Admit(b CatchUpBatch) BackfillAdmission {
 	if s == nil {
-		return nil, BackfillAdmission{Reason: BackfillNoGrant, RetryAfter: uint32(minRetryAfter.Seconds())}
+		return BackfillAdmission{Reason: BackfillNoGrant, RetryAfter: uint32(minRetryAfter.Seconds())}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	now := s.now()
 	s.reap(now)
-	if _, ok := s.grants[agentID]; !ok {
-		return nil, s.deferBatch(agentID, BackfillNoGrant, now)
+	g, ok := s.grants[b.Device]
+	if !ok {
+		return s.refuse(nil, b.Device, BackfillNoGrant)
 	}
-	if s.places >= s.cfg.MaxConcurrent || s.tenantPlaces[tenant] >= s.cfg.PerTenantMax {
-		return nil, s.deferBatch(agentID, BackfillBusy, now)
+	if queued, ok := s.inflight[b.Device]; ok {
+		if queued.Key == b.Key {
+			queued.Answer = b.Answer
+			return BackfillAdmission{Verdict: Joined}
+		}
+		return s.refuse(nil, b.Device, BackfillBusy)
 	}
-	s.places++
-	s.tenantPlaces[tenant]++
-	delete(s.firstDefer, agentID)
-	var once sync.Once
-	return func() { once.Do(func() { s.leave(tenant) }) }, BackfillAdmission{Admitted: true}
+	s.updateMode()
+	turns := s.customers[g.customer]
+	if !s.fits(turns, b) {
+		if s.throttled {
+			turns.join(b.Device)
+		}
+		return s.refuse(turns, b.Device, BackfillBusy)
+	}
+	turns.leave(b.Device)
+	if s.throttled {
+		turns.credit -= b.Size
+	}
+	turns.held += b.Size
+	s.held += b.Size
+	b.Customer = g.customer
+	s.inflight[b.Device] = &b
+	return BackfillAdmission{Verdict: Admitted}
 }
 
-// Release drops agentID's grant; an unknown agent or a nil scheduler is a no-op. A place a batch
-// holds is given back by that batch.
-func (s *BackfillScheduler) Release(agentID uuid.UUID) {
+// fits reports whether a batch may go now: inside the queue and its customer's share, or when
+// throttled, its customer's turn, overshoot repaid and machines in the order they asked.
+func (s *BackfillScheduler) fits(turns *customerTurns, b CatchUpBatch) bool {
+	if s.held+b.Size > s.cfg.Bound {
+		return false
+	}
+	if !s.throttled {
+		return turns.held == 0 || turns.held+b.Size <= s.share()
+	}
+	return turns.held == 0 && turns.credit >= 0 && turns.next(b.Device)
+}
+
+// Complete answers the batch a machine has in flight, on the connection of its newest copy,
+// and gives its place back; each waiting customer earns an equal part of what was written.
+func (s *BackfillScheduler) Complete(machine uuid.UUID, outcome telemetry.Outcome) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	b, ok := s.inflight[machine]
+	if !ok {
+		s.mu.Unlock()
+		return
+	}
+	delete(s.inflight, machine)
+	s.held -= b.Size
+	if turns, ok := s.customers[b.Customer]; ok {
+		turns.held -= b.Size
+		s.forgetIdle(b.Customer, turns)
+	}
+	s.creditTurn(b.Size)
+	s.measureDrain(b.Size)
+	answer := b.Answer
+	s.mu.Unlock()
+	if answer != nil {
+		answer(outcome)
+	}
+}
+
+// Release drops a machine's grant and its place in its customer's rotation; a batch it has in
+// flight is answered by Complete.
+func (s *BackfillScheduler) Release(machine uuid.UUID) {
 	if s == nil {
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.grants, agentID)
-	delete(s.firstDefer, agentID)
+	s.drop(machine)
 }
 
-// ActiveCount is the number of places held by batches being written; a nil scheduler holds none.
+// ActiveCount is the number of batches in flight; a nil scheduler holds none.
 func (s *BackfillScheduler) ActiveCount() int {
 	if s == nil {
 		return 0
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.places
+	return len(s.inflight)
 }
 
-// leave gives back one place in tenant.
-func (s *BackfillScheduler) leave(tenant uuid.UUID) {
+// Throttled reports whether the queue gives each waiting customer one batch a turn.
+func (s *BackfillScheduler) Throttled() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.places--
-	if s.tenantPlaces[tenant] <= 1 {
-		delete(s.tenantPlaces, tenant)
-	} else {
-		s.tenantPlaces[tenant]--
+	return s.throttled
+}
+
+// updateMode turns throttling on at the high mark and off below the low mark.
+func (s *BackfillScheduler) updateMode() {
+	fill := s.fill()
+	switch {
+	case fill >= s.cfg.HighMark:
+		s.throttled = true
+	case fill < s.cfg.LowMark:
+		s.throttled = false
 	}
 }
 
-// deferBatch builds a deferral whose backoff shrinks with how long the agent has waited.
-func (s *BackfillScheduler) deferBatch(agentID uuid.UUID, reason string, now time.Time) BackfillAdmission {
-	first, ok := s.firstDefer[agentID]
-	if !ok {
-		first = now
-		s.firstDefer[agentID] = now
+// share is each waiting customer's equal part of the queue.
+func (s *BackfillScheduler) share() int {
+	return s.cfg.Bound / max(1, len(s.customers))
+}
+
+// creditTurn gives every waiting customer an equal part of a written batch, up to one share.
+func (s *BackfillScheduler) creditTurn(written int) {
+	part := written / max(1, len(s.customers))
+	share := s.share()
+	for _, turns := range s.customers {
+		turns.credit = min(turns.credit+part, share)
 	}
-	waited := now.Sub(first)
-	retry := max(s.cfg.DeferBackoff-waited, minRetryAfter)
-	return BackfillAdmission{Reason: reason, RetryAfter: uint32(math.Ceil(retry.Seconds()))}
 }
 
-// rate is the equal per-place share of the load-adaptive budget, clamped to the configured
-// bounds; dividing by the global cap keeps the summed grants within the budget.
-func (s *BackfillScheduler) rate() uint32 {
-	h := min(1, max(0, s.headroom()))
-	slots := max(1, s.cfg.MaxConcurrent)
-	per := float64(s.cfg.BaseBudgetSamplesPerSec) * h / float64(slots)
-	return min(max(uint32(per), s.cfg.MinGrantRate), s.cfg.MaxGrantRate)
-}
-
-// reap drops grants whose deadline has passed.
+// reap drops grants whose deadline has passed. It reads the grants only once the soonest deadline
+// has come, since a renewal only moves a deadline later.
 func (s *BackfillScheduler) reap(now time.Time) {
-	for id, deadline := range s.grants {
-		if !deadline.After(now) {
-			delete(s.grants, id)
+	if now.Before(s.soonest) {
+		return
+	}
+	var soonest time.Time
+	for machine, g := range s.grants {
+		if !g.deadline.After(now) {
+			s.drop(machine)
+			continue
 		}
+		if soonest.IsZero() || g.deadline.Before(soonest) {
+			soonest = g.deadline
+		}
+	}
+	s.soonest = soonest
+}
+
+// drop removes a machine's grant, and its customer once no machine of it is catching up.
+func (s *BackfillScheduler) drop(machine uuid.UUID) {
+	g, ok := s.grants[machine]
+	if !ok {
+		return
+	}
+	delete(s.grants, machine)
+	turns := s.customers[g.customer]
+	turns.leave(machine)
+	turns.machines--
+	s.forgetIdle(g.customer, turns)
+}
+
+// forgetIdle removes a customer with no machine catching up and nothing in flight.
+func (s *BackfillScheduler) forgetIdle(customer uuid.UUID, turns *customerTurns) {
+	if turns.machines <= 0 && turns.held == 0 {
+		delete(s.customers, customer)
 	}
 }

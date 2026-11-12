@@ -62,12 +62,12 @@ func (a *AgentConn) acceptedTelemetry(msgType protocol.ControlMessageType) bool 
 }
 
 // persistTelemetry runs fn on a bounded slot goroutine so a slow store never stalls the read
-// loop; msgs is the ingested messages the write carries, so a failure drops one per message.
-func (a *AgentConn) persistTelemetry(ctx context.Context, msgs int, fn func(context.Context, dbtx.Tenant) error) {
+// loop, and reports whether fn was started; a failure drops one per message the write carries.
+func (a *AgentConn) persistTelemetry(ctx context.Context, msgs int, fn func(context.Context, dbtx.Tenant) error) bool {
 	tenant, ok := dbtx.TenantFromContext(ctx)
 	if !ok {
 		a.dropTelemetryN(msgs, "tenant_missing")
-		return
+		return false
 	}
 	if a.telemetrySlots == nil {
 		a.telemetrySlots = make(chan struct{}, telemetryConcurrentWrites)
@@ -82,8 +82,10 @@ func (a *AgentConn) persistTelemetry(ctx context.Context, msgs int, fn func(cont
 				a.dropTelemetryN(msgs, "persist_failed", "error", err)
 			}
 		}()
+		return true
 	default:
 		a.dropTelemetryN(msgs, "persist_slots_full")
+		return false
 	}
 }
 

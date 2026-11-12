@@ -83,8 +83,7 @@ async fn a_granted_backfill_drains_at_the_granted_pace_and_a_deferred_one_asks_a
     let step = Duration::from_secs(10);
 
     read_until(&mut conn, step, |m| {
-        matches!(m, ControlMessage::RequestBackfillSlot { pending_samples, .. } if pending_samples > 0)
-            .then_some(())
+        matches!(m, ControlMessage::RequestBackfillSlot).then_some(())
     })
     .await;
     conn.send(ControlMessage::GrantBackfill {
@@ -128,11 +127,14 @@ async fn a_granted_backfill_drains_at_the_granted_pace_and_a_deferred_one_asks_a
     })
     .await;
 
-    conn.send(ControlMessage::DeferBackfill { retry_after: 2 })
-        .await;
+    conn.send(ControlMessage::DeferBackfill {
+        retry_after: 2,
+        since_ts: 0,
+    })
+    .await;
     let deferred = Instant::now();
     read_until(&mut conn, step, |m| {
-        matches!(m, ControlMessage::RequestBackfillSlot { .. }).then_some(())
+        matches!(m, ControlMessage::RequestBackfillSlot).then_some(())
     })
     .await;
     assert!(

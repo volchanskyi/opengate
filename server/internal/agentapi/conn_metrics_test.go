@@ -27,7 +27,6 @@ func TestTelemetryIngestIsCounted(t *testing.T) {
 		Dims: []protocol.MetricDim{{Name: "cpu.total", Avg: 12.5}},
 	}
 	require.NoError(t, ac.handleAgentMetricWindow(tenantCtx(tenant), msg, 256))
-	ac.flushTelemetry(tenantCtx(tenant))
 
 	<-writer.calls
 	assert.InDelta(t, 1,
@@ -55,14 +54,13 @@ func TestTelemetryDropIsCounted(t *testing.T) {
 
 func TestBackfillDecisionIsObserved(t *testing.T) {
 	clock, _ := fixedClock()
-	s := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 })
+	s := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 }, nil)
 	ac, _ := backfillConn(t, s, uuid.New(), true)
 	m := appmetrics.NewMetrics(prometheus.NewRegistry())
 	ac.metrics = m
 
 	require.NoError(t, ac.handleRequestBackfillSlot(&protocol.ControlMessage{
-		Type:           protocol.MsgRequestBackfillSlot,
-		PendingSamples: 5000,
+		Type: protocol.MsgRequestBackfillSlot,
 	}))
 
 	assert.InDelta(t, 1, testutil.ToFloat64(m.EdgeBackfillAnswersTotal.WithLabelValues("granted")), 0)
@@ -81,6 +79,5 @@ func TestNilMetricsIsSafe(t *testing.T) {
 		Dims: []protocol.MetricDim{{Name: "cpu.total", Avg: 1}},
 	}
 	require.NoError(t, ac.handleAgentMetricWindow(tenantCtx(tenant), msg, 256))
-	ac.flushTelemetry(tenantCtx(tenant))
 	<-writer.calls
 }

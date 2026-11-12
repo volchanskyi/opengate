@@ -223,6 +223,19 @@ the whole-run figure says little about the rung that gave. Each phase also
 counts the datagrams each end's kernel dropped at a full receive buffer, which
 is where a machine's packets go missing before either process sees them.
 
+**The breakpoint leg's technicians hold an allowance of their own.** Its walk
+reaches 16,000 machines, and the technician generator's memory grows with the
+fleet it reads. Measured apart on the workstation, it held 3.4 GB at the 4,000 rung
+and passed 6 GB at 8,000, while the harness held 0.6 and 1.1 GB; inside one shared
+allowance every night read invalid on the generator rather than on the server. The leg gives the
+harness and the technicians a slice each
+([`perf-stack.yml`](../../.github/workflows/perf-stack.yml), the `breakpoint`
+entry), and the harness judges the technicians' slice by its own ceilings, so
+either running short invalidates the night. A visit times the whole device list
+and keeps none of its body. k6 and Gatling both treat a nearly saturated generator
+as a failed run and add generator capacity; a larger shared allowance without a
+measurement was not taken. The other legs keep one allowance shared.
+
 **A generator that fell behind voids its phase; a server that took arrivals slower
 is a reading.** Each phase records the share of its dials the machine generator
 began more than 0.1 s past their turn. Past 1% the phase followed the generator's

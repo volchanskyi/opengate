@@ -1,5 +1,5 @@
-# Five thousand machines come back with an hour's gap each and send their live minutes while they
-# catch up, at production's server and store limits on an ARM runner. Every limit is a reading.
+# Five thousand machines back with an hour's gap each catch up beside their live minutes and a
+# busy morning's technicians, at production's limits on ARM; the writer's promises fail the night.
 schema_version: 1
 name: catch-up
 family: spike
@@ -14,12 +14,13 @@ phases:
     operator_arrivals_per_second: 0
     connected_agents: 5000
     sessions: 0
-  # Every machine stays while its hour drains, live minutes sent beside it.
+  # Every machine stays while its hour drains, live minutes sent beside it, with the busy
+  # morning's technicians at work.
   - name: drain
     duration: 24m
-    operator_arrivals_per_second: 0
+    operator_arrivals_per_second: 15
     connected_agents: 5000
-    sessions: 0
+    sessions: 20
     measured: true
 
 # No processor ceiling, since a full store is what the leg sets out to see.
@@ -28,12 +29,27 @@ safety:
   max_error_rate: 0.05
 
 gates:
-  # The fleet's own arrival is read, never judged: the leg's verdict is the store probe's.
+  # Live readings reach the store within 5 s during the catch-up, by the server's own count, a
+  # reading not stored counting as a miss.
+  - series: catchup/live/drain
+    metric: within_5s_share
+    min: 0.99
+    blocking: true
+  # Every machine's hour is filled, the last within fifteen minutes of the fleet's return minute.
+  - series: catchup/gaps/drain
+    metric: machines_caught_up
+    min: 5000
+    blocking: true
+  - series: catchup/gaps/drain
+    metric: fill_seconds
+    max: 960
+    blocking: true
+  # The busy morning's limits hold while it all happens.
   - series: quic/quic-agents/aggregate
     metric: error_rate
-    max: 0.05
-    blocking: false
+    max: 0.02
+    blocking: true
   - series: quic/quic-agents/connect
     metric: latency_p95_ms
-    max: 5000
-    blocking: false
+    max: 3000
+    blocking: true

@@ -40,7 +40,7 @@ func TestAMachineBackFromAnOutageFillsItsChartWhereTheReadingsHappened(t *testin
 	admin := product.Administrator(contoso)
 	machine := catchUpMachine(product, admin, "contoso-laptop-11")
 
-	machine.Send(&protocol.ControlMessage{Type: protocol.MsgRequestBackfillSlot, PendingSamples: 2})
+	machine.Send(&protocol.ControlMessage{Type: protocol.MsgRequestBackfillSlot})
 	machine.Await(protocol.MsgGrantBackfill)
 
 	threeHoursAgo := time.Now().UTC().Truncate(time.Minute).Add(-3 * time.Hour)
@@ -100,7 +100,6 @@ func TestOneBadReadingCostsNothingElseInItsMinute(t *testing.T) {
 		protocol.MetricDim{Name: "cpu.total", Avg: math.NaN()},
 		protocol.MetricDim{Name: "mem.used_percent", Avg: 44.25},
 	)
-	machine.settle()
 
 	from, to := reportedAt.Add(-5*time.Minute), reportedAt.Add(5*time.Minute)
 	admin.awaitReading(product, machine.DeviceID, from, to, "mem.used_percent")
@@ -118,7 +117,7 @@ func TestHistoryOlderThanTheServerKeepsIsAnsweredAndNotStored(t *testing.T) {
 	admin := product.Administrator(contoso)
 	machine := catchUpMachine(product, admin, "contoso-laptop-13")
 
-	machine.Send(&protocol.ControlMessage{Type: protocol.MsgRequestBackfillSlot, PendingSamples: 1})
+	machine.Send(&protocol.ControlMessage{Type: protocol.MsgRequestBackfillSlot})
 	machine.Await(protocol.MsgGrantBackfill)
 
 	monthAgo := time.Now().UTC().Truncate(time.Minute).Add(-31 * 24 * time.Hour)
@@ -151,7 +150,6 @@ func TestBothKindsOfHealthSummaryInOneBreathAreKept(t *testing.T) {
 		Type: protocol.MsgAgentHealthSummary, TS: sentAt,
 		SamplerVersion: "s1", ModelVersion: "m1", NodeAnomalyRate: 0.375,
 	})
-	machine.settle()
 
 	require.Eventuallyf(t, func() bool {
 		product.publishReadings()

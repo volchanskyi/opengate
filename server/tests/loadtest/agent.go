@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"crypto/sha512"
 	"crypto/tls"
-	"crypto/x509"
 	"fmt"
 	"io"
 	"time"
@@ -85,7 +84,7 @@ func serveOneConnection(ctx context.Context, addr string, tlsConfig *tls.Config,
 	}
 	res.handshakeDur = time.Since(t1)
 
-	opts.watchedDevice = watchedDevice(tlsConfig, plan, opts)
+	opts.liveSecond = liveSendSecond(plan.hostname)
 	codec := &protocol.Codec{}
 	t2 := time.Now()
 	if err := register(codec, stream, plan.hostname, agentCapabilities(opts)); err != nil {
@@ -127,12 +126,12 @@ func handshake(stream io.ReadWriter, certDER []byte) error {
 	return nil
 }
 
-// agentCapabilities advertises Terminal always, plus Backfill when backfill batches are
-// configured, because the server gates backfill admission on the advertised capability.
+// agentCapabilities advertises Terminal always, and with backfill configured what a catching-up
+// agent reads: the server gates admission, confirmations and re-send requests on them.
 func agentCapabilities(opts loadOptions) []protocol.AgentCapability {
 	caps := []protocol.AgentCapability{protocol.CapTerminal}
 	if opts.backfillBatches > 0 || opts.backfillGap > 0 {
-		caps = append(caps, protocol.CapBackfill)
+		caps = append(caps, protocol.CapBackfill, protocol.CapLiveConfirmations, protocol.CapResendRequests)
 	}
 	return caps
 }
@@ -154,17 +153,4 @@ func register(codec *protocol.Codec, w io.Writer, hostname string, caps []protoc
 		return fmt.Errorf("write register: %w", err)
 	}
 	return nil
-}
-
-// watchedDevice is the machine's device number, its certificate's common name, when the live
-// watch follows it; empty otherwise.
-func watchedDevice(tlsConfig *tls.Config, plan tenantAgent, opts loadOptions) string {
-	if opts.liveWatch == nil || plan.agentIndex >= opts.watchMachines || len(tlsConfig.Certificates) == 0 {
-		return ""
-	}
-	leaf, err := x509.ParseCertificate(tlsConfig.Certificates[0].Certificate[0])
-	if err != nil {
-		return ""
-	}
-	return leaf.Subject.CommonName
 }

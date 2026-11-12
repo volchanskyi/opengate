@@ -183,3 +183,45 @@ func (p *PostgresDevices) ResetAllStatuses(ctx context.Context) error {
 		return err
 	})
 }
+
+// RefreshPresence implements Repository in one statement for the scope's tenant. The grace keeps
+// online a machine that registered after the caller took its list of connections.
+func (p *PostgresDevices) RefreshPresence(ctx context.Context, connected []DeviceID, grace time.Duration) (int, int, error) {
+	// An empty array keeps every comparison with $1 false where a nil one would make it NULL.
+	if connected == nil {
+		connected = []DeviceID{}
+	}
+	var refreshed, offline int
+	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx,
+			`UPDATE devices
+			    SET last_seen  = CASE WHEN id = ANY($1::uuid[]) THEN NOW() ELSE last_seen END,
+			        status     = CASE WHEN id = ANY($1::uuid[]) THEN status ELSE 'offline' END,
+			        updated_at = NOW()
+			  WHERE tenant_id = current_setting('app.current_tenant')::uuid
+			    AND (id = ANY($1::uuid[])
+			         OR (status = 'online' AND last_seen < NOW() - make_interval(secs => $2)))
+			  RETURNING id = ANY($1::uuid[])`,
+			connected, grace.Seconds())
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var wasConnected bool
+			if err := rows.Scan(&wasConnected); err != nil {
+				return err
+			}
+			if wasConnected {
+				refreshed++
+			} else {
+				offline++
+			}
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return 0, 0, err
+	}
+	return refreshed, offline, nil
+}

@@ -68,12 +68,17 @@ run_rows() {
 bundle_observing "$WORK/full.json" \
   aggregate_error_rate 0.004 connect_p95_ms 41 handshake_p95_ms 12 \
   register_p50_ms 8.1 register_p95_ms 23.45 wave_online_share 0.998 wave_online_p95_ms 4200
+jq '.live_acceptance = {received: 360000, stored: 359900, within_five_seconds: 357120}
+  | .catch_up = {stored: 10000, deferred: 40, unanswered: 0, complete: 5000, last_stored_seconds: 812.5}' \
+  "$WORK/full.json" >"$WORK/full-catch-up.json"
+mv "$WORK/full-catch-up.json" "$WORK/full.json"
 run_rows "$WORK/full.json"
 assert_eq "a bundle carrying every series is read" "0" "$STATUS"
 
 EMITTED="$(jq -r '
   .[] | . as $row
-  | ["latency_p50_ms", "latency_p95_ms", "latency_p99_ms", "rps", "error_rate", "arrival_share"][]
+  | ["latency_p50_ms", "latency_p95_ms", "latency_p99_ms", "rps", "error_rate", "arrival_share",
+     "within_5s_share", "machines_caught_up", "fill_seconds"][]
   | select($row[.] != null)
   | "\($row.source)/\($row.scenario)/\($row.phase)|\(.)"' <<<"$OUT" | sort -u)"
 
@@ -87,8 +92,14 @@ assert_eq "the measured wave's share is read off the bundle" "0.998" \
   "$(jq -r '.[] | select(.phase == "wave") | .arrival_share' <<<"$OUT")"
 assert_eq "so is its time from dial to online" "4200" \
   "$(jq -r '.[] | select(.phase == "wave") | .latency_p95_ms' <<<"$OUT")"
-assert_eq "every row names the machine side" "quic quic-agents" \
-  "$(jq -r '[.[] | .source] + [.[] | .scenario] | unique | join(" ")' <<<"$OUT")"
+assert_eq "every machine-side row names the machine side" "quic quic-agents" \
+  "$(jq -r '[.[] | select(.source != "catchup")] | [.[] | .source] + [.[] | .scenario] | unique | join(" ")' <<<"$OUT")"
+assert_eq "the share of live readings stored within 5 s is read off the server's count" "0.992" \
+  "$(jq -r '.[] | select(.scenario == "live") | .within_5s_share' <<<"$OUT")"
+assert_eq "so are the machines caught up" "5000" \
+  "$(jq -r '.[] | select(.scenario == "gaps") | .machines_caught_up' <<<"$OUT")"
+assert_eq "and when the last gap was filled" "812.5" \
+  "$(jq -r '.[] | select(.scenario == "gaps") | .fill_seconds' <<<"$OUT")"
 
 # An absent registration row lets its limits fail the run; a row carrying zero would pass them.
 bundle_observing "$WORK/no-register.json" aggregate_error_rate 0 connect_p95_ms 41
@@ -98,6 +109,8 @@ assert_eq "and publishes no registration row" "0" \
   "$(jq '[.[] | select(.phase == "register")] | length' <<<"$OUT")"
 assert_eq "a run that judged no wave publishes no wave row" "0" \
   "$(jq '[.[] | select(.phase == "wave")] | length' <<<"$OUT")"
+assert_eq "a leg with no catch-up publishes no catch-up row" "0" \
+  "$(jq '[.[] | select(.source == "catchup")] | length' <<<"$OUT")"
 
 run_rows "$WORK/absent.json"
 assert_eq "a bundle that is not there refuses" "2" "$STATUS"

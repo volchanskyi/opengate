@@ -485,9 +485,14 @@ jobs:
           - profile: breakpoint
             path: load/profiles/breakpoint.yaml
             title: Raise it until it gives (breakpoint)
-            # The technicians open each rung's sessions inside the generator allowance the harness shares.
             journeys: true
-            # About 400 KB of generator memory per machine over a 1.25 GiB baseline is roughly 7.7 GB.
+            # The harness and the technicians hold allowances of their own, so either running short is
+            # judged apart; the server, database and store hold 2.5 of the runner's 4 processors.
+            generator_cpus: '0.75'
+            generator_memory: '4G'
+            technician_cpus: '0.75'
+            technician_memory: '4G'
+            # About 150 KB of harness memory per machine puts the top rung near 2.4 GB.
             agents: '16000'
             # The ladder runs six five-minute steps, a one-minute drain and a five-minute recovery.
             hold: 40m
@@ -557,17 +562,26 @@ jobs:
           set -euo pipefail
           mkdir -p "$PERF_BUNDLE_DIR" "$LOADTEST_K6_SUMMARY_DIR"
           go build -C server -trimpath -o /tmp/loadtest ./tests/loadtest/
+          # The technicians share the harness's allowance unless the leg gives them one of their own,
+          # which the harness then judges by its own ceilings.
+          TECHNICIAN_SHARE=(scripts/loadtest-generator-share.sh "$GENERATOR_CPUS" "$GENERATOR_MEMORY" --)
+          TECHNICIAN_CGROUP=""
+          if [ -n "$TECHNICIAN_CPUS" ]; then
+            TECHNICIAN_SHARE=(scripts/loadtest-generator-share.sh --slice opengate-technicians.slice "$TECHNICIAN_CPUS" "$TECHNICIAN_MEMORY" --)
+            TECHNICIAN_CGROUP=opengate.slice/opengate-technicians.slice
+          fi
           K6_LEG=""
           if [ "${JOURNEYS:-false}" = "true" ]; then
-            scripts/loadtest-generator-share.sh "$PERF_GENERATOR_CPUS" "$PERF_GENERATOR_MEMORY" -- scripts/loadtest-k6-alongside.sh /tmp/perf-quic.txt api-baseline relay-throughput &
+            "${TECHNICIAN_SHARE[@]}" scripts/loadtest-k6-alongside.sh /tmp/perf-quic.txt api-baseline relay-throughput &
             K6_LEG=$!
           fi
           # Exit 1 is a partly arrived fleet, which is a measurement; the verdict step judges it.
           set +e
           scripts/loadtest-quic-run.sh /tmp/perf-quic.txt -- \
-            scripts/loadtest-generator-share.sh "$PERF_GENERATOR_CPUS" "$PERF_GENERATOR_MEMORY" -- \
+            scripts/loadtest-generator-share.sh "$GENERATOR_CPUS" "$GENERATOR_MEMORY" -- \
             /tmp/loadtest \
               -agents="${{ matrix.agents }}" \
+              -technician-cgroup="$TECHNICIAN_CGROUP" \
               -addr=server:9090 \
               -target-net-counters="$PERF_TARGET_NET_COUNTERS" \
               -default-telemetry \
@@ -602,6 +616,10 @@ jobs:
           LOADTEST_K6_SUMMARY_DIR: /tmp/perf-k6
           K6_BIN: /tmp/k6
           JOURNEYS: ${{ matrix.journeys }}
+          GENERATOR_CPUS: ${{ matrix.generator_cpus || env.PERF_GENERATOR_CPUS }}
+          GENERATOR_MEMORY: ${{ matrix.generator_memory || env.PERF_GENERATOR_MEMORY }}
+          TECHNICIAN_CPUS: ${{ matrix.technician_cpus }}
+          TECHNICIAN_MEMORY: ${{ matrix.technician_memory }}
 
       # Reported beside the leg's readings, so a slow night says whether the machine or the cap held it;
       # a failed leg keeps it too, in its summary when it wrote no bundle.
@@ -697,7 +715,7 @@ jobs:
           scripts/perf-scaling-curve.sh perf-legs | tee -a "$GITHUB_STEP_SUMMARY"
 
   # The server and the store at production's limits and settings, with its scrape load, on ARM;
-  # the store probe decides whether the shared writer starts, and the fleet's reading is published.
+  # the fleet's catch-up is held to its promises, and the store probe is published beside it.
   catch-up:
     name: Catch-up at production's limits (ARM)
     runs-on: ubuntu-24.04-arm
@@ -736,7 +754,7 @@ jobs:
 
       # The same fixed minute of work at a quarter processor, so a night on a different chip shows.
       - name: Read the runner's fixed processor benchmark
-        run: scripts/cpu-benchmark.sh runner /tmp/cpu-benchmark.json
+        run: scripts/cpu-benchmark.sh /tmp/cpu-benchmark.json
 
       - name: Give the machine-facing path production's buffers
         run: scripts/perf-stack-quic.sh raise-buffers
@@ -752,6 +770,14 @@ jobs:
 
       - name: Dial the server by its certificate's name
         run: scripts/perf-stack-quic.sh map-server
+
+      - name: Install k6
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            "https://github.com/grafana/k6/releases/download/${K6_VERSION}/k6-${K6_VERSION}-linux-arm64.tar.gz" \
+            | tar -xz -C /tmp
+          install -m 0755 "/tmp/k6-${K6_VERSION}-linux-arm64/k6" /tmp/k6
 
       - name: Build the store probe
         run: go build -C server -trimpath -o /tmp/storeprobe ./tests/storeprobe/
@@ -816,11 +842,14 @@ jobs:
           scripts/perf-runner-record.sh snapshot \
             "$(scripts/database-levels.sh cgroup-of opengate-perf-server)" /tmp/runner-before.json
 
+      # Technicians work as on a busy morning while the fleet catches up (decision U).
       - name: Walk the catch-up profile, building its fleet first
         run: |
           set -euo pipefail
-          mkdir -p "$PERF_BUNDLE_DIR"
+          mkdir -p "$PERF_BUNDLE_DIR" "$LOADTEST_K6_SUMMARY_DIR"
           go build -C server -trimpath -o /tmp/loadtest ./tests/loadtest/
+          scripts/loadtest-generator-share.sh "$PERF_GENERATOR_CPUS" "$PERF_GENERATOR_MEMORY" -- scripts/loadtest-k6-alongside.sh /tmp/perf-quic.txt api-baseline relay-throughput &
+          K6_LEG=$!
           # Exit 1 is a partly arrived fleet, which is a measurement; the verdict step judges it.
           set +e
           scripts/loadtest-quic-run.sh /tmp/perf-quic.txt -- \
@@ -834,8 +863,6 @@ jobs:
               -retry-deferred \
               -enrol-first \
               -live-every=60s \
-              -live-watch-store=http://127.0.0.1:8428 \
-              -live-watch-machines=50 \
               -hold=25m \
               -profile=load/profiles/catch-up.yaml \
               -commit="$GITHUB_SHA" \
@@ -848,16 +875,32 @@ jobs:
               -fixture-password="$PERF_FIXTURE_PASSWORD" \
               -fixture-bootstrap \
               -fixture-seed=1 \
+              -relay-sessions \
               -bundle="$PERF_BUNDLE_DIR/catch-up"
           walk=$?
           set -e
+          wait "$K6_LEG"
           if [ "$walk" -gt 1 ]; then
             echo "::error::the harness did not complete a run (exit $walk)." >&2
             exit "$walk"
           fi
         env:
+          LOADTEST_BASE_URL: http://127.0.0.1:8080
+          LOADTEST_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}-catch-up
+          LOADTEST_PROFILE: load/profiles/catch-up.yaml
+          LOADTEST_K6_SUMMARY_DIR: /tmp/perf-k6
+          K6_BIN: /tmp/k6
           # The stack is per-run and reachable only from the runner; the password is generated per run.
           PERF_FIXTURE_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-Perf!
+
+      # The technician numbers are timed by a separate generator and merged into the leg's bundle.
+      - name: Fold the technician journeys into the leg
+        if: always() && steps.stack.outcome == 'success'
+        run: |
+          set -euo pipefail
+          scripts/loadtest-bundle-merge.sh "$PERF_BUNDLE_DIR/catch-up/bundle.json" \
+            --journeys /tmp/perf-k6/api-baseline.json \
+            --journeys /tmp/perf-k6/relay-throughput.json
 
       # The probe ran before the walk, so its readings reach the bundle whatever the walk did.
       - name: Fold the store probe's readings into the bundle
@@ -895,12 +938,20 @@ jobs:
         if: always() && steps.stack.outcome == 'success'
         run: scripts/perf-bundle-verdict.sh "$PERF_BUNDLE_DIR/catch-up/bundle.json"
 
-      # The go/no-go for the shared writer, the one reading of this leg that fails the night.
-      - name: Judge the store against the go/no-go
+      # The store probe is published beside the walk; the marks it misses are warnings.
+      - name: Report the store probe against its marks
         if: always() && steps.stack.outcome == 'success'
         run: |
           set -euo pipefail
           scripts/perf-catchup-gate.sh "$PERF_BUNDLE_DIR/catch-up/bundle.json" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # The catch-up promises and the busy morning's limits fail the night (decision AA).
+      - name: Read the profile's limits against the run's own rows
+        if: always() && steps.stack.outcome == 'success'
+        run: |
+          set -euo pipefail
+          scripts/perf-bundle-limits.sh load/profiles/catch-up.yaml \
+            "$PERF_BUNDLE_DIR/catch-up/bundle.json" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Tear the stack down
         if: always()

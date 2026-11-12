@@ -58,7 +58,7 @@ def _tags(action):
 
 def release(action, ref):
     """The newest release tag pointing where REF points: REF is a commit or a tag."""
-    commit = ref if _SHA.match(ref) else fetch.github(f"repos/{action}/commits/{ref}")["sha"]
+    commit = ref if _SHA.match(ref) else fetch.github_object(f"repos/{action}/commits/{ref}")["sha"]
     named = [Version(name) for name, sha in _tags(action) if sha == commit and _RELEASE.match(name)]
     if not named:
         raise fetch.Unreadable(f"{action}@{ref}: no release tag points at commit {commit}")

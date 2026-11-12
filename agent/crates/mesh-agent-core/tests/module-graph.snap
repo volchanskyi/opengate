@@ -35,6 +35,7 @@ crate mesh_agent_core
 ├── mod ml: pub
 │   ├── mod backfill: pub
 │   │   └── mod drain: pub(self)
+│   │       └── mod read: pub(self)
 │   ├── mod cgroup: pub
 │   ├── mod diskperf: pub
 │   ├── mod ensemble: pub

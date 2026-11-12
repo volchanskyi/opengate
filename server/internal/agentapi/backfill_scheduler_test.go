@@ -1,25 +1,26 @@
 package agentapi
 
 import (
+	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/volchanskyi/opengate/server/internal/telemetry"
 )
 
-// schedCfg returns a small deterministic scheduler config.
+// batchBytes is one full catch-up batch: a thousand readings at about 160 encoded bytes each.
+const batchBytes = 160_000
+
+// schedCfg is the shipped configuration over a queue of ten full batches.
 func schedCfg() BackfillSchedulerConfig {
-	return BackfillSchedulerConfig{
-		MaxConcurrent:           4,
-		PerTenantMax:            2,
-		BaseBudgetSamplesPerSec: 1200,
-		MinGrantRate:            50,
-		MaxGrantRate:            1000,
-		GrantTTL:                30 * time.Second,
-		DeferBackoff:            20 * time.Second,
-	}
+	cfg := DefaultBackfillSchedulerConfig()
+	cfg.Bound = 10 * batchBytes
+	return cfg
 }
 
 // fixedClock returns a controllable clock and a pointer to advance it.
@@ -29,210 +30,194 @@ func fixedClock() (func() time.Time, *time.Time) {
 	return func() time.Time { return *cur }, cur
 }
 
-// fullHeadroomScheduler builds a scheduler on the fixed clock with all headroom free.
-func fullHeadroomScheduler() (*BackfillScheduler, func() time.Time, *time.Time) {
+// testScheduler builds a scheduler on the fixed clock whose queue fill the test sets.
+func testScheduler() (*BackfillScheduler, *atomic.Value, *time.Time) {
 	clock, cur := fixedClock()
-	return NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 }), clock, cur
+	var fill atomic.Value
+	fill.Store(0.0)
+	s := NewBackfillScheduler(schedCfg(), clock, nil, func() float64 { return fill.Load().(float64) })
+	return s, &fill, cur
 }
 
-// requestFor asks for a grant for a fresh agent of the tenant.
-func requestFor(s *BackfillScheduler, tenant uuid.UUID) BackfillDecision {
-	return s.RequestSlot(uuid.New(), tenant, SlotRequest{})
+// granted returns a fresh machine of the customer holding a grant.
+func granted(s *BackfillScheduler, customer uuid.UUID) uuid.UUID {
+	machine := uuid.New()
+	s.RequestSlot(machine, customer)
+	return machine
 }
 
-// grantedAgent returns a fresh agent of the tenant holding a live grant.
-func grantedAgent(t *testing.T, s *BackfillScheduler, tenant uuid.UUID) uuid.UUID {
-	t.Helper()
-	agent := uuid.New()
-	s.RequestSlot(agent, tenant, SlotRequest{})
-	return agent
-}
+// answerLog records each answer a batch's sender received.
+type answerLog struct{ got []string }
 
-// admitted requires a granted agent of the tenant to take a place, and returns how to give it back.
-func admitted(t *testing.T, s *BackfillScheduler, tenant uuid.UUID) func() {
-	t.Helper()
-	agent := grantedAgent(t, s, tenant)
-	release, admission := s.Admit(agent, tenant)
-	require.True(t, admission.Admitted)
-	return release
-}
-
-// fillGlobalPlaces takes every place, one for each of four distinct tenants.
-func fillGlobalPlaces(t *testing.T, s *BackfillScheduler) {
-	t.Helper()
-	for range 4 {
-		admitted(t, s, uuid.New())
+func (l *answerLog) to(who string) func(telemetry.Outcome) {
+	return func(o telemetry.Outcome) {
+		if o.Err != nil {
+			l.got = append(l.got, who+": "+o.Err.Error())
+			return
+		}
+		l.got = append(l.got, who+": stored")
 	}
 }
 
-func TestScheduler_EveryRequestIsGrantedAndAGrantHoldsNoPlace(t *testing.T) {
-	s, clock, _ := fullHeadroomScheduler()
-
-	for i := range schedCfg().MaxConcurrent + 1 {
-		d := s.RequestSlot(uuid.New(), uuid.New(), SlotRequest{PendingSamples: 100})
-		assert.Positive(t, d.Rate, "request %d is granted past the place count", i)
-		assert.GreaterOrEqual(t, d.Rate, schedCfg().MinGrantRate)
-		assert.LessOrEqual(t, d.Rate, schedCfg().MaxGrantRate)
-		assert.Equal(t, clock().Add(schedCfg().GrantTTL).Unix(), d.Deadline)
-	}
-	assert.Equal(t, 0, s.ActiveCount(), "a grant takes no place")
+func batch(machine, customer uuid.UUID, key string, size int, answer func(telemetry.Outcome)) CatchUpBatch {
+	return CatchUpBatch{Device: machine, Customer: customer, Key: key, Size: size, Answer: answer}
 }
 
-func TestScheduler_ABatchWithoutAGrantIsDeferred(t *testing.T) {
-	s, _, _ := fullHeadroomScheduler()
+// grantedMachine builds a scheduler holding a grant for one machine of a fresh customer.
+func grantedMachine() (s *BackfillScheduler, cur *time.Time, customer, machine uuid.UUID) {
+	s, _, cur = testScheduler()
+	customer = uuid.New()
+	return s, cur, customer, granted(s, customer)
+}
 
-	release, admission := s.Admit(uuid.New(), uuid.New())
-	assert.False(t, admission.Admitted)
+// sendFull offers one full batch named key from the machine.
+func sendFull(s *BackfillScheduler, machine, customer uuid.UUID, key string, answer func(telemetry.Outcome)) BackfillAdmission {
+	return s.Admit(batch(machine, customer, key, batchBytes, answer))
+}
+
+func TestEveryRequestIsGrantedAndAGrantHoldsNoPlace(t *testing.T) {
+	s, _, _ := testScheduler()
+	for range 50 {
+		decision := s.RequestSlot(uuid.New(), uuid.New())
+		assert.NotZero(t, decision.Deadline)
+	}
+	assert.Zero(t, s.ActiveCount(), "a grant is permission, not a place in the queue")
+}
+
+func TestABatchWithoutAGrantIsToldToWait(t *testing.T) {
+	s, _, _ := testScheduler()
+	admission := s.Admit(batch(uuid.New(), uuid.New(), "rollup1m:60", batchBytes, nil))
+	assert.Equal(t, Refused, admission.Verdict)
 	assert.Equal(t, BackfillNoGrant, admission.Reason)
-	assert.Positive(t, admission.RetryAfter)
-	assert.Nil(t, release)
-	assert.Equal(t, 0, s.ActiveCount())
+	assert.GreaterOrEqual(t, admission.RetryAfter, uint32(1))
 }
 
-func TestScheduler_ABatchPastTheGlobalPlacesIsDeferredAsBusy(t *testing.T) {
-	s, _, _ := fullHeadroomScheduler()
-	fillGlobalPlaces(t, s)
-
-	tenant := uuid.New()
-	release, admission := s.Admit(grantedAgent(t, s, tenant), tenant)
-	assert.False(t, admission.Admitted)
-	assert.Equal(t, BackfillBusy, admission.Reason)
-	assert.Positive(t, admission.RetryAfter)
-	assert.Nil(t, release)
-	assert.Equal(t, 4, s.ActiveCount())
-}
-
-func TestScheduler_PerTenantPlacesDeferTheThirdBatchOfOneTenant(t *testing.T) {
-	s, _, _ := fullHeadroomScheduler()
-	tenant := uuid.New()
-
-	admitted(t, s, tenant)
-	admitted(t, s, tenant)
-	_, admission := s.Admit(grantedAgent(t, s, tenant), tenant)
-	assert.False(t, admission.Admitted, "per-tenant places full")
-	assert.Equal(t, BackfillBusy, admission.Reason)
-}
-
-func TestScheduler_BudgetShrinksUnderLiveLoad(t *testing.T) {
-	s, clock, _ := fullHeadroomScheduler()
-
-	full := requestFor(s, uuid.New())
-
-	s2 := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 0.25 })
-	low := requestFor(s2, uuid.New())
-	assert.Less(t, low.Rate, full.Rate, "lower headroom yields a lower granted rate")
-}
-
-func TestScheduler_FairShareCapsAnyOneTenant(t *testing.T) {
-	s, _, _ := fullHeadroomScheduler()
-	tenantA, tenantB := uuid.New(), uuid.New()
-
-	admitted(t, s, tenantA)
-	admitted(t, s, tenantA)
-	_, refused := s.Admit(grantedAgent(t, s, tenantA), tenantA)
-	assert.False(t, refused.Admitted, "A is capped at PerTenantMax")
-
-	admitted(t, s, tenantB)
-	admitted(t, s, tenantB)
-	assert.Equal(t, 4, s.ActiveCount(), "the global places are shared across tenants, not monopolized")
-
-	other := uuid.New()
-	_, full := s.Admit(grantedAgent(t, s, other), other)
-	assert.False(t, full.Admitted, "global places now full")
-}
-
-func TestScheduler_AgingShortensRetryForLongWaiters(t *testing.T) {
-	s, _, cur := fullHeadroomScheduler()
-	fillGlobalPlaces(t, s)
-
-	tenant := uuid.New()
-	waiter := grantedAgent(t, s, tenant)
-	_, first := s.Admit(waiter, tenant)
-	require.False(t, first.Admitted)
-
-	*cur = cur.Add(15 * time.Second)
-	s.RequestSlot(waiter, tenant, SlotRequest{})
-	_, later := s.Admit(waiter, tenant)
-	require.False(t, later.Admitted)
-	assert.Less(t, later.RetryAfter, first.RetryAfter, "a longer wait earns a shorter retry")
-}
-
-func TestScheduler_AnExpiredGrantAdmitsNothing(t *testing.T) {
-	s, _, cur := fullHeadroomScheduler()
-	tenant := uuid.New()
-	agent := grantedAgent(t, s, tenant)
-
+func TestAnExpiredGrantAdmitsNothing(t *testing.T) {
+	s, cur, customer, machine := grantedMachine()
 	*cur = cur.Add(schedCfg().GrantTTL + time.Second)
-	_, admission := s.Admit(agent, tenant)
-	assert.False(t, admission.Admitted)
-	assert.Equal(t, BackfillNoGrant, admission.Reason)
+	assert.Equal(t, BackfillNoGrant, sendFull(s, machine, customer, "k", nil).Reason)
 }
 
-func TestScheduler_ARenewedGrantOutlivesItsFirstDeadline(t *testing.T) {
-	s, _, cur := fullHeadroomScheduler()
-	agent, tenant := uuid.New(), uuid.New()
-	s.RequestSlot(agent, tenant, SlotRequest{})
+func TestARenewedGrantOutlivesItsFirstDeadlineAndAnUnrenewedOneBesideItDoesNot(t *testing.T) {
+	s, cur, customer, renewing := grantedMachine()
+	lapsing := granted(s, customer)
+	ttl := schedCfg().GrantTTL
 
-	*cur = cur.Add(schedCfg().GrantTTL / 2)
-	s.RequestSlot(agent, tenant, SlotRequest{})
-	*cur = cur.Add(schedCfg().GrantTTL/2 + time.Second)
+	*cur = cur.Add(ttl / 2)
+	s.RequestSlot(renewing, customer)
+	*cur = cur.Add(ttl/2 + time.Second)
 
-	release, admission := s.Admit(agent, tenant)
-	require.True(t, admission.Admitted, "the renewal moved the deadline")
-	release()
+	assert.Equal(t, BackfillNoGrant, sendFull(s, lapsing, customer, "k", nil).Reason,
+		"the grant nobody renewed has run out")
+	assert.Equal(t, Admitted, sendFull(s, renewing, customer, "k", nil).Verdict,
+		"the renewed grant holds past the deadline it first had")
+	*cur = cur.Add(ttl)
+	assert.Equal(t, BackfillNoGrant, sendFull(s, renewing, customer, "k2", nil).Reason,
+		"the renewed grant runs out at its own new deadline")
 }
 
-func TestScheduler_GivingBackAPlaceFreesItOnce(t *testing.T) {
-	s, _, _ := fullHeadroomScheduler()
-	tenant := uuid.New()
-	release := admitted(t, s, tenant)
-	other := admitted(t, s, tenant)
-	assert.Equal(t, 2, s.ActiveCount())
-
-	release()
-	release()
-	assert.Equal(t, 1, s.ActiveCount(), "a second give-back frees nothing more")
-	admitted(t, s, tenant)
-	assert.Equal(t, 2, s.ActiveCount())
-	other()
+func TestReleaseDropsTheGrant(t *testing.T) {
+	s, _, customer, machine := grantedMachine()
+	s.Release(machine)
+	assert.Equal(t, BackfillNoGrant, sendFull(s, machine, customer, "k", nil).Reason)
 }
 
-func TestScheduler_TheLastPlaceGivenBackRemovesTheTenantCounter(t *testing.T) {
-	s, _, _ := fullHeadroomScheduler()
-	tenant := uuid.New()
-	release := admitted(t, s, tenant)
-	require.Equal(t, 1, s.tenantPlaces[tenant])
-
-	release()
-
-	_, exists := s.tenantPlaces[tenant]
-	assert.False(t, exists)
-}
-
-func TestScheduler_ReleaseDropsTheGrant(t *testing.T) {
-	s, _, _ := fullHeadroomScheduler()
-	tenant := uuid.New()
-	agent := grantedAgent(t, s, tenant)
-
-	s.Release(agent)
-	_, admission := s.Admit(agent, tenant)
-	assert.Equal(t, BackfillNoGrant, admission.Reason)
+func TestANilSchedulerAdmitsNothing(t *testing.T) {
+	var s *BackfillScheduler
+	assert.Equal(t, Refused, s.Admit(batch(uuid.New(), uuid.New(), "k", 1, nil)).Verdict)
+	assert.Zero(t, s.ActiveCount())
 	s.Release(uuid.New())
-	var nilSched *BackfillScheduler
-	assert.NotPanics(t, func() { nilSched.Release(uuid.New()) })
 }
 
-func TestScheduler_ANilSchedulerAdmitsNothing(t *testing.T) {
-	var nilSched *BackfillScheduler
-	release, admission := nilSched.Admit(uuid.New(), uuid.New())
-	assert.False(t, admission.Admitted)
-	assert.Equal(t, BackfillNoGrant, admission.Reason)
-	assert.Nil(t, release)
-	assert.Zero(t, nilSched.ActiveCount(), "a nil scheduler holds no place")
+func TestAMachineWithABatchInFlightIsToldToWait(t *testing.T) {
+	s, _, customer, machine := grantedMachine()
+	require.Equal(t, Admitted, sendFull(s, machine, customer, "rollup1m:60", nil).Verdict)
+
+	second := sendFull(s, machine, customer, "rollup1m:120", nil)
+	assert.Equal(t, Refused, second.Verdict, "one batch in flight per machine")
+	assert.Equal(t, BackfillBusy, second.Reason)
 }
 
-func TestDefaultBackfillSchedulerConfigPinsDurations(t *testing.T) {
+func TestTheSameBatchArrivingTwiceJoinsTheFirstAndIsAnsweredOnTheNewestConnection(t *testing.T) {
+	s, _, customer, machine := grantedMachine()
+	var log answerLog
+	require.Equal(t, Admitted, sendFull(s, machine, customer, "rollup1m:60", log.to("old link")).Verdict)
+
+	again := sendFull(s, machine, customer, "rollup1m:60", log.to("new link"))
+	assert.Equal(t, Joined, again.Verdict, "the copy joins the queued batch and makes no second write")
+
+	s.Complete(machine, telemetry.Outcome{Stored: 1000})
+	assert.Equal(t, []string{"new link: stored"}, log.got, "the answer goes to the machine's current connection")
+	assert.Zero(t, s.ActiveCount())
+}
+
+func TestTheQueueTurnsThrottledAtEightyPercentAndBackAtTwenty(t *testing.T) {
+	s, fill, _ := testScheduler()
+	customer := uuid.New()
+	for _, step := range []struct {
+		fill      float64
+		throttled bool
+	}{
+		{0.5, false}, {0.79, false}, {0.8, true}, {0.5, true}, {0.21, true}, {0.19, false}, {0.5, false},
+	} {
+		fill.Store(step.fill)
+		machine := granted(s, customer)
+		admission := s.Admit(batch(machine, customer, "k", 1, nil))
+		assert.Equalf(t, step.throttled, s.Throttled(), "at %.0f%% full", step.fill*100)
+		if admission.Verdict == Admitted {
+			s.Complete(machine, telemetry.Outcome{})
+		}
+	}
+}
+
+func TestInNormalModeACustomerIsHeldToItsShare(t *testing.T) {
+	s, _, _ := testScheduler()
+	hospital, clinic := uuid.New(), uuid.New()
+	granted(s, clinic)
+
+	admitted := 0
+	for range 10 {
+		if s.Admit(batch(granted(s, hospital), hospital, "k", batchBytes, nil)).Verdict == Admitted {
+			admitted++
+		}
+	}
+	assert.Equal(t, 5, admitted, "with two customers catching up, each holds half the queue")
+	clinicMachine := granted(s, clinic)
+	assert.Equal(t, Admitted, s.Admit(batch(clinicMachine, clinic, "k", batchBytes, nil)).Verdict,
+		"the five-PC clinic is admitted beside the hospital")
+}
+
+func TestTheGrantPaceIsTheBudgetSharedAmongTheMachinesCatchingUp(t *testing.T) {
+	s, _, _ := testScheduler()
+	cfg := schedCfg()
+	first := s.RequestSlot(uuid.New(), uuid.New())
+	assert.Equal(t, cfg.MaxGrantRate, first.Rate, "one machine alone may go as fast as a grant allows")
+
+	var last BackfillDecision
+	for range 999 {
+		last = s.RequestSlot(uuid.New(), uuid.New())
+	}
+	assert.Equal(t, uint32(cfg.BaseBudgetSamplesPerSec/1000), last.Rate,
+		"a thousand machines share the budget with no floor above their share")
+}
+
+func TestCompletingABatchGivesBackItsPlaceOnce(t *testing.T) {
+	s, _, customer, machine := grantedMachine()
+	var log answerLog
+	require.Equal(t, Admitted, sendFull(s, machine, customer, "k", log.to("link")).Verdict)
+	assert.Equal(t, 1, s.ActiveCount())
+
+	s.Complete(machine, telemetry.Outcome{Err: errors.New("store unavailable")})
+	s.Complete(machine, telemetry.Outcome{Stored: 1})
+	assert.Zero(t, s.ActiveCount())
+	assert.Equal(t, []string{"link: store unavailable"}, log.got, "a batch is answered once")
+}
+
+func TestDefaultBackfillSchedulerConfigPinsItsStartingValues(t *testing.T) {
 	cfg := DefaultBackfillSchedulerConfig()
+	assert.Equal(t, 20_000, cfg.BaseBudgetSamplesPerSec)
 	assert.Equal(t, 60*time.Second, cfg.GrantTTL)
-	assert.Equal(t, 30*time.Second, cfg.DeferBackoff)
+	assert.Equal(t, telemetry.DefaultWriterConfig().CatchUpBound, cfg.Bound, "admission fills the writer's own queue")
+	assert.InDelta(t, 0.8, cfg.HighMark, 0)
+	assert.InDelta(t, 0.2, cfg.LowMark, 0)
 }

@@ -155,6 +155,8 @@ type Assembly struct {
 	Purger     api.DevicePurger
 	PurgeJobs  api.PurgeJobReader
 	Reconciler *lifecycle.Reconciler
+	// NumericDrained closes once the numeric writer has drained after its context ended.
+	NumericDrained <-chan struct{}
 	// pendingPurges re-runs deletion records stopped part-way; nil beside a nil Purger.
 	pendingPurges purgeResumer
 
@@ -307,12 +309,15 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 	// Seeding exports every rule at zero, so a quiet rule differs from an empty scrape.
 	appMetrics.SeedRuleVocabulary(ruleIDs(ruleCatalogue))
 
-	agentSrv := agentapi.NewAgentServer(agentapi.AgentServerConfig{
+	// The writer reads the agent server's deny-list, and the agent server hands it readings.
+	var agentSrv *agentapi.AgentServer
+	ingest := newNumericIngest(telemetryPorts, appMetrics, func(device uuid.UUID) bool { return agentSrv.Erased(device) })
+	agentSrv = agentapi.NewAgentServer(agentapi.AgentServerConfig{
 		Cert:          certMgr,
 		Devices:       repos.devices,
 		Hardware:      repos.hardware,
 		DeviceUpdates: repos.deviceUpdates,
-		Telemetry:     telemetryPorts.writer,
+		Telemetry:     ingest.readings(),
 		Inventory:     repos.inventory,
 		Relay:         agentRelay,
 		Notifier:      notifier,
@@ -344,10 +349,12 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 		jobs:            jobStore,
 		seriesPurger:    telemetryPorts.purger,
 		seriesInventory: telemetryPorts.inventory,
+		writes:          ingest.writes(),
 		investigations:  alertStore,
 		metrics:         appMetrics,
 		logger:          logger,
 	})
+	ingest.start(ctx, telemetryPorts, agentSrv)
 
 	signingKeys, err := updater.LoadOrGenerateSigningKeys(cfg.DataDir)
 	if err != nil {
@@ -448,6 +455,7 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 		Purger:          purge.purger,
 		PurgeJobs:       purge.jobs,
 		Reconciler:      purge.reconciler,
+		NumericDrained:  ingest.drained,
 		pendingPurges:   purge.resumer,
 		SigningKeys:     signingKeys,
 		Manifests:       manifestStore,
@@ -512,12 +520,66 @@ func newRepositories(sqlDB *sql.DB, m *appmetrics.Metrics) repositories {
 	}
 }
 
-// telemetryPorts are the writer, reader and two erasure ports; all are nil without a metrics store.
+// telemetryPorts are the store client, reader and two erasure ports; all are nil without a
+// metrics store.
 type telemetryPorts struct {
-	writer    telemetry.NumericWriter
+	client    *telemetry.VMClient
 	reader    api.MetricsReader
 	purger    lifecycle.SeriesPurger
 	inventory lifecycle.SubjectLister
+}
+
+// numericIngest is the shared writer and what runs beside it: the store's restart watch and the
+// re-send of dropped live minutes. Without a metrics store the writer is nil and drained closed.
+type numericIngest struct {
+	writer  *telemetry.Writer
+	drained <-chan struct{}
+}
+
+// readings is the writer as the agent server takes it, nil without a metrics store.
+func (n numericIngest) readings() agentapi.ReadingWriter {
+	if n.writer == nil {
+		return nil
+	}
+	return n.writer
+}
+
+// writes is the writer as the erasure job waits on it, nil without a metrics store.
+func (n numericIngest) writes() lifecycle.WriteWaiter {
+	if n.writer == nil {
+		return nil
+	}
+	return n.writer
+}
+
+// newNumericIngest builds the writer over the store; erased is read just before each request.
+func newNumericIngest(ports telemetryPorts, m *appmetrics.Metrics, erased func(uuid.UUID) bool) numericIngest {
+	closed := make(chan struct{})
+	close(closed)
+	if ports.client == nil {
+		return numericIngest{drained: closed}
+	}
+	cfg := telemetry.DefaultWriterConfig()
+	cfg.Store = ports.client
+	cfg.Tombstoned = erased
+	// A nil pointer as an observer is a non-nil interface, so only a real one is wired.
+	if m != nil {
+		cfg.Observer = m
+	}
+	return numericIngest{writer: telemetry.NewWriter(cfg), drained: closed}
+}
+
+// liveDropInterval is how often the writer's dropped live minutes are read.
+const liveDropInterval = time.Second
+
+// start runs the writer's senders, the store watch and the live-drop re-sends until ctx ends.
+func (n *numericIngest) start(ctx context.Context, ports telemetryPorts, agents *agentapi.AgentServer) {
+	if n.writer == nil {
+		return
+	}
+	n.drained = n.writer.Start(ctx)
+	go telemetry.NewStoreWatch(ports.client, agents.RequestResendAfterRestart).Run(ctx, telemetry.StoreWatchInterval)
+	go agents.RunLiveDropResends(ctx, n.writer.LiveDrops, liveDropInterval)
 }
 
 func newTelemetryPorts(cfg Config, logger *slog.Logger) telemetryPorts {
@@ -533,7 +595,7 @@ func newTelemetryPorts(cfg Config, logger *slog.Logger) telemetryPorts {
 		client = client.WithNamespace(cfg.Namespace)
 	}
 	logger.Info("edge sentinel telemetry writer enabled", "victoriametrics_url", cfg.VictoriaMetricsURL)
-	return telemetryPorts{writer: client, reader: client, purger: client, inventory: client}
+	return telemetryPorts{client: client, reader: client, purger: client, inventory: client}
 }
 
 // agentControlGetter adapts *agentapi.AgentServer to api.AgentGetter.
@@ -575,6 +637,7 @@ type purgeDeps struct {
 	jobs            *lifecycle.JobStore
 	seriesPurger    lifecycle.SeriesPurger
 	seriesInventory lifecycle.SubjectLister
+	writes          lifecycle.WriteWaiter
 	// investigations repairs the incident bookkeeping a device erasure leaves
 	// behind, which the foreign-key cascade cannot reach.
 	investigations lifecycle.InvestigationPurger
@@ -600,6 +663,7 @@ func buildPurgeOrchestrator(ctx context.Context, d purgeDeps) purgePorts {
 		Tombstones: d.tombstones,
 		Jobs:       d.jobs,
 		Series:     d.seriesPurger,
+		Writes:     d.writes,
 		PG:         lifecycle.NewPostgresPurger(d.db, d.investigations),
 		Edge:       d.agentSrv,
 		Logger:     d.logger,

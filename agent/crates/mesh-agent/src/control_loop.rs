@@ -52,6 +52,18 @@ impl Shared {
             *slot = Some(rules);
         }
     }
+
+    /// Settles the alert offered under `alert_id` as the server answered it.
+    fn on_alert_answer(&self, alert_id: &str, reason: mesh_protocol::AlertAnswerReason) {
+        debug!(alert_id, ?reason, "alert answered");
+        self.alert_sink.answer(alert_id, reason);
+    }
+
+    /// Starts a session: the server answers none of the last session's offers, so every one of
+    /// them goes again.
+    fn begin_session(&self) {
+        self.alert_sink.reoffer_awaiting();
+    }
 }
 
 /// A post-update verification still waiting for the server's acknowledgement.
@@ -417,6 +429,7 @@ impl Agent {
         // re-request; both stay `None` until a grant or defer arrives.
         let mut bf_send_at: Option<tokio::time::Instant> = None;
         let mut bf_retry_at: Option<tokio::time::Instant> = None;
+        self.shared.begin_session();
         if let Some(bf) = self.backfill.as_mut() {
             if let Some(msg) = bf.start_session().await {
                 match control.send_control(msg).await {
@@ -428,7 +441,15 @@ impl Agent {
 
         let mut heartbeat = tokio::time::interval(Duration::from_secs(60));
         heartbeat.tick().await;
+        let live_second = live_send_second(&self.identity.device_id.0.to_string());
+        let mut live_at = tokio::time::Instant::now() + until_live_send(now_ms(), live_second);
+        // `bf_resend_at` is when the batch whose answer never came goes again.
+        let mut bf_resend_at: Option<tokio::time::Instant> = None;
         loop {
+            let bf_answer_by = self
+                .backfill
+                .as_ref()
+                .and_then(backfill_loop::BackfillCoordinator::answer_deadline);
             tokio::select! {
                 biased;
                 _ = tokio::signal::ctrl_c() => {
@@ -449,10 +470,30 @@ impl Agent {
                         break;
                     }
                 }
+                _ = tokio::time::sleep_until(live_at) => {
+                    live_at = tokio::time::Instant::now() + until_live_send(now_ms(), live_second);
+                    if !send_live_windows(&mut control, &self.telemetry).await {
+                        break;
+                    }
+                }
                 Some(reply) = replies_rx.recv() => {
                     if let Err(e) = control.send_control(reply).await {
                         warn!(error = %e, "request reply failed, will reconnect");
                         break;
+                    }
+                }
+                _ = sleep_until_opt(bf_answer_by) => {
+                    if let Some(bf) = self.backfill.as_mut() {
+                        bf_resend_at = Some(tokio::time::Instant::now() + bf.on_missed_answer());
+                    }
+                }
+                _ = sleep_until_opt(bf_resend_at) => {
+                    bf_resend_at = None;
+                    if let Some(msg) = self.backfill.as_mut().and_then(backfill_loop::BackfillCoordinator::resend_in_flight) {
+                        if let Err(e) = control.send_control(msg).await {
+                            warn!(error = %e, "backfill resend failed, will reconnect");
+                            break;
+                        }
                     }
                 }
                 Some(outcome) = self.requests.outcomes.recv() => {
@@ -607,6 +648,10 @@ impl Agent {
                 self.shared.install_rules(rules, device_hourly_ceiling);
                 Flow::Continue
             }
+            ControlMessage::AlertAnswer { alert_id, reason } => {
+                self.shared.on_alert_answer(&alert_id, reason);
+                Flow::Continue
+            }
             other => self.dispatch_request(control, state, other).await,
         }
     }
@@ -743,13 +788,29 @@ impl Agent {
                     retry_at: None,
                 }
             }
-            ControlMessage::DeferBackfill { retry_after } => {
-                let delay = bf.on_defer(retry_after);
-                debug!(retry_after, delay_s = delay.as_secs(), "backfill: deferred");
+            ControlMessage::DeferBackfill {
+                retry_after,
+                since_ts,
+            } => {
+                let delay = if since_ts == 0 {
+                    bf.on_defer(retry_after)
+                } else {
+                    bf.on_resend_request(since_ts, retry_after).await
+                };
+                debug!(
+                    retry_after,
+                    since_ts,
+                    delay_s = delay.as_secs(),
+                    "backfill: deferred"
+                );
                 Flow::Backfill {
                     send_at: None,
                     retry_at: Some(tokio::time::Instant::now() + delay),
                 }
+            }
+            ControlMessage::LiveWindowStored { ts } => {
+                bf.on_live_confirmed(ts).await;
+                Flow::Continue
             }
             ControlMessage::MetricBackfillAck { tier, cursor } => {
                 let delay = bf.on_ack(tier, cursor).await;
@@ -839,8 +900,7 @@ async fn send_heartbeat<S: mesh_agent_core::ControlStream>(
     // Draining into a Vec first keeps every receiver out of the send await.
     let t = telemetry;
     let mut windows: Vec<ControlMessage> =
-        std::iter::from_fn(|| t.host_metric_rx.try_recv().ok()).collect();
-    windows.extend(std::iter::from_fn(|| t.discovery_rx.try_recv().ok()));
+        std::iter::from_fn(|| t.discovery_rx.try_recv().ok()).collect();
     windows.extend(std::iter::from_fn(|| t.health_rx.try_recv().ok()));
     for window in windows {
         if let Err(e) = control.send_control(window).await {
@@ -851,6 +911,48 @@ async fn send_heartbeat<S: mesh_agent_core::ControlStream>(
 
     // Alerts go last: a failed telemetry send leaves them queued in the sink.
     crate::send_queued_alerts(control, sink).await
+}
+
+/// Sends the live windows the sampler queued; returns whether the connection is still usable.
+async fn send_live_windows<S: mesh_agent_core::ControlStream>(
+    control: &mut mesh_agent_core::AgentConnection<S>,
+    telemetry: &Telemetry,
+) -> bool {
+    let windows: Vec<ControlMessage> =
+        std::iter::from_fn(|| telemetry.host_metric_rx.try_recv().ok()).collect();
+    for window in windows {
+        if let Err(e) = control.send_control(window).await {
+            warn!(error = %e, "live window send failed, will reconnect");
+            return false;
+        }
+    }
+    true
+}
+
+/// The second of each minute this machine sends its live window at, taken from its id, so a fleet
+/// that reconnected together still reaches the server evenly through the minute.
+pub(crate) fn live_send_second(device_id: &str) -> u64 {
+    // FNV-1a spreads ids that share a prefix as evenly as ids that do not.
+    let hash = device_id.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3)
+    });
+    hash % 60
+}
+
+/// How long from `now_ms` past the epoch until the clock next reads `second` past a minute;
+/// never zero, so a send is not repeated inside one second.
+pub(crate) fn until_live_send(now_ms: u64, second: u64) -> Duration {
+    let into_minute = now_ms % 60_000;
+    let wait = (second * 1_000 + 60_000 - into_minute) % 60_000;
+    Duration::from_millis(if wait == 0 { 60_000 } else { wait })
+}
+
+/// Milliseconds since the epoch on the wall clock.
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 /// Sends a reply owed at once, such as a busy answer; the connection keeps serving either way.
@@ -893,16 +995,164 @@ mod tests {
 
     #[test]
     fn a_ruleset_reaches_the_sampler_and_the_retro_scan() {
-        let shared = Shared {
-            alert_sink: mesh_agent_core::alerts::AlertSink::default(),
-            alert_rules_mailbox: edge_sentinel::AlertRulesMailbox::default(),
-            installed_rules: retro_job::InstalledRules::default(),
-            maintenance: mesh_agent_core::maintenance::MaintenanceGate::default(),
-        };
+        let shared = shared();
         let rules = vec![crate::edge_sentinel::test_support::cpu_rule()];
         shared.install_rules(rules.clone(), 7);
         assert_eq!(*shared.installed_rules.lock().unwrap(), rules);
         assert_eq!(*shared.alert_rules_mailbox.lock().unwrap(), Some(rules));
+    }
+
+    fn shared() -> Shared {
+        Shared {
+            alert_sink: mesh_agent_core::alerts::AlertSink::default(),
+            alert_rules_mailbox: edge_sentinel::AlertRulesMailbox::default(),
+            installed_rules: retro_job::InstalledRules::default(),
+            maintenance: mesh_agent_core::maintenance::MaintenanceGate::default(),
+        }
+    }
+
+    fn raised(rule_id: &str) -> mesh_agent_core::alerts::EdgeAlert {
+        mesh_agent_core::alerts::EdgeAlert {
+            rule_id: rule_id.to_string(),
+            rule_version: 1,
+            severity: mesh_agent_core::alerts::AlertSeverity::Warning,
+            ts_micros: 1_700_000_000_000_000,
+            window_start_micros: 1_700_000_000_000_000,
+            window_end_micros: 1_700_000_000_000_000,
+            metric: "cpu.total".to_string(),
+            value: Some(95.0),
+            subject: "cpu.total".to_string(),
+            summary: String::new(),
+            evidence: Vec::new(),
+            evidence_codec: String::new(),
+            origin: mesh_agent_core::alerts::AlertOrigin::Live,
+        }
+    }
+
+    #[test]
+    fn an_alert_answer_settles_the_offer_it_names() {
+        let shared = shared();
+        shared
+            .alert_sink
+            .push(raised("disk-critical"), 1_700_000_000_000_000);
+        shared
+            .alert_sink
+            .push(raised("cpu-saturated"), 1_700_000_000_000_000);
+        let offers = shared.alert_sink.offer();
+
+        shared.on_alert_answer(&offers[0].id, mesh_protocol::AlertAnswerReason::Stored);
+        shared.on_alert_answer(&offers[1].id, mesh_protocol::AlertAnswerReason::TryAgain);
+
+        let stats = shared.alert_sink.stats();
+        assert_eq!(stats.awaiting, 0);
+        assert_eq!(
+            stats.queued, 1,
+            "the alert to try again goes out with the next heartbeat"
+        );
+    }
+
+    #[test]
+    fn a_new_session_offers_every_unanswered_alert_again() {
+        let shared = shared();
+        shared
+            .alert_sink
+            .push(raised("disk-critical"), 1_700_000_000_000_000);
+        let _offers = shared.alert_sink.offer();
+
+        shared.begin_session();
+
+        let again = shared.alert_sink.offer();
+        assert_eq!(
+            again.len(),
+            1,
+            "an alert the last session never answered goes again"
+        );
+        assert_eq!(again[0].alert.rule_id, "disk-critical");
+    }
+
+    #[test]
+    fn five_thousand_machines_send_their_live_windows_spread_evenly_through_the_minute() {
+        let mut per_second = [0u32; 60];
+        for _ in 0..5_000 {
+            per_second[live_send_second(&uuid::Uuid::new_v4().to_string()) as usize] += 1;
+        }
+        let (fewest, most) = (
+            per_second.iter().min().unwrap(),
+            per_second.iter().max().unwrap(),
+        );
+        assert!(
+            *fewest >= 40 && *most <= 130,
+            "each second carries about 83: {per_second:?}"
+        );
+    }
+
+    #[test]
+    fn a_machine_sends_at_the_second_its_id_names_every_minute() {
+        let id = "6f0e1c2a-8d3b-4a5e-9f7c-1b2d3e4f5a6b";
+        let second = live_send_second(id);
+        assert_eq!(
+            second,
+            live_send_second(id),
+            "the second is the machine's own, every time"
+        );
+        let minute_start = 1_763_000_040_000u64;
+        let from_minute_start = if second == 0 { 60 } else { second };
+        assert_eq!(
+            until_live_send(minute_start, second),
+            Duration::from_secs(from_minute_start)
+        );
+        let at_send = minute_start + second * 1_000;
+        assert_eq!(
+            until_live_send(at_send, second),
+            Duration::from_secs(60),
+            "the next send is a minute on"
+        );
+        assert_eq!(
+            until_live_send(at_send + 400, second),
+            Duration::from_millis(59_600)
+        );
+    }
+
+    #[tokio::test]
+    async fn live_windows_go_out_on_their_own_and_not_with_the_heartbeat() {
+        let (ours, theirs) = tokio::io::duplex(64 * 1024);
+        let mut control =
+            mesh_agent_core::AgentConnection::new(mesh_agent_core::AsyncControlStream::new(ours));
+        let mut server =
+            mesh_agent_core::AgentConnection::new(mesh_agent_core::AsyncControlStream::new(theirs));
+        let (_health_tx, health_rx) = std::sync::mpsc::channel();
+        let (host_tx, host_metric_rx) = std::sync::mpsc::channel();
+        let (_discovery_tx, discovery_rx) = std::sync::mpsc::channel();
+        let telemetry = Telemetry {
+            health_rx,
+            host_metric_rx,
+            discovery_rx,
+        };
+        host_tx
+            .send(ControlMessage::AgentMetricWindow {
+                ts: 1_763_000_040,
+                tenant_id: String::new(),
+                dims: Vec::new(),
+            })
+            .unwrap();
+        let sink = mesh_agent_core::alerts::AlertSink::default();
+
+        assert!(send_heartbeat(&mut control, &telemetry, false, &sink).await);
+        assert!(matches!(
+            server.receive_control().await.unwrap(),
+            ControlMessage::AgentHeartbeat { .. }
+        ));
+        assert!(send_live_windows(&mut control, &telemetry).await);
+        assert!(
+            matches!(
+                server.receive_control().await.unwrap(),
+                ControlMessage::AgentMetricWindow {
+                    ts: 1_763_000_040,
+                    ..
+                }
+            ),
+            "the window waited for its own send, not the heartbeat's"
+        );
     }
 
     #[tokio::test]
