@@ -627,56 +627,116 @@ cleanup_repo
 echo
 echo "## pretooluse-git-push-guard.sh"
 
-make_repo
+# The push guard judges the project it is installed in, so its cases run a copy installed in the
+# case's repo.
+PUSH_HOOK_FILES=(.claude/hooks/pretooluse-git-push-guard.sh .claude/hooks/lib/common.sh)
+make_push_repo() { make_repo "${PUSH_HOOK_FILES[@]}"; }
+run_push_hook() { run_hook pretooluse-git-push-guard.sh "$1" "$REPO/.claude/hooks"; }
+
+# OUTSIDE becomes the session's directory: a commit ahead of its base and no refactor marker.
+cd_into_new_commit() {
+  cd "$OUTSIDE"
+  git config user.email "test@example.com"
+  git config user.name "Test User"
+  echo "change" >>"${1:-base.txt}"
+  git add -A
+  git commit --quiet -m "change"
+}
+
+push_envelope() {
+  build_envelope Bash "$(python3 -c 'import json, sys; print(json.dumps({"command": sys.argv[1]}))' "$1")"
+}
+
+# Another project's clone has a history of its own, without this project's first commit.
+make_push_repo
+OUTSIDE="$(mktemp -d)"
+git -C "$OUTSIDE" init --quiet --initial-branch=master
+cd_into_new_commit other.txt
+git checkout --quiet -b topic
+cd_into_new_commit other.txt
+run_push_hook "$(push_envelope 'git push --force-with-lease fork HEAD:topic')"
+assert_exit "plain push from another project's clone, no marker: PASS" 0
+run_push_hook "$(push_envelope 'git push origin main')"
+assert_exit "plain push to main from another project's clone: PASS" 0
+for switch in "cd $REPO && git push origin dev" "pushd $REPO && git push origin dev" \
+  "git -C $REPO push origin dev" "git --git-dir=$REPO/.git push origin dev" \
+  "git --work-tree=$REPO push origin dev" "GIT_DIR=$REPO/.git git push origin dev" \
+  "GIT_WORK_TREE=$REPO git push origin dev"; do
+  run_push_hook "$(push_envelope "$switch")"
+  assert_exit "'${switch//"$REPO"/<project>}' from another project's clone stays judged: BLOCK" 2
+done
+cleanup_repo
+
+# A clone and a work tree of the project hold its first commit, so their pushes are judged.
+make_push_repo
+OUTSIDE="$(mktemp -d)"
+rmdir "$OUTSIDE"
+git clone --quiet "$REPO" "$OUTSIDE"
+cd_into_new_commit
+run_push_hook "$(push_envelope 'git push origin dev')"
+assert_exit "push from a clone of the project, no marker: BLOCK" 2
+assert_stderr_contains "clone of the project: stderr cites /refactor" "/refactor"
+cleanup_repo
+
+make_push_repo
+OUTSIDE="$(mktemp -d)"
+rmdir "$OUTSIDE"
+git worktree add --quiet -b wt "$OUTSIDE"
+cd_into_new_commit
+run_push_hook "$(push_envelope 'git push origin wt')"
+assert_exit "push from a work tree of the project, no marker: BLOCK" 2
+cleanup_repo
+
+make_push_repo
 envelope="$(build_envelope Bash '{"command":"ls"}')"
-run_hook pretooluse-git-push-guard.sh "$envelope"
+run_push_hook "$envelope"
 assert_exit "Bash 'ls': allow" 0
 cleanup_repo
 
-make_repo
+make_push_repo
 envelope="$(build_envelope Bash '{"command":"git push origin main"}')"
-run_hook pretooluse-git-push-guard.sh "$envelope"
+run_push_hook "$envelope"
 assert_exit "git push origin main: BLOCK" 2
 assert_stderr_contains "push main: stderr cites main" "main"
 cleanup_repo
 
-make_repo
+make_push_repo
 envelope="$(build_envelope Bash '{"command":"git push --force origin main"}')"
-run_hook pretooluse-git-push-guard.sh "$envelope"
+run_push_hook "$envelope"
 assert_exit "git push --force main: BLOCK" 2
 cleanup_repo
 
 # `-c` takes its value as a separate token, so a filter skipping only `-`-prefixed words never
 # reaches the push verb.
-make_repo
+make_push_repo
 envelope="$(build_envelope Bash '{"command":"git -c protocol.version=2 push origin main"}')"
-run_hook pretooluse-git-push-guard.sh "$envelope"
+run_push_hook "$envelope"
 assert_exit "git -c ... push origin main: BLOCK" 2
 assert_stderr_contains "-c push main: stderr cites main" "main"
 cleanup_repo
 
-make_repo
+make_push_repo
 echo "# new" >newdoc.md
 git add newdoc.md
 git commit --quiet -m "docs"
 envelope="$(build_envelope Bash '{"command":"git push origin dev"}')"
-run_hook pretooluse-git-push-guard.sh "$envelope"
+run_push_hook "$envelope"
 assert_exit "git push doc-only no marker: BLOCK" 2
 assert_stderr_contains "doc-only no marker: stderr cites /refactor" "/refactor"
 cleanup_repo
 
-make_repo
+make_push_repo
 echo "# new" >newdoc.md
 git add newdoc.md
 git commit --quiet -m "docs"
 mkdir -p .claude/.markers
 git rev-parse HEAD >.claude/.markers/refactor.head
 envelope="$(build_envelope Bash '{"command":"git push origin dev"}')"
-run_hook pretooluse-git-push-guard.sh "$envelope"
+run_push_hook "$envelope"
 assert_exit "git push doc-only w/ marker: PASS" 0
 cleanup_repo
 
-make_repo
+make_push_repo
 mkdir -p server/internal/api
 echo "package api" >server/internal/api/foo_test.go
 git add server/internal/api/foo_test.go
@@ -685,12 +745,12 @@ echo "package api" >server/internal/api/handlers.go
 git add server/internal/api/handlers.go
 git commit --quiet -m "feat"
 envelope="$(build_envelope Bash '{"command":"git push origin dev"}')"
-run_hook pretooluse-git-push-guard.sh "$envelope"
+run_push_hook "$envelope"
 assert_exit "git push with source commits no marker: BLOCK" 2
 assert_stderr_contains "no refactor marker: stderr cites /refactor" "/refactor"
 cleanup_repo
 
-make_repo
+make_push_repo
 mkdir -p server/internal/api
 echo "package api" >server/internal/api/foo_test.go
 git add server/internal/api/foo_test.go
@@ -701,33 +761,33 @@ git commit --quiet -m "feat"
 mkdir -p .claude/.markers
 git rev-parse HEAD >.claude/.markers/refactor.head
 envelope="$(build_envelope Bash '{"command":"git push origin dev"}')"
-run_hook pretooluse-git-push-guard.sh "$envelope"
+run_push_hook "$envelope"
 assert_exit "git push source commits w/ refactor marker: PASS" 0
 cleanup_repo
 
-make_repo
+make_push_repo
 mkdir -p deploy
 echo "services: {}" >deploy/docker-compose.yml
 git add deploy/docker-compose.yml
 git commit --quiet -m "tweak compose"
 envelope="$(build_envelope Bash '{"command":"git push origin dev"}')"
-run_hook pretooluse-git-push-guard.sh "$envelope"
+run_push_hook "$envelope"
 assert_exit "git push deploy/ no marker: BLOCK" 2
 assert_stderr_contains "deploy/ no marker: stderr cites /refactor" "/refactor"
 cleanup_repo
 
-make_repo
+make_push_repo
 mkdir -p scripts
 echo "echo hi" >scripts/foo.sh
 git add scripts/foo.sh
 git commit --quiet -m "tweak script"
 envelope="$(build_envelope Bash '{"command":"git push origin dev"}')"
-run_hook pretooluse-git-push-guard.sh "$envelope"
+run_push_hook "$envelope"
 assert_exit "git push scripts/ no marker: BLOCK" 2
 assert_stderr_contains "scripts/ no marker: stderr cites /refactor" "/refactor"
 cleanup_repo
 
-make_repo
+make_push_repo
 mkdir -p scripts
 echo "echo hi" >scripts/foo.sh
 git add scripts/foo.sh
@@ -735,7 +795,7 @@ git commit --quiet -m "tweak script"
 mkdir -p .claude/.markers
 git rev-parse HEAD >.claude/.markers/refactor.head
 envelope="$(build_envelope Bash '{"command":"git push origin dev"}')"
-run_hook pretooluse-git-push-guard.sh "$envelope"
+run_push_hook "$envelope"
 assert_exit "git push scripts/ w/ refactor marker: PASS" 0
 cleanup_repo
 
