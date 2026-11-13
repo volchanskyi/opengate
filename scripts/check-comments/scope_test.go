@@ -71,6 +71,7 @@ func TestClassifyKnowsEveryLanguage(t *testing.T) {
 		".env.example":                      langHash,
 		".claude/shell-policy.exceptions":   langHash,
 		"server/x/catalogue.lock":           langHash,
+		"scripts/lib/time.jq":               langHash,
 		"a.css":                             langCSS,
 		"a.html":                            langHTML,
 	}

@@ -58,7 +58,11 @@ pins each version's load, so a load changed without its version fails.
 compared against a measurement taken somewhere else.
 
 **A limit names a measurement that can actually be produced where the run
-happens.** A ceiling on something nothing there measures never fails.
+happens.** A ceiling on something nothing there measures never fails. A sign-in
+limit therefore sits on a phase that climbs past the one before: the harness dials
+only to climb, so a phase that holds or sheds machines starts no sign-in, and the
+profile check refuses a limit there by the phase's name
+([`profile_gates.go`](../../server/tests/loadtest/profile_gates.go)).
 
 **A limit names something the system decides, not something the profile
 declares.** A walked profile paces its own arrivals, so a floor under the rate
@@ -233,7 +237,10 @@ climbs until arrivals fail, so its aggregate share of machines that did not get
 in is the finding rather than a fault: any ceiling it could pass is one it
 passes by not finding an answer. What is worth holding there is whether the
 system came back, which is the recovery phase rather than the whole walk, and
-the per-phase ceiling the run's own verdict applies already holds it. The
+the per-phase ceiling the run's own verdict applies already holds it. The ladder
+marks its recovery measured, so the technicians' times, the server's and the
+database's load and the returning wave are read over that one window, as Gatling's
+and k6's stress-test guides read a recovery. The
 measurement is declared deliberately unlimited with that reason written beside
 it, because a measurement in neither list reads from the outside exactly like
 one nobody decided about.

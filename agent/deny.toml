@@ -48,7 +48,7 @@ skip = [
   { crate = "hashbrown@0.16.1",                reason = "hashbrown 0.16/0.17 stagger via std internal vs hashbrown 0.17 in newer indexmap" },
   { crate = "nix@0.28.0",                      reason = "nix 0.28/0.31 stagger — portable-pty pins 0.28, the webrtc-rs socket layer carries 0.31" },
   { crate = "pem@3.0.6",                       reason = "pem 3/4 stagger — rcgen pins 3, the agent's enrollment certificate decode uses 4" },
-  { crate = "quinn-udp@0.5.14",                reason = "quinn-udp 0.5/0.6 stagger — quinn 0.11 pins 0.5, the webrtc-rs UDP transport carries 0.6" },
+  { crate = "quinn-udp@0.5.16",                reason = "quinn-udp 0.5/0.6 stagger — quinn 0.11 pins 0.5, the webrtc-rs UDP transport carries 0.6" },
   { crate = "rand_core@0.6.4",                 reason = "rand_core 0.6/0.9 stagger pairs with rand version stagger across crypto stack" },
   { crate = "sha1@0.10.6",                     reason = "sha1 0.10/0.11 stagger — the DTLS/SRTP stack pins 0.10, tungstenite's handshake carries 0.11" },
   { crate = "sha2@0.10.9",                     reason = "RustCrypto 0.10→0.11 stagger paired with digest split" },

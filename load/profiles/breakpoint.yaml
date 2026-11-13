@@ -3,7 +3,7 @@
 schema_version: 1
 name: breakpoint
 # The ladder stops at the first rung that gives, so its walk is a load of its own.
-version: 2
+version: 3
 family: breakpoint
 environment: runner
 fixture: small
@@ -47,12 +47,14 @@ phases:
     operator_arrivals_per_second: 0
     connected_agents: 0
     sessions: 0
-  # Held at the starting load, so the report says whether the system came back on its own.
+  # Held at the starting load and measured, so the technicians' times, the server's and database's
+  # load and the returning wave say whether the system came back on its own.
   - name: recovery
     duration: 5m
     operator_arrivals_per_second: 5
     connected_agents: 500
     sessions: 5
+    measured: true
 
 # No processor ceiling, because running the processor out is the experiment on a throwaway stack.
 # The declared limits keep the room the machine needs to store what the run produces.
@@ -214,14 +216,6 @@ gates:
     max: 100
     blocking: false
   - series: quic/register/step-16000
-    metric: latency_p95_ms
-    max: 500
-    blocking: false
-  - series: quic/register/drain
-    metric: latency_p50_ms
-    max: 100
-    blocking: false
-  - series: quic/register/drain
     metric: latency_p95_ms
     max: 500
     blocking: false

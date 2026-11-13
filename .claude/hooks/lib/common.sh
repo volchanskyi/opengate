@@ -129,3 +129,24 @@ enable_fail_closed_hook() {
 git_verb_re() {
   printf '\\bgit[[:space:]]+(-[^[:space:]]+[[:space:]]+([^-][^[:space:]]*[[:space:]]+)?)*%s\\b' "$1"
 }
+
+# Every clone and work tree of this project holds its first commit. A plain git command in a
+# repository without one belongs to another project; a command that changes repository stays judged.
+REPO_SWITCH_RE='(^|[^[:alnum:]_-])(cd|pushd)[[:space:]]|[[:space:]]-C[[:space:]]'
+REPO_SWITCH_RE+='|--git-dir|--work-tree|GIT_DIR|GIT_WORK_TREE'
+
+# An unreadable project history counts as held, so the command stays judged.
+holds_project_history() {
+  local firsts first
+  firsts="$(git -C "$PROJECT_ROOT" rev-list --max-parents=0 HEAD 2>/dev/null || true)"
+  [[ -n "$firsts" ]] || return 0
+  for first in $firsts; do
+    git cat-file -e "${first}^{commit}" 2>/dev/null && return 0
+  done
+  return 1
+}
+
+# Succeeds for a command that stays in a repository of another project.
+belongs_to_other_project() {
+  ! grep -qE "$REPO_SWITCH_RE" <<<"$1" && ! holds_project_history
+}

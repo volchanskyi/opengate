@@ -187,6 +187,94 @@ else
   fail "load-test.yml drives all three scenarios through the runner, together"
 fi
 
+# The scenarios load under stand-in k6 modules whose Trend records each name a scenario times, so
+# the export marks are read off the scenarios as k6 builds them.
+if ! command -v node >/dev/null 2>&1; then
+  fail "node is on PATH, so the scenarios' export marks can be built rather than described"
+fi
+K6_STAND_IN="$WORK/k6-stand-in"
+mkdir -p "$K6_STAND_IN/node_modules/k6"
+cp -r "$REPO_ROOT/load/k6/lib" "$REPO_ROOT/load/k6/scenarios" "$K6_STAND_IN/"
+printf '{"type":"module"}\n' >"$K6_STAND_IN/package.json"
+cat >"$K6_STAND_IN/node_modules/k6/package.json" <<'EOF'
+{"name": "k6", "type": "module",
+ "exports": {".": "./index.js", "./metrics": "./metrics.js", "./http": "./http.js", "./ws": "./ws.js"}}
+EOF
+cat >"$K6_STAND_IN/node_modules/k6/index.js" <<'EOF'
+export function check() { return true; }
+export function fail(message) { throw new Error(message); }
+export function sleep() {}
+EOF
+cat >"$K6_STAND_IN/node_modules/k6/metrics.js" <<'EOF'
+export const trends = [];
+export class Trend { constructor(name) { trends.push(name); } add() {} }
+export class Counter { add() {} }
+EOF
+printf 'export default {};\n' >"$K6_STAND_IN/node_modules/k6/http.js"
+printf 'export default {};\n' >"$K6_STAND_IN/node_modules/k6/ws.js"
+
+# scenario_marks prints a scenario's timed trends and its threshold names, loaded over a walk.
+scenario_marks() { # scenario walk
+  (cd "$K6_STAND_IN" && LOADTEST_PHASES="$2" node --input-type=module -e "
+    globalThis.__ENV = process.env;
+    const { trends } = await import('k6/metrics');
+    const { options } = await import('./scenarios/$1.js');
+    process.stdout.write(JSON.stringify({ trends, thresholds: Object.keys(options.thresholds || {}) }));
+  ")
+}
+
+STEADY_WALK='[{"name":"ramp","seconds":60,"arrivals_per_second":2,"sessions":1,"agents":10,"measured":false},
+  {"name":"steady","seconds":120,"arrivals_per_second":2,"sessions":1,"agents":10,"measured":true}]'
+timed=0
+for scenario in "$K6_STAND_IN"/scenarios/*.js; do
+  name="$(basename "$scenario" .js)"
+  if ! marks="$(scenario_marks "$name" "$STEADY_WALK")"; then
+    fail "$name loads under the stand-in k6"
+    continue
+  fi
+  timed=$((timed + $(jq '.trends | length' <<<"$marks")))
+  assert_eq "$name exports every time it takes over the measured phase" "" \
+    "$(jq -r '(.trends - [.thresholds[] | select(endswith("{phase:steady}")) | rtrimstr("{phase:steady}")])
+      | join(" ")' <<<"$marks")"
+done
+if [ "$timed" -gt 0 ]; then
+  pass "the scenarios time something, so the check above read their marks"
+else
+  fail "no scenario declared a time it takes, so the check above read nothing"
+fi
+
+# Breakpoint's technicians are judged over its recovery: the walk its profile projects marks the
+# phase, the scenarios export it, and the rows its limits read carry that phase alone.
+# shellcheck source=scripts/lib/loadtest-profile.sh
+. "$REPO_ROOT/scripts/lib/loadtest-profile.sh"
+BREAKPOINT_WALK="$(profile_phases "$REPO_ROOT/load/profiles/breakpoint.yaml")"
+assert_eq "breakpoint measures its recovery" "recovery" \
+  "$(jq -r '[.[] | select(.measured) | .name] | join(" ")' <<<"$BREAKPOINT_WALK")"
+jq -n '{schema_version: 11, verdict: {result: "valid"}, run: {commit: "deadbeef"},
+  observations: [{series: "aggregate_error_rate", value: 0}, {series: "connect_p95_ms", value: 5}]}' \
+  >"$WORK/breakpoint-bundle.json"
+merged=()
+for scenario in api-baseline relay-throughput; do
+  marks="$(scenario_marks "$scenario" "$BREAKPOINT_WALK")"
+  # Each time reads 9000 ms over the whole run and 40 ms over each phase the scenario exports.
+  jq -n --argjson marks "$marks" '
+    def stat($ms): {"p(50)": $ms, med: $ms, "p(95)": $ms, count: 100};
+    {metrics: (
+      ([$marks.trends[] | {key: ., value: stat(9000)}]
+        + [$marks.thresholds[] | select((split("{")[0]) as $base | $marks.trends | index($base))
+            | {key: ., value: stat(40)}])
+      | from_entries
+      + {http_reqs: {count: 200, rate: 1}, requests_refused: {count: 0, rate: 0}})}' \
+    >"$WORK/breakpoint-$scenario.json"
+  merged+=(--journeys "$WORK/breakpoint-$scenario.json")
+done
+"$REPO_ROOT/scripts/loadtest-bundle-merge.sh" "$WORK/breakpoint-bundle.json" "${merged[@]}" >/dev/null
+assert_eq "breakpoint's technician rows read its recovery alone" \
+  "k6/api-baseline/command_accept 40|k6/api-baseline/device_detail 40|k6/api-baseline/device_list 40|k6/relay-throughput/relay 40" \
+  "$("$REPO_ROOT/scripts/loadtest-bundle-rows.sh" "$WORK/breakpoint-bundle.json" \
+    | jq -r '[.[] | select(.source == "k6") | "\(.source)/\(.scenario)/\(.phase) \(.latency_p95_ms)"]
+      | sort | join("|")')"
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

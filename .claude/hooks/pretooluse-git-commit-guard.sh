@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Refuses a commit at the first failing check, in order: trailer, --no-verify, identity,
-# branch, upstream, tidy-up proof, gauntlet, TDD backup.
+# Refuses a commit in this project's clones and work trees at the first failing check, in order:
+# trailer, --no-verify, identity, branch, upstream, tidy-up proof, gauntlet, TDD backup.
 set -euo pipefail
 # shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
@@ -15,6 +15,10 @@ cmd="${HOOK_TOOL_INPUT_COMMAND:-}"
 [ -n "$cmd" ] || exit 0
 
 if ! grep -qE "$(git_verb_re commit)" <<<"$cmd"; then
+  exit 0
+fi
+
+if belongs_to_other_project "$cmd"; then
   exit 0
 fi
 

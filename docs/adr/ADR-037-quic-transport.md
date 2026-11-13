@@ -27,8 +27,8 @@ processor with its memory near its limit and about half its processor collecting
 garbage. In the copy, each crypto stream drops what it sent once sent and a
 finished stream's receive queue; the server releases its TLS connection once the
 session ticket is sent, keeping the connection state, since a QUIC server reads no
-TLS message after the handshake and refuses one that arrives with the alert Go's
-TLS sends; and a connection's packet queue gives back what a burst grew it to once
+TLS message after the handshake and refuses one that arrives with the TLS alert
+`unexpected_message`; and a connection's packet queue gives back what a burst grew it to once
 drained. With 2,000 idle connections in a process of their own, the heap per
 connection falls from 34.6 KB to 25.2 KB. The dependency check reads the copy's
 advisories under `quic-go` and the release the copy is built on, since

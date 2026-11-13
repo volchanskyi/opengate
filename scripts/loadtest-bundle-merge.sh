@@ -6,6 +6,8 @@
 #   loadtest-bundle-merge.sh BUNDLE [--weight|--cleanup|--runner|--probe|--database|--journeys F]...
 set -euo pipefail
 
+LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib"
+
 usage() {
   echo "usage: $0 <bundle.json> [--weight <fixture-weight.json>] [--cleanup <cleanup-proof.json>] [--runner <runner.json>] [--probe <store-probe.json>] [--database <database-levels.json>] [--journeys <k6-export.json>]..." >&2
 }
@@ -64,13 +66,8 @@ arrivals_from() {
 # with_arrivals sets each timed phase's completed share against the arrivals it offered over its
 # own span, with their 95th-percentile time; both are watched and judge nothing.
 with_arrivals() {
-  jq --argjson timed "$1" '
-    def epoch:
-      capture("^(?<d>[0-9-]+T[0-9:]+)(\\.(?<f>[0-9]+))?(?<z>Z|[+-][0-9]{2}:[0-9]{2})$")
-      | ((.d + "Z") | fromdateiso8601) + (("0." + (.f // "0")) | tonumber)
-        - (if .z == "Z" then 0
-           else ((.z[0:1] + "1") | tonumber) * ((.z[1:3] | tonumber) * 3600 + (.z[4:6] | tonumber) * 60)
-           end);
+  jq -L "$LIB_DIR" --argjson timed "$1" '
+    include "time";
     if .phases == null then . else
       .phases |= map(
         . as $phase

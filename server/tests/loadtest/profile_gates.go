@@ -2,7 +2,11 @@ package main
 
 import (
 	"fmt"
+	"strings"
 )
+
+// signInSeries prefixes the series of the server's sign-in timing over one named phase.
+const signInSeries = "quic/register/"
 
 // Gate is one rule the bundle is read against.
 type Gate struct {
@@ -28,9 +32,6 @@ func (g Gate) Measurement() string { return g.Series + "|" + g.Metric }
 
 func (p *Profile) validateGates() []error {
 	var problems []error
-	// A blocking gate is counted by measurement and direction, so a ceiling and a floor coexist.
-	blocking := map[string]int{}
-
 	for i, gate := range p.Gates {
 		if gate.Series == "" {
 			problems = append(problems, fmt.Errorf("gate %d names no series", i))
@@ -39,6 +40,16 @@ func (p *Profile) validateGates() []error {
 			problems = append(problems, fmt.Errorf("gate %d names no metric", i))
 		}
 		problems = append(problems, p.validateGateShape(i, gate)...)
+	}
+	problems = append(problems, p.validateBlockingLimits()...)
+	return append(problems, p.validateSignInPhases()...)
+}
+
+// validateBlockingLimits allows one failing limit per measurement and direction, counted apart so
+// a ceiling and a floor coexist.
+func (p *Profile) validateBlockingLimits() []error {
+	blocking := map[string]int{}
+	for _, gate := range p.Gates {
 		if !gate.Blocking {
 			continue
 		}
@@ -50,6 +61,7 @@ func (p *Profile) validateGates() []error {
 		}
 	}
 
+	var problems []error
 	for _, gate := range p.Gates {
 		for _, direction := range []string{"max", "min"} {
 			key := gate.Measurement() + "|" + direction
@@ -59,6 +71,39 @@ func (p *Profile) validateGates() []error {
 					gate.Series, gate.Metric))
 				blocking[key] = 0
 			}
+		}
+	}
+	return problems
+}
+
+// validateSignInPhases refuses a sign-in limit on a phase no machine joins: the harness dials only
+// to climb past the phase before, so a phase that holds or sheds machines starts no sign-in.
+func (p *Profile) validateSignInPhases() []error {
+	joins := map[string]bool{}
+	before := 0
+	for _, phase := range p.Phases {
+		joins[phase.Name] = phase.ConnectedAgents > before
+		before = phase.ConnectedAgents
+	}
+	var problems []error
+	refused := map[string]bool{}
+	for _, gate := range p.Gates {
+		name, timed := strings.CutPrefix(gate.Series, signInSeries)
+		if !timed || refused[name] {
+			continue
+		}
+		var problem error
+		switch joined, walked := joins[name]; {
+		case !walked:
+			problem = fmt.Errorf("%s names phase %q, which this profile does not walk", gate.Series, name)
+		case !joined:
+			problem = fmt.Errorf(
+				"%s is limited, but phase %q holds no more machines than the phase before it, so it starts no sign-in of its own and a row, where one arrives, times the stragglers of the phase before",
+				gate.Series, name)
+		}
+		if problem != nil {
+			problems = append(problems, problem)
+			refused[name] = true
 		}
 	}
 	return problems

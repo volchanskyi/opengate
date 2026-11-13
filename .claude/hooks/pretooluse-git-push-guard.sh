@@ -16,21 +16,7 @@ if ! grep -qE "$(git_verb_re push)" <<<"$cmd"; then
   exit 0
 fi
 
-# Every clone and work tree of this project holds its first commit. A plain push from a repository
-# without one belongs to another project; a command that changes repository stays judged.
-repo_switch_re='(^|[^[:alnum:]_-])(cd|pushd)[[:space:]]|[[:space:]]-C[[:space:]]'
-repo_switch_re+='|--git-dir|--work-tree|GIT_DIR|GIT_WORK_TREE'
-# An unreadable project history counts as held, so the push stays judged.
-holds_project_history() {
-  local firsts first
-  firsts="$(git -C "$PROJECT_ROOT" rev-list --max-parents=0 HEAD 2>/dev/null || true)"
-  [[ -n "$firsts" ]] || return 0
-  for first in $firsts; do
-    git cat-file -e "${first}^{commit}" 2>/dev/null && return 0
-  done
-  return 1
-}
-if ! grep -qE "$repo_switch_re" <<<"$cmd" && ! holds_project_history; then
+if belongs_to_other_project "$cmd"; then
   exit 0
 fi
 

@@ -139,11 +139,3 @@ gates:
     metric: latency_p95_ms
     max: 500
     blocking: true
-  - series: quic/register/drain
-    metric: latency_p50_ms
-    max: 100
-    blocking: true
-  - series: quic/register/drain
-    metric: latency_p95_ms
-    max: 500
-    blocking: true
