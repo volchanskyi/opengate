@@ -79,6 +79,11 @@ commit tomorrow. SonarCloud, lints and e2e gate on full-repo state.
 - The push guard blocks a push whenever there are any commits since
   `origin/dev` unless `refactor.head` equals HEAD, regardless of what files they
   touch. There is no doc-only or CI-only exemption.
+- The push guard judges every repository that holds this project's first
+  commit: its clones and work trees. A plain push from another project's clone,
+  such as an upstream fork, is left to that project. A push command that
+  changes directory or repository (`cd`, `pushd`, `-C`, `--git-dir`,
+  `--work-tree`, `GIT_DIR`, `GIT_WORK_TREE`) is judged wherever it starts.
 - A commit rebased by hand, or made with no tidy-up behind it, is cleared the
   same way: `/refactor`. With nothing tracked left uncommitted, its finish marks
   HEAD.
