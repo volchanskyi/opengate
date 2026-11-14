@@ -315,6 +315,91 @@ for uid in disk-usage-critical disk-usage-warning memory-usage-high \
   fi
 done
 
+# The disk rules sit on the node's own lines: the image clean-up its start-up script sets, and the
+# kubelet's default imagefs eviction at under 15% free, which on this node is the root disk.
+NODE_INIT="$REPO_ROOT/deploy/terraform/modules/oke/node-init.sh"
+EVICTION_USED_PERCENT=85
+disk_report="$(
+  python3 - "$RULES_FILE" "$NODE_INIT" <<'PY'
+import pathlib, re, sys, yaml
+
+rules_path, init_path = sys.argv[1], pathlib.Path(sys.argv[2])
+doc = yaml.safe_load(open(rules_path, encoding="utf-8"))
+rules = {r["uid"]: r for g in doc["groups"] for r in g["rules"]}
+init = init_path.read_text(encoding="utf-8") if init_path.is_file() else ""
+high = re.search(r'"imageGCHighThresholdPercent":\s*(\d+)', init)
+print(f"gc_high={high.group(1) if high else ''}")
+
+def items(uid):
+    return {d["refId"]: d for d in rules.get(uid, {}).get("data", [])}
+
+def reduced_expr(data, ref):
+    model = data.get(ref, {}).get("model", {})
+    if model.get("type") != "reduce":
+        return ""
+    return " ".join(data.get(model.get("expression"), {}).get("model", {}).get("expr", "").split())
+
+warning = rules.get("disk-usage-warning", {})
+data = items("disk-usage-warning")
+math = data.get(warning.get("condition"), {}).get("model", {})
+terms = re.fullmatch(r"\$(\w+) > (\d+) && \$(\w+) > (\d+)", math.get("expression", "").strip())
+if math.get("type") == "math" and terms:
+    print(f"warning_now={reduced_expr(data, terms.group(1))}")
+    print(f"warning_floor={terms.group(2)}")
+    print(f"warning_ahead={reduced_expr(data, terms.group(3))}")
+    print(f"warning_ceiling={terms.group(4)}")
+print(f"warning_for={warning.get('for', '')}")
+
+critical = rules.get("disk-usage-critical", {})
+for d in critical.get("data", []):
+    for c in d.get("model", {}).get("conditions", []):
+        print(f"critical_line={c['evaluator']['type']} {c['evaluator']['params'][0]}")
+print(f"critical_for={critical.get('for', '')}")
+PY
+)"
+disk_field() { sed -n "s/^$1=//p" <<<"$disk_report"; }
+
+gc_high="$(disk_field gc_high)"
+if [ -n "$gc_high" ]; then
+  pass "the node's start-up script names the line its image clean-up starts at ($gc_high%)"
+else
+  fail "node-init.sh must write imageGCHighThresholdPercent for the disk rules to sit above"
+fi
+
+used_now='100 - (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} * 100)'
+used_ahead='100 - (predict_linear(node_filesystem_avail_bytes{mountpoint="/"}[6h], 24 * 3600) / node_filesystem_size_bytes{mountpoint="/"} * 100)'
+if [ "$(disk_field warning_now)" = "$used_now" ] && [ "$(disk_field warning_ahead)" = "$used_ahead" ]; then
+  pass "the disk warning reads the root disk now and a day ahead at the last six hours' pace"
+else
+  fail "disk-usage-warning must compare \$now > floor && \$ahead > ceiling, reducing [$used_now] and [$used_ahead] (got now=[$(disk_field warning_now)] ahead=[$(disk_field warning_ahead)])"
+fi
+
+if [ -n "$gc_high" ] && [ "$(disk_field warning_floor)" = "$gc_high" ] \
+  && [ "$(disk_field warning_ceiling)" = "$EVICTION_USED_PERCENT" ]; then
+  pass "the disk warning fires only above the image clean-up line, heading past eviction"
+else
+  fail "disk-usage-warning must fire above the clean-up line ($gc_high) heading past $EVICTION_USED_PERCENT (got floor=$(disk_field warning_floor) ceiling=$(disk_field warning_ceiling))"
+fi
+
+if [ "$(disk_field warning_for)" = "1h" ]; then
+  pass "the disk warning holds an hour, so one burst of writes does not raise it"
+else
+  fail "disk-usage-warning must carry for: 1h (got $(disk_field warning_for))"
+fi
+
+if [ "$(disk_field critical_line)" = "gt 83" ] && [ -n "$gc_high" ] \
+  && [ "$gc_high" -lt 83 ] && [ 83 -lt "$EVICTION_USED_PERCENT" ]; then
+  pass "the disk critical fires above 83%, between the image clean-up and eviction"
+else
+  fail "disk-usage-critical must fire above 83%, between $gc_high and $EVICTION_USED_PERCENT (got $(disk_field critical_line))"
+fi
+
+if [ "$(disk_field critical_for)" = "5m" ]; then
+  pass "the disk critical holds five minutes"
+else
+  fail "disk-usage-critical must carry for: 5m (got $(disk_field critical_for))"
+fi
+
 # The monitoring stack charts what the product reads off machines and alerts on none of it.
 # product_rules <rules-file> prints each rule that reads a product series, and the series.
 product_rules() {

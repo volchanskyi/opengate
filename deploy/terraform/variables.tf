@@ -61,7 +61,7 @@ variable "oke_kubernetes_version" {
 variable "oke_node_image_id" {
   description = "OCID of the aarch64 OKE worker image matching oke_kubernetes_version. Resolve via `oci ce node-pool-options get --node-pool-option-id all`."
   type        = string
-  default     = "ocid1.image.oc1.us-sanjose-1.aaaaaaaalih7kqgecormb75syw4mwchfbzfjxtz4skym66ansmw2utfxjnsq"
+  default     = "ocid1.image.oc1.us-sanjose-1.aaaaaaaaxdsxgeuliw2ohp564id7xnhgcf7dqadyzpp2kxe5u7sauxnethsa"
 }
 
 variable "oke_availability_domain" {

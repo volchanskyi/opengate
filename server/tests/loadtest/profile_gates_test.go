@@ -135,3 +135,75 @@ func TestAProcessorShareBelowWhichALimitOnlyWatchesIsPositiveAndOnAFailingLimit(
 		})
 	}
 }
+
+func walkWith(gates string) string {
+	return `
+schema_version: 1
+name: shapes
+family: spike
+environment: runner
+fixture: small
+phases:
+  - name: ramp
+    duration: 1m
+    connected_agents: 500
+  - name: peak
+    duration: 2m
+    connected_agents: 2000
+  - name: drain
+    duration: 1m
+    connected_agents: 0
+  - name: recovery
+    duration: 2m
+    connected_agents: 500
+  - name: hold
+    duration: 2m
+    connected_agents: 500
+safety:
+  max_node_memory_percent: 90
+  max_error_rate: 0.01
+gates:
+` + gates
+}
+
+func TestASignInLimitSitsOnAPhaseMachinesJoin(t *testing.T) {
+	for _, phase := range []string{"ramp", "peak", "recovery"} {
+		t.Run(phase, func(t *testing.T) {
+			_, err := ParseProfile([]byte(walkWith(gate("quic/register/"+phase, "latency_p95_ms", "max", 500, true))))
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestASignInLimitOnAPhaseNoMachineJoinsIsRefused(t *testing.T) {
+	for _, phase := range []string{"drain", "hold"} {
+		t.Run(phase, func(t *testing.T) {
+			_, err := ParseProfile([]byte(walkWith(
+				gate("quic/register/"+phase, "latency_p50_ms", "max", 100, false) +
+					gate("quic/register/"+phase, "latency_p95_ms", "max", 500, true))))
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), `quic/register/`+phase)
+			assert.Contains(t, err.Error(), `phase "`+phase+`" holds no more machines than the phase before it`)
+			assert.Equal(t, 1, strings.Count(err.Error(), `phase "`+phase+`"`), "one refusal per phase")
+		})
+	}
+}
+
+func TestASignInLimitOnAFirstPhaseOfNoMachinesIsRefused(t *testing.T) {
+	document := strings.Replace(walkWith(gate("quic/register/ramp", "latency_p95_ms", "max", 500, true)),
+		"connected_agents: 500\n  - name: peak", "connected_agents: 0\n  - name: peak", 1)
+
+	_, err := ParseProfile([]byte(document))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `phase "ramp" holds no more machines than the phase before it`)
+}
+
+func TestASignInLimitOnAPhaseTheProfileDoesNotWalkIsRefused(t *testing.T) {
+	_, err := ParseProfile([]byte(walkWith(gate("quic/register/plateau", "latency_p95_ms", "max", 500, true))))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `quic/register/plateau names phase "plateau", which this profile does not walk`)
+}

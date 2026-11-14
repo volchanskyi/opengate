@@ -6,8 +6,9 @@ set -euo pipefail
 K6_SUMMARY_DIR="${K6_SUMMARY_DIR:-loadtest-k6}"
 QUIC_OUTPUT_FILE="${QUIC_OUTPUT_FILE:-loadtest-quic.txt}"
 COMMIT_SHA="${GITHUB_SHA:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
+LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib"
 # shellcheck source=scripts/lib/loadtest-levels.sh
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/loadtest-levels.sh"
+. "$LIB_DIR/loadtest-levels.sh"
 TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 duration_to_ms() {
@@ -309,9 +310,10 @@ build_rows() {
 with_bundle() { # rows-file bundle
   local levels
   levels="$(levels_rows "$2")" || return 2
-  jq -s --argjson levels "$levels" --slurpfile bundle "$2" '
+  jq -s -L "$LIB_DIR" --argjson levels "$levels" --slurpfile bundle "$2" '
+    include "time";
     ([$bundle[0].phases[]? | select((.offered_agent_arrivals_per_second // 0) > 0)
-      | ((.finished_at | fromdateiso8601) - (.started_at | fromdateiso8601)) as $seconds
+      | ((.finished_at | epoch) - (.started_at | epoch)) as $seconds
       | {offered: (.offered_agent_arrivals_per_second * $seconds),
          achieved: ((.achieved_agent_arrivals_per_second // 0) * $seconds)}]) as $paced
     | ($paced | map(.offered) | add) as $offered

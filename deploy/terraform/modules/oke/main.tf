@@ -66,6 +66,11 @@ resource "oci_containerengine_node_pool" "opengate" {
     value = "default"
   }
 
+  # OKE runs the start-up script when it creates a node; a BASIC cluster has no node cycling.
+  node_metadata = {
+    user_data = base64encode(file("${path.module}/node-init.sh"))
+  }
+
   ssh_public_key = file(var.ssh_public_key_path)
 
   freeform_tags = {

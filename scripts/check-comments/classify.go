@@ -79,6 +79,7 @@ var extensions = map[string]string{
 	".dockerfile": langDocker,
 	".exceptions": langHash,
 	".lock":       langHash,
+	".jq":         langHash,
 	".tpl":        langTemplate,
 }
 

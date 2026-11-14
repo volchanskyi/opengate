@@ -468,6 +468,19 @@ was replaced raises `server-process-restarted` off
 which dates the replacement to the second and is not moved by a label being
 added to the series.
 
+The two disk rules read the node's root filesystem against the node's own lines.
+The kubelet removes unused container images from the clean-up line that the
+node's start-up script
+[`node-init.sh`](../../deploy/terraform/modules/oke/node-init.sh) sets, and
+evicts pods once its image store runs short of space — on this node the image
+store is the root disk itself. `disk-usage-warning` fires when the disk sits
+above the clean-up line and the rule's `predict_linear` reading puts it past
+eviction within a day: a disk the clean-up cannot hold. `disk-usage-critical`
+fires shortly before eviction. Images building up below the clean-up line raise
+neither. The test reads the clean-up line out of the start-up script, so the
+rules and the node cannot drift apart. Why the lines sit where they do:
+[ADR-035](../adr/ADR-035-block-volume-budget.md).
+
 ### What a rule watches
 
 The `opengate-server` scrape job reads the production and the staging server,

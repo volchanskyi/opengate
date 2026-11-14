@@ -48,6 +48,10 @@ content in front of it is that content.
   it on every commit attempt, including docs-only and CI-only commits.
 - A failed attempt costs a full run. Fix what the output names, run `/refactor`
   on the fix, and re-attempt.
+- The commit guard judges every repository that holds this project's first
+  commit, the same way the push guard does ([Pushing](#pushing)). A plain
+  commit in another project's clone, such as an upstream fork, is left to that
+  project.
 - Exit 0 = every check passed. Exit 1 = one or more checks failed. Exit 2 = a
   prerequisite is missing (`POSTGRES_TEST_URL`, `SONAR_TOKEN`, a reachable
   VictoriaMetrics, a `$HOME/go` shadow install). Fix the prerequisite and

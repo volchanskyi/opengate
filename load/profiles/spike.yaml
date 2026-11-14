@@ -142,11 +142,3 @@ gates:
     metric: latency_p95_ms
     max: 5000
     blocking: true
-  - series: quic/register/recovery
-    metric: latency_p50_ms
-    max: 100
-    blocking: true
-  - series: quic/register/recovery
-    metric: latency_p95_ms
-    max: 500
-    blocking: true

@@ -178,11 +178,13 @@ a reading of. An outcome is known when a machine's life ends rather than when it
 began, so a dial that started under the level before this one can end under this
 one, and a phase reaching for nobody has the tail of the phase before it as
 every outcome in its window. The error ceiling therefore falls on a phase that
-offered arrivals. Where the question is whether a crushed system came back, the
-phase asking it offers them: the generator never replaces a machine it lost —
-the gap between the level asked for and the level connected is the finding — so
-the ladder empties its fleet and dials the opening load again rather than
-holding what the top rung left of it.
+offered arrivals, and so does a sign-in limit: the profile check refuses one on a
+phase that holds or sheds machines. Where the question is whether a crushed
+system came back, the phase asking it offers them: the generator never replaces a
+machine it lost — the gap between the level asked for and the level connected is
+the finding — so the ladder empties its fleet and dials the opening load again
+rather than holding what the top rung left of it. That recovery is the ladder's
+measured phase, so its technicians and its levels say whether the system came back.
 
 The breakpoint family carries one thing the others do not: what counts as giving
 out. `gave_out` names an error rate, a wait time, or a share of the target's

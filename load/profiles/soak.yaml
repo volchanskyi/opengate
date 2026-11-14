@@ -247,27 +247,11 @@ gates:
     metric: latency_p95_ms
     max: 500
     blocking: true
-  - series: quic/register/quiet-01
-    metric: latency_p50_ms
-    max: 100
-    blocking: true
-  - series: quic/register/quiet-01
-    metric: latency_p95_ms
-    max: 500
-    blocking: true
   - series: quic/register/busy-02
     metric: latency_p50_ms
     max: 100
     blocking: true
   - series: quic/register/busy-02
-    metric: latency_p95_ms
-    max: 500
-    blocking: true
-  - series: quic/register/quiet-02
-    metric: latency_p50_ms
-    max: 100
-    blocking: true
-  - series: quic/register/quiet-02
     metric: latency_p95_ms
     max: 500
     blocking: true
@@ -279,27 +263,11 @@ gates:
     metric: latency_p95_ms
     max: 500
     blocking: true
-  - series: quic/register/quiet-03
-    metric: latency_p50_ms
-    max: 100
-    blocking: true
-  - series: quic/register/quiet-03
-    metric: latency_p95_ms
-    max: 500
-    blocking: true
   - series: quic/register/busy-04
     metric: latency_p50_ms
     max: 100
     blocking: true
   - series: quic/register/busy-04
-    metric: latency_p95_ms
-    max: 500
-    blocking: true
-  - series: quic/register/quiet-04
-    metric: latency_p50_ms
-    max: 100
-    blocking: true
-  - series: quic/register/quiet-04
     metric: latency_p95_ms
     max: 500
     blocking: true
@@ -311,27 +279,11 @@ gates:
     metric: latency_p95_ms
     max: 500
     blocking: true
-  - series: quic/register/quiet-05
-    metric: latency_p50_ms
-    max: 100
-    blocking: true
-  - series: quic/register/quiet-05
-    metric: latency_p95_ms
-    max: 500
-    blocking: true
   - series: quic/register/busy-06
     metric: latency_p50_ms
     max: 100
     blocking: true
   - series: quic/register/busy-06
-    metric: latency_p95_ms
-    max: 500
-    blocking: true
-  - series: quic/register/quiet-06
-    metric: latency_p50_ms
-    max: 100
-    blocking: true
-  - series: quic/register/quiet-06
     metric: latency_p95_ms
     max: 500
     blocking: true
@@ -343,27 +295,11 @@ gates:
     metric: latency_p95_ms
     max: 500
     blocking: true
-  - series: quic/register/quiet-07
-    metric: latency_p50_ms
-    max: 100
-    blocking: true
-  - series: quic/register/quiet-07
-    metric: latency_p95_ms
-    max: 500
-    blocking: true
   - series: quic/register/busy-08
     metric: latency_p50_ms
     max: 100
     blocking: true
   - series: quic/register/busy-08
-    metric: latency_p95_ms
-    max: 500
-    blocking: true
-  - series: quic/register/quiet-08
-    metric: latency_p50_ms
-    max: 100
-    blocking: true
-  - series: quic/register/quiet-08
     metric: latency_p95_ms
     max: 500
     blocking: true
@@ -375,35 +311,11 @@ gates:
     metric: latency_p95_ms
     max: 500
     blocking: true
-  - series: quic/register/quiet-09
-    metric: latency_p50_ms
-    max: 100
-    blocking: true
-  - series: quic/register/quiet-09
-    metric: latency_p95_ms
-    max: 500
-    blocking: true
   - series: quic/register/busy-10
     metric: latency_p50_ms
     max: 100
     blocking: true
   - series: quic/register/busy-10
-    metric: latency_p95_ms
-    max: 500
-    blocking: true
-  - series: quic/register/quiet-10
-    metric: latency_p50_ms
-    max: 100
-    blocking: true
-  - series: quic/register/quiet-10
-    metric: latency_p95_ms
-    max: 500
-    blocking: true
-  - series: quic/register/drain
-    metric: latency_p50_ms
-    max: 100
-    blocking: true
-  - series: quic/register/drain
     metric: latency_p95_ms
     max: 500
     blocking: true

@@ -35,7 +35,12 @@ follows the span asked for, never how long the machine has kept history. A clock
 set back widens a block's label and never hides a reading. Prometheus, InfluxDB
 and VictoriaMetrics label their blocks with a first and last time the same way.
 A store an older agent wrote has its blocks labelled once, when the updated agent
-first opens it.
+first opens it. The block still filling has its label rewritten at every commit,
+which makes a commit about 18% slower for a raw read about three times faster
+(`tsdb_commit_window` and `tsdb_range_raw_hour` in
+[`tsdb_bench.rs`](../../agent/crates/edge-tsdb/benches/tsdb_bench.rs)). Labelling
+only full blocks, the Prometheus, InfluxDB and Netdata form, spares that rewrite
+and was declined: the rewrite costs about 0.17 ms a minute.
 
 **Rollups are keyed by the sample's own timestamp and merged as they arrive**,
 holding a sum and a count rather than a running average, so a late sample merges

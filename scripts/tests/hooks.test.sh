@@ -346,6 +346,27 @@ cleanup_repo
 echo
 echo "## pretooluse-git-commit-guard.sh"
 
+# The commit guard judges the project it is installed in, so its cases run a copy installed in the
+# case's repo.
+COMMIT_HOOK_FILES=(.claude/hooks/pretooluse-git-commit-guard.sh .claude/hooks/lib/common.sh
+  .claude/hooks/lib/tidy-up.sh scripts/tdd-check.sh)
+make_commit_repo() { make_repo "${COMMIT_HOOK_FILES[@]}"; }
+run_commit_hook() { run_hook pretooluse-git-commit-guard.sh "$1" "$REPO/.claude/hooks"; }
+
+# OUTSIDE becomes the session's directory: a commit ahead of its base and no refactor marker.
+cd_into_new_commit() {
+  cd "$OUTSIDE"
+  git config user.email "test@example.com"
+  git config user.name "Test User"
+  echo "change" >>"${1:-base.txt}"
+  git add -A
+  git commit --quiet -m "change"
+}
+
+command_envelope() {
+  build_envelope Bash "$(python3 -c 'import json, sys; print(json.dumps({"command": sys.argv[1]}))' "$1")"
+}
+
 # The commit guard runs the gauntlet under the temp repo's scripts/, so this stub is what runs.
 stub_gauntlet() {
   local exit_code="${1:-0}"
@@ -373,7 +394,7 @@ prove_tidy_up() {
 }
 
 setup_passing_commit_repo() {
-  make_repo
+  make_commit_repo
   git config user.name "Ivan Volchanskyi"
   git config user.email "ivan.volchanskyi@gmail.com"
   mkdir -p server/internal/api
@@ -384,58 +405,58 @@ setup_passing_commit_repo() {
   prove_tidy_up
 }
 
-make_repo
+make_commit_repo
 envelope="$(build_envelope Bash '{"command":"ls"}')"
-run_hook pretooluse-git-commit-guard.sh "$envelope"
+run_commit_hook "$envelope"
 assert_exit "Bash 'ls': allow" 0
 cleanup_repo
 
 setup_passing_commit_repo
 envelope="$(build_envelope Bash '{"command":"git commit -m \"feat: x\n\nCo-Authored-By: Bot <bot@x.com>\""}')"
-run_hook pretooluse-git-commit-guard.sh "$envelope"
+run_commit_hook "$envelope"
 assert_exit "git commit w/ Co-Authored-By: BLOCK" 2
 assert_stderr_contains "Co-Authored-By: stderr cites it" "Co-Authored-By"
 cleanup_repo
 
 setup_passing_commit_repo
 envelope="$(build_envelope Bash '{"command":"git commit --no-verify -m feat"}')"
-run_hook pretooluse-git-commit-guard.sh "$envelope"
+run_commit_hook "$envelope"
 assert_exit "git commit --no-verify: BLOCK" 2
 cleanup_repo
 
-make_repo
+make_commit_repo
 git config user.name "Wrong Person"
 git config user.email "wrong@example.com"
 stub_gauntlet 0
 envelope="$(build_envelope Bash '{"command":"git commit -m feat"}')"
-run_hook pretooluse-git-commit-guard.sh "$envelope"
+run_commit_hook "$envelope"
 assert_exit "git commit wrong identity: BLOCK" 2
 assert_stderr_contains "wrong identity: stderr cites Ivan" "Ivan"
 cleanup_repo
 
-make_repo
+make_commit_repo
 git config user.name "Ivan Volchanskyi"
 git config user.email "ivan.volchanskyi@gmail.com"
 git checkout --quiet -b main
 stub_gauntlet 0
 envelope="$(build_envelope Bash '{"command":"git commit -m feat"}')"
-run_hook pretooluse-git-commit-guard.sh "$envelope"
+run_commit_hook "$envelope"
 assert_exit "git commit on main: BLOCK" 2
 cleanup_repo
 
 # A `-c key=value` prefix puts its value in a separate token, which a filter skipping only
 # `-`-prefixed words misses.
-make_repo
+make_commit_repo
 git config user.name "Ivan Volchanskyi"
 git config user.email "ivan.volchanskyi@gmail.com"
 git checkout --quiet -b main
 stub_gauntlet 0
 envelope="$(build_envelope Bash '{"command":"git -c core.hooksPath=/dev/null commit -m feat"}')"
-run_hook pretooluse-git-commit-guard.sh "$envelope"
+run_commit_hook "$envelope"
 assert_exit "git -c ... commit on main: BLOCK" 2
 cleanup_repo
 
-make_repo
+make_commit_repo
 git config user.name "Ivan Volchanskyi"
 git config user.email "ivan.volchanskyi@gmail.com"
 mkdir -p server/internal/api
@@ -444,7 +465,7 @@ git add server/internal/api/foo_test.go
 git commit --quiet -m "add test"
 prove_tidy_up
 envelope="$(build_envelope Bash '{"command":"git commit -m feat"}')"
-run_hook pretooluse-git-commit-guard.sh "$envelope"
+run_commit_hook "$envelope"
 assert_exit "git commit no gauntlet script: BLOCK" 2
 assert_stderr_contains "no gauntlet: stderr cites precommit-gauntlet" "precommit-gauntlet"
 cleanup_repo
@@ -453,7 +474,7 @@ setup_passing_commit_repo
 stub_gauntlet 1
 prove_tidy_up
 envelope="$(build_envelope Bash '{"command":"git commit -m feat"}')"
-run_hook pretooluse-git-commit-guard.sh "$envelope"
+run_commit_hook "$envelope"
 assert_exit "git commit gauntlet exit 1: BLOCK" 2
 assert_stderr_contains "gauntlet fail: stderr cites failed" "failed"
 cleanup_repo
@@ -462,12 +483,12 @@ setup_passing_commit_repo
 stub_gauntlet 2
 prove_tidy_up
 envelope="$(build_envelope Bash '{"command":"git commit -m feat"}')"
-run_hook pretooluse-git-commit-guard.sh "$envelope"
+run_commit_hook "$envelope"
 assert_exit "git commit gauntlet exit 2 (prereq): BLOCK" 2
 assert_stderr_contains "gauntlet prereq: stderr cites prerequisite" "prerequisite"
 cleanup_repo
 
-make_repo
+make_commit_repo
 git config user.name "Ivan Volchanskyi"
 git config user.email "ivan.volchanskyi@gmail.com"
 mkdir -p server/internal/api
@@ -477,14 +498,14 @@ git commit --quiet -m "src only"
 stub_gauntlet 0
 prove_tidy_up
 envelope="$(build_envelope Bash '{"command":"git commit -m feat"}')"
-run_hook pretooluse-git-commit-guard.sh "$envelope"
+run_commit_hook "$envelope"
 assert_exit "git commit TDD backup (source-only): BLOCK" 2
 assert_stderr_contains "TDD backup: stderr cites TDD" "TDD"
 cleanup_repo
 
 setup_passing_commit_repo
 envelope="$(build_envelope Bash '{"command":"git commit -m \"feat: thing\""}')"
-run_hook pretooluse-git-commit-guard.sh "$envelope"
+run_commit_hook "$envelope"
 assert_exit "git commit happy path: PASS" 0
 cleanup_repo
 
@@ -497,7 +518,7 @@ exit 0
 EOF
 chmod +x scripts/precommit-gauntlet.sh
 envelope="$(build_envelope Bash '{"command":"git commit -m feat"}')"
-run_hook pretooluse-git-commit-guard.sh "$envelope"
+run_commit_hook "$envelope"
 assert_exit "git commit with no tidy-up: BLOCK" 2
 assert_stderr_contains "no tidy-up: stderr cites /refactor" "/refactor"
 assert_stderr_contains "no tidy-up: stderr cites the gauntlet" "precommit-gauntlet.sh"
@@ -516,7 +537,7 @@ cleanup_repo
 setup_passing_commit_repo
 echo "package api // edited after /refactor" >>server/internal/api/foo_test.go
 envelope="$(build_envelope Bash '{"command":"git commit -am feat"}')"
-run_hook pretooluse-git-commit-guard.sh "$envelope"
+run_commit_hook "$envelope"
 assert_exit "git commit after an edit following the tidy-up: BLOCK" 2
 assert_stderr_contains "edit after tidy-up: stderr cites /refactor" "/refactor"
 cleanup_repo
@@ -525,7 +546,7 @@ cleanup_repo
 setup_passing_commit_repo
 echo "late" >late.txt
 envelope="$(build_envelope Bash '{"command":"git commit -m feat"}')"
-run_hook pretooluse-git-commit-guard.sh "$envelope"
+run_commit_hook "$envelope"
 assert_exit "git commit after a new file following the tidy-up: BLOCK" 2
 cleanup_repo
 
@@ -534,8 +555,58 @@ echo "package api // staged before the tidy-up" >>server/internal/api/foo_test.g
 prove_tidy_up
 git add server/internal/api/foo_test.go
 envelope="$(build_envelope Bash '{"command":"git commit -m feat"}')"
-run_hook pretooluse-git-commit-guard.sh "$envelope"
+run_commit_hook "$envelope"
 assert_exit "git commit after staging the tidied content: PASS" 0
+cleanup_repo
+
+# Another project's clone has a history of its own, without this project's first commit.
+make_commit_repo
+OUTSIDE="$(mktemp -d)"
+git -C "$OUTSIDE" init --quiet --initial-branch=master
+cd_into_new_commit other.txt
+echo "staged" >>other.txt
+git add other.txt
+run_commit_hook "$(command_envelope 'git commit -m "fix: thing"')"
+assert_exit "plain commit in another project's clone, no tidy-up: PASS" 0
+git checkout --quiet -b main
+run_commit_hook "$(command_envelope 'git commit -m "fix: thing"')"
+assert_exit "plain commit on main in another project's clone: PASS" 0
+for switch in "cd $REPO && git commit -m feat" "pushd $REPO && git commit -m feat" \
+  "git -C $REPO commit -m feat" "git --git-dir=$REPO/.git commit -m feat" \
+  "git --work-tree=$REPO commit -m feat" "GIT_DIR=$REPO/.git git commit -m feat" \
+  "GIT_WORK_TREE=$REPO git commit -m feat"; do
+  run_commit_hook "$(command_envelope "$switch")"
+  assert_exit "'${switch//"$REPO"/<project>}' from another project's clone stays judged: BLOCK" 2
+done
+cleanup_repo
+
+# A clone and a work tree of the project hold its first commit, so their commits are judged.
+make_commit_repo
+OUTSIDE="$(mktemp -d)"
+rmdir "$OUTSIDE"
+git clone --quiet "$REPO" "$OUTSIDE"
+cd_into_new_commit
+git config user.name "Ivan Volchanskyi"
+git config user.email "ivan.volchanskyi@gmail.com"
+echo "staged" >>base.txt
+git add base.txt
+run_commit_hook "$(command_envelope 'git commit -m feat')"
+assert_exit "commit in a clone of the project, no tidy-up: BLOCK" 2
+assert_stderr_contains "clone of the project: stderr cites /refactor" "/refactor"
+cleanup_repo
+
+make_commit_repo
+OUTSIDE="$(mktemp -d)"
+rmdir "$OUTSIDE"
+git worktree add --quiet -b wt "$OUTSIDE"
+cd_into_new_commit
+git config user.name "Ivan Volchanskyi"
+git config user.email "ivan.volchanskyi@gmail.com"
+echo "staged" >>base.txt
+git add base.txt
+run_commit_hook "$(command_envelope 'git commit -m feat')"
+assert_exit "commit in a work tree of the project, no tidy-up: BLOCK" 2
+assert_stderr_contains "work tree of the project: stderr cites /refactor" "/refactor"
 cleanup_repo
 
 echo
@@ -633,20 +704,6 @@ PUSH_HOOK_FILES=(.claude/hooks/pretooluse-git-push-guard.sh .claude/hooks/lib/co
 make_push_repo() { make_repo "${PUSH_HOOK_FILES[@]}"; }
 run_push_hook() { run_hook pretooluse-git-push-guard.sh "$1" "$REPO/.claude/hooks"; }
 
-# OUTSIDE becomes the session's directory: a commit ahead of its base and no refactor marker.
-cd_into_new_commit() {
-  cd "$OUTSIDE"
-  git config user.email "test@example.com"
-  git config user.name "Test User"
-  echo "change" >>"${1:-base.txt}"
-  git add -A
-  git commit --quiet -m "change"
-}
-
-push_envelope() {
-  build_envelope Bash "$(python3 -c 'import json, sys; print(json.dumps({"command": sys.argv[1]}))' "$1")"
-}
-
 # Another project's clone has a history of its own, without this project's first commit.
 make_push_repo
 OUTSIDE="$(mktemp -d)"
@@ -654,15 +711,15 @@ git -C "$OUTSIDE" init --quiet --initial-branch=master
 cd_into_new_commit other.txt
 git checkout --quiet -b topic
 cd_into_new_commit other.txt
-run_push_hook "$(push_envelope 'git push --force-with-lease fork HEAD:topic')"
+run_push_hook "$(command_envelope 'git push --force-with-lease fork HEAD:topic')"
 assert_exit "plain push from another project's clone, no marker: PASS" 0
-run_push_hook "$(push_envelope 'git push origin main')"
+run_push_hook "$(command_envelope 'git push origin main')"
 assert_exit "plain push to main from another project's clone: PASS" 0
 for switch in "cd $REPO && git push origin dev" "pushd $REPO && git push origin dev" \
   "git -C $REPO push origin dev" "git --git-dir=$REPO/.git push origin dev" \
   "git --work-tree=$REPO push origin dev" "GIT_DIR=$REPO/.git git push origin dev" \
   "GIT_WORK_TREE=$REPO git push origin dev"; do
-  run_push_hook "$(push_envelope "$switch")"
+  run_push_hook "$(command_envelope "$switch")"
   assert_exit "'${switch//"$REPO"/<project>}' from another project's clone stays judged: BLOCK" 2
 done
 cleanup_repo
@@ -673,7 +730,7 @@ OUTSIDE="$(mktemp -d)"
 rmdir "$OUTSIDE"
 git clone --quiet "$REPO" "$OUTSIDE"
 cd_into_new_commit
-run_push_hook "$(push_envelope 'git push origin dev')"
+run_push_hook "$(command_envelope 'git push origin dev')"
 assert_exit "push from a clone of the project, no marker: BLOCK" 2
 assert_stderr_contains "clone of the project: stderr cites /refactor" "/refactor"
 cleanup_repo
@@ -683,7 +740,7 @@ OUTSIDE="$(mktemp -d)"
 rmdir "$OUTSIDE"
 git worktree add --quiet -b wt "$OUTSIDE"
 cd_into_new_commit
-run_push_hook "$(push_envelope 'git push origin wt')"
+run_push_hook "$(command_envelope 'git push origin wt')"
 assert_exit "push from a work tree of the project, no marker: BLOCK" 2
 cleanup_repo
 

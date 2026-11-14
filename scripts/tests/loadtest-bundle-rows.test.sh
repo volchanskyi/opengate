@@ -265,12 +265,15 @@ while IFS= read -r relative; do
     catch-up | soak | breakpoint) kind="$WORK/kind-$name.json" ;;
     *) kind="$WORK/kind-plain.json" ;;
   esac
-  # Every phase of the profile signed machines in, so each phase writes its sign-in row; the
-  # harness times a phase's fleet online where a limit names it.
+  # A phase signs machines in only where it climbs past the phase before, so only such a phase
+  # writes its sign-in row; the harness times a phase's fleet online where a limit names it.
   timed="$(profile_gates "$profile" | jq -c '[.[] | .series | select(startswith("quic/online/")) | ltrimstr("quic/online/")] | unique')"
   jq --argjson phases "$(profile_phases "$profile")" --argjson timed "$timed" \
-    '.phases += [$phases[] | {name, register_p50_ms: 3, register_p95_ms: 9}
-      + (if (.name | IN($timed[])) then {fleet_online_p95_seconds: 120, fleet_online_all_seconds: 190} else {} end)]' \
+    '.phases += [$phases | to_entries[]
+      | .value + {before: (if .key == 0 then 0 else $phases[.key - 1].agents end)}
+      | {name}
+        + (if .agents > .before then {register_p50_ms: 3, register_p95_ms: 9} else {} end)
+        + (if (.name | IN($timed[])) then {fleet_online_p95_seconds: 120, fleet_online_all_seconds: 190} else {} end)]' \
     "$kind" >"$WORK/leg.json"
   written="$(measurements_of "$("$ROWS" "$WORK/leg.json")")"
   limited="$(profile_gates "$profile" | jq -r '.[] | "\(.series)|\(.metric)"' | sort -u)"

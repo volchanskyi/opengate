@@ -390,6 +390,32 @@ assert_num_eq "so do the database's levels" "40" \
 assert_num_eq "the machines' pace is a share of the pace planned, across every phase that offered one" "0.985" \
   "$(jq -r '.[] | select(.source == "quic" and .phase == "aggregate") | .rps_share_of_plan' <<<"$OUT")"
 
+# The harness writes Go's time.Time form, which carries nanoseconds and may carry an offset.
+jq '.phases[0].started_at = "2026-11-12T01:00:00.757672782Z"
+  | .phases[0].finished_at = "2026-11-11T17:01:00.757672782-08:00"
+  | .phases[1].started_at = "2026-11-11T17:01:00.5-08:00"
+  | .phases[1].finished_at = "2026-11-12T01:03:00.5Z"' "$WORK/bundle.json" >"$WORK/bundle-go-times.json"
+GO_TIMES_RC=0
+GO_TIMES="$(
+  K6_SUMMARY_DIR="$WORK/k6" QUIC_OUTPUT_FILE="$WORK/quic.txt" GITHUB_SHA="deadbeef" \
+    LOADTEST_BUNDLE="$WORK/bundle-go-times.json" "$SUMMARIZE" 2>&1
+)" || GO_TIMES_RC=$?
+assert_eq "a bundle carrying Go's times summarizes" "0" "$GO_TIMES_RC"
+assert_num_eq "and reads the same pace share as whole seconds" "0.985" \
+  "$(jq -r '.[] | select(.source == "quic" and .phase == "aggregate") | .rps_share_of_plan' <<<"$GO_TIMES" 2>/dev/null)"
+
+jq '.phases[0].started_at = "2026-11-12 01:00:00"' "$WORK/bundle.json" >"$WORK/bundle-bad-time.json"
+BAD_TIME_RC=0
+BAD_TIME_ERR="$(
+  K6_SUMMARY_DIR="$WORK/k6" QUIC_OUTPUT_FILE="$WORK/quic.txt" GITHUB_SHA="deadbeef" \
+    LOADTEST_BUNDLE="$WORK/bundle-bad-time.json" "$SUMMARIZE" 2>&1 >/dev/null
+)" || BAD_TIME_RC=$?
+if [ "$BAD_TIME_RC" -ne 0 ] && grep -qF -- "2026-11-12 01:00:00" <<<"$BAD_TIME_ERR"; then
+  pass "a phase time outside RFC 3339 refuses and names the time"
+else
+  fail "a phase time outside RFC 3339 refuses and names the time (rc=$BAD_TIME_RC): $BAD_TIME_ERR"
+fi
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then
