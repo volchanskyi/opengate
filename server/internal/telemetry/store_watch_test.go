@@ -9,6 +9,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/volchanskyi/opengate/server/internal/testvm"
 )
 
 // scriptedStart answers each read with the next scripted start time, or its error.
@@ -65,10 +67,12 @@ func TestTheFirstStartTimeReadIsNoRestart(t *testing.T) {
 }
 
 func TestVMClientReadsTheStoresStartTime(t *testing.T) {
-	client, ctx := newTestVMClient(t)
+	before := time.Now()
+	client, ctx := NewVMClient(testvm.Dedicated(t), nil), context.Background()
 	started, err := client.StartTime(ctx)
 	require.NoError(t, err)
-	assert.WithinDuration(t, time.Now(), started, 24*time.Hour, "the store started recently")
+	assert.WithinRange(t, started, before.Add(-time.Minute), time.Now().Add(time.Minute),
+		"the stamp is the start of the store this test began")
 	again, err := client.StartTime(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, started, again, "a running store keeps its start time")

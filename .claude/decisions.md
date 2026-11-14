@@ -28,9 +28,9 @@
 | 023 | The relay keeps its own session registry, in process, because pairing is local | [ADR-023](../docs/adr/ADR-023-relay-session-registry.md) |
 | 027 | A pen-test gate runs custom rules over the diff at three points, with no inline suppression | [ADR-027](../docs/adr/ADR-027-pentest-gate.md) |
 | 029 | Every test runs on every machine; a missing dependency is provisioned, never skipped around | [ADR-029](../docs/adr/ADR-029-test-determinism.md) |
-| 030 | Kubernetes on OKE, packaged with Helm, with the database in the cluster and the ingress controller's settings held by the repository | [ADR-030](../docs/adr/ADR-030-kubernetes-on-oke.md) |
+| 030 | Kubernetes on OKE, packaged with Helm, with the database in the cluster, the ingress settings in the repository and the kubelet's in the node's start-up script | [ADR-030](../docs/adr/ADR-030-kubernetes-on-oke.md) |
 | 034 | The server's key files are mounted from Kubernetes Secrets, the master key's from one only the server reads, so identity survives a redeploy | [ADR-034](../docs/adr/ADR-034-server-keys-from-a-secret.md) |
-| 035 | The cluster fits the 200 GB storage cap; the binding constraint is volume count, not size | [ADR-035](../docs/adr/ADR-035-block-volume-budget.md) |
+| 035 | The cluster fits the 200 GB storage cap, bound by volume count; node images age out, and the disk alerts sit on the kubelet's clean-up and eviction lines | [ADR-035](../docs/adr/ADR-035-block-volume-budget.md) |
 | 037 | QUIC with mutual TLS; the agent opens the stream, resumption carries the reconnect saving, and the port also answers the session helper | [ADR-037](../docs/adr/ADR-037-quic-transport.md) |
 | 038 | CI trends live in VictoriaMetrics; a sample names its workload and the load gate reads its baseline back | [ADR-038](../docs/adr/ADR-038-ci-trend-store.md) |
 | 039 | Diagrams are Mermaid in the document, syntax-checked in CI, with pinned counts | [ADR-039](../docs/adr/ADR-039-diagrams-as-code.md) |

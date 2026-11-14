@@ -66,6 +66,35 @@ run "dashboard_addon_disabled" {
   }
 }
 
+run "node_start_up_writes_the_image_clean_up" {
+  command = plan
+
+  assert {
+    condition     = strcontains(base64decode(oci_containerengine_node_pool.opengate.node_metadata["user_data"]), "cat >/etc/kubernetes/kubelet.conf.d/50-image-gc.conf")
+    error_message = "The node's start-up script must write the kubelet drop-in /etc/kubernetes/kubelet.conf.d/50-image-gc.conf."
+  }
+
+  assert {
+    condition     = strcontains(base64decode(oci_containerengine_node_pool.opengate.node_metadata["user_data"]), "\"imageMaximumGCAge\": \"168h\"")
+    error_message = "The kubelet drop-in must remove images unused for a week (imageMaximumGCAge 168h)."
+  }
+
+  assert {
+    condition     = strcontains(base64decode(oci_containerengine_node_pool.opengate.node_metadata["user_data"]), "\"imageGCHighThresholdPercent\": 80")
+    error_message = "The kubelet drop-in must start image clean-up at 80% used, below the 85% imagefs eviction line."
+  }
+
+  assert {
+    condition     = strcontains(base64decode(oci_containerengine_node_pool.opengate.node_metadata["user_data"]), "\"imageGCLowThresholdPercent\": 75")
+    error_message = "The kubelet drop-in must clean images down to 75% used."
+  }
+
+  assert {
+    condition     = strcontains(base64decode(oci_containerengine_node_pool.opengate.node_metadata["user_data"]), "bash /var/run/oke-init.sh --kubelet-extra-args \"--config-dir=/etc/kubernetes/kubelet.conf.d\"")
+    error_message = "OKE's own start-up must run with the kubelet pointed at the drop-in directory."
+  }
+}
+
 run "rejects_oversized_pool" {
   command = plan
 

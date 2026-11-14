@@ -50,7 +50,7 @@ groups:
           description: "The server has been unreachable for more than 1 minute."
 
       - uid: disk-usage-critical
-        title: Disk usage > 90%
+        title: Disk usage > 83%
         condition: C
         data:
           - refId: A
@@ -78,17 +78,22 @@ groups:
               conditions:
                 - evaluator:
                     type: gt
-                    params: [90]
-        for: 1m
+                    params: [83]
+        for: 5m
         labels:
           severity: critical
           watches: shared
         annotations:
-          summary: "Disk usage is above 90%"
-          observed: '{{ with $values.B }}root filesystem {{ printf "%.1f" .Value }}% used (fires above 90%){{ end }}'
+          summary: "Disk usage is above 83%, close to where the node stops pods"
+          observed: >-
+            {{ with $values.B }}root filesystem {{ printf "%.1f" .Value }}% used
+            (fires above 83%; pods are evicted from 85%){{ end }}
           check: >-
-            on the node: du -xh --max-depth=2 / | sort -h | tail; container images and logs are the usual growth
-          description: "Root filesystem usage has exceeded 90%. Immediate action required."
+            kubectl get events -A --field-selector reason=FreeDiskSpaceFailed names what image clean-up could not
+            free; on the node: du -xh --max-depth=2 / | sort -h | tail
+          description: >-
+            The kubelet evicts pods once the root filesystem passes 85% with no unused image left.
+            Immediate action required.
 
   - orgId: 1
     name: OpenGate Warning
@@ -180,7 +185,7 @@ groups:
           description: "More than 5% of HTTP requests are returning 5xx errors."
 
       - uid: disk-usage-warning
-        title: Disk usage > 75%
+        title: Disk filling past image clean-up
         condition: C
         data:
           - refId: A
@@ -194,31 +199,50 @@ groups:
                 node_filesystem_size_bytes{mountpoint="/"} * 100)
               intervalMs: 1000
               maxDataPoints: 43200
+          - refId: P
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: VictoriaMetrics
+            model:
+              expr: >-
+                100 - (predict_linear(node_filesystem_avail_bytes{mountpoint="/"}[6h], 24 * 3600) /
+                node_filesystem_size_bytes{mountpoint="/"} * 100)
+              intervalMs: 1000
+              maxDataPoints: 43200
           - refId: B
             datasourceUid: __expr__
             model:
               type: reduce
               expression: A
               reducer: last
+          - refId: Q
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: P
+              reducer: last
           - refId: C
             datasourceUid: __expr__
             model:
-              type: threshold
-              expression: B
-              conditions:
-                - evaluator:
-                    type: gt
-                    params: [75]
-        for: 5m
+              type: math
+              expression: "$B > 80 && $Q > 85"
+        for: 1h
         labels:
           severity: warning
           watches: shared
         annotations:
-          summary: "Disk usage is above 75%"
-          observed: '{{ with $values.B }}root filesystem {{ printf "%.1f" .Value }}% used (fires above 75%){{ end }}'
+          summary: "The root disk is above its image clean-up line and heading for eviction within a day"
+          observed: >-
+            {{ with $values.B }}root filesystem {{ printf "%.1f" .Value }}% used{{ end }}{{ with $values.Q }},
+            {{ printf "%.1f" .Value }}% a day from now at the pace of the last 6 h{{ end }}
+            (fires above 80% heading past 85%)
           check: >-
-            on the node: du -xh --max-depth=2 / | sort -h | tail; container images and logs are the usual growth
-          description: "Root filesystem usage has exceeded 75%. Plan cleanup or expansion."
+            kubectl get events -A --field-selector reason=FreeDiskSpaceFailed names what image clean-up could not
+            free; on the node: du -xh --max-depth=2 / | sort -h | tail
+          description: >-
+            The kubelet removes unused images from 80% down to 75%; a disk still climbing above 80% holds
+            something it cannot remove, and passes the 85% eviction line within a day at this pace.
 
       - uid: memory-usage-high
         title: Memory usage > 80%

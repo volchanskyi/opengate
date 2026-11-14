@@ -44,6 +44,19 @@ cert-manager is installed by hand once per cluster, as the chart's notes print.
 so the HTTP edge cannot carry them, and a second load balancer is not in the
 budget.
 
+**The node's kubelet settings live in its start-up script.** The node pool hands
+OKE [`node-init.sh`](../../deploy/terraform/modules/oke/node-init.sh), which
+writes a kubelet drop-in file and runs OKE's own start-up with the kubelet
+pointed at it; the image clean-up it carries is
+[ADR-035](ADR-035-block-volume-budget.md)'s. OKE runs the script only when it
+creates a node. Changing a running node in place — replacing its boot volume or
+rebooting it through node cycling — is a feature of ENHANCED clusters, and a new
+node takes a new public address, which agents reach through the QUIC host name.
+So the running node takes a change to the script by hand: the same drop-in
+file, the kubelet restarted, and the result read back from the kubelet's live
+configuration. The workloads keep running. The node pool stays on a node image
+OKE still offers, for the next node it creates.
+
 **Secrets are external to the chart.** The chart references an existing
 Kubernetes Secret; nothing secret is templated.
 

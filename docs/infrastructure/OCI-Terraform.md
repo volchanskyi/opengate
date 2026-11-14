@@ -105,6 +105,15 @@ The defaults of `oke_kubernetes_version` and `oke_node_image_id` in
 commands their descriptions name. Refresh both when the node pool reports an
 unavailable image.
 
+The node pool also carries the node's start-up script,
+[`node-init.sh`](../../deploy/terraform/modules/oke/node-init.sh). A change to
+the pool's image or script applies in place and reaches only nodes OKE creates
+afterwards: a BASIC cluster cannot cycle a running node. The running node takes a
+script change by hand, as
+[ADR-030](../adr/ADR-030-kubernetes-on-oke.md) describes, and the kubelet's live
+settings are read back with
+`kubectl get --raw /api/v1/nodes/<node>/proxy/configz`.
+
 ### State backend
 
 State lives in an OCI Object Storage bucket (`opengate-tfstate`) accessed through the S3-compatible API, **not** on the operator's laptop. This eliminates the laptop-SPOF and gives us versioned rollback for free.
