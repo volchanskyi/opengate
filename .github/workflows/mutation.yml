@@ -159,6 +159,7 @@ jobs:
           - { language: rust, shard: rust-tsdb-encoding }
           - { language: rust, shard: rust-tsdb-surface }
           - { language: rust, shard: rust-agent-loops }
+          - { language: rust, shard: rust-agent-host }
           - { language: rust, shard: rust-protocol-wire }
           # Web shards split by feature folder; scripts/lib/mutation-shards.sh holds the split.
           - { language: web, shard: web-devices }

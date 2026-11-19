@@ -307,6 +307,7 @@ jobs:
               -fixture-bootstrap \
               -fixture-seed=1 \
               -relay-sessions \
+              -technicians-ready="$LOADTEST_TECHNICIANS_READY" \
               -bundle="$PERF_BUNDLE_DIR/$LEG"
           walk=$?
           set -e
@@ -321,6 +322,8 @@ jobs:
           LOADTEST_BASE_URL: http://127.0.0.1:8080
           LOADTEST_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.leg }}
           LOADTEST_K6_SUMMARY_DIR: /tmp/perf-k6
+          # The technicians sign in before the walk, which waits for this file to say they did.
+          LOADTEST_TECHNICIANS_READY: /tmp/perf-technicians.ready
           K6_BIN: /tmp/k6
           # The stack is per-run and reachable only from the runner; the password is generated per run.
           PERF_FIXTURE_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-Perf!

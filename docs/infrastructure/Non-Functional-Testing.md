@@ -119,8 +119,8 @@ whose room it is. A generator with an allowance of its own — a cgroup quota, o
 own cgroup as the staging load-test pod has, or on the slice above it that the
 runner's generators share — is measured against that allowance, and three
 rules fall on the figure: too little processor left, too much memory held, or too
-much of the run spent runnable and refused the processor. The breakpoint leg
-gives the technicians a slice of their own, named to the harness
+much of the run spent runnable and refused the processor. The breakpoint and
+catch-up legs give the technicians a slice of their own, named to the harness
 (`-technician-cgroup`), which judges it by the same three rules. A generator that shares
 a box with the system it measures, which is what the throwaway stack is, has no
 allowance to be measured against; its figure is carried as evidence and the
@@ -404,10 +404,19 @@ building its executors from the profile the night walks:
 | [`relay-throughput.js`](../../load/k6/scenarios/relay-throughput.js) | A real remote session: the operator's side of the relay, timing its own frame coming back from the machine. Each held session takes a machine of its own, since a machine takes one session at a time, and the setup refuses a fleet smaller than the sessions the profile holds |
 | [`concurrent-agents.js`](../../load/k6/scenarios/concurrent-agents.js) | Agent-shaped device and session reads spread across the fleet's sites |
 
-`setup()` registers throwaway members of the staging organization through
+`setup()` takes throwaway members of the staging organization through
 [`load/k6/lib/session.js`](../../load/k6/lib/session.js) — one account per
 simulated technician, from a pool sized so no account passes its own request
-allowance — and reads the sites they can see. Where a scenario times a journey against one machine, it reads
+allowance — and reads the sites they can see. Beside a walk on a runner the
+accounts are signed in before the walk starts, since each sign-up has the server
+check a password and a returning fleet leaves it no processor for that: the
+harness says when its administrator exists, a sign-in step
+([`sign-in.js`](../../load/k6/sign-in.js)) signs every scenario's accounts in and
+writes them to a file each scenario reads, and the walk waits for that step's
+word for at most ten minutes
+([`loadtest-k6-alongside.sh`](../../scripts/loadtest-k6-alongside.sh),
+[`technicians_ready.go`](../../server/tests/loadtest/technicians_ready.go)). The
+staging run registers its members in `setup()` itself. Where a scenario times a journey against one machine, it reads
 the fleet once, in `setup()`, from a site chosen for holding machines, and keeps up to a hundred of their
 ids; each visit still asks for the whole list and times it, keeping none of its body, so the generator's
 memory follows its visits rather than the fleet

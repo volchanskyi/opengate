@@ -178,6 +178,9 @@ func quickConfig(store telemetry.Importer, obs telemetry.WriterObserver) telemet
 	return cfg
 }
 
+// stopMargin is how far past its shutdown grace a writer may take to stop before the test fails.
+const stopMargin = 5 * time.Second
+
 func started(t *testing.T, cfg telemetry.WriterConfig) *telemetry.Writer {
 	t.Helper()
 	w := telemetry.NewWriter(cfg)
@@ -185,7 +188,24 @@ func started(t *testing.T, cfg telemetry.WriterConfig) *telemetry.Writer {
 	done := w.Start(ctx)
 	t.Cleanup(func() {
 		stop()
-		<-done
+		select {
+		case <-done:
+		case <-time.After(cfg.ShutdownGrace + stopMargin):
+			t.Errorf("the writer did not stop within %s of its context ending", cfg.ShutdownGrace+stopMargin)
+		}
 	})
 	return w
+}
+
+// within waits up to d for ch and fails the test when nothing arrives by then.
+func within[T any](t *testing.T, ch <-chan T, d time.Duration) T {
+	t.Helper()
+	select {
+	case v := <-ch:
+		return v
+	case <-time.After(d):
+		t.Fatalf("nothing arrived within %s", d)
+		var zero T
+		return zero
+	}
 }

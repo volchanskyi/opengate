@@ -142,6 +142,89 @@ async fn a_granted_backfill_drains_at_the_granted_pace_and_a_deferred_one_asks_a
         "a deferred slot was asked for again after {:?}",
         deferred.elapsed()
     );
+    conn.send(ControlMessage::GrantBackfill {
+        rate: RATE,
+        deadline: unix_now() + 3600,
+    })
+    .await;
+    let resumed = read_until(&mut conn, step, |m| match m {
+        ControlMessage::MetricBackfillBatch { tier, cursor, .. } => Some((tier, cursor)),
+        _ => None,
+    })
+    .await;
+    assert_ne!(
+        resumed,
+        (tier, cursor),
+        "a deferral keeps the batch the server already stored"
+    );
+    agent.stop().await;
+}
+
+#[tokio::test]
+async fn a_live_minute_the_server_stored_is_left_out_of_catch_up() {
+    let pki = Pki::new("master");
+    let server = FakeServer::start(pki.clone());
+    let machine = MachineBox::new();
+    machine.write_identity(&pki, uuid::Uuid::new_v4());
+    seed_history(&machine);
+    let mut agent = machine.spawn(server.addr);
+    let mut conn = server.accept().await;
+    conn.expect_register().await;
+    conn.acknowledge(&pki.ca_pem).await;
+    let step = Duration::from_secs(10);
+    let stored = (unix_now() - 1200).div_euclid(60) * 60;
+
+    read_until(&mut conn, step, |m| {
+        matches!(m, ControlMessage::RequestBackfillSlot).then_some(())
+    })
+    .await;
+    conn.send(ControlMessage::LiveWindowStored { ts: stored })
+        .await;
+    conn.send(ControlMessage::DeferBackfill {
+        retry_after: 1,
+        since_ts: 0,
+    })
+    .await;
+    read_until(&mut conn, step, |m| {
+        matches!(m, ControlMessage::RequestBackfillSlot).then_some(())
+    })
+    .await;
+    conn.send(ControlMessage::GrantBackfill {
+        rate: 100_000,
+        deadline: unix_now() + 3600,
+    })
+    .await;
+
+    let mut sent = Vec::new();
+    loop {
+        let (tier, cursor, times) = read_until(&mut conn, step, |m| match m {
+            ControlMessage::MetricBackfillBatch {
+                tier,
+                samples,
+                cursor,
+            } => Some((
+                tier,
+                cursor,
+                samples.iter().map(|s| s.ts).collect::<Vec<_>>(),
+            )),
+            _ => None,
+        })
+        .await;
+        sent.extend(times);
+        if cursor > stored {
+            break;
+        }
+        conn.send(ControlMessage::MetricBackfillAck { tier, cursor })
+            .await;
+    }
+    assert!(
+        sent.contains(&(stored - 60)),
+        "catch-up reached the stored minute"
+    );
+    assert!(
+        !sent.contains(&stored),
+        "the minute the server stored live is never sent again"
+    );
     agent.stop().await;
 }
 

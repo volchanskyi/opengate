@@ -155,7 +155,7 @@ jobs:
           cache-dependency-path: server/go.sum
       - run: go vet ./...
       - name: Install go-arch-lint
-        run: go install github.com/fe3dback/go-arch-lint@v1.19.0
+        run: go install github.com/fe3dback/go-arch-lint@v1.19.2
       - name: go-arch-lint check
         run: go-arch-lint check
       - name: Install oapi-codegen

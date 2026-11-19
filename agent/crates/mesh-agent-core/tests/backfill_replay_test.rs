@@ -503,6 +503,27 @@ fn an_older_agents_watermarks_become_confirmed_spans_once() {
 }
 
 #[test]
+fn a_watermark_inside_its_band_confirms_the_band_from_its_floor() {
+    // Each span is the whole minutes from the band's floor to one step past its watermark.
+    let watermarks = [
+        (SeriesId::MAX, NOW - 40, (99_960, 100_020)),
+        (SeriesId::MAX - 1, NOW - 500, (99_060, 99_540)),
+        (SeriesId::MAX - 2, NOW - 5_000, (90_060, 98_580)),
+    ];
+    for (key, watermark, span) in watermarks {
+        let mut store = FakeStore::default();
+        store.cursors.insert(key, watermark);
+
+        assert!(
+            migrate_cursors(&mut store, NOW, cfg(1000)).unwrap(),
+            "key {key}"
+        );
+        assert_eq!(store.confirmed.spans(), &[span], "key {key}");
+        assert!(store.cursors.is_empty(), "key {key}");
+    }
+}
+
+#[test]
 fn confirmations_round_trip_through_a_real_store_and_the_watermarks_leave_it() {
     use edge_tsdb::{Durability, LocalTsdb, TsdbConfig};
 
@@ -1047,4 +1068,84 @@ fn a_real_store_minute_just_past_an_empty_slice_ships_and_stays_owed_until_sent(
         !confirmed.covers(minute, minute + 60),
         "empty time never takes in a minute with readings"
     );
+}
+
+fn empty_time_of(reader: &FakeReader, cfg: BackfillConfig) -> Vec<(i64, i64)> {
+    let confirmed = ConfirmedRanges::default();
+    let mut drain =
+        BackfillDrain::new(reader, NOW, cfg, &[CPU], &confirmed).marking_empty_until(NOW);
+    while drain.next_batch().expect("drain must not error").is_some() {}
+    drain.take_empty()
+}
+
+#[test]
+fn the_empty_time_a_drain_reads_is_handed_over_whole_within_each_band() {
+    assert_eq!(
+        empty_time_of(&FakeReader::default(), cfg(1)),
+        [(99_960, 100_020), (99_060, 99_920), (93_600, 99_020)],
+        "the last ended minute, the minute band and the hour band, each one stretch"
+    );
+}
+
+#[test]
+fn an_empty_slice_marks_only_the_time_it_read() {
+    let mut r = FakeReader::default();
+    r.push_tier(CPU, Tier::T1, 99_720, 40.0);
+
+    let empty = empty_time_of(&r, cfg(2));
+    assert!(
+        empty
+            .iter()
+            .all(|&(start, end)| end <= 99_720 || start >= 99_780),
+        "the minute holding a reading is never marked empty: {empty:?}"
+    );
+}
+
+#[test]
+fn a_full_batch_carries_every_bucket_its_sample_cap_holds() {
+    let mut r = FakeReader::default();
+    for i in 0..10 {
+        r.push_tier(CPU, Tier::T1, NOW - 900 + i * 60, 40.0 + i as f64);
+    }
+
+    let batches = drain_all(&r, NOW, cfg(4), &[CPU], &ConfirmedRanges::default());
+    let first = batches
+        .iter()
+        .find(|b| b.tier == BackfillTier::Rollup1m)
+        .expect("the minute tier ships");
+    assert_eq!(
+        first.samples.len(),
+        4,
+        "two buckets of an average and a maximum each: {:?}",
+        first.samples
+    );
+}
+
+#[test]
+fn a_confirmed_minute_inside_one_read_is_never_sent() {
+    let mut r = FakeReader::default();
+    for bucket in [99_120, 99_180, 99_240] {
+        r.push_tier(CPU, Tier::T1, bucket, 40.0);
+    }
+    let mut confirmed = ConfirmedRanges::default();
+    confirmed.add(99_180, 99_240);
+
+    let shipped: Vec<i64> = drain_all(&r, NOW, cfg(6), &[CPU], &confirmed)
+        .iter()
+        .flat_map(|b| b.samples.iter().map(|s| s.ts))
+        .collect();
+    assert!(!shipped.contains(&99_180), "{shipped:?}");
+    assert!(
+        shipped.contains(&99_120) && shipped.contains(&99_240),
+        "{shipped:?}"
+    );
+}
+
+#[test]
+fn a_reading_in_the_running_minute_leaves_the_last_ended_minute_done() {
+    let mut r = FakeReader::default();
+    r.push_raw(CPU, NOW + 5, 50.0);
+
+    let empty = empty_time_of(&r, cfg(1));
+    assert_eq!(empty.first(), Some(&(99_960, 100_020)), "{empty:?}");
 }

@@ -160,4 +160,116 @@ mod tests {
             "the cut falls on a character boundary"
         );
     }
+
+    #[test]
+    fn a_cut_line_fills_its_budget_up_to_the_last_whole_character() {
+        for budget in [4096, 4097] {
+            let mut entries = vec![line("é".repeat(20_000))];
+            assert!(fit_log_answer(&mut entries, budget));
+            let size = encoded(&entries);
+            assert!(size <= budget, "{size} bytes against a budget of {budget}");
+            assert!(
+                size + 2 > budget,
+                "{size} bytes leave room for another character in {budget}"
+            );
+        }
+    }
+
+    fn log_request(source: &str, log_level: &str) -> ControlMessage {
+        ControlMessage::RequestDeviceLogs {
+            log_level: log_level.to_string(),
+            time_from: String::new(),
+            time_to: String::new(),
+            search: String::new(),
+            log_offset: 0,
+            log_limit: 0,
+            source: source.to_string(),
+            unit: String::new(),
+        }
+    }
+
+    fn agent_log(lines: &str) -> tempfile::TempDir {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("agent.log.2026-11-11"), lines).unwrap();
+        dir
+    }
+
+    async fn answered(dir: &tempfile::TempDir, request: ControlMessage) -> ControlMessage {
+        let hold = requests::Lane::default().claim().unwrap();
+        answer(dir.path().to_path_buf(), request, hold).await
+    }
+
+    #[tokio::test]
+    async fn an_empty_or_self_source_reads_the_agents_own_files() {
+        let dir = agent_log(
+            "2026-11-11T04:30:00.000000Z  INFO mesh_agent: connected\n\
+             2026-11-11T04:31:00.000000Z  ERROR mesh_agent: heartbeat lost\n",
+        );
+        for source in ["", "self"] {
+            let ControlMessage::DeviceLogsResponse {
+                log_entries,
+                available_units,
+                ..
+            } = answered(&dir, log_request(source, "")).await
+            else {
+                panic!("source {source:?} is the agent's own files");
+            };
+            let messages: Vec<_> = log_entries.iter().map(|e| e.message.as_str()).collect();
+            assert_eq!(
+                messages,
+                ["heartbeat lost", "connected"],
+                "source {source:?}"
+            );
+            assert!(available_units.is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn the_requested_level_narrows_the_answer() {
+        let dir = agent_log(
+            "2026-11-11T04:30:00.000000Z  INFO mesh_agent: connected\n\
+             2026-11-11T04:31:00.000000Z  ERROR mesh_agent: heartbeat lost\n",
+        );
+        let ControlMessage::DeviceLogsResponse { log_entries, .. } =
+            answered(&dir, log_request("self", "WARN")).await
+        else {
+            panic!("the agent's own files answer");
+        };
+        let levels: Vec<_> = log_entries.iter().map(|e| e.level.as_str()).collect();
+        assert_eq!(levels, ["ERROR"]);
+    }
+
+    #[tokio::test]
+    async fn a_page_cut_to_the_servers_ceiling_says_more_follows() {
+        let frame = "frame ".repeat(700);
+        let lines: String = (0..300)
+            .map(|i| {
+                format!(
+                    "2026-11-11T04:{:02}:{:02}.000000Z  ERROR tomcat: {frame}\n",
+                    i / 60,
+                    i % 60
+                )
+            })
+            .collect();
+        let dir = agent_log(&lines);
+
+        let reply = answered(&dir, log_request("self", "")).await;
+        let size = rmp_serde::to_vec_named(&reply).unwrap().len();
+        let ControlMessage::DeviceLogsResponse {
+            log_entries,
+            total_count,
+            has_more,
+            ..
+        } = reply
+        else {
+            panic!("the agent's own files answer");
+        };
+        assert_eq!(total_count, 300, "every line was read");
+        assert!(log_entries.len() < 300);
+        assert!(has_more, "the lines past the ceiling are on the next page");
+        assert!(
+            size <= 1 << 20,
+            "the server reads no message past 1 MiB, got {size}"
+        );
+    }
 }

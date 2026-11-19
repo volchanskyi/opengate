@@ -34,7 +34,7 @@ func TestALiveReadingIsAcceptedWhileACatchUpWriteIsHeld(t *testing.T) {
 	}
 	w.Submit(telemetry.Submission{Class: telemetry.ClassCatchUp, Scope: anyScope(),
 		Samples: catchUp, Done: func(telemetry.Outcome) {}})
-	<-catchUpHeld
+	within(t, catchUpHeld, 2*time.Second)
 
 	handed := time.Now()
 	w.Submit(telemetry.Submission{Class: telemetry.ClassLive, Scope: anyScope(),
@@ -66,7 +66,7 @@ func TestLiveMinutesDroppedAreReportedOnceTheQueueDrains(t *testing.T) {
 	// About half the bound is in flight, and a hand-off of thirty readings is larger than the rest.
 	w.Submit(telemetry.Submission{Class: telemetry.ClassLive, Scope: busy,
 		Samples: readings(12, minute), Done: got.done(1)})
-	<-held
+	within(t, held, 2*time.Second)
 	w.Submit(telemetry.Submission{Class: telemetry.ClassLive, Scope: dropped,
 		Samples: readings(30, minute.Add(time.Minute)), Done: got.done(2)})
 	w.Submit(telemetry.Submission{Class: telemetry.ClassLive, Scope: dropped,
@@ -105,7 +105,7 @@ func TestACatchUpBatchWaitingPastItsBoundIsAnsweredWaitedTooLong(t *testing.T) {
 
 	w.Submit(telemetry.Submission{Class: telemetry.ClassCatchUp, Scope: anyScope(),
 		Samples: readings(1, readingTime), Done: got.done(1)})
-	<-held
+	within(t, held, 2*time.Second)
 	w.Submit(telemetry.Submission{Class: telemetry.ClassCatchUp, Scope: anyScope(),
 		Samples: readings(1, readingTime), Done: got.done(2)})
 	time.Sleep(100 * time.Millisecond)
@@ -136,12 +136,12 @@ func TestShutdownAnswersEverythingStillQueued(t *testing.T) {
 
 	w.Submit(telemetry.Submission{Class: telemetry.ClassCatchUp, Scope: anyScope(),
 		Samples: readings(1, readingTime), Done: got.done(1)})
-	<-held
+	within(t, held, 2*time.Second)
 	w.Submit(telemetry.Submission{Class: telemetry.ClassCatchUp, Scope: anyScope(),
 		Samples: readings(1, readingTime), Done: got.done(2)})
 	stop()
 	close(release)
-	<-done
+	within(t, done, cfg.ShutdownGrace+stopMargin)
 
 	outcomes := []telemetry.Outcome{got.await(t, time.Second), got.await(t, time.Second)}
 	got.answeredOnce(t, 2)

@@ -62,7 +62,9 @@ happens.** A ceiling on something nothing there measures never fails. A sign-in
 limit therefore sits on a phase that climbs past the one before: the harness dials
 only to climb, so a phase that holds or sheds machines starts no sign-in, and the
 profile check refuses a limit there by the phase's name
-([`profile_gates.go`](../../server/tests/loadtest/profile_gates.go)).
+([`profile_gates.go`](../../server/tests/loadtest/profile_gates.go)). A wave limit
+likewise sits on a profile with a measured phase, the one phase that counts a wave,
+and the same check refuses one on a profile that marks none.
 
 **A limit names something the system decides, not something the profile
 declares.** A walked profile paces its own arrivals, so a floor under the rate

@@ -8,15 +8,16 @@ import {
   http,
   ownTechnician,
   printCleanupManifest,
-  registerTechnicians,
   siteWithDevices,
+  techniciansFor,
 } from "../lib/session.js";
 import {
   arrivalScenarios,
-  arrivalTechnicians,
   exportOnly,
   measuredExports,
   phases,
+  REQUESTS_PER_ROUND,
+  technicianRoster,
 } from "../lib/profile.js";
 
 const BASE_URL = __ENV.BASE_URL || "http://localhost:8080";
@@ -27,7 +28,7 @@ const deviceDetailLatency = new Trend("journey_device_detail_ms");
 const commandAcceptLatency = new Trend("journey_command_accept_ms");
 
 // Requests one journey makes; it sets how long a virtual user is held and so how many a rate needs.
-const REQUESTS_PER_JOURNEY = 6;
+const REQUESTS_PER_JOURNEY = REQUESTS_PER_ROUND["api-baseline"];
 
 const WALK = phases();
 
@@ -50,11 +51,7 @@ export const options = {
 };
 
 export function setup() {
-  const technicians = registerTechnicians(
-    BASE_URL,
-    "load",
-    arrivalTechnicians(WALK, REQUESTS_PER_JOURNEY)
-  );
+  const technicians = techniciansFor(BASE_URL, technicianRoster("api-baseline", WALK));
   // The site holds machines, because two journeys are timed against one of them.
   const { siteId, deviceIds } = siteWithDevices(BASE_URL, technicians[0].token);
   return { technicians, siteId, deviceIds };

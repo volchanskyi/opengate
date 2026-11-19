@@ -123,7 +123,7 @@ function registerMember(baseUrl, prefix, n) {
 
 /**
  * Registers `count` members, one per simulated technician, since the server counts a signed-in
- * request under its account. Setup calls it; each virtual user signs in as `ownTechnician`.
+ * request under its account. Each virtual user signs in as `ownTechnician`.
  */
 export function registerTechnicians(baseUrl, prefix, count) {
   const technicians = [];
@@ -131,6 +131,24 @@ export function registerTechnicians(baseUrl, prefix, count) {
     technicians.push(registerMember(baseUrl, prefix, n));
   }
   return technicians;
+}
+
+// The accounts the leg signed in before its walk, read at init from the file it named.
+const SIGNED_IN = __ENV.LOADTEST_TECHNICIANS ? JSON.parse(open(__ENV.LOADTEST_TECHNICIANS)) : null;
+
+/**
+ * A scenario's technicians: the accounts its leg signed in before the walk, or members registered
+ * now where the leg signed none in. Throws when the leg signed in fewer than `roster` holds.
+ */
+export function techniciansFor(baseUrl, roster) {
+  if (SIGNED_IN === null) {
+    return registerTechnicians(baseUrl, roster.prefix, roster.count);
+  }
+  const signed = Array.isArray(SIGNED_IN) ? SIGNED_IN.length : 0;
+  if (signed < roster.count) {
+    throw new Error(`setup: the leg signed in ${signed} technician(s) for ${roster.count}`);
+  }
+  return SIGNED_IN.slice(0, roster.count);
 }
 
 /** The account this virtual user signs in as; virtual users beyond the count share in turn. */

@@ -93,11 +93,12 @@ jq '.live_acceptance = {received: 360000, stored: 359900, within_five_seconds: 3
   "$WORK/full.json" >"$WORK/full-catch-up.json"
 mv "$WORK/full-catch-up.json" "$WORK/full.json"
 # Every leg writes machines, technicians, live readings and levels; catch-up adds its catch-up and
-# probe and no wave, the soak its leak trail, the breakpoint its ladder in place of a wave.
+# probe, the soak its leak trail, the breakpoint its ladder, and none of the three counts a wave.
 jq 'del(.catch_up, .live_delay, .store_probe, .leak_trail, .breaking_point)' "$WORK/full.json" >"$WORK/kind-plain.json"
 jq 'del(.leak_trail, .breaking_point) | .observations |= map(select(.series | startswith("wave") | not))' \
   "$WORK/full.json" >"$WORK/kind-catch-up.json"
-jq 'del(.catch_up, .live_delay, .store_probe, .breaking_point)' "$WORK/full.json" >"$WORK/kind-soak.json"
+jq 'del(.catch_up, .live_delay, .store_probe, .breaking_point) | .observations |= map(select(.series | startswith("wave") | not))' \
+  "$WORK/full.json" >"$WORK/kind-soak.json"
 jq 'del(.catch_up, .live_delay, .store_probe, .leak_trail) | .observations |= map(select(.series | startswith("wave") | not))' \
   "$WORK/full.json" >"$WORK/kind-breakpoint.json"
 run_rows "$WORK/full.json"

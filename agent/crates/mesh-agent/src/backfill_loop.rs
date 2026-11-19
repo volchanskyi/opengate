@@ -530,11 +530,16 @@ mod tests {
         let store = seeded_store(unix_now() - 60, 120);
         let mut c = BackfillCoordinator::new(store);
         c.start_session().await;
-        let delay = c.on_defer(20);
+        let delays: Vec<u64> = (0..200).map(|_| c.on_defer(20).as_secs()).collect();
         assert!(!c.is_draining(), "a deferral never drains");
+        let (low, high) = (delays.iter().min().unwrap(), delays.iter().max().unwrap());
         assert!(
-            delay >= Duration::from_secs(10) && delay <= Duration::from_secs(30),
-            "retry stays within the ±25 % jitter band: {delay:?}"
+            *low >= 15 && *high <= 25,
+            "retries stay within the ±25 % jitter band: {low}..{high}"
+        );
+        assert!(
+            high - low >= 8,
+            "retries spread over the band, so a fleet does not return in step: {low}..{high}"
         );
     }
 
@@ -650,6 +655,13 @@ mod tests {
         );
     }
 
+    fn due_in_full(c: &BackfillCoordinator) -> bool {
+        let deadline = c.answer_deadline().expect("an answer is due");
+        let now = tokio::time::Instant::now();
+        deadline <= now + ANSWER_DEADLINE
+            && deadline > now + ANSWER_DEADLINE - Duration::from_secs(5)
+    }
+
     #[tokio::test]
     async fn a_missed_answer_sends_the_same_batch_again_and_keeps_the_connection() {
         let store = seeded_store(unix_now() - 60, 120);
@@ -658,8 +670,10 @@ mod tests {
         assert!(sent.is_some());
         c.on_grant(1_000, unix_now() + 3600);
         let first = c.next_batch().await.expect("a batch");
-        let deadline = c.answer_deadline().expect("an answer is due");
-        assert!(deadline <= tokio::time::Instant::now() + ANSWER_DEADLINE);
+        assert!(
+            due_in_full(&c),
+            "a sent batch has its whole minute to be answered"
+        );
 
         for misses in 1..=3 {
             assert_eq!(c.on_missed_answer(), missed_answer_wait(misses));
@@ -676,7 +690,10 @@ mod tests {
                 Some(first.clone()),
                 "the same batch goes again"
             );
-            assert!(c.answer_deadline().is_some());
+            assert!(
+                due_in_full(&c),
+                "a batch sent again has its whole minute again"
+            );
         }
         assert!(
             c.is_draining(),
@@ -749,8 +766,8 @@ mod tests {
         let store = seeded_store(now - 60, 120);
         let mut c = BackfillCoordinator::new(store);
         c.start_session().await;
-        // Deadline already in the past: the next drive re-requests a slot.
-        c.on_grant(100, now - 1);
+        // The deadline passed an hour ago, so a wall clock stepped back keeps it expired.
+        c.on_grant(100, now - 3_600);
         match c.next_batch().await {
             Some(ControlMessage::RequestBackfillSlot) => {}
             other => panic!("expected a re-slot request, got {other:?}"),

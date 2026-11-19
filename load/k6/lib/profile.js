@@ -114,6 +114,26 @@ export function sessionTechnicians(walk) {
   }, 0);
 }
 
+/** Requests one round of each arrival scenario makes; it sizes the virtual users and accounts. */
+export const REQUESTS_PER_ROUND = Object.freeze({ "api-baseline": 6, "concurrent-agents": 3 });
+
+/**
+ * The accounts a scenario signs in as over a walk: the prefix their addresses carry and how many.
+ * The leg's sign-in step and the scenario's own setup read this one roster.
+ */
+export function technicianRoster(scenario, walk) {
+  switch (scenario) {
+    case "api-baseline":
+      return { prefix: "load", count: arrivalTechnicians(walk, REQUESTS_PER_ROUND[scenario]) };
+    case "concurrent-agents":
+      return { prefix: "agent-load", count: arrivalTechnicians(walk, REQUESTS_PER_ROUND[scenario]) };
+    case "relay-throughput":
+      return { prefix: "relay", count: sessionTechnicians(walk) };
+    default:
+      throw new Error(`no scenario named ${scenario} signs technicians in`);
+  }
+}
+
 /**
  * How many virtual users a phase needs to keep offering its rate: arrivals a second times how
  * long one journey lasts, assuming a second per request.

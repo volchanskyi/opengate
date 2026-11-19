@@ -113,6 +113,7 @@ func run() int {
 	fixtureWeightPath := flag.String("fixture-weight", "", "the weighing of the fleet on disk, which is the volume family's whole finding")
 	roomWait := flag.Duration("room-wait", 0, "how long to wait for the shared machine's processor to drop under the profile's ceiling before walking; zero refuses at the first busy reading")
 	leakSnapshotEvery := flag.Duration("leak-snapshot-every", 0, "take and keep the target's goroutine and heap profiles this often, so what grew across a long run is named at a line rather than reported as a slope")
+	techniciansReady := flag.String("technicians-ready", "", "a file the technicians' sign-in step writes once their accounts are signed in; the walk waits for it, and empty waits for nothing")
 	technicianCgroup := flag.String("technician-cgroup", "", "the technician generator's own allowance, its cgroup path under /sys/fs/cgroup, judged by this generator's ceilings; empty where the two share one")
 	flag.Parse()
 
@@ -168,6 +169,7 @@ func run() int {
 		runFor:    loadLastsFor(profile, *holdFor),
 	})
 	fixture := fleet.fixture
+	announceTechnicians(*techniciansReady)
 	if fleet.token != "" {
 		*enrollToken = fleet.token
 	}
@@ -186,6 +188,12 @@ func run() int {
 		install := firstLifeOf(credentials, *addr)
 		writeEnrolFirst(enrolFirst(context.Background(), agentPlan, install, filer, enrolFirstInFlight), len(agentPlan))
 		installed = readServerRegistration(*metricsURL)
+	}
+
+	// The technicians sign in before the walk, so their password checks are in no phase.
+	if err := awaitTechnicians(*techniciansReady, techniciansWait, NewRealClock()); err != nil {
+		fmt.Printf("::error::%v\n", err)
+		return exitMeasuredNothing
 	}
 
 	fmt.Printf("Starting QUIC load test: %d agents across %d tenant(s) → %s\n", *agents, tenants, *addr)

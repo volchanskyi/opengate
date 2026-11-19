@@ -67,18 +67,14 @@ requests_per_iteration() {
   grep -cE 'http\.(get|post|put|patch|del|options|head|request)\(' <<<"$body" || true
 }
 
-# accounts_for prints how many accounts a scenario signs in as over a walk, as profile.js sizes it.
+# accounts_for prints how many accounts a scenario's roster in profile.js holds over a walk.
 accounts_for() {
-  local kind="$1" walk="$2" reqs="$3"
+  local name="$1" walk="$2"
   node --input-type=module -e '
-    const [lib, kind, walk, reqs] = process.argv.slice(1);
+    const [lib, name, walk] = process.argv.slice(1);
     const profile = await import(lib);
-    const phases = JSON.parse(walk);
-    const n = kind === "arrival"
-      ? profile.arrivalTechnicians(phases, Number(reqs))
-      : profile.sessionTechnicians(phases);
-    process.stdout.write(String(n));
-  ' "file://$PROFILE_LIB" "$kind" "$walk" "$reqs"
+    process.stdout.write(String(profile.technicianRoster(name, JSON.parse(walk)).count));
+  ' "file://$PROFILE_LIB" "$name" "$walk"
 }
 
 shopt -s nullglob
@@ -95,8 +91,8 @@ for f in "${scenarios[@]}"; do
     fail "$name declares an iteration loop whose requests this gate can count"
     continue
   fi
-  if grep -q 'registerTechnicians(' "$f" && grep -q 'ownTechnician(' "$f"; then
-    pass "$name signs each virtual user in as one of the accounts its setup registered"
+  if grep -qF "techniciansFor(BASE_URL" "$f" && grep -q 'ownTechnician(' "$f"; then
+    pass "$name signs each virtual user in as one of the accounts its roster holds"
   else
     fail "$name signs every virtual user in as one shared account, which spends one account's allowance"
   fi
@@ -116,14 +112,14 @@ for f in "${scenarios[@]}"; do
     }
     if [ "$kind" = arrival ]; then
       peak="$(jq -r '[.[].arrivals_per_second] | max' <<<"$walk")"
-      accounts="$(accounts_for arrival "$walk" "$reqs")" || {
+      accounts="$(accounts_for "$name" "$walk")" || {
         fail "profile.js sizes $name's accounts over $(basename "$profile")"
         continue
       }
       offered="$(awk -v p="$peak" -v r="$reqs" -v a="$accounts" 'BEGIN { print p * r / a }')"
     else
       # A held session's virtual user makes one iteration a second at most, on an account of its own.
-      accounts="$(accounts_for session "$walk" "$reqs")" || {
+      accounts="$(accounts_for "$name" "$walk")" || {
         fail "profile.js sizes $name's accounts over $(basename "$profile")"
         continue
       }

@@ -124,6 +124,8 @@ jobs:
       - name: Walk the soak profile, building its fleet first
         env:
           LOADTEST_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}-soak
+          # The technicians sign in before the walk, which waits for this file to say they did.
+          LOADTEST_TECHNICIANS_READY: /tmp/soak-technicians.ready
           # The stack is reachable only inside the runner and holds invented data; the password is per run.
           SOAK_FIXTURE_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-Soak!
         run: |
@@ -154,6 +156,7 @@ jobs:
               -fixture-bootstrap \
               -fixture-seed=1 \
               -relay-sessions \
+              -technicians-ready="$LOADTEST_TECHNICIANS_READY" \
               -leak-snapshot-every="$SOAK_SNAPSHOT_EVERY" \
               -bundle="$SOAK_BUNDLE_DIR/soak"
           walk=$?

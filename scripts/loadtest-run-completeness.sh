@@ -17,7 +17,7 @@
 # Usage: loadtest-run-completeness.sh <loadtest-summary.json> [completeness.json]
 set -euo pipefail
 
-DEFAULT_EXPECTED="api-baseline concurrent-agents relay-throughput quic-agents"
+DEFAULT_EXPECTED="api-baseline concurrent-agents relay-throughput quic-agents database server"
 
 # The error-rate ceiling past which a scenario's numbers describe the error path; it equals the
 # harness's own figure in server/tests/loadtest/validity.go.
