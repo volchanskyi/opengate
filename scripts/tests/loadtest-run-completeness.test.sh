@@ -39,7 +39,10 @@ rows() {
     for scenario in "${scenarios[@]}"; do
       [ "$first" -eq 1 ] || printf ','
       first=0
-      printf '{"source":"k6","scenario":"%s","phase":"http","latency_p95_ms":90}' "$scenario"
+      case "$scenario" in
+        server | database) printf '{"source":"service","scenario":"%s","phase":"measured","cpu_percent":40}' "$scenario" ;;
+        *) printf '{"source":"k6","scenario":"%s","phase":"http","latency_p95_ms":90}' "$scenario" ;;
+      esac
     done
     printf ']'
   } >"$WORK/summary.json"
@@ -51,15 +54,18 @@ run_check() {
     "$CHECK" "$WORK/summary.json" "$WORK/completeness.json" >"$WORK/out.txt" 2>"$WORK/err.txt" || STATUS=$?
 }
 
+# A night's rows: the four scenarios, and the server's and database's levels every summary carries.
+NIGHT=(api-baseline concurrent-agents relay-throughput quic-agents database server)
+
 echo "loadtest-run-completeness:"
 
-rows api-baseline concurrent-agents relay-throughput quic-agents
+rows "${NIGHT[@]}"
 run_check
 assert_eq "a complete night exits 0" "0" "$STATUS"
 assert_eq "a complete night is valid" "valid" "$(jq -r '.result' "$WORK/completeness.json")"
 assert_eq "a complete night has nothing missing" "0" "$(jq '.missing_scenarios | length' "$WORK/completeness.json")"
 
-rows api-baseline concurrent-agents relay-throughput
+rows api-baseline concurrent-agents relay-throughput database server
 run_check
 assert_eq "a partial night exits 3" "3" "$STATUS"
 assert_eq "a partial night is invalid" "invalid" "$(jq -r '.result' "$WORK/completeness.json")"
@@ -70,16 +76,22 @@ else
   fail "a partial night says it must not enter the trend"
 fi
 
-assert_eq "the record names what did produce rows" "api-baseline,concurrent-agents,relay-throughput" \
+assert_eq "the record names what did produce rows" "api-baseline,concurrent-agents,database,relay-throughput,server" \
   "$(jq -r '.produced_scenarios | join(",")' "$WORK/completeness.json")"
 
-rows api-baseline concurrent-agents relay-throughput quic-agents ad-hoc
+rows "${NIGHT[@]}" ad-hoc
 run_check
 assert_eq "an unexpected scenario is invalid" "invalid" "$(jq -r '.result' "$WORK/completeness.json")"
 assert_eq "an unexpected scenario is named" "ad-hoc" "$(jq -r '.unexpected_scenarios | join(",")' "$WORK/completeness.json")"
 
-# The profile's limits alone judge a night, so files the k6 scripts leave decide nothing.
 rows api-baseline concurrent-agents relay-throughput quic-agents
+run_check
+assert_eq "a night without the levels is invalid" "invalid" "$(jq -r '.result' "$WORK/completeness.json")"
+assert_eq "a night without the levels names both" "database,server" \
+  "$(jq -r '.missing_scenarios | join(",")' "$WORK/completeness.json")"
+
+# The profile's limits alone judge a night, so files the k6 scripts leave decide nothing.
+rows "${NIGHT[@]}"
 printf 'api-baseline\n' >"$WORK/k6/api-baseline.thresholds"
 run_check
 assert_eq "a file beside the k6 exports is no verdict" "0" "$STATUS"
@@ -92,6 +104,8 @@ rowsWithError() {
     printf '{"source":"k6","scenario":"api-baseline","phase":"http","latency_p95_ms":90,"error_rate":0},'
     printf '{"source":"k6","scenario":"concurrent-agents","phase":"http","latency_p95_ms":90,"error_rate":0},'
     printf '{"source":"k6","scenario":"relay-throughput","phase":"http","latency_p95_ms":90,"error_rate":0},'
+    printf '{"source":"service","scenario":"server","phase":"measured","cpu_percent":40},'
+    printf '{"source":"service","scenario":"database","phase":"measured","cpu_percent":40},'
     printf '{"source":"quic","scenario":"%s","phase":"aggregate","rps":0,"error_rate":%s}' "$scenario" "$rate"
     printf ']'
   } >"$WORK/summary.json"
@@ -131,7 +145,7 @@ run_check_with_bundle() {
     "$CHECK" "$WORK/summary.json" "$WORK/completeness.json" >"$WORK/out.txt" 2>"$WORK/err.txt" || STATUS=$?
 }
 
-rows api-baseline concurrent-agents relay-throughput quic-agents
+rows "${NIGHT[@]}"
 
 bundle_verdict invalid "target restarted mid-run: the process answering at the end started at 1756761838, not 1756761000"
 run_check_with_bundle
@@ -171,7 +185,7 @@ run_check_with_gates() {
 }
 
 rm -f "$WORK/bundle.json"
-rows api-baseline concurrent-agents relay-throughput quic-agents
+rows "${NIGHT[@]}"
 
 jq -n '[{enforced: true, message: "k6/api-baseline/http latency_p95_ms is 260, past the 200 it is held to"}]' >"$WORK/gates.json"
 run_check_with_gates

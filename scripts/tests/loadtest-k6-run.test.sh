@@ -275,6 +275,129 @@ assert_eq "breakpoint's technician rows read its recovery alone" \
     | jq -r '[.[] | select(.source == "k6") | "\(.source)/\(.scenario)/\(.phase) \(.latency_p95_ms)"]
       | sort | join("|")')"
 
+# The sign-in step runs the sign-in script for one scenario and keeps only its accounts.
+cat >"$WORK/k6" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$@" >"$WORK/k6-args.txt"
+for arg in "\$@"; do
+  case "\$arg" in
+    LOADTEST_TECHNICIANS_OUT=*) [ -f "$WORK/write-nothing" ] || printf '[{"token":"t","email":"e"}]' >"\${arg#*=}" ;;
+  esac
+done
+exit "\$(cat "$WORK/k6-exit" 2>/dev/null || echo 0)"
+EOF
+chmod +x "$WORK/k6"
+sign_in_case() {
+  rm -f "$WORK/accounts.json"
+  STATUS=0
+  K6_BIN="$WORK/k6" \
+    LOADTEST_BASE_URL="http://127.0.0.1:18080" \
+    LOADTEST_RUN_ID="99-1" \
+    LOADTEST_PROFILE="$REPO_ROOT/load/profiles/catch-up.yaml" \
+    LOADTEST_WALK_ELAPSED_SECONDS=300 \
+    "$RUNNER" --sign-in relay-throughput "$WORK/accounts.json" >"$WORK/out.txt" 2>&1 || STATUS=$?
+}
+sign_in_case
+assert_eq "a sign-in that wrote its accounts exits 0" "0" "$STATUS"
+assert_eq "the accounts are where the scenario reads them" '[{"token":"t","email":"e"}]' \
+  "$(cat "$WORK/accounts.json")"
+args="$(cat "$WORK/k6-args.txt")"
+if grep -qxF 'LOADTEST_SCENARIO=relay-throughput' <<<"$args" \
+  && grep -qxF "LOADTEST_TECHNICIANS_OUT=$WORK/accounts.json" <<<"$args" \
+  && grep -qx '.*/load/k6/sign-in.js' <<<"$args"; then
+  pass "the sign-in script runs for the scenario it signs in"
+else
+  fail "the sign-in script runs for the scenario it signs in: $args"
+fi
+if grep -qxF -- '--summary-export' <<<"$args"; then
+  fail "a sign-in writes no summary export, which the trend would read as the scenario's"
+else
+  pass "a sign-in writes no summary export, which the trend would read as the scenario's"
+fi
+walk="$(grep '^LOADTEST_PHASES=' <<<"$args")"
+assert_eq "a sign-in sizes its roster over the whole walk" "return drain" \
+  "$(jq -r '[.[].name] | join(" ")' <<<"${walk#LOADTEST_PHASES=}")"
+touch "$WORK/write-nothing"
+sign_in_case
+rm -f "$WORK/write-nothing"
+assert_eq "a sign-in that wrote no accounts exits 2" "2" "$STATUS"
+printf '107' >"$WORK/k6-exit"
+sign_in_case
+rm -f "$WORK/k6-exit"
+assert_eq "a refused sign-in keeps k6's own status" "107" "$STATUS"
+
+cat >"$WORK/k6" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$@" >"$WORK/k6-args.txt"
+prev=""
+for arg in "\$@"; do
+  [ "\$prev" = --summary-export ] && printf '{"metrics":{}}' >"\$arg"
+  prev="\$arg"
+done
+exit 0
+EOF
+chmod +x "$WORK/k6"
+mkdir -p "$WORK/summaries"
+STATUS=0
+K6_BIN="$WORK/k6" LOADTEST_K6_SUMMARY_DIR="$WORK/summaries" LOADTEST_BASE_URL="http://127.0.0.1:18080" \
+  LOADTEST_RUN_ID="99-1" LOADTEST_PROFILE="$REPO_ROOT/load/profiles/normal.yaml" \
+  LOADTEST_TECHNICIANS="$WORK/accounts.json" \
+  "$RUNNER" api-baseline load/k6/scenarios/api-baseline.js >"$WORK/out.txt" 2>&1 || STATUS=$?
+if grep -qxF "LOADTEST_TECHNICIANS=$WORK/accounts.json" "$WORK/k6-args.txt"; then
+  pass "a scenario is handed the accounts its leg signed in"
+else
+  fail "a scenario is handed the accounts its leg signed in: $(cat "$WORK/k6-args.txt")"
+fi
+
+# Under the stand-in modules the sign-in script signs in the roster its scenario needs, and a
+# scenario takes the accounts signed in for it without signing anybody up.
+SIGN_IN="$WORK/k6-sign-in"
+cp -r "$K6_STAND_IN" "$SIGN_IN"
+cp "$REPO_ROOT/load/k6/sign-in.js" "$SIGN_IN/"
+cat >"$SIGN_IN/node_modules/k6/http.js" <<'EOF'
+let issued = 0;
+export default {
+  post: () => ({ status: 201, body: "", json: (field) => (field === "token" ? `token-${++issued}` : undefined) }),
+};
+EOF
+signed="$(cd "$SIGN_IN" && LOADTEST_SCENARIO=relay-throughput LOADTEST_PHASES="$STEADY_WALK" \
+  LOADTEST_TECHNICIANS_OUT=/run/accounts.json node --input-type=module -e "
+    globalThis.__ENV = process.env;
+    const { technicianRoster, phases } = await import('./lib/profile.js');
+    const signIn = await import('./sign-in.js');
+    const accounts = signIn.setup();
+    const written = signIn.handleSummary({ setup_data: accounts, metrics: {} });
+    process.stdout.write(JSON.stringify({ want: technicianRoster('relay-throughput', phases()).count,
+      got: accounts.length, keys: Object.keys(written), body: JSON.parse(written['/run/accounts.json']) }));
+  ")"
+assert_eq "the sign-in signs in the roster its scenario holds" "$(jq -r '.want' <<<"$signed")" \
+  "$(jq -r '.got' <<<"$signed")"
+assert_eq "the sign-in writes its accounts and nothing else" '["/run/accounts.json"]' \
+  "$(jq -c '.keys' <<<"$signed")"
+assert_eq "the written accounts are the ones setup signed in" "token-1" "$(jq -r '.body[0].token' <<<"$signed")"
+
+printf '[{"token":"a","email":"a@x"},{"token":"b","email":"b@x"},{"token":"c","email":"c@x"}]' >"$WORK/signed.json"
+taken() { # count
+  (cd "$SIGN_IN" && LOADTEST_TECHNICIANS="$WORK/signed.json" node --input-type=module -e "
+    import { readFileSync } from 'node:fs';
+    globalThis.__ENV = process.env;
+    globalThis.open = (path) => readFileSync(path, 'utf8');
+    const { techniciansFor } = await import('./lib/session.js');
+    try {
+      process.stdout.write(techniciansFor('http://x', { prefix: 'relay', count: $1 }).map((t) => t.token).join(','));
+    } catch (error) {
+      process.stdout.write('refused: ' + error.message);
+    }
+  ")
+}
+assert_eq "a scenario takes the accounts signed in for it" "a,b" "$(taken 2)"
+case "$(taken 5)" in
+  "refused: "*"3 technician(s)"*"5"*) pass "a scenario refuses a leg that signed in too few" ;;
+  *) fail "a scenario refuses a leg that signed in too few: $(taken 5)" ;;
+esac
+signing_up="$(grep -l 'registerTechnicians(' "$REPO_ROOT"/load/k6/scenarios/*.js || true)"
+assert_eq "every scenario takes its technicians through techniciansFor" "" "$signing_up"
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

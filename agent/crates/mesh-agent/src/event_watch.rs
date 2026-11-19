@@ -111,18 +111,24 @@ impl EventWatch {
 
 /// Reads a normalized entry's timestamp as microseconds since the Unix epoch.
 fn entry_micros(entry: &LogEntry) -> Option<i64> {
-    chrono::DateTime::parse_from_rfc3339(&entry.timestamp)
-        .ok()
-        .map(|dt| dt.timestamp_micros())
+    time::OffsetDateTime::parse(
+        &entry.timestamp,
+        &time::format_description::well_known::Rfc3339,
+    )
+    .ok()
+    .and_then(|dt| i64::try_from(dt.unix_timestamp_nanos().div_euclid(1_000)).ok())
 }
 
 /// Renders an instant as the RFC 3339 string the log filter pushes down.
 fn iso_from_micros(micros: i64) -> String {
-    use chrono::{SecondsFormat, TimeZone, Utc};
-    let secs = micros.div_euclid(MICROS_PER_SEC);
-    Utc.timestamp_opt(secs, 0)
-        .single()
-        .map(|dt| dt.to_rfc3339_opts(SecondsFormat::Secs, true))
+    time::OffsetDateTime::from_unix_timestamp(micros.div_euclid(MICROS_PER_SEC))
+        .ok()
+        .and_then(|dt| {
+            dt.format(time::macros::format_description!(
+                "[year]-[month]-[day]T[hour]:[minute]:[second]Z"
+            ))
+            .ok()
+        })
         .unwrap_or_default()
 }
 
@@ -363,6 +369,20 @@ mod tests {
         );
         assert_eq!(entry_micros(&entry("", "ERROR", "a", "m")), None);
         assert_eq!(entry_micros(&entry("yesterday", "ERROR", "a", "m")), None);
+        assert_eq!(
+            entry_micros(&entry("2023-11-14T23:13:20.5+01:00", "ERROR", "a", "m")),
+            Some(1_700_000_000 * MICROS_PER_SEC + 500_000)
+        );
+    }
+
+    #[test]
+    fn the_pushed_down_filter_time_is_whole_seconds_in_utc() {
+        assert_eq!(
+            iso_from_micros(1_700_000_000 * MICROS_PER_SEC + 999_999),
+            "2023-11-14T22:13:20Z"
+        );
+        assert_eq!(iso_from_micros(0), "1970-01-01T00:00:00Z");
+        assert_eq!(iso_from_micros(i64::MAX), "", "out of range reads empty");
     }
 
     #[test]

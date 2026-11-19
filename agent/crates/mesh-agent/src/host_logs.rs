@@ -97,9 +97,9 @@ fn journald_priority_ceiling(min_level: &str) -> Option<&'static str> {
 
 /// Parses an RFC 3339 timestamp into whole Unix seconds, or `None` when invalid.
 fn iso_to_epoch(ts: &str) -> Option<i64> {
-    chrono::DateTime::parse_from_rfc3339(ts)
+    time::OffsetDateTime::parse(ts, &time::format_description::well_known::Rfc3339)
         .ok()
-        .map(|dt| dt.timestamp())
+        .map(time::OffsetDateTime::unix_timestamp)
 }
 
 /// Builds the `journalctl -o json` argv; each value is one token, so a hostile `unit` matches
@@ -138,13 +138,15 @@ fn json_str(value: &serde_json::Value, key: &str) -> Option<String> {
 /// Converts a journald `__REALTIME_TIMESTAMP` (Unix microseconds) to an RFC 3339 UTC string,
 /// empty when out of range.
 fn realtime_micros_to_iso(micros: i64) -> String {
-    use chrono::{SecondsFormat, TimeZone, Utc};
-    let secs = micros.div_euclid(1_000_000);
-    let nanos = (micros.rem_euclid(1_000_000) * 1_000) as u32;
-    match Utc.timestamp_opt(secs, nanos).single() {
-        Some(dt) => dt.to_rfc3339_opts(SecondsFormat::Micros, true),
-        None => String::new(),
-    }
+    time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(micros) * 1_000)
+        .ok()
+        .and_then(|dt| {
+            dt.format(time::macros::format_description!(
+                "[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:6]Z"
+            ))
+            .ok()
+        })
+        .unwrap_or_default()
 }
 
 /// Parses one `journalctl -o json` line into a [`LogEntry`]; a line without `MESSAGE` is `None`.
@@ -410,7 +412,16 @@ mod tests {
     fn iso_to_epoch_parses_rfc3339() {
         assert_eq!(iso_to_epoch("1970-01-01T00:00:00Z"), Some(0));
         assert_eq!(iso_to_epoch("2023-11-14T22:13:20Z"), Some(1_700_000_000));
+        assert_eq!(
+            iso_to_epoch("2023-11-14T22:13:20.900Z"),
+            Some(1_700_000_000)
+        );
+        assert_eq!(
+            iso_to_epoch("2023-11-14T23:13:20+01:00"),
+            Some(1_700_000_000)
+        );
         assert_eq!(iso_to_epoch("not a time"), None);
+        assert_eq!(iso_to_epoch("2023-11-14 22:13"), None);
     }
 
     #[test]
@@ -463,6 +474,17 @@ mod tests {
         assert!(iso.starts_with("2023-11-14T22:13:20"), "got {iso}");
         assert!(iso.contains(".123456"), "sub-second µs must survive: {iso}");
         assert!(iso.ends_with('Z'), "must be UTC: {iso}");
+        assert_eq!(
+            realtime_micros_to_iso(1_700_000_000_000_000),
+            "2023-11-14T22:13:20.000000Z",
+            "every timestamp carries six fraction digits, so the strings sort as the times do"
+        );
+        assert_eq!(realtime_micros_to_iso(-1), "1969-12-31T23:59:59.999999Z");
+        assert_eq!(
+            realtime_micros_to_iso(i64::MAX),
+            "",
+            "out of range reads empty"
+        );
     }
 
     #[test]

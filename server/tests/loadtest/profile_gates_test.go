@@ -207,3 +207,22 @@ func TestASignInLimitOnAPhaseTheProfileDoesNotWalkIsRefused(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `quic/register/plateau names phase "plateau", which this profile does not walk`)
 }
+
+func TestAWaveLimitSitsOnAProfileWithAMeasuredPhase(t *testing.T) {
+	document := strings.Replace(profileWith(gate("quic/quic-agents/wave", "arrival_share", "min", 1, true), ""),
+		"connected_agents: 500", "connected_agents: 500\n    measured: true", 1)
+
+	_, err := ParseProfile([]byte(document))
+
+	require.NoError(t, err)
+}
+
+func TestAWaveLimitOnAProfileWithNoMeasuredPhaseIsRefused(t *testing.T) {
+	_, err := ParseProfile([]byte(profileWith(
+		gate("quic/quic-agents/wave", "arrival_share", "min", 1, true)+
+			gate("quic/quic-agents/wave", "latency_p95_ms", "max", 1000, true), "")))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `quic/quic-agents/wave is limited, but no phase of this profile is measured`)
+	assert.Equal(t, 1, strings.Count(err.Error(), "quic/quic-agents/wave"), "one refusal per profile")
+}

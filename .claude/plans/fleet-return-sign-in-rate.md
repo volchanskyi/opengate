@@ -234,13 +234,68 @@ The node had about 0.19 processors and 6.6 GiB unreserved when read on 2026-11-0
   keep production's size and state its fleet ceiling, give the server more memory
   (free on the node), or let sign-ins go ahead of catch-up.
 
+## What the nightlies read, 2026-11-13 to 2026-11-17 (Ivan asked for a cross-check)
+
+All on `4e6cbd48` from 11-14. What the plan already covers: the breakpoint's recovery
+sign-ins (median 24–49 s), the 8,000-machine sign-in median (160–193 ms, green since
+11-15), catch-up's machines caught up (3,948–4,986) and unanswered batches (3–91). Not
+covered, fixed first in commit 0 (Ivan, modals, 2026-11-17):
+
+- Load test (staging), invalid every night since 11-14: the summary carries the server's
+  and database's level rows (`loadtest-levels.sh`), which `loadtest-run-completeness.sh`
+  does not list as owed. The levels become owed scenarios.
+- Soak (run 43724679797): two `quic/quic-agents/wave` limits on a profile with no measured
+  phase, so no row ever arrives. The two limits go, and the profile check refuses a wave
+  limit on a profile with no measured phase.
+- Mutation, Rust 91.4 under its 91.5 floor on 11-17 (91.5 on 11-14, same commit): 41
+  steady survivors sit in files changed since the floor was set, most in catch-up code
+  (`drain/read.rs`, `backfill/mod.rs`, `backfill_loop.rs`, `control_loop.rs`
+  `dispatch_backfill`, `device_logs.rs`). Tests kill them; the floor stays.
+- Mutation shards past the 90-minute cap: `rust-agent-loops` 76–82 min, cancelled on 3
+  of 6 nights, splits in two, and the pre-flight's cost per mutant is read again from the
+  measured times. `go-observability-harness` 42–90 min, cancelled once: its swing is 14
+  telemetry-writer mutants whose tests waited with no deadline, each holding a worker for
+  the 15-minute leash; the waits are bounded and the shard stays whole (Ivan, modal,
+  2026-11-18).
+- Catch-up, every night: the technicians' sign-up runs as 5,000 machines arrive and gets
+  `503 request timeout`, so the relay journey never runs. The technicians' accounts and
+  sign-ins exist before the fleet starts (Ivan, modal: k6 creates test data before the
+  load; a technician is signed in before a fleet returns). A sign-in step of its own runs
+  once the harness says its administrator exists, and the walk waits for its word, on
+  every leg running technicians beside the fleet (Ivan, modal, 2026-11-18).
+- Catch-up 11-16: the generator was refused the processor for 27.7% of the run (ceiling
+  20%); it is refused 15–31% of every drain, and the technicians share its processor.
+  The technicians get half a processor and 1 GiB of their own (Ivan, modals), 3.25 of the
+  runner's 4 processors.
+- Catch-up 11-17: the harness held 4,994 machines, the server 4,988 after 180 s. The
+  harness marks a machine online when it writes `AgentRegister`; the server counts it
+  after two setup reads (`TenantForDevice`, `devices.Get`), each its own transaction.
+  Step 1 moves "online" to the server's first answer as well (Ivan, modal), and step 5
+  folds the two setup reads in: a return runs 9 transactions, not 7.
+
+## Found while landing commit 0 (2026-11-18)
+
+Ivan (modal): commit 0 lands as it stands; these two go into commits 1 and 2.
+
+- `TestATunedThresholdReachesOneCustomerAndNotTheOther` failed once in about 27 runs (62
+  expected, 95 read) and not again in 58 tries. One path to it: a failed `ScopeFor` at sign-in
+  falls back to a scope without the customer (`settingsScope`), and the catalogue then sends
+  the shipped rules, a tested choice (`TestAlertRulesFallBackToWhatTheConnectionKnows`).
+  Commit 1 proves the cause; commit 2 (step 5, the setup reads in one conversation) decides
+  what a machine whose customer cannot be read is sent.
+- `TestMPSRequestsConserveGoroutinesAndHeap` failed once under `-race` on a heap that fell
+  (−1773 B per request against 1024): the three conservation checks hold the slope's size,
+  so memory given back reads as a leak. Commit 1 holds the retained side alone.
+
 ## Work, each step test first
 
 1. Timers that reach the 5-minute promise (Ivan, modal): the server's sign-in
    buckets (`registrationDurationBuckets`) run to 300 s; the harness times a
    sign-in from its send to the server's first answer, so a wait in the line is
-   counted. The harness figure changes meaning, one break in its history. The
-   "before" readings are taken with these timers.
+   counted, and marks the machine online at that answer, which the fleet-online
+   figures and the server's census read (Ivan, modal, 2026-11-17). The harness
+   figures change meaning, one break in their history. The "before" readings are
+   taken with these timers.
 2. Why the three stopped: the harness records per machine why its catch-up ended
    (turn never granted, told to wait N times, connection ended, run ended); the
    rehearsal runs again; the fix follows the cause. Then a turn request with no
@@ -261,8 +316,9 @@ The node had about 0.19 processors and 6.6 GiB unreserved when read on 2026-11-0
 5. A sign-in's own rows in one conversation (one transaction, about 5 trips,
    the customer boundary as today): the device write hands back the
    machine's place and maintenance flag, then its tags, and the customer's
-   machine count while a rollout is staged. The reads (only the customer's own
-   machine) and the trips proven against a real database.
+   machine count while a rollout is staged. The connection's two setup reads
+   (`TenantForDevice`, `devices.Get` in `server_connection.go`) join it. The reads
+   (only the customer's own machine) and the trips proven against a real database.
 6. The sign-in line: a number in progress sized from the server's processor share
    (measured on the rehearsal; the rule per processor and its readings written
    into the decision record), the rest waiting with their connections kept and
@@ -303,8 +359,11 @@ The node had about 0.19 processors and 6.6 GiB unreserved when read on 2026-11-0
     nothing was stored, as its message says; `onlineAtContoso` and
     `contosoOnlineMachine` become one helper.
 
-## Commits (Ivan, modal, 2026-11-12: four)
+## Commits (Ivan, modal, 2026-11-12: four; commit 0 added 2026-11-17)
 
+0. The nightlies' unplanned failures, before step 1: the load test's owed levels, the
+   soak's wave limits and the profile check, the Rust survivors, the two mutation
+   shards, the technicians' accounts before the return and their own half processor.
 1. Steps 1–3 and 11: the timers, the three's cause and its fix, a turn request
    asked again, the alert-budget push, the acceptance tests' own fixes.
 2. Steps 4–5: customer-wide settings in memory, a sign-in's own rows in one

@@ -8,6 +8,9 @@ import (
 // signInSeries prefixes the series of the server's sign-in timing over one named phase.
 const signInSeries = "quic/register/"
 
+// waveSeries is the series of the measured phase's wave, the one phase that counts one.
+const waveSeries = "quic/quic-agents/wave"
+
 // Gate is one rule the bundle is read against.
 type Gate struct {
 	// Series is a source/scenario/phase triple matching the trend rows.
@@ -42,7 +45,26 @@ func (p *Profile) validateGates() []error {
 		problems = append(problems, p.validateGateShape(i, gate)...)
 	}
 	problems = append(problems, p.validateBlockingLimits()...)
-	return append(problems, p.validateSignInPhases()...)
+	problems = append(problems, p.validateSignInPhases()...)
+	return append(problems, p.validateWavePhase()...)
+}
+
+// validateWavePhase refuses a wave limit on a profile that marks no phase measured, whose run
+// counts no wave and so never writes the row the limit reads.
+func (p *Profile) validateWavePhase() []error {
+	for _, phase := range p.Phases {
+		if phase.Measured {
+			return nil
+		}
+	}
+	for _, gate := range p.Gates {
+		if gate.Series == waveSeries {
+			return []error{fmt.Errorf(
+				"%s is limited, but no phase of this profile is measured, so the run counts no wave and its row never arrives",
+				waveSeries)}
+		}
+	}
+	return nil
 }
 
 // validateBlockingLimits allows one failing limit per measurement and direction, counted apart so

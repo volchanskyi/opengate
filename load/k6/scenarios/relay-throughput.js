@@ -11,14 +11,14 @@ import {
   ownTechnician,
   printCleanupManifest,
   readFleet,
-  registerTechnicians,
+  techniciansFor,
 } from "../lib/session.js";
 import { emptyFleetReason, onlineIds } from "../lib/fleet.js";
 import {
   measuredExports,
   phases,
   sessionScenarios,
-  sessionTechnicians,
+  technicianRoster,
 } from "../lib/profile.js";
 
 const BASE_URL = __ENV.BASE_URL || "http://localhost:8080";
@@ -38,19 +38,20 @@ const PROBE = new Uint8Array([
 const WALK = phases();
 
 // Sessions held at once: each has a technician and a machine of its own.
-const HELD = sessionTechnicians(WALK);
+const ROSTER = technicianRoster("relay-throughput", WALK);
+const HELD = ROSTER.count;
 
 export const options = {
   // The profile's `sessions` sets how many sessions are held open, phase by phase.
   scenarios: sessionScenarios(WALK),
-  // Setup registers one account per held session before the walk starts.
+  // Setup takes one account per held session, signed in before the walk starts.
   setupTimeout: "10m",
   // The measured phase's keystroke round trip joins the export; the profile judges it.
   thresholds: measuredExports(WALK, { relay_msg_latency_ms: "trend" }),
 };
 
 export function setup() {
-  const technicians = registerTechnicians(BASE_URL, "relay", HELD);
+  const technicians = techniciansFor(BASE_URL, ROSTER);
   const fleet = readFleet(BASE_URL, technicians[0].token);
   const devices = onlineIds(fleet);
 

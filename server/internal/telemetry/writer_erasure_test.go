@@ -44,7 +44,7 @@ func TestErasureWaitsForAWriteWhoseCheckPassedBeforeTheEntry(t *testing.T) {
 	machine := anyScope()
 	w.Submit(telemetry.Submission{Class: telemetry.ClassLive, Scope: machine,
 		Samples: readings(3, readingTime), Done: got.done(1)})
-	<-inFlight
+	within(t, inFlight, 2*time.Second)
 
 	waited := make(chan error, 1)
 	go func() { waited <- w.WaitForWrites(context.Background(), machine.Tenant, &machine.Device) }()
@@ -55,7 +55,7 @@ func TestErasureWaitsForAWriteWhoseCheckPassedBeforeTheEntry(t *testing.T) {
 	}
 
 	close(release)
-	require.NoError(t, <-waited)
+	require.NoError(t, within(t, waited, 2*time.Second))
 	got.await(t, time.Second)
 }
 
@@ -76,7 +76,7 @@ func TestErasureOfOneMachineDoesNotWaitForAnother(t *testing.T) {
 	busy := anyScope()
 	w.Submit(telemetry.Submission{Class: telemetry.ClassLive, Scope: busy,
 		Samples: readings(1, readingTime), Done: func(telemetry.Outcome) {}})
-	<-inFlight
+	within(t, inFlight, 2*time.Second)
 
 	other := uuid.New()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)

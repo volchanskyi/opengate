@@ -42,6 +42,15 @@ a value whose limit still fits in what a fully spent shard has left of the cap,
 so a mutant that starts blocking between one night and the next — before any run
 has declared it — cannot carry the job past the cap on its own.
 
+**A test waits with a deadline.** Many undeclared blockers can still carry a
+shard past the cap together: fourteen mutants that stop the telemetry writer
+answering or shutting down left its tests waiting on a channel with no deadline,
+each holding a worker for the whole leash, and took the harness shard from 40
+minutes to past 90 on unchanged code. The writer's tests wait seconds for each
+answer and for the writer to stop
+([`writer_harness_test.go`](../../server/internal/telemetry/writer_harness_test.go)),
+so such a mutant fails within seconds and is counted as killed.
+
 **The web leg is projected by the same rule.** Its mutants are counted by
 Stryker itself, instrumenting each shard's files with a command runner that runs
 no test ([`mutation-web-count.sh`](../../scripts/mutation-web-count.sh)), and each

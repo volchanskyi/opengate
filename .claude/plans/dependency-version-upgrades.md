@@ -25,6 +25,7 @@ list comes from `python3 scripts/dependency-fixes`, under "fixed only in a newer
 | prom/node-exporter | v1.9.1 | v1.12.1 | minor | 74 | CVE-2025-0913 | monitoring values |
 | curlimages/curl | 8.11.1 | 8.23.0 | minor | 65 | CVE-2024-12797 | `deploy/helm/opengate/values.yaml`, `network-drill.yml`, `vm-push.sh`, `vm-query.sh` |
 | grafana/promtail | 3.5.12 | 3.6.11 | minor | 19 | CVE-2026-21726 | monitoring values |
+| prometheuscommunity/postgres-exporter (found 2026-11-18; not yet asked) | v0.20.1 | v0.21.1 | major | 32 | CVE-2026-111943 | `deploy/helm/opengate/values.yaml` |
 
 ## What builds, tests and deploys the product
 
@@ -52,6 +53,7 @@ list comes from `python3 scripts/dependency-fixes`, under "fixed only in a newer
 | Lighthouse CI | 0.14.0 | 0.15.1 | major | 1 | GHSA-pxg6-pf52-xh8x |
 | oci-cli (what its environment holds) | 3.94.1 | none yet: every release to 3.95.1 requires certifi below 2026 | kept | 1 | GHSA-6q48-6c7w-9gw2 |
 | shfmt | 3.13.1 | v3.14.1 | minor | 1 | GO-2026-5024 |
+| cargo-audit (what it is built from; found 2026-11-18; not yet asked) | 0.22.2 | 0.23.0 | major | 18 | RUSTSEC-2026-0190, GHSA-4w2j-m93h-cj5j |
 
 Decided (Ivan, 2026-11-01), each measured with the check's own package reader against the tags
 named (every one built for arm64; the production arm64 check still runs before deploy):

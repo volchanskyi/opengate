@@ -39,6 +39,7 @@ mutation_rust_shards() {
     rust-tsdb-encoding
     rust-tsdb-surface
     rust-agent-loops
+    rust-agent-host
     rust-protocol-wire
   )
   echo "${ids[*]}"
@@ -60,7 +61,7 @@ mutation_rust_shard_package() {
     rust-core-discovery | rust-core-identity) echo "mesh-agent-core" ;;
     rust-core-runtime-lifecycle | rust-core-runtime) echo "mesh-agent-core" ;;
     rust-tsdb-blocks | rust-tsdb-encoding | rust-tsdb-surface) echo "edge-tsdb" ;;
-    rust-agent-loops) echo "mesh-agent" ;;
+    rust-agent-loops | rust-agent-host) echo "mesh-agent" ;;
     rust-protocol-wire) echo "mesh-protocol" ;;
     *)
       echo "unknown mutation shard: $1" >&2
@@ -148,7 +149,10 @@ mutation_rust_shard_units() {
     # The crate's catch-all; the bake-off substrates are carved out in agent/.cargo/mutants.toml
     # because they sit behind a feature the shipped agent turns off.
     rust-tsdb-surface) echo "rest" ;;
-    rust-agent-loops) echo "rest" ;;
+    rust-agent-loops)
+      echo "file:crates/mesh-agent/src/control_loop.rs file:crates/mesh-agent/src/backfill_loop.rs file:crates/mesh-agent/src/device_logs.rs file:crates/mesh-agent/src/retro_job.rs"
+      ;;
+    rust-agent-host) echo "rest" ;;
     rust-protocol-wire) echo "rest" ;;
     *)
       echo "unknown mutation shard: $1" >&2
@@ -225,7 +229,8 @@ mutation_rust_package_milliminutes_per_mutant() {
     # The nightly 460 plus the 5.7 s the two direct-link tests add to every run.
     mesh-agent-core) echo 555 ;;
     edge-tsdb) echo 40 ;;
-    mesh-agent) echo 94 ;;
+    # Three nights reached the 90-min cap over 585 mutants, so each costs at least 154.
+    mesh-agent) echo 154 ;;
     mesh-protocol) echo 56 ;;
     *)
       echo "unknown mutation package: $1" >&2

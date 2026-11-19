@@ -7,21 +7,22 @@ import {
   http,
   ownTechnician,
   printCleanupManifest,
-  registerTechnicians,
+  techniciansFor,
   visibleSiteIds,
 } from "../lib/session.js";
 import {
   arrivalScenarios,
-  arrivalTechnicians,
   exportOnly,
   measuredExports,
   phases,
+  REQUESTS_PER_ROUND,
+  technicianRoster,
 } from "../lib/profile.js";
 
 const BASE_URL = __ENV.BASE_URL || "http://localhost:8080";
 
 // Requests one pass makes.
-const REQUESTS_PER_PASS = 3;
+const REQUESTS_PER_PASS = REQUESTS_PER_ROUND["concurrent-agents"];
 
 const WALK = phases();
 
@@ -42,11 +43,7 @@ export const options = {
 };
 
 export function setup() {
-  const technicians = registerTechnicians(
-    BASE_URL,
-    "agent-load",
-    arrivalTechnicians(WALK, REQUESTS_PER_PASS)
-  );
+  const technicians = techniciansFor(BASE_URL, technicianRoster("concurrent-agents", WALK));
   return {
     technicians,
     siteIds: visibleSiteIds(BASE_URL, technicians[0].token),
