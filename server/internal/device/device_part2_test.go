@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/device"
+	"github.com/volchanskyi/opengate/server/internal/testutil"
 	"testing"
 )
 
@@ -26,7 +27,7 @@ func TestPostgresDevices_CRUD(t *testing.T) {
 			OS:       "linux",
 			Status:   device.StatusOffline,
 		}
-		require.NoError(t, devices.Upsert(ctx, d))
+		testutil.SignIn(t, ctx, devices, d)
 
 		got, err := devices.Get(ctx, d.ID)
 		require.NoError(t, err)
@@ -62,7 +63,7 @@ func TestPostgresDevices_CRUD(t *testing.T) {
 
 	t.Run("update site", func(t *testing.T) {
 		d := &device.Device{ID: uuid.New(), SiteID: g.ID, Hostname: "moveme", OS: "linux", Status: device.StatusOffline}
-		require.NoError(t, devices.Upsert(ctx, d))
+		testutil.SignIn(t, ctx, devices, d)
 
 		g2 := &device.Site{ID: uuid.New(), Name: "g2-" + uuid.New().String()[:8]}
 		require.NoError(t, sites.Create(ctx, g2))
@@ -75,7 +76,7 @@ func TestPostgresDevices_CRUD(t *testing.T) {
 
 	t.Run("set status flips to online", func(t *testing.T) {
 		d := &device.Device{ID: uuid.New(), SiteID: g.ID, Hostname: "stat", OS: "linux", Status: device.StatusOffline}
-		require.NoError(t, devices.Upsert(ctx, d))
+		testutil.SignIn(t, ctx, devices, d)
 
 		require.NoError(t, devices.SetStatus(ctx, d.ID, device.StatusOnline))
 		got, err := devices.Get(ctx, d.ID)
@@ -85,7 +86,7 @@ func TestPostgresDevices_CRUD(t *testing.T) {
 
 	t.Run("reset all statuses turns online to offline", func(t *testing.T) {
 		d := &device.Device{ID: uuid.New(), SiteID: g.ID, Hostname: "reset", OS: "linux", Status: device.StatusOnline}
-		require.NoError(t, devices.Upsert(ctx, d))
+		testutil.SignIn(t, ctx, devices, d)
 		require.NoError(t, devices.ResetAllStatuses(ctx))
 
 		got, err := devices.Get(ctx, d.ID)
@@ -95,7 +96,7 @@ func TestPostgresDevices_CRUD(t *testing.T) {
 
 	t.Run("delete", func(t *testing.T) {
 		d := &device.Device{ID: uuid.New(), SiteID: g.ID, Hostname: "del", OS: "linux", Status: device.StatusOffline}
-		require.NoError(t, devices.Upsert(ctx, d))
+		testutil.SignIn(t, ctx, devices, d)
 		require.NoError(t, devices.Delete(ctx, d.ID))
 
 		_, err := devices.Get(ctx, d.ID)

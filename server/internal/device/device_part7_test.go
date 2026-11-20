@@ -13,7 +13,10 @@ import (
 // instrumentedCalls is every call the instrumented repository wraps, in the order it records them.
 func instrumentedCalls(ctx context.Context) []func(device.Repository) error {
 	return []func(device.Repository) error{
-		func(r device.Repository) error { return r.Upsert(ctx, &device.Device{}) },
+		func(r device.Repository) error {
+			_, err := r.SignIn(ctx, &device.Device{}, nil)
+			return err
+		},
 		func(r device.Repository) error { _, err := r.Get(ctx, uuid.New()); return err },
 		func(r device.Repository) error { _, err := r.TenantForDevice(ctx, uuid.New()); return err },
 		func(r device.Repository) error { _, err := r.List(ctx, device.Filter{SiteID: uuid.New()}); return err },

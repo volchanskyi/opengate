@@ -187,7 +187,7 @@ func TestPostgresConcurrentUpsertDevices(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			err := testutil.NewTestDevices(t, store).Upsert(ctx, &device.Device{
+			_, err := testutil.NewTestDevices(t, store).SignIn(ctx, &device.Device{
 				ID:           ids[i],
 				SiteID:       site.ID,
 				Hostname:     fmt.Sprintf("concurrent-%d", i),
@@ -195,7 +195,7 @@ func TestPostgresConcurrentUpsertDevices(t *testing.T) {
 				OsDisplay:    "Linux",
 				AgentVersion: "0.1.0",
 				Status:       db.StatusOnline,
-			})
+			}, nil)
 			if err != nil {
 				errCh <- fmt.Errorf("goroutine %d: %w", i, err)
 			}
@@ -224,7 +224,7 @@ func TestPostgresPreparedStatementCacheReuse(t *testing.T) {
 
 	const N = 200
 	for i := range N {
-		err := testutil.NewTestDevices(t, store).Upsert(ctx, &device.Device{
+		_, err := testutil.NewTestDevices(t, store).SignIn(ctx, &device.Device{
 			ID:           uuid.New(),
 			SiteID:       site.ID,
 			Hostname:     fmt.Sprintf("cache-%d", i),
@@ -232,7 +232,7 @@ func TestPostgresPreparedStatementCacheReuse(t *testing.T) {
 			OsDisplay:    "Linux",
 			AgentVersion: "0.1.0",
 			Status:       db.StatusOnline,
-		})
+		}, nil)
 		if err != nil {
 			require.NoErrorf(t, err, "upsert %d failed; possible prepared-statement cache regression", i)
 		}

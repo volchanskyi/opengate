@@ -76,8 +76,20 @@ func TestStoreBindingRoundTrips(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.InEpsilon(t, 92.0, got[0].Params["threshold"], 0.0001)
 
-	require.NoError(t, s.DeleteBinding(e.ctx, want.ID))
+	removedFrom, err := s.DeleteBinding(e.ctx, want.ID)
+	require.NoError(t, err)
+	assert.Equal(t, e.org, removedFrom, "the delete names whose tuning it removed")
 	assert.Empty(t, mustListBindings(t, s, e.ctx, e.org))
+}
+
+func TestStoreDeletingATuningAlreadyGoneNamesNoCustomer(t *testing.T) {
+	t.Parallel()
+
+	s, e := newEstate(t)
+
+	removedFrom, err := s.DeleteBinding(e.ctx, uuid.New())
+	require.NoError(t, err)
+	assert.Equal(t, uuid.Nil, removedFrom)
 }
 
 func TestStoreRefusesABindingOutsideTheRulesBounds(t *testing.T) {

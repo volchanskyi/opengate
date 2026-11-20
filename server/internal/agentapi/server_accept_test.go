@@ -30,6 +30,7 @@ import (
 type acceptEnv struct {
 	srv     *AgentServer
 	addr    string
+	store   *db.PostgresStore
 	devices device.Repository
 	issuer  *devicecert.Issuer
 	cancel  context.CancelFunc
@@ -42,8 +43,14 @@ func newAcceptEnv(t *testing.T) *acceptEnv {
 
 func newAcceptEnvWithMetrics(t *testing.T, m *appmetrics.Metrics) *acceptEnv {
 	t.Helper()
+	return newAcceptEnvOver(t, m, func(d device.Repository) device.Repository { return d })
+}
+
+// newAcceptEnvOver serves machines over the device store wrap makes of the real one.
+func newAcceptEnvOver(t *testing.T, m *appmetrics.Metrics, wrap func(device.Repository) device.Repository) *acceptEnv {
+	t.Helper()
 	store := testutil.NewTestStore(t)
-	devices := testutil.NewTestDevices(t, store)
+	devices := wrap(testutil.NewTestDevices(t, store))
 	cm, err := cert.NewManager(t.TempDir())
 	require.NoError(t, err)
 	issuer := machinecert.NewIssuer(t, store, cm)
@@ -75,7 +82,7 @@ func newAcceptEnvWithMetrics(t *testing.T, m *appmetrics.Metrics) *acceptEnv {
 			t.Error("the QUIC listener did not stop when its context was cancelled")
 		}
 	})
-	return &acceptEnv{srv: srv, addr: addr, devices: devices, issuer: issuer, cancel: cancel}
+	return &acceptEnv{srv: srv, addr: addr, store: store, devices: devices, issuer: issuer, cancel: cancel}
 }
 
 // machineTLS is a recorded certificate for deviceID and the configuration to dial with it.
@@ -159,37 +166,17 @@ func waitForCount(t *testing.T, srv *AgentServer, want int) {
 	t.Fatalf("connected agents never reached %d (holding %d)", want, srv.ConnectedAgentCount())
 }
 
-// waitForStatus polls the machine's row; the connection count moves on the accept path,
-// before the register frame is handled.
-func waitForStatus(t *testing.T, env *acceptEnv, deviceID uuid.UUID, want device.DeviceStatus) {
-	t.Helper()
-	ctx := dbtx.WithDefaultTenant(context.Background(), false)
-	deadline := time.Now().Add(10 * time.Second)
-	var last device.DeviceStatus
-	for time.Now().Before(deadline) {
-		stored, err := env.devices.Get(ctx, deviceID)
-		if err == nil {
-			if stored.Status == want {
-				return
-			}
-			last = stored.Status
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatalf("the machine's status never reached %q (holding %q)", want, last)
-}
-
 func TestAMachineThatConnectsBecomesVisibleAndThenOffline(t *testing.T) {
 	env := newAcceptEnv(t)
 	deviceID := uuid.New()
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
 	// The seeded hostname differs from the registered one so the assertion reflects registration.
-	require.NoError(t, env.devices.Upsert(ctx, &device.Device{
+	testutil.SignIn(t, ctx, env.devices, &device.Device{
 		ID:       deviceID,
 		Hostname: "as-enrolled",
 		OS:       "linux",
 		Status:   db.StatusOffline,
-	}))
+	})
 
 	_, stream := env.connect(t, deviceID)
 	register(t, stream, "the-machine")
@@ -199,10 +186,9 @@ func TestAMachineThatConnectsBecomesVisibleAndThenOffline(t *testing.T) {
 	require.NotNil(t, ac, "the machine that registered is the one the fleet holds")
 	assert.Equal(t, deviceID, uuid.UUID(ac.DeviceID))
 
-	// The count moves on the accept path before registration lands, so the row is awaited.
-	waitForStatus(t, env, deviceID, db.StatusOnline)
 	stored, err := env.devices.Get(ctx, deviceID)
 	require.NoError(t, err)
+	assert.Equal(t, db.StatusOnline, stored.Status, "the fleet holds a machine once its row reads online")
 	assert.Equal(t, "the-machine", stored.Hostname)
 
 	require.NoError(t, stream.Close())

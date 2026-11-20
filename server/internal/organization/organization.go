@@ -66,6 +66,15 @@ type Repository interface {
 	// EnsureDefault returns the customer a device naming none joins in the caller's
 	// tenant, creating it when the tenant has none.
 	EnsureDefault(ctx context.Context) (ID, error)
+	// AllCustomers lists every tenant's customers under an administrator scope, and the caller's
+	// tenant's own under any other.
+	AllCustomers(ctx context.Context) ([]Ref, error)
+}
+
+// Ref names one customer and the tenant it belongs to.
+type Ref struct {
+	TenantID uuid.UUID
+	ID       ID
 }
 
 // ValidateName returns the error a create or rename should answer with, or nil.

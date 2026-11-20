@@ -316,8 +316,10 @@ window it fired for, so a machine that was never told which revision it is
 running could raise nothing the server accepts; and a queue ordered by severity
 cannot order an alert that states none.
 
-`PushAlertRules` is sent as a machine registers, and again whenever an
-administrator changes what that customer's machines should be running. A healthy
+`AgentRegister` is the first control message on every connection; the server
+closes one that opens with anything else. `PushAlertRules` is sent as a machine
+registers, and again whenever an administrator changes what that customer's
+machines should be running. A healthy
 link is held open indefinitely, so a change that waited for the next
 registration would wait for something unrelated to break it.
 

@@ -122,7 +122,7 @@ type RuleRolloutReader interface {
 type RuleAdmin interface {
 	ListBindings(ctx context.Context, organizationID uuid.UUID) ([]rules.Binding, error)
 	UpsertBinding(ctx context.Context, pack rules.Pack, b rules.Binding) error
-	DeleteBinding(ctx context.Context, id uuid.UUID) error
+	DeleteBinding(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
 
 	UpsertRollout(ctx context.Context, r rules.Rollout) error
 	StopRule(ctx context.Context, organizationID uuid.UUID, ruleID, updatedBy string) error

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
+	"github.com/volchanskyi/opengate/server/internal/rules"
 	"github.com/volchanskyi/opengate/server/internal/settings"
 )
 
@@ -22,6 +23,14 @@ func (p *recordingProvider) RulesFor(_ context.Context, scope settings.Scope) (R
 	p.seen = scope
 	return RuleSet{Rules: DefaultAlertRules()}, nil
 }
+
+func (p *recordingProvider) RulesForMachine(ctx context.Context, machine rules.Device) (RuleSet, error) {
+	return p.RulesFor(ctx, machine.Scope)
+}
+
+func (p *recordingProvider) NeedsFleetSize(uuid.UUID) bool { return false }
+
+func (p *recordingProvider) Version(uuid.UUID) uint64 { return 0 }
 
 // fixedReader is a settings.Reader that answers with one ladder or one error.
 type fixedReader struct {

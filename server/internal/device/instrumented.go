@@ -39,8 +39,10 @@ func NewInstrumentedDevices(inner Repository, observer Observer) *InstrumentedDe
 	return &InstrumentedDevices{inner: inner, observer: observer}
 }
 
-func (i *InstrumentedDevices) Upsert(ctx context.Context, d *Device) error {
-	return observe0(i.observer, "device.Device.Upsert", func() error { return i.inner.Upsert(ctx, d) })
+func (i *InstrumentedDevices) SignIn(ctx context.Context, d *Device, needsFleetSize func(OrganizationID) bool) (SignIn, error) {
+	return observe1(i.observer, "device.Device.SignIn", func() (SignIn, error) {
+		return i.inner.SignIn(ctx, d, needsFleetSize)
+	})
 }
 
 func (i *InstrumentedDevices) Get(ctx context.Context, id DeviceID) (*Device, error) {

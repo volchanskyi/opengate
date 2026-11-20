@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"github.com/volchanskyi/opengate/server/internal/testutil"
 	"net/http"
 	"testing"
 	"time"
@@ -82,7 +83,7 @@ func seedOwnedDevice(t *testing.T, srv *Server) *device.Device {
 	site := &device.Site{ID: uuid.New(), Name: "metrics-site"}
 	require.NoError(t, srv.sites.Create(ctx, site))
 	dev := &device.Device{ID: uuid.New(), SiteID: site.ID, Hostname: "metrics-host", OS: "linux", Status: db.StatusOnline}
-	require.NoError(t, srv.devices.Upsert(ctx, dev))
+	testutil.SignIn(t, ctx, srv.devices, dev)
 	return dev
 }
 

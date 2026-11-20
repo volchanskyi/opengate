@@ -143,7 +143,7 @@ func TestEnrollReturns500WhenLedgerWriteFails(t *testing.T) {
 func seedEnrolledDevice(t *testing.T, srv *Server, id uuid.UUID) {
 	t.Helper()
 	site := testutil.SeedSite(t, testTenantContext(t), srv.store)
-	require.NoError(t, srv.devices.Upsert(testTenantContext(t), &device.Device{
+	testutil.SignIn(t, testTenantContext(t), srv.devices, &device.Device{
 		ID: id, SiteID: site.ID, Hostname: "existing", OS: "linux", Status: device.StatusOffline,
-	}))
+	})
 }

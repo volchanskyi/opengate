@@ -50,7 +50,7 @@
 | 064 | Four levels of tenancy; the wall stays at the tenant, membership is the read gate, settings resolve down the ladder | [ADR-064](../docs/adr/ADR-064-tenancy.md) |
 | 065 | A reading a minute with extremes beside it, 24 series per device, and absent rather than zero | [ADR-065](../docs/adr/ADR-065-vitals.md) |
 | 068 | Rules for failures that cross no threshold, over a polled log with a cursor, ranked on the device | [ADR-068](../docs/adr/ADR-068-system-event-rules.md) |
-| 070 | The rule engine — a closed grammar, three layers by mutability, retroactive scan, staged rollout, own budget | [ADR-070](../docs/adr/ADR-070-alert-rules.md) |
+| 070 | The rule engine — a closed grammar, three layers by mutability, retroactive scan, staged rollout, own budget, customer settings held in memory | [ADR-070](../docs/adr/ADR-070-alert-rules.md) |
 | 074 | An alert's identity is reproducible, its evidence rides with it, and incidents group by customer, scope and rule | [ADR-074](../docs/adr/ADR-074-alerts-and-incidents.md) |
 | 076 | Five aggregate series about the alert pack, no entity label, every value exported including the zeros | [ADR-076](../docs/adr/ADR-076-platform-metrics.md) |
 | 077 | Investigations — tenant membership is the whole gate, the queue pages by key, the room reads the snapshot | [ADR-077](../docs/adr/ADR-077-investigations.md) |
@@ -79,4 +79,4 @@
 | 127 | A session moves to a direct link when the networks allow and loses nothing moving back; downloads stream, one at a time | [ADR-127](../docs/adr/ADR-127-direct-link.md) |
 | 128 | A machine's identity survives a reinstall, renews from day 60 of 90, is admitted expired only to renew or be removed, and is signed by a master key only the server can read | [ADR-128](../docs/adr/ADR-128-machine-identity-lifecycle.md) |
 | 129 | A workflow reports only work that happened — status read with errexit off, each job's status stated, only alerts outlive a cancel — and hands scripts their inputs named and as values | [ADR-129](../docs/adr/ADR-129-workflow-verdicts-and-inputs.md) |
-| 130 | Presence is the connection: status written on connect and disconnect, last-seen refreshed in bulk by a sweep, and a failed status write never ends a connection | [ADR-130](../docs/adr/ADR-130-presence-written-on-change.md) |
+| 130 | Presence is the connection: one database conversation per sign-in, status written on connect and disconnect, last-seen refreshed in bulk, and a failed status write never ends a connection | [ADR-130](../docs/adr/ADR-130-presence-written-on-change.md) |

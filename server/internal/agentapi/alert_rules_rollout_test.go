@@ -172,6 +172,9 @@ func TestReconnectStopsAKilledRuleWithoutADeploy(t *testing.T) {
 	config.rollouts = map[uuid.UUID]map[string]rules.Rollout{
 		site.OrganizationID: {"disk-critical": killed},
 	}
+	provider, ok := ac.alertRules.(*CatalogueAlertRuleProvider)
+	require.True(t, ok)
+	require.NoError(t, provider.Reload(ctx, site.OrganizationID))
 
 	buf.Reset()
 	require.NoError(t, ac.handleRegister(ctx, ruleRegisterMsg()))

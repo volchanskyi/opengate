@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/device"
+	"github.com/volchanskyi/opengate/server/internal/testutil"
 	"testing"
 )
 
@@ -57,7 +58,7 @@ func TestPostgresHardware_UpsertAndGet(t *testing.T) {
 	g := &device.Site{ID: uuid.New(), Name: "g-" + uuid.New().String()[:8]}
 	require.NoError(t, sites.Create(ctx, g))
 	d := &device.Device{ID: uuid.New(), SiteID: g.ID, Hostname: "hw", OS: "linux", Status: device.StatusOffline}
-	require.NoError(t, devices.Upsert(ctx, d))
+	testutil.SignIn(t, ctx, devices, d)
 
 	hw := &device.Hardware{
 		DeviceID:    d.ID,

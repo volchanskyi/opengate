@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"github.com/volchanskyi/opengate/server/internal/testutil"
 	"net/http"
 	"testing"
 
@@ -208,7 +209,7 @@ func TestMoveDeviceOrganization(t *testing.T) {
 func seedDeviceInOrganization(t *testing.T, env organizationEnv, ctx context.Context, organizationID uuid.UUID) uuid.UUID {
 	t.Helper()
 	d := &device.Device{ID: uuid.New(), Hostname: "host-" + uuid.New().String()[:8], Status: device.StatusOffline}
-	require.NoError(t, env.srv.devices.Upsert(ctx, d))
+	testutil.SignIn(t, ctx, env.srv.devices, d)
 	require.NoError(t, env.srv.devices.UpdateOrganization(ctx, d.ID, organizationID))
 	return d.ID
 }

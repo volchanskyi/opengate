@@ -89,7 +89,7 @@ func TestAReconnectAfterAMoveDoesNotResurrectTheOldSite(t *testing.T) {
 	reconnect := &device.Device{
 		ID: f.device.ID, SiteID: f.dallas.ID, Hostname: f.device.Hostname, Status: device.StatusOnline,
 	}
-	require.NoError(t, f.devices.Upsert(f.ctx, reconnect), "the agent must be able to come back")
+	testutil.SignIn(t, f.ctx, f.devices, reconnect)
 
 	got := f.read(t)
 	assert.Equal(t, f.fabrikam, got.OrganizationID)
@@ -105,7 +105,7 @@ func TestRegistrationIgnoresASiteOutsideTheDeviceCustomer(t *testing.T) {
 	fresh := &device.Device{
 		ID: uuid.New(), SiteID: f.dallas.ID, Hostname: "new-agent", Status: device.StatusOnline,
 	}
-	require.NoError(t, f.devices.Upsert(f.ctx, fresh))
+	testutil.SignIn(t, f.ctx, f.devices, fresh)
 
 	got, err := f.devices.Get(f.ctx, fresh.ID)
 	require.NoError(t, err)

@@ -26,7 +26,8 @@ const (
 		  WHERE ` + scopedToTenant + ` AND organization_id = $1
 		  ORDER BY rule_id, level, level_key, precedence DESC, id`
 
-	deleteBindingSQL = `DELETE FROM rule_bindings WHERE ` + scopedToTenant + ` AND id = $1`
+	deleteBindingSQL = `DELETE FROM rule_bindings WHERE ` + scopedToTenant + ` AND id = $1
+		RETURNING organization_id`
 )
 
 // UpsertBinding validates a binding against the rule it names, then stores it.
@@ -114,7 +115,12 @@ func scanBinding(rows *sql.Rows) (Binding, error) {
 	return b, nil
 }
 
-// DeleteBinding removes one binding.
-func (s *Store) DeleteBinding(ctx context.Context, id uuid.UUID) error {
-	return s.exec(ctx, "delete rule binding", deleteBindingSQL, id)
+// DeleteBinding removes one binding and returns the customer it tuned, or uuid.Nil when the
+// caller's tenant holds no binding with that id.
+func (s *Store) DeleteBinding(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
+	var organizationID uuid.UUID
+	if _, err := s.queryRow(ctx, "delete rule binding", deleteBindingSQL, []any{id}, &organizationID); err != nil {
+		return uuid.Nil, err
+	}
+	return organizationID, nil
 }

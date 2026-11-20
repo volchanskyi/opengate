@@ -2,7 +2,6 @@ package agentapi
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 
 	"github.com/google/uuid"
@@ -47,6 +46,7 @@ type CatalogueAlertRuleProvider struct {
 	fleet     FleetCounter
 	limits    AlertLimitReader
 	logger    *slog.Logger
+	memory    settingsMemory
 }
 
 // NewCatalogueAlertRuleProvider builds a provider over a catalogue and the customer-mutable
@@ -69,54 +69,53 @@ func NewCatalogueAlertRuleProvider(
 	}
 }
 
-// RulesFor returns the ruleset for the machine at scope; an unreadable store is an error, so the
-// agent keeps its current rules and never receives defaults that ignore customer settings.
+// RulesFor returns the ruleset for the machine at scope, reading its tags and customer's count;
+// an unreadable store is an error, so the agent keeps its current rules.
 func (p *CatalogueAlertRuleProvider) RulesFor(ctx context.Context, scope settings.Scope) (RuleSet, error) {
-	definitions := p.catalogue.All()
-
-	// A machine with no customer takes the catalogue as shipped.
 	if scope.OrganizationID == uuid.Nil {
-		return RuleSet{
-			Rules:      resolveAll(definitions, rules.Device{Scope: scope}, nil, nil),
-			EventRules: wantedEventRules(definitions, uuid.Nil, nil),
-		}, nil
+		return p.shipped(rules.Device{Scope: scope}), nil
 	}
-
-	bindings, err := p.store.ListBindings(ctx, scope.OrganizationID)
+	held, err := p.settingsFor(ctx, scope.OrganizationID)
 	if err != nil {
-		return RuleSet{}, fmt.Errorf("read rule bindings: %w", err)
+		return RuleSet{}, err
 	}
-	rollouts, err := p.store.ListRollouts(ctx, scope.OrganizationID)
-	if err != nil {
-		return RuleSet{}, fmt.Errorf("read rule rollout: %w", err)
-	}
-
-	machine := rules.Device{
+	return p.assemble(rules.Device{
 		Scope:     scope,
 		Tags:      p.tagsFor(ctx, scope.DeviceID),
-		FleetSize: p.fleetSizeFor(ctx, scope.OrganizationID, rollouts),
-	}
-	return RuleSet{
-		Rules:               resolveAll(definitions, machine, bindings, rollouts),
-		EventRules:          wantedEventRules(definitions, scope.OrganizationID, rollouts),
-		DeviceHourlyCeiling: p.ceilingFor(ctx, scope.OrganizationID),
-	}, nil
+		FleetSize: p.fleetSizeFor(ctx, scope.OrganizationID, held.rollouts),
+	}, held), nil
 }
 
-// ceilingFor reads the customer's per-machine alert allowance; zero keeps the current one.
-func (p *CatalogueAlertRuleProvider) ceilingFor(ctx context.Context, organizationID uuid.UUID) uint32 {
-	if p.limits == nil {
-		return 0
+// RulesForMachine returns the ruleset for a machine whose tags and fleet size its sign-in read.
+func (p *CatalogueAlertRuleProvider) RulesForMachine(ctx context.Context, machine rules.Device) (RuleSet, error) {
+	if machine.Scope.OrganizationID == uuid.Nil {
+		return p.shipped(machine), nil
 	}
-	limits, err := p.limits.Limits(ctx, organizationID)
+	held, err := p.settingsFor(ctx, machine.Scope.OrganizationID)
 	if err != nil {
-		p.logger.Warn("read customer alert budget failed",
-			"organization_id", organizationID, "error", err)
-		return 0
+		return RuleSet{}, err
 	}
+	return p.assemble(machine, held), nil
+}
 
-	// The stored value is clamped to the current maximum on the way out.
-	return clampNonNegativeUint32(min(limits.DeviceHourly, alerts.MaxDeviceHourlyCeiling))
+// shipped is the catalogue as it ships, for a machine with no customer.
+func (p *CatalogueAlertRuleProvider) shipped(machine rules.Device) RuleSet {
+	definitions := p.catalogue.All()
+	return RuleSet{
+		Rules:      resolveAll(definitions, machine, nil, nil),
+		EventRules: wantedEventRules(definitions, uuid.Nil, nil),
+	}
+}
+
+// assemble resolves the catalogue against the customer's held settings for one machine.
+func (p *CatalogueAlertRuleProvider) assemble(machine rules.Device, held heldSettings) RuleSet {
+	definitions := p.catalogue.All()
+	return RuleSet{
+		Rules:               resolveAll(definitions, machine, held.bindings, held.rollouts),
+		EventRules:          wantedEventRules(definitions, machine.Scope.OrganizationID, held.rollouts),
+		DeviceHourlyCeiling: held.deviceHourly,
+		Version:             held.version,
+	}
 }
 
 // resolveAll turns the definitions a customer is getting into wire rules.

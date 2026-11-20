@@ -185,3 +185,29 @@ func (n narrowed) Lookup(id string) (rules.Definition, bool) {
 	}
 	return n.def, true
 }
+
+func TestRemovingATuningReachesItsCustomersMachinesAndAGoneOneReachesNobody(t *testing.T) {
+	t.Parallel()
+	e := newRuleAdminEstate(t)
+	agents := &stubAgentGetter{}
+	e.srv.agents = agents
+
+	tuned := doRequest(e.srv, http.MethodPut,
+		e.query(testPathRules+"/disk-critical/bindings"), e.adminToken,
+		RuleBindingInput{Level: RuleBindingLevelOrganization, LevelKey: e.org,
+			Params: map[string]float64{"threshold": 93}})
+	require.Equal(t, http.StatusOK, tuned.Code, tuned.Body.String())
+	var binding RuleBinding
+	require.NoError(t, json.NewDecoder(tuned.Body).Decode(&binding))
+	agents.refreshedFor = nil
+
+	removed := doRequest(e.srv, http.MethodDelete,
+		testPathRules+"/disk-critical/bindings/"+binding.Id.String(), e.adminToken, nil)
+	require.Equal(t, http.StatusNoContent, removed.Code)
+	assert.Equal(t, []uuid.UUID{e.org}, agents.refreshedFor)
+
+	again := doRequest(e.srv, http.MethodDelete,
+		testPathRules+"/disk-critical/bindings/"+binding.Id.String(), e.adminToken, nil)
+	require.Equal(t, http.StatusNoContent, again.Code)
+	assert.Equal(t, []uuid.UUID{e.org}, agents.refreshedFor, "a tuning already gone changes nobody's rules")
+}

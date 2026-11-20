@@ -2,6 +2,7 @@ package device_test
 
 import (
 	"context"
+	"github.com/volchanskyi/opengate/server/internal/testutil"
 	"testing"
 
 	"github.com/google/uuid"
@@ -22,7 +23,7 @@ func TestPostgresDevices_Maintenance(t *testing.T) {
 
 	newDevice := func(host string) *device.Device {
 		d := &device.Device{ID: uuid.New(), SiteID: g.ID, Hostname: host, OS: "linux", Status: device.StatusOnline}
-		require.NoError(t, devices.Upsert(ctx, d))
+		testutil.SignIn(t, ctx, devices, d)
 		return d
 	}
 
@@ -83,7 +84,7 @@ func TestPostgresDevices_Maintenance(t *testing.T) {
 		require.NoError(t, devices.SetMaintenance(ctx, d.ID, true, owner, "reboot"))
 
 		d.Hostname = "mnt-upsert-renamed"
-		require.NoError(t, devices.Upsert(ctx, d))
+		testutil.SignIn(t, ctx, devices, d)
 
 		got, err := devices.Get(ctx, d.ID)
 		require.NoError(t, err)

@@ -19,7 +19,11 @@ cannot step around it.
 **The tenant comes from the token.** The `tenant` claim is read by API
 middleware into the request context, and every repository call runs inside
 `dbtx.Scoped`, which sets `app.current_tenant` and `app.is_admin` with
-`SET LOCAL` for the life of the transaction.
+`SET LOCAL` for the life of the transaction. A machine carries no token: its
+sign-in reads the tenant from the machine's own row under the administrator
+scope, and the same statement switches the transaction into that tenant before
+anything else is read or written
+([`postgres_sign_in.go`](../../server/internal/device/postgres_sign_in.go)).
 
 **The predicate is written anyway.** Queries keep an explicit
 `WHERE tenant_id = current_setting('app.current_tenant')::uuid` and a

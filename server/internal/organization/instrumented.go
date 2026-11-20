@@ -63,6 +63,13 @@ func (i *Instrumented) Delete(ctx context.Context, id ID) error {
 	return err
 }
 
+func (i *Instrumented) AllCustomers(ctx context.Context) ([]Ref, error) {
+	start := time.Now()
+	refs, err := i.inner.AllCustomers(ctx)
+	i.observer.Observe("organization.AllCustomers", time.Since(start), err == nil)
+	return refs, err
+}
+
 func (i *Instrumented) EnsureDefault(ctx context.Context) (ID, error) {
 	start := time.Now()
 	id, err := i.inner.EnsureDefault(ctx)

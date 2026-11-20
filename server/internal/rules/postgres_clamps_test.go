@@ -75,7 +75,8 @@ func TestDeletingATunedBindingClearsItsClamps(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, mustListClamps(t, s, e.ctx, e.org), 1)
 
-	require.NoError(t, s.DeleteBinding(e.ctx, tuned.ID))
+	_, err = s.DeleteBinding(e.ctx, tuned.ID)
+	require.NoError(t, err)
 	assert.Empty(t, mustListClamps(t, s, e.ctx, e.org))
 }
 
