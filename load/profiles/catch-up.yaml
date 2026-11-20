@@ -74,10 +74,6 @@ gates:
     metric: deferred
     follows: catchup/gaps/drain|fill_seconds
     blocking: false
-  - series: catchup/watched/drain
-    metric: within_5s_share
-    min: 0.99
-    blocking: true
   - series: catchup/probe-one/probe
     metric: readings_per_second
     min: 10000

@@ -72,8 +72,11 @@ func (f SQLPoolStatter) PoolStats() DBPoolStats {
 	}
 }
 
-// registrationDurationBuckets span a few milliseconds to a minute so a storm shows as a tail.
-var registrationDurationBuckets = []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60}
+// registrationDurationBuckets span a few milliseconds to the fleet-return promise: 95% of a
+// returning fleet within three minutes and every machine within five.
+var registrationDurationBuckets = []float64{
+	0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 180, 300,
+}
 
 // RegistrationDurationBuckets returns the registration timing bounds, widest last.
 // The widest bound is the slowest registration the server can describe.

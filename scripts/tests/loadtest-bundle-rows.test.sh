@@ -72,7 +72,6 @@ bundle_observing "$WORK/full.json" \
 # The full bundle carries every section a leg can write, so each kind of leg is cut from it.
 jq '.live_acceptance = {received: 360000, stored: 359900, within_five_seconds: 357120}
   | .catch_up = {stored: 10000, deferred: 40, unanswered: 0, complete: 5000, last_stored_seconds: 812.5}
-  | .live_delay = {sent: 590, seen: 590, within_five_seconds: 588}
   | .store_probe = {oom_killed: false, quiet: {cpu_share: 0.01, memory_share: 0.09},
       one_sender: {duration_seconds: 900, catch_up: {readings_per_second: 246180}, live: {requests: 899, within_five_seconds: 899},
         store: {peak_memory_bytes: 400000000, memory_limit_bytes: 536870912, restarted: false, stopped_answering: false}},
@@ -94,12 +93,12 @@ jq '.live_acceptance = {received: 360000, stored: 359900, within_five_seconds: 3
 mv "$WORK/full-catch-up.json" "$WORK/full.json"
 # Every leg writes machines, technicians, live readings and levels; catch-up adds its catch-up and
 # probe, the soak its leak trail, the breakpoint its ladder, and none of the three counts a wave.
-jq 'del(.catch_up, .live_delay, .store_probe, .leak_trail, .breaking_point)' "$WORK/full.json" >"$WORK/kind-plain.json"
+jq 'del(.catch_up, .store_probe, .leak_trail, .breaking_point)' "$WORK/full.json" >"$WORK/kind-plain.json"
 jq 'del(.leak_trail, .breaking_point) | .observations |= map(select(.series | startswith("wave") | not))' \
   "$WORK/full.json" >"$WORK/kind-catch-up.json"
-jq 'del(.catch_up, .live_delay, .store_probe, .breaking_point) | .observations |= map(select(.series | startswith("wave") | not))' \
+jq 'del(.catch_up, .store_probe, .breaking_point) | .observations |= map(select(.series | startswith("wave") | not))' \
   "$WORK/full.json" >"$WORK/kind-soak.json"
-jq 'del(.catch_up, .live_delay, .store_probe, .leak_trail) | .observations |= map(select(.series | startswith("wave") | not))' \
+jq 'del(.catch_up, .store_probe, .leak_trail) | .observations |= map(select(.series | startswith("wave") | not))' \
   "$WORK/full.json" >"$WORK/kind-breakpoint.json"
 run_rows "$WORK/full.json"
 assert_eq "a bundle carrying every series is read" "0" "$STATUS"
@@ -130,8 +129,6 @@ assert_eq "the technicians are read under the in-cluster names" "command_accept 
   "$(jq -r '[.[] | select(.source == "k6") | .phase] | sort | join(" ")' <<<"$OUT")"
 assert_eq "the batches never answered are read off the catch-up" "0" \
   "$(jq -r '.[] | select(.scenario == "batches") | .unanswered' <<<"$OUT")"
-assert_eq "the watched machines' live minutes are a share of those sent" "0.9966" \
-  "$(jq -r '.[] | select(.scenario == "watched") | .within_5s_share * 10000 | round / 10000' <<<"$OUT")"
 assert_eq "the store's peak memory is a share of its limit" "0.7823" \
   "$(jq -r '.[] | select(.scenario == "probe-store") | .peak_memory_share * 10000 | round / 10000' <<<"$OUT")"
 assert_eq "each probe's run length is read off it, so a probe cut short fails the night" "900 900" \

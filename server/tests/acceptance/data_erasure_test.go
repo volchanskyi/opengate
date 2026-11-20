@@ -64,18 +64,19 @@ func TestDeletingAMachineFromAnotherTenantIsNotFound(t *testing.T) {
 }
 
 // assertToldToRemoveItself brings an erased machine back with the certificate it kept and requires
-// the removal order to reach it, and the machine never to reappear.
+// the removal order to reach it, and the machine not to reappear once the server is done with it.
 func (p *Product) assertToldToRemoveItself(erased *Machine, quick bool) {
 	p.t.Helper()
 
 	back := p.returnWith(erased.identity, erased.Hostname, quick)
 	order := back.awaitMessage(p.t, protocol.MsgAgentDeregistered)
 	assert.Equal(p.t, "device deleted by administrator", order.Reason)
-	_ = back.conn.CloseWithError(0, "removing myself")
-	require.Never(p.t, func() bool {
-		_, err := p.deviceRow(erased.DeviceID)
-		return err == nil
-	}, 2*time.Second, poll, "an erased machine must not put itself back by reconnecting")
+	back.hangUp()
+	require.Equal(p.t, uint64(protocol.CloseDeviceDeleted), back.closeCode(p.t),
+		"the server ends a removed machine's connection once it has hung up")
+
+	_, listed := p.shown(erased.DeviceID)
+	assert.False(p.t, listed, "an erased machine must not put itself back by reconnecting")
 }
 
 func TestAMachineDeletedWhileOffIsToldToRemoveItselfWhenItReturns(t *testing.T) {
@@ -160,14 +161,33 @@ func TestAnotherEnvironmentsMachinesKeepTheirReadingsThroughThisServersSweep(t *
 		both = append(both, installation{product, admin, machine})
 	}
 
-	// A second of sweeps every 50 ms gives each installation many passes over the shared store.
-	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); time.Sleep(poll) {
-		for _, each := range both {
+	// An orphan of each installation's own, gone once its sweep has passed over the shared store.
+	for i, each := range both {
+		orphan := each.product.Machine(each.admin.mintEnrolmentToken("Spare").Token,
+			[]string{"contoso-prod-spare", "contoso-stage-spare"}[i])
+		orphan.AwaitOnline()
+		orphan.report(reportedAt, protocol.MetricDim{Name: "cpu.total", Avg: 7.5})
+		each.admin.awaitReading(each.product, orphan.DeviceID, from, to, "cpu.total")
+		each.product.orphanReadings(orphan)
+		require.Eventually(t, func() bool {
 			each.product.publishReadings()
-			require.NotEmpty(t, each.admin.readings(each.machine.DeviceID, from, to, "cpu.total").values("cpu.total"),
-				"each installation's sweep leaves the other installation's machine its readings")
-		}
+			return each.product.seriesHeld(dbtx.DefaultTenantID, orphan.DeviceID, from, to) == 0
+		}, eventually, poll, "each installation's sweep reclaims its own orphan")
 	}
+
+	for _, each := range both {
+		each.product.publishReadings()
+		assert.NotEmpty(t, each.admin.readings(each.machine.DeviceID, from, to, "cpu.total").values("cpu.total"),
+			"each installation's sweep leaves the other installation's machine its readings")
+	}
+}
+
+// orphanReadings removes a machine's row and leaves its readings, as a server stopped between the
+// two parts of an erasure does; the product's own erasure takes both.
+func (p *Product) orphanReadings(m *Machine) {
+	p.t.Helper()
+	m.Disconnect()
+	require.NoError(p.t, p.assembly.Devices.Delete(arrangeTenantContext(), m.DeviceID))
 }
 
 func TestReadingsQueuedWhenAMachineIsErasedNeverReachTheStore(t *testing.T) {
@@ -184,10 +204,15 @@ func TestReadingsQueuedWhenAMachineIsErasedNeverReachTheStore(t *testing.T) {
 	machine.report(minute, protocol.MetricDim{Name: "cpu.total", Avg: 52})
 	require.Equal(t, http.StatusNoContent, admin.Delete("/api/v1/devices/"+machine.DeviceID.String()).Status)
 
+	// A later window from a neighbour leaves the one queue behind the erased machine's, so once it
+	// is stored the erased machine's window has been written or dropped.
+	neighbour := product.Machine(admin.mintEnrolmentToken("Head Office").Token, "contoso-desk-08")
+	neighbour.AwaitOnline()
+	neighbour.report(minute, protocol.MetricDim{Name: "cpu.total", Avg: 48})
 	from, to := minute.Add(-5*time.Minute), minute.Add(5*time.Minute)
-	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
-		product.publishReadings()
-		assert.Zero(t, product.seriesHeld(dbtx.DefaultTenantID, machine.DeviceID, from, to),
-			"nothing the machine sent before its erasure is in the store after it")
-	}
+	admin.awaitReading(product, neighbour.DeviceID, from, to, "cpu.total")
+
+	product.publishReadings()
+	assert.Zero(t, product.seriesHeld(dbtx.DefaultTenantID, machine.DeviceID, from, to),
+		"nothing the machine sent before its erasure is in the store after it")
 }

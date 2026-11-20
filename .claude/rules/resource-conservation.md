@@ -29,7 +29,8 @@ work was undone is not evidence that it was.
 - [`conservation_test.go`](../../server/tests/integration/conservation_test.go)
   drives N complete operations against one assembled server at several values of
   N, fits a line through retained goroutines and retained heap against completed
-  operations, and requires both slopes to be flat.
+  operations, and holds each slope under its tolerance; a falling line is the
+  resource given back, so only the rise is held.
 - [`mps_conservation_test.go`](../../server/tests/integration/mps_conservation_test.go)
   does the same for Intel AMT requests, a third of them answered, a third
   stalled after the channel opens, and a third never confirmed.

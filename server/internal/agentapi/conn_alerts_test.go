@@ -419,3 +419,32 @@ func TestAConnectionToldNothingAdmitsEveryRule(t *testing.T) {
 	f.ingest(t, broken(t, func(m *protocol.ControlMessage) { m.RuleID = "linux-oom-kill" }))
 	require.Len(t, f.reachedStore(t, 1), 1)
 }
+
+func TestCheckingEvidenceAllocatesNothingOnceWarm(t *testing.T) {
+	blob := deflated(t, bytes.Repeat([]byte("disk.used_percent 91.4 /var "), 2048))
+	require.NoError(t, checkEvidenceReadable(blob))
+
+	allocs := testing.AllocsPerRun(100, func() { _ = checkEvidenceReadable(blob) })
+
+	assert.Zero(t, allocs)
+}
+
+func TestARefusedBlobLeavesTheNextCheckClean(t *testing.T) {
+	good := deflated(t, []byte(`{"ranked":[]}`))
+	whole := deflated(t, bytes.Repeat([]byte("load.1m 7.25 "), 4096))
+	cases := []struct {
+		name string
+		blob []byte
+	}{
+		{name: "undecodable", blob: []byte("not deflate at all")},
+		{name: "past the inflated bound", blob: deflated(t, make([]byte, maxEvidenceInflatedBytes+1))},
+		{name: "cut short", blob: whole[:len(whole)/2]},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Error(t, checkEvidenceReadable(tc.blob))
+			assert.NoError(t, checkEvidenceReadable(good))
+		})
+	}
+}

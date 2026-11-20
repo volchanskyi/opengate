@@ -22,11 +22,6 @@ func buildBackfillSamples(n int, startTS int64) []protocol.BackfillSample {
 	return samples
 }
 
-// buildBackfillSlotRequest asks the server-coordinated scheduler for a drain slot.
-func buildBackfillSlotRequest() *protocol.ControlMessage {
-	return &protocol.ControlMessage{Type: protocol.MsgRequestBackfillSlot}
-}
-
 // buildBackfillBatch builds one tiered backfill batch that keeps each sample's timestamp and
 // carries the tier and cursor the ack echoes.
 func buildBackfillBatch(tier protocol.BackfillTier, samples []protocol.BackfillSample, cursor int64) *protocol.ControlMessage {
@@ -41,9 +36,6 @@ func buildBackfillBatch(tier protocol.BackfillTier, samples []protocol.BackfillS
 // maxDeferrals bounds how many times a persistent machine is told to wait before it stops
 // asking on this connection.
 const maxDeferrals = 8
-
-// deferralWaitCap bounds one wait on the server-supplied retry time.
-const deferralWaitCap = 60 * time.Second
 
 // answerResendRequest catches up from the time a re-send request names, as the agent forgets what
 // it was told is stored after it; the whole fleet's request is spread by its retry time.
@@ -65,8 +57,8 @@ func answerResendRequest(ctx context.Context, codec *protocol.Codec, stream soak
 	return err
 }
 
-// drainBackfill sends the machine's planned batches under a grant, one answered at a time, and
-// returns how many were stored; a persistent machine resends a deferred batch after a regrant.
+// drainBackfill sends the machine's planned batches under a grant, one answered at a time, returns
+// how many were stored, and records why a first catch-up on the connection ended.
 func drainBackfill(ctx context.Context, codec *protocol.Codec, stream soakStream, opts loadOptions) (int, error) {
 	if opts.backfillBatches <= 0 && opts.backfillGap <= 0 {
 		return 0, nil
@@ -75,9 +67,22 @@ func drainBackfill(ctx context.Context, codec *protocol.Codec, stream soakStream
 	if len(batches) == 0 {
 		return 0, nil
 	}
-	granted, err := awaitSlot(ctx, codec, stream, opts)
-	if err != nil || !granted {
-		return 0, err
+	stored, end, err := drainPlanned(ctx, codec, stream, opts, batches)
+	// A machine sending again caught up once already, so it is not counted a second time.
+	if !opts.resending {
+		opts.catchUp.ended(opts.machine, end)
+	}
+	return stored, err
+}
+
+// drainPlanned sends batches under a grant and says how the catch-up ended.
+func drainPlanned(ctx context.Context, codec *protocol.Codec, stream soakStream, opts loadOptions,
+	batches [][]protocol.BackfillSample,
+) (int, catchUpEnd, error) {
+	turn, err := awaitSlot(ctx, codec, stream, opts)
+	waits := turn.waits
+	if err != nil || !turn.granted {
+		return 0, catchUpEnd{why: turn.ending, waits: waits}, err
 	}
 
 	stored, deferrals := 0, 0
@@ -85,94 +90,30 @@ func drainBackfill(ctx context.Context, codec *protocol.Codec, stream soakStream
 		answer, retryAfter, err := sendBackfillBatch(codec, stream, batches[stored])
 		opts.catchUp.record(answer)
 		if err != nil {
-			return stored, err
+			return stored, catchUpEnd{why: endedConnection, waits: waits}, err
 		}
 		switch answer {
 		case batchStored:
 			stored++
 			continue
 		case batchUnanswered:
-			return stored, nil
+			return stored, catchUpEnd{why: endedConnection, waits: waits}, nil
 		}
 		deferrals++
-		if !opts.retryDeferred || deferrals > maxDeferrals || !waitToAskAgain(ctx, retryAfter) {
-			return stored, nil
+		waits++
+		if !opts.retryDeferred || deferrals > maxDeferrals {
+			return stored, catchUpEnd{why: endedToldToWait, waits: waits}, nil
 		}
-		if granted, err = awaitSlot(ctx, codec, stream, opts); err != nil || !granted {
-			return stored, err
+		if !waitToAskAgain(ctx, retryAfter) {
+			return stored, catchUpEnd{why: endedRun, waits: waits}, nil
 		}
-	}
-	// A machine sending again caught up once already, so it is not counted a second time.
-	if !opts.resending {
-		opts.catchUp.caughtUp()
-	}
-	return stored, nil
-}
-
-// awaitSlot asks the scheduler for a drain slot and reports whether this machine may drain.
-// A persistent machine waits out each retry time and asks again, up to maxDeferrals.
-func awaitSlot(ctx context.Context, codec *protocol.Codec, stream soakStream, opts loadOptions) (bool, error) {
-	for asked := 0; ; asked++ {
-		reqPayload, err := codec.EncodeControl(buildBackfillSlotRequest())
-		if err != nil {
-			return false, fmt.Errorf("encode slot request: %w", err)
-		}
-		if err := codec.WriteFrame(stream, protocol.FrameControl, reqPayload); err != nil {
-			return false, fmt.Errorf("write slot request: %w", err)
-		}
-
-		decision, err := readSlotAnswer(codec, stream)
-		if err != nil {
-			if isTimeout(err) {
-				return false, nil // no scheduler answered within the deadline
-			}
-			return false, fmt.Errorf("read backfill decision: %w", err)
-		}
-
-		switch {
-		case decision.Type == protocol.MsgGrantBackfill:
-			return true, nil
-		case !opts.retryDeferred || asked >= maxDeferrals:
-			return false, nil
-		}
-
-		if !waitToAskAgain(ctx, decision.RetryAfter) {
-			return false, nil
+		turn, err = awaitSlot(ctx, codec, stream, opts)
+		waits += turn.waits
+		if err != nil || !turn.granted {
+			return stored, catchUpEnd{why: turn.ending, waits: waits}, err
 		}
 	}
-}
-
-// readSlotAnswer reads frames until the answer to a request for permission, passing over any other
-// control message the server pushes meanwhile.
-func readSlotAnswer(codec *protocol.Codec, stream soakStream) (*protocol.ControlMessage, error) {
-	for {
-		reply, err := readControlFrame(codec, stream)
-		if err != nil {
-			return nil, err
-		}
-		if reply.Type == protocol.MsgGrantBackfill || reply.Type == protocol.MsgDeferBackfill {
-			return reply, nil
-		}
-	}
-}
-
-// waitToAskAgain sits out the server's retry time and reports whether the run is still going.
-func waitToAskAgain(ctx context.Context, retryAfter uint32) bool {
-	wait := time.Duration(retryAfter) * time.Second
-	if wait > deferralWaitCap {
-		wait = deferralWaitCap
-	}
-	if wait <= 0 {
-		return ctx.Err() == nil
-	}
-	timer := time.NewTimer(wait)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return false
-	case <-timer.C:
-		return true
-	}
+	return stored, catchUpEnd{why: endedCaughtUp, waits: waits}, nil
 }
 
 // sendBackfillBatch writes one tiered backfill batch and reads frames until its answer, passing

@@ -24,7 +24,8 @@ def _shape(tag):
 
 def newer(image, same_line):
     """The newest tag of IMAGE's shape after its own, within its line when SAME_LINE, built for
-    every platform IMAGE, which carries its digest, is built for; the tag carries its digest."""
+    every platform IMAGE, which carries its digest, is built for; the tag carries its digest. A tag
+    whose index lists no build is passed over."""
     current = _numbers(image.tag)
     if same_line and len(current) < 3:
         return None
@@ -36,7 +37,11 @@ def newer(image, same_line):
     needed = registry.platforms(image)
     for tag in candidates:
         later = registry.pinned(image.at(tag))
-        if needed <= registry.platforms(later):
+        try:
+            built = registry.platforms(later)
+        except registry.NoBuild:
+            continue
+        if needed <= built:
             return later
     return None
 

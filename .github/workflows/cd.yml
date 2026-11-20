@@ -459,8 +459,8 @@ jobs:
             INSERT INTO security_groups (id, tenant_id, name, description, is_system)
             VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002', 'Administrators', 'Full system access', TRUE)
             ON CONFLICT (id) DO NOTHING;
-            INSERT INTO organizations (id, tenant_id, name)
-            SELECT gen_random_uuid(), t.id, 'Default Organization' FROM tenants t
+            INSERT INTO organizations (id, tenant_id, name, is_default)
+            SELECT gen_random_uuid(), t.id, 'Default Organization', TRUE FROM tenants t
             ON CONFLICT DO NOTHING;"
 
       # After the reset, which truncates devices, and before the suite, which

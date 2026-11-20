@@ -606,7 +606,7 @@
         "type": "prometheus",
         "uid": "VictoriaMetrics"
       },
-      "description": "How long 50 watched machines' live minutes took from leaving the machine to being readable in the store, the 5-second promise read against today's code.",
+      "description": "The share of the fleet's live readings the store accepted within 5 s of the server receiving them during the catch-up, by the server's own count, a reading never stored counted as late. The night needs 99%.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -614,7 +614,7 @@
           },
           "custom": {
             "axisBorderShow": false,
-            "axisLabel": "milliseconds",
+            "axisLabel": "share of readings",
             "drawStyle": "line",
             "fillOpacity": 10,
             "lineWidth": 2,
@@ -622,7 +622,7 @@
             "showPoints": "always",
             "spanNulls": false
           },
-          "unit": "ms",
+          "unit": "percentunit",
           "min": 0,
           "noValue": "No night published in this range"
         }
@@ -648,7 +648,7 @@
           "mode": "multi"
         }
       },
-      "title": "Watched live minutes, sent to readable (p99)",
+      "title": "Live readings stored within 5 s during the catch-up",
       "type": "timeseries",
       "targets": [
         {
@@ -656,7 +656,7 @@
             "type": "prometheus",
             "uid": "VictoriaMetrics"
           },
-          "expr": "perf_catchup_live_visible_p99_ms{env=\"ci\"}[$__range]",
+          "expr": "perf_catchup_live_accepted_within_5s_share{env=\"ci\"}[$__range]",
           "instant": true,
           "range": false,
           "legendFormat": "{{leg}} {{phase}} {{processor}} {{workload}}",

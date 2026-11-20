@@ -26,6 +26,9 @@ type loadOptions struct {
 	// holdFor keeps each agent connected after its traffic, so sessions can open against it.
 	holdFor time.Duration
 
+	// leaveAtSend ends the sign-in at its send, for a trip that hangs up without waiting to be taken.
+	leaveAtSend bool
+
 	// relaySessions answers a SessionRequest by joining the machine side of the relay and
 	// echoing, so the browser side times its own frame coming back.
 	relaySessions bool
@@ -57,6 +60,10 @@ type loadOptions struct {
 
 	// liveSecond is the second of each minute this machine sends its live window at.
 	liveSecond int
+	// machine names the machine a connection serves, so its catch-up is counted once whatever it
+	// reconnects.
+	machine string
+
 	// resending marks a drain the server asked for again, which counts no machine caught up.
 	resending bool
 }

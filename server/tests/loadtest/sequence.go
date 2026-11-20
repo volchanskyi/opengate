@@ -102,10 +102,10 @@ func (w Wave) OnlineP95Ms() *float64 {
 // wavePoll is how often a measured phase looks again at a wave that has not finished.
 const wavePoll = 100 * time.Millisecond
 
-// awaitWave holds the run still until every machine of the stretch has finished, for at most the
-// deadline a machine has to connect and register; a machine still dialling then never came online.
+// awaitWave holds the run until every machine of the stretch has finished, for at most the time a
+// machine has to connect and be answered; a machine still waiting then never came online.
 func awaitWave(fleet Fleet, from, to int, clock Clock) Wave {
-	deadline := clock.Now().Add(agentDeadline)
+	deadline := clock.Now().Add(agentDeadline + signInAnswerWait)
 	wave := fleet.Wave(from, to)
 	for wave.Pending > 0 && clock.Now().Before(deadline) {
 		clock.Sleep(wavePoll)

@@ -143,6 +143,9 @@ func forwardMigrationSteps() []rehearsalStep {
 		{note: "020 added the certificate ledger", verify: assertCertificateLedger},
 		{note: "021 let a device row record a shared identity", verify: assertSharedIdentityColumns},
 		{note: "022 added console sessions", verify: assertConsoleSessions},
+		{note: "023 marked each tenant's default customer",
+			before: seedEarliestCustomer,
+			verify: assertDefaultCustomerMarked},
 	}
 }
 
@@ -169,6 +172,7 @@ func assertHeadSchema(t *testing.T, ctx context.Context, db *sql.DB) {
 	assertCertificateLedger(t, ctx, db)
 	assertSharedIdentityColumns(t, ctx, db)
 	assertConsoleSessions(t, ctx, db)
+	assertOneDefaultPerTenant(t, ctx, db)
 }
 
 // rollBackAndVerify walks the migrations down one step at a time, newest migration first.
@@ -178,6 +182,7 @@ func rollBackAndVerify(t *testing.T, ctx context.Context, dbURL string, db *sql.
 		note   string
 		verify func(*testing.T, context.Context, *sql.DB)
 	}{
+		{"023 removed the default-customer mark", assertDefaultCustomerDownReversal},
 		{"022 removed console sessions", assertConsoleSessionsDownReversal},
 		{"021 removed the shared-identity columns", assertSharedIdentityDownReversal},
 		{"020 removed the certificate ledger", assertCertificateLedgerDownReversal},

@@ -33,7 +33,10 @@ The wall itself, and the mechanism that enforces it, are in
 ### Rules the structure always obeys
 
 - **Nothing is orphaned.** Every tenant has at least one customer and every device
-  names one. A device created without a customer takes the tenant's oldest.
+  names one.
+- **Each tenant has one default customer**: its first. A machine or a site created
+  without a customer joins it. Deleting the default makes the oldest customer left
+  the default.
 - **A tenant's last customer cannot be deleted.** Deleting any other customer
   cascades its sites, its devices and everything hanging off them — telemetry,
   inventory, hardware and update records.

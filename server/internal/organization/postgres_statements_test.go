@@ -14,8 +14,8 @@ func TestEveryStatementCarriesTheTenantClause(t *testing.T) {
 		"rename":       renameQuery,
 		"set archived": setArchivedQuery,
 		"delete":       deleteQuery,
-		"oldest":       oldestQuery,
-		"find by name": findByNameQuery,
+		"default":      defaultQuery,
+		"hand default": handDefaultQuery,
 	}
 	for name, statement := range statements {
 		t.Run(name, func(t *testing.T) {

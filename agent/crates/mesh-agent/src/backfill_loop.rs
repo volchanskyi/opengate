@@ -22,6 +22,19 @@ const HISTORY_HARD_CAP: usize = 100_000;
 /// so it passes only on a server fault.
 const ANSWER_DEADLINE: Duration = Duration::from_secs(60);
 
+/// How long a turn request waits for the scheduler's answer before it is asked again; gRPC, Vector
+/// and Netdata each give a request a minute.
+const TURN_ANSWER_WAIT: Duration = Duration::from_secs(60);
+
+/// The most seconds a turn request adds to its wait, so a fleet that asked together asks apart.
+const TURN_ANSWER_JITTER_SECS: u64 = 5;
+
+/// When the turn request sent now is due its answer.
+fn turn_answer_by() -> tokio::time::Instant {
+    let jitter = rand::rng().random_range(0..=TURN_ANSWER_JITTER_SECS);
+    tokio::time::Instant::now() + TURN_ANSWER_WAIT + Duration::from_secs(jitter)
+}
+
 /// The longest wait before a batch whose answer never came is sent again.
 const MAX_MISSED_ANSWER_WAIT: Duration = Duration::from_secs(30 * 60);
 
@@ -81,6 +94,10 @@ pub(crate) struct BackfillCoordinator {
     in_flight: Option<InFlight>,
     /// Answers missed in a row for the batch in flight.
     misses: u32,
+    /// When the turn request in flight is due its answer; `None` while no turn is asked for.
+    turn_answer_by: Option<tokio::time::Instant>,
+    /// Turn requests asked again because no answer came, over the agent's life.
+    turn_repeats: u32,
     session: Session,
 }
 
@@ -92,6 +109,8 @@ impl BackfillCoordinator {
             phase: Phase::Idle,
             in_flight: None,
             misses: 0,
+            turn_answer_by: None,
+            turn_repeats: 0,
             session: Session::default(),
         }
     }
@@ -102,6 +121,7 @@ impl BackfillCoordinator {
         self.phase = Phase::Idle;
         self.in_flight = None;
         self.misses = 0;
+        self.turn_answer_by = None;
         self.session = Session {
             now: unix_now(),
             ..Session::default()
@@ -110,6 +130,7 @@ impl BackfillCoordinator {
             Ok(Some(batch)) => {
                 self.session.first = Some(batch);
                 self.phase = Phase::AwaitingGrant;
+                self.turn_answer_by = Some(turn_answer_by());
                 Some(ControlMessage::RequestBackfillSlot)
             }
             Ok(None) => {
@@ -161,6 +182,7 @@ impl BackfillCoordinator {
 
     /// Holds the grant and enters the draining phase.
     pub(crate) fn on_grant(&mut self, rate: u32, deadline: i64) {
+        self.turn_answer_by = None;
         self.phase = Phase::Draining {
             rate,
             deadline,
@@ -175,6 +197,7 @@ impl BackfillCoordinator {
         self.phase = Phase::Quiescent;
         self.in_flight = None;
         self.misses = 0;
+        self.turn_answer_by = None;
         let base = u64::from(retry_after.max(1));
         // Jitter ±25 % so a fleet-wide reconnect herd de-synchronises its retries.
         let jitter = rand::rng().random_range(0..=(base / 2).max(1));
@@ -303,6 +326,27 @@ impl BackfillCoordinator {
             tracing::warn!(error = %e, "backfill: forgetting confirmations failed");
         }
         self.on_defer(retry_after)
+    }
+
+    /// When the turn request in flight must be answered by, or `None` when none waits.
+    pub(crate) fn turn_deadline(&self) -> Option<tokio::time::Instant> {
+        self.turn_answer_by
+    }
+
+    /// Asks for the turn again after its answer never came, and counts the repeat; `None` when no
+    /// turn is waiting for its answer.
+    pub(crate) fn on_unanswered_turn(&mut self) -> Option<ControlMessage> {
+        if self.phase != Phase::AwaitingGrant {
+            self.turn_answer_by = None;
+            return None;
+        }
+        self.turn_repeats += 1;
+        self.turn_answer_by = Some(turn_answer_by());
+        tracing::warn!(
+            repeats = self.turn_repeats,
+            "backfill: the scheduler never answered a turn request; asking again"
+        );
+        Some(ControlMessage::RequestBackfillSlot)
     }
 
     /// When the batch in flight must be answered by, or `None` when nothing is awaited.
@@ -698,6 +742,85 @@ mod tests {
         assert!(
             c.is_draining(),
             "the session, and the connection under it, carry on"
+        );
+    }
+
+    /// Whether the turn request's answer is due a minute and at most a few seconds from now.
+    fn turn_due_in_full(c: &BackfillCoordinator) -> bool {
+        let deadline = c.turn_deadline().expect("a turn answer is due");
+        let now = tokio::time::Instant::now();
+        deadline > now + TURN_ANSWER_WAIT - Duration::from_secs(1)
+            && deadline <= now + TURN_ANSWER_WAIT + Duration::from_secs(TURN_ANSWER_JITTER_SECS)
+    }
+
+    #[tokio::test]
+    async fn a_turn_request_has_a_minute_and_a_few_seconds_to_be_answered() {
+        let store = seeded_store(unix_now() - 60, 120);
+        let mut c = BackfillCoordinator::new(store);
+
+        assert!(
+            c.turn_deadline().is_none(),
+            "nothing is asked before a session"
+        );
+        assert!(c.start_session().await.is_some());
+
+        assert!(turn_due_in_full(&c), "the request is given its minute");
+    }
+
+    #[tokio::test]
+    async fn a_turn_request_with_no_answer_is_asked_again_and_counted() {
+        let store = seeded_store(unix_now() - 60, 120);
+        let mut c = BackfillCoordinator::new(store);
+        c.start_session().await;
+
+        for repeats in 1..=3 {
+            assert!(
+                matches!(
+                    c.on_unanswered_turn(),
+                    Some(ControlMessage::RequestBackfillSlot)
+                ),
+                "the turn is asked for again"
+            );
+            assert_eq!(c.turn_repeats, repeats, "every repeat is counted");
+            assert!(turn_due_in_full(&c), "a repeat has its whole minute again");
+        }
+    }
+
+    #[tokio::test]
+    async fn an_answered_turn_is_not_asked_again() {
+        let store = seeded_store(unix_now() - 60, 120);
+        let mut c = BackfillCoordinator::new(store);
+
+        c.start_session().await;
+        c.on_grant(100, unix_now() + 3600);
+        assert!(c.turn_deadline().is_none(), "a grant answers the request");
+        assert!(c.on_unanswered_turn().is_none());
+
+        c.start_session().await;
+        c.on_defer(20);
+        assert!(c.turn_deadline().is_none(), "so does a wait");
+        assert!(c.on_unanswered_turn().is_none());
+        assert_eq!(c.turn_repeats, 0);
+    }
+
+    #[tokio::test]
+    async fn a_fleet_that_asked_together_asks_again_apart() {
+        let store = seeded_store(unix_now() - 60, 120);
+        let mut c = BackfillCoordinator::new(store);
+        c.start_session().await;
+
+        let start = tokio::time::Instant::now();
+        let waits: Vec<u64> = (0..200)
+            .map(|_| {
+                c.on_unanswered_turn();
+                let deadline = c.turn_deadline().expect("due");
+                deadline.duration_since(start).as_secs()
+            })
+            .collect();
+        let (low, high) = (waits.iter().min().unwrap(), waits.iter().max().unwrap());
+        assert!(
+            high - low >= 3,
+            "repeats spread over a few seconds, so a fleet does not ask in step: {low}..{high}"
         );
     }
 

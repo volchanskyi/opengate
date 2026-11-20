@@ -21,15 +21,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-func contosoOnlineMachine(t *testing.T, product *Product, hostname string) (*Technician, *Machine) {
-	t.Helper()
-	contoso := product.arrangeCustomer("Contoso")
-	admin := product.Administrator(contoso)
-	machine := product.Machine(admin.mintEnrolmentToken("Head Office").Token, hostname)
-	machine.AwaitOnline()
-	return admin, machine
-}
-
 func (a *Technician) openSession(deviceID uuid.UUID) Reply {
 	a.t.Helper()
 	return a.Post("/api/v1/sessions", map[string]any{"device_id": deviceID.String()})
@@ -45,7 +36,7 @@ func requireSessionsRefused(t *testing.T, admin *Technician, deviceID uuid.UUID,
 func TestATechnicianOpensATerminalAndTheMachineIsToldToStartIt(t *testing.T) {
 	t.Parallel()
 
-	admin, machine := contosoOnlineMachine(t, newProduct(t), "contoso-desk-01")
+	admin, machine := contosoMachine(t, newProduct(t), "Head Office", "contoso-desk-01")
 
 	var session struct {
 		Token    string `json:"token"`
@@ -65,7 +56,7 @@ func TestATechnicianOpensATerminalAndTheMachineIsToldToStartIt(t *testing.T) {
 func TestASessionForAMachineThatIsOfflineIsRefusedWithAReason(t *testing.T) {
 	t.Parallel()
 
-	admin, machine := contosoOnlineMachine(t, newProduct(t), "contoso-desk-02")
+	admin, machine := contosoMachine(t, newProduct(t), "Head Office", "contoso-desk-02")
 	machine.Disconnect()
 
 	requireSessionsRefused(t, admin, machine.DeviceID, "a terminal on a machine that is not there is refused")
@@ -80,7 +71,7 @@ func TestASessionForAMachineThatIsOfflineIsRefusedWithAReason(t *testing.T) {
 func TestASessionOnAMachineThatDisappearsStopsBeingUsable(t *testing.T) {
 	t.Parallel()
 
-	admin, machine := contosoOnlineMachine(t, newProduct(t), "contoso-desk-03")
+	admin, machine := contosoMachine(t, newProduct(t), "Head Office", "contoso-desk-03")
 
 	var session struct {
 		Token string `json:"token"`
@@ -119,7 +110,7 @@ func TestASessionLeftByAMachineThatWentAwayIsReclaimed(t *testing.T) {
 		RetentionSweep:   time.Hour,
 		RetentionHorizon: 365 * 24 * time.Hour,
 	}))
-	admin, machine := contosoOnlineMachine(t, product, "contoso-desk-05")
+	admin, machine := contosoMachine(t, product, "Head Office", "contoso-desk-05")
 
 	reply := admin.openSession(machine.DeviceID)
 	require.Equal(t, http.StatusCreated, reply.Status)
@@ -215,7 +206,7 @@ const sessionEnded websocket.StatusCode = 4000
 func TestTheMachineIsToldTheConfiguredRelayAddressAndTheTechnicianTheirOwn(t *testing.T) {
 	t.Parallel()
 
-	admin, machine := contosoOnlineMachine(t, newProduct(t), "contoso-desk-06")
+	admin, machine := contosoMachine(t, newProduct(t), "Head Office", "contoso-desk-06")
 
 	var opened openedSession
 	reply := admin.doAt("console.contoso.example", http.MethodPost, "/api/v1/sessions",
@@ -239,7 +230,7 @@ func TestOneTechnicianHoldsAHostAndEveryoneElseIsToldWho(t *testing.T) {
 	t.Parallel()
 
 	product := newProduct(t)
-	_, machine := contosoOnlineMachine(t, product, "contoso-desk-07")
+	_, machine := contosoMachine(t, product, "Head Office", "contoso-desk-07")
 	contoso := product.arrangeCustomer("Contoso Branch")
 
 	const technicians = 20
@@ -290,7 +281,7 @@ func TestOneTechnicianHoldsAHostAndEveryoneElseIsToldWho(t *testing.T) {
 func TestATechnicianReopeningTheirOwnHostReplacesTheirSession(t *testing.T) {
 	t.Parallel()
 
-	admin, machine := contosoOnlineMachine(t, newProduct(t), "contoso-desk-08")
+	admin, machine := contosoMachine(t, newProduct(t), "Head Office", "contoso-desk-08")
 
 	first := admin.mustOpenSession(machine.DeviceID)
 	tab, err := admin.joinRelay(first.Token)
@@ -312,7 +303,7 @@ func TestTheRelayAdmitsOnlyTheHoldersBrowser(t *testing.T) {
 	t.Parallel()
 
 	product := newProduct(t)
-	alice, machine := contosoOnlineMachine(t, product, "contoso-desk-09")
+	alice, machine := contosoMachine(t, product, "Head Office", "contoso-desk-09")
 	bob := product.Technician(alice.Customer)
 
 	opened := alice.mustOpenSession(machine.DeviceID)
@@ -332,7 +323,7 @@ func TestOnlyTheHolderOrAnAdministratorEndsASession(t *testing.T) {
 	t.Parallel()
 
 	product := newProduct(t)
-	_, machine := contosoOnlineMachine(t, product, "contoso-desk-10")
+	_, machine := contosoMachine(t, product, "Head Office", "contoso-desk-10")
 	customer := product.arrangeCustomer("Contoso Dental")
 	alice := product.NamedTechnician(customer, "Alice")
 	bob := product.NamedTechnician(customer, "Bob")
@@ -369,7 +360,7 @@ func TestTheHostAndItsSessionListNameTheHolderAndNeverTheToken(t *testing.T) {
 	t.Parallel()
 
 	product := newProduct(t)
-	_, machine := contosoOnlineMachine(t, product, "contoso-desk-11")
+	_, machine := contosoMachine(t, product, "Head Office", "contoso-desk-11")
 	customer := product.arrangeCustomer("Contoso Labs")
 	alice := product.NamedTechnician(customer, "Alice")
 	bob := product.Technician(customer)
@@ -431,7 +422,7 @@ func TestDirectLinkOutcomesCountOncePerSessionAndOnlyFromTheHolder(t *testing.T)
 	t.Parallel()
 
 	product := newProduct(t)
-	alice, machine := contosoOnlineMachine(t, product, "contoso-desk-12")
+	alice, machine := contosoMachine(t, product, "Head Office", "contoso-desk-12")
 	bob := product.Technician(alice.Customer)
 
 	opened := alice.mustOpenSession(machine.DeviceID)
@@ -459,7 +450,7 @@ func TestACustomerFilterNarrowsAndDoesNotPermit(t *testing.T) {
 	t.Parallel()
 
 	product := newProduct(t)
-	_, machine := contosoOnlineMachine(t, product, "contoso-desk-04")
+	_, machine := contosoMachine(t, product, "Head Office", "contoso-desk-04")
 	fabrikam := product.arrangeCustomer("Fabrikam")
 
 	looking := product.Administrator(fabrikam)

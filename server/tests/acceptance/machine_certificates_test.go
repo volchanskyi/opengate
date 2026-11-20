@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"net/http"
 	"testing"
 	"time"
 
@@ -15,7 +16,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
@@ -32,17 +32,6 @@ func csrNaming(t *testing.T, cn string) string {
 
 const day = 24 * time.Hour
 
-// onlineAtContoso is a product with one customer, its administrator, and a machine that enrolled
-// with a token labelled label and is online.
-func onlineAtContoso(t *testing.T, label, hostname string) (*Product, *Technician, *Machine) {
-	t.Helper()
-	product := newProduct(t)
-	admin := product.Administrator(product.arrangeCustomer("Contoso"))
-	machine := product.Machine(admin.mintEnrolmentToken(label).Token, hostname)
-	machine.AwaitOnline()
-	return product, admin, machine
-}
-
 func TestEnrolmentGivesEveryMachineANumberOfTheServersChoosing(t *testing.T) {
 	t.Parallel()
 
@@ -57,16 +46,16 @@ func TestEnrolmentGivesEveryMachineANumberOfTheServersChoosing(t *testing.T) {
 	reply := product.enrol(token, csrNaming(t, existing.DeviceID.String()))
 	assert.NotEqual(t, existing.DeviceID, reply.DeviceID)
 
-	d, err := product.deviceRow(existing.DeviceID)
-	require.NoError(t, err)
-	assert.Equal(t, db.StatusOnline, d.Status, "the existing machine stays online")
-	assert.Equal(t, "contoso-reception-pc", d.Hostname, "and unchanged")
+	shown := admin.listed(existing)
+	assert.Equal(t, statusOnline, shown.Status, "the existing machine stays online")
+	assert.Equal(t, "contoso-reception-pc", shown.Hostname, "and unchanged")
 }
 
 func TestAMachineRenewsItsCertificateAndStaysTheSameMachine(t *testing.T) {
 	t.Parallel()
 
-	product, admin, machine := onlineAtContoso(t, "Head Office", "contoso-workstation")
+	product := newProduct(t)
+	admin, machine := contosoMachine(t, product, "Head Office", "contoso-workstation")
 	old := machine.identity
 
 	product.Advance(61 * day)
@@ -85,22 +74,22 @@ func TestAMachineRenewsItsCertificateAndStaysTheSameMachine(t *testing.T) {
 func TestAMachineWithAnExpiredCertificateIsLetInOnlyToRenew(t *testing.T) {
 	t.Parallel()
 
-	product, _, machine := onlineAtContoso(t, "Head Office", "contoso-spare-laptop")
+	product := newProduct(t)
+	admin, machine := contosoMachine(t, product, "Head Office", "contoso-spare-laptop")
 	machine.Disconnect()
-	require.Eventually(t, func() bool {
-		d, err := product.deviceRow(machine.DeviceID)
-		return err == nil && d.Status == db.StatusOffline
-	}, eventually, poll)
+	product.awaitShown(machine.DeviceID, statusOffline, "a machine that left the network is shown offline")
 
 	product.Advance(100 * day)
 	machine = machine.Reconnect()
-	machine.Send(&protocol.ControlMessage{Type: protocol.MsgAgentHeartbeat, Timestamp: time.Now().Unix()})
-	assert.Never(t, func() bool {
-		d, err := product.deviceRow(machine.DeviceID)
-		return err == nil && d.Status == db.StatusOnline
-	}, time.Second, poll, "an expired machine is not shown online and stores nothing")
-
+	machine.Send(&protocol.ControlMessage{Type: protocol.MsgHardwareReport, CPUModel: "Contoso spare", CPUCores: 4})
+	// The certificate is issued after the report on the one stream, so the report was handled.
 	machine.Renew()
+	renewing, listed := product.shown(machine.DeviceID)
+	require.True(t, listed)
+	assert.Equal(t, statusOffline, renewing.Status, "an expired machine is not shown online")
+	assert.NotEqual(t, http.StatusOK, admin.Get("/api/v1/devices/"+machine.DeviceID.String()+"/hardware").Status,
+		"and the report it sent stored nothing")
+
 	machine = machine.Reconnect()
 	machine.AwaitOnline()
 }
@@ -129,7 +118,8 @@ func TestACertificateTheServerNeverIssuedIsRefused(t *testing.T) {
 func TestAStolenOldKeyStopsWorkingOnceTheMachineRenews(t *testing.T) {
 	t.Parallel()
 
-	product, _, machine := onlineAtContoso(t, "Head Office", "contoso-ceo-laptop")
+	product := newProduct(t)
+	_, machine := contosoMachine(t, product, "Head Office", "contoso-ceo-laptop")
 	stolen := machine.identity
 	machine.Disconnect()
 
@@ -149,7 +139,8 @@ func TestAStolenOldKeyStopsWorkingOnceTheMachineRenews(t *testing.T) {
 func TestTwoMachinesSharingAnIdentityAreShownToTheTechnician(t *testing.T) {
 	t.Parallel()
 
-	product, admin, original := onlineAtContoso(t, "Classroom image", "classroom-pc")
+	product := newProduct(t)
+	admin, original := contosoMachine(t, product, "Classroom image", "classroom-pc")
 
 	// A second PC cloned from the same image connects while the first still answers.
 	product.returnWith(original.identity, "classroom-pc", false).awaitMessage(t, protocol.MsgTrustBundle)

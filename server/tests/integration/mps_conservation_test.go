@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"math"
 	"net"
 	"net/http"
 	"sync"
@@ -91,9 +90,9 @@ func TestMPSRequestsConserveGoroutinesAndHeap(t *testing.T) {
 	assert.Equal(t, int64(finished+3), device.answers.Load()+device.stalls.Load()+device.ignored.Load(),
 		"every request reached the device")
 
-	assert.LessOrEqualf(t, math.Abs(goroutineSlope), mpsGoroutineSlopeTolerance,
+	assert.LessOrEqualf(t, goroutineSlope, mpsGoroutineSlopeTolerance,
 		"a finished Intel AMT request must give back its goroutines: %.3f retained per request", goroutineSlope)
-	assert.LessOrEqualf(t, math.Abs(heapSlope), float64(mpsHeapSlopeTolerance),
+	assert.LessOrEqualf(t, heapSlope, float64(mpsHeapSlopeTolerance),
 		"a finished Intel AMT request must give back its heap: %.0f bytes retained per request", heapSlope)
 }
 

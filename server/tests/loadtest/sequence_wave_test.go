@@ -77,8 +77,9 @@ func TestAMeasuredPhaseHoldsStillNoLongerThanAMachinesDeadline(t *testing.T) {
 	assert.InDelta(t, 0.98, *spike.WaveOnlineShare, 0.0001,
 		"a machine still dialling at the deadline counts as one that never came online")
 	held := results[2].StartedAt.Sub(spike.FinishedAt)
-	assert.GreaterOrEqual(t, held, agentDeadline, "the phase waits out a machine's whole deadline")
-	assert.Less(t, held, agentDeadline+time.Second, "and no longer")
+	assert.GreaterOrEqual(t, held, agentDeadline+signInAnswerWait,
+		"the phase waits out a machine's whole deadline, its sign-in answered or not")
+	assert.Less(t, held, agentDeadline+signInAnswerWait+time.Second, "and no longer")
 }
 
 func TestAPhaseThatIsNotMeasuredRecordsNoWave(t *testing.T) {

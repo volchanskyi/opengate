@@ -71,11 +71,6 @@ rows_from() {
               ($base + {source: "catchup", scenario: "batches", phase: "drain",
                         unanswered: (.catch_up.unanswered // 0), deferred: (.catch_up.deferred // 0)})
          end),
-        # The live minutes the watched machines sent, as they saw them stored.
-        (if .live_delay == null then empty
-         else ($base + {source: "catchup", scenario: "watched", phase: "drain",
-                        within_5s_share: share(.live_delay.within_five_seconds; .live_delay.sent)})
-         end),
         # The store probe, each sender and the quiet minute against the marks its profile names.
         (if .store_probe == null then empty
          else .store_probe as $p

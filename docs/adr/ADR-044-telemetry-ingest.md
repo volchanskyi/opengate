@@ -74,6 +74,14 @@ of its write cache and takes them one at a time until 20%. The same batch arrivi
 twice while queued joins the first and is written once. Each answer is counted by
 kind in `opengate_edge_backfill_answers_total`.
 
+**A turn request with no answer is asked again.** The agent waits a minute and up
+to five seconds more for the answer to its request for a turn, then asks again for
+as long as it stays connected, and logs each repeat with the count so far
+([`backfill_loop.rs`](../../agent/crates/mesh-agent/src/backfill_loop.rs)); the load
+harness does the same and counts the repeats in its bundle. The few seconds differ
+from request to request, so a fleet that asked together asks again apart. gRPC,
+Vector and Netdata each give a request a minute.
+
 **A lost write is asked for again.** The server reads the store's start time
 ([`store_watch.go`](../../server/internal/telemetry/store_watch.go)); when it
 changes, every connected machine that advertises `ResendRequests` is sent

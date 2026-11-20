@@ -18,6 +18,7 @@ const cdWorkflowPath = "../../../.github/workflows/cd.yml"
 var (
 	truncateStmtRE = regexp.MustCompile(`(?is)TRUNCATE\s+TABLE\s+(.*?)(?:RESTART\s+IDENTITY|CASCADE|;)`)
 	insertStmtRE   = regexp.MustCompile(`(?i)INSERT\s+INTO\s+([a-z_][a-z0-9_]*)`)
+	resetSQLRE     = regexp.MustCompile(`(?s)psql -U opengate -d opengate -c "(\s*TRUNCATE TABLE.*?)"`)
 )
 
 func TestCDResetTargetsTablesThatExist(t *testing.T) {
@@ -39,6 +40,27 @@ func TestCDResetTargetsTablesThatExist(t *testing.T) {
 			"the deploy workflow's SQL names table %q, which the migrations do not produce — "+
 				"a rename left the workflow behind and the next deploy will fail", table)
 	}
+}
+
+func TestCDResetLeavesEveryTenantADefaultCustomer(t *testing.T) {
+	s := newPostgresTestStore(t)
+	ctx := context.Background()
+
+	workflow, err := os.ReadFile(filepath.Clean(cdWorkflowPath))
+	require.NoError(t, err)
+	reset := resetSQLRE.FindStringSubmatch(string(workflow))
+	require.Len(t, reset, 2, "found no staging reset statement in the deploy workflow")
+	_, err = s.db.ExecContext(ctx, reset[1])
+	require.NoError(t, err)
+
+	var tenants, withoutDefault int
+	require.NoError(t, s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM tenants`).Scan(&tenants))
+	require.NotZero(t, tenants)
+	require.NoError(t, s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM tenants t
+		  WHERE NOT EXISTS (SELECT 1 FROM organizations o WHERE o.tenant_id = t.id AND o.is_default)`).
+		Scan(&withoutDefault))
+	assert.Zero(t, withoutDefault, "a machine enrolled after the reset has a default customer to join")
 }
 
 func sqlTablesReferencedIn(workflow string) []string {

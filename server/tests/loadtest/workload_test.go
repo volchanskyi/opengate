@@ -91,4 +91,5 @@ func TestAProbeTripCarriesNoneOfTheRunsTraffic(t *testing.T) {
 	assert.NotContains(t, agentCapabilities(probe), protocol.CapBackfill)
 	assert.Zero(t, probe.liveEvery, "a probe trip sends no live window")
 	assert.Zero(t, probe.holdFor, "a probe trip hangs up once registered")
+	assert.True(t, probe.leaveAtSend, "a probe trip leaves at its send, so a slow answer never holds the climb")
 }

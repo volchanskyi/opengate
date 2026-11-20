@@ -191,8 +191,9 @@ Each may be raised only as far as a maximum that lives in code, because a limit 
 operator can raise without bound is not a limit.
 
 **The per-machine half is enforced on the machine.** It travels down with the
-ruleset and is applied to the running alert queue, so a change lands on the next
-alert rather than at the next restart. A screen that only wrote a database row
+ruleset and is applied to the running alert queue. Saving a change sends the
+ruleset again to every machine of the customer that is connected, so the change
+lands on the next alert rather than at the next restart. A screen that only wrote a database row
 would have changed nothing — a server-side check would still receive the flood it
 exists to prevent.
 

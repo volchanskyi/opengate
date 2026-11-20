@@ -44,7 +44,9 @@ commit, and nothing in the repository could change its answer.
   platform the tag in use is built for, no longer carries the finding; a tag
   that names a line, such as `17-alpine`, is read at the build it points at. A
   tag that drops a platform is never the fix: the cluster's node is arm64, and
-  a move to a tag pushed for amd64 alone stops the pod at its first start.
+  a move to a tag pushed for amd64 alone stops the pod at its first start. A
+  newer tag whose index lists no build, as Docker Hub publishes a line's tag
+  ahead of that line's release, is passed over the same way.
 - A declaration no reader reads fails the check, and so does a lookup that gives
   no answer it can read. Files that only look like a declaration are listed, each
   with its reason, in [`scope.json`](../../scripts/dependency-fixes/scope.json). The production deploy reads back every image the

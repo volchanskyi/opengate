@@ -54,5 +54,7 @@ func (s *Server) PutAlertLimits(ctx context.Context, request PutAlertLimitsReque
 
 	s.auditLog(ctx, ContextUserID(ctx), "alert.limits.set", limits.OrganizationID.String(),
 		fmt.Sprintf("customer=%d/h machine=%d/h", limits.OrganizationHourly, limits.DeviceHourly))
+	// The machine allowance travels with the customer's rules, so connected machines take it now.
+	s.deliverRuleChange(ctx, organizationID, false)
 	return PutAlertLimits200JSONResponse(limitsToAPI(limits)), nil
 }

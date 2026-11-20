@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 	"log/slog"
-	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -72,9 +71,9 @@ func TestCatchUpSessionsConserveGoroutinesAndHeap(t *testing.T) {
 	assert.Equal(t, int64((completed+3)*catchUpBatchesPerSession*catchUpReadingsPerBatch), env.stored.Load(),
 		"every reading of every batch reached the store")
 
-	assert.LessOrEqualf(t, math.Abs(goroutineSlope), catchUpGoroutineSlopeTolerance,
+	assert.LessOrEqualf(t, goroutineSlope, catchUpGoroutineSlopeTolerance,
 		"a finished catch-up session must give back its goroutines: %.3f retained per session", goroutineSlope)
-	assert.LessOrEqualf(t, math.Abs(heapSlope), float64(catchUpHeapSlopeTolerance),
+	assert.LessOrEqualf(t, heapSlope, float64(catchUpHeapSlopeTolerance),
 		"a finished catch-up session must give back its heap: %.0f bytes retained per session", heapSlope)
 }
 

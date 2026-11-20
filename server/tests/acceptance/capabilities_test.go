@@ -78,6 +78,7 @@ var capabilityOutcomes = map[string][]string{
 		"TestARuleTheCustomerStoppedRaisesNothingInTheirQueue",
 		"TestAStoppedRuleReachesAMachineThatNeverDisconnects",
 		"TestARetunedThresholdReachesAMachineThatNeverDisconnects",
+		"TestAChangedAlertBudgetReachesAMachineThatNeverDisconnects",
 	},
 	"Investigations.md": {
 		"TestAnAlertBecomesAnIncidentATechnicianClosesWithACause",
