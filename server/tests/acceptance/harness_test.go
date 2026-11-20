@@ -4,7 +4,9 @@ package acceptance
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"sync"
@@ -17,7 +19,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/amt"
 	"github.com/volchanskyi/opengate/server/internal/amt/transport/wsman"
 	"github.com/volchanskyi/opengate/server/internal/app"
-	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/telemetry"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
@@ -65,6 +66,10 @@ type Product struct {
 
 	// clock is the time the product decides certificate questions by, moved by hand.
 	clock *productClock
+
+	// observerOnce makes observing, an administrator who sees every customer's machines, on first use.
+	observerOnce sync.Once
+	observing    *Technician
 }
 
 // productClock is the product's certificate clock, which a test moves forward by hand.
@@ -227,8 +232,26 @@ func (p *Product) arrangeCustomer(name string) uuid.UUID {
 }
 
 // deviceRow reads a machine's row straight from the database.
-func (p *Product) deviceRow(id uuid.UUID) (*db.Device, error) {
-	return p.assembly.Devices.Get(arrangeTenantContext(), id)
+// observer is an administrator of the installation, who sees every customer's machines.
+func (p *Product) observer() *Technician {
+	p.observerOnce.Do(func() { p.observing = p.Administrator(uuid.Nil) })
+	return p.observing
+}
+
+// shown is the row the device list shows an administrator for one machine, and whether there is
+// one; a failed read shows nothing, so a poll asks again.
+func (p *Product) shown(id uuid.UUID) (deviceSummary, bool) {
+	var listed []deviceSummary
+	reply := p.observer().Get("/api/v1/devices")
+	if reply.Status != http.StatusOK || json.Unmarshal(reply.Body, &listed) != nil {
+		return deviceSummary{}, false
+	}
+	for _, d := range listed {
+		if d.ID == id {
+			return d, true
+		}
+	}
+	return deviceSummary{}, false
 }
 
 // managedHardware stands in for Intel management hardware, recording the actions it receives.

@@ -1,10 +1,7 @@
 package agentapi
 
 import (
-	"bytes"
-	"compress/flate"
 	"context"
-	"io"
 	"strings"
 	"time"
 
@@ -307,23 +304,6 @@ func alertTimestampsInRange(msg *protocol.ControlMessage, now time.Time) bool {
 		}
 	}
 	return true
-}
-
-// checkEvidenceReadable proves the blob is what its codec says it is, and that
-// it does not expand past anything the fixed composition could produce.
-func checkEvidenceReadable(blob []byte) error {
-	reader := flate.NewReader(bytes.NewReader(blob))
-	inflated, err := io.Copy(io.Discard, io.LimitReader(reader, maxEvidenceInflatedBytes+1))
-	if closeErr := reader.Close(); err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		return err
-	}
-	if inflated > maxEvidenceInflatedBytes {
-		return errEvidenceTooLargeInflated
-	}
-	return nil
 }
 
 // isBackfilled reports whether the alert is a retroactive finding; absent means live.

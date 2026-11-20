@@ -88,16 +88,21 @@ func proveConnection(ctx context.Context, codec *protocol.Codec, stream soakStre
 			}
 			return fmt.Errorf("hold open: %w", err)
 		}
-		if msg.Type == protocol.MsgDeferBackfill && msg.SinceTS != 0 {
-			if err := answerResendRequest(ctx, codec, stream, opts, msg); err != nil {
-				return err
-			}
-			continue
-		}
-		if err := answerHeldFrame(codec, stream, msg, opts); err != nil {
+		if err := answerServerFrame(ctx, codec, stream, opts, msg); err != nil {
 			return err
 		}
 	}
+}
+
+// answerServerFrame serves one frame the server pushed: a re-send request catches up again, and
+// every other frame is answered as a held machine answers it.
+func answerServerFrame(ctx context.Context, codec *protocol.Codec, stream soakStream, opts loadOptions,
+	msg *protocol.ControlMessage,
+) error {
+	if msg.Type == protocol.MsgDeferBackfill && msg.SinceTS != 0 {
+		return answerResendRequest(ctx, codec, stream, opts, msg)
+	}
+	return answerHeldFrame(codec, stream, msg, opts)
 }
 
 // ErrHeldPeerGone marks a heartbeat write that failed because the machine's connection is gone.

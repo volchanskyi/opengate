@@ -178,7 +178,7 @@ func phaseProbe(agentPlan []tenantAgent, credentials agentCredentials, addr stri
 }
 
 // probeOptions is the run's options with all of its traffic taken off, so a probe trip is the
-// connect, handshake and register a returning machine makes, and nothing after it.
+// connect, handshake and register send a returning machine makes, and nothing after it.
 func probeOptions(opts loadOptions) loadOptions {
 	probe := opts
 	probe.holdFor = 0
@@ -189,6 +189,7 @@ func probeOptions(opts loadOptions) loadOptions {
 	probe.backfillGap = 0
 	probe.liveEvery = 0
 	probe.answerLogPulls = false
+	probe.leaveAtSend = true
 	return probe
 }
 

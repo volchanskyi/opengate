@@ -85,14 +85,16 @@ func serveOneConnection(ctx context.Context, addr string, tlsConfig *tls.Config,
 	res.handshakeDur = time.Since(t1)
 
 	opts.liveSecond = liveSendSecond(plan.hostname)
+	opts.machine = plan.hostname
 	codec := &protocol.Codec{}
 	t2 := time.Now()
-	if err := register(codec, stream, plan.hostname, agentCapabilities(opts)); err != nil {
+	if err := signIn(ctx, codec, stream, plan.hostname, opts); err != nil {
 		res.err = err
 		return res
 	}
 	res.registerDur = time.Since(t2)
-	// The arrival is announced once registered, because the machine outlives the phase it arrived in.
+	// The arrival is announced at the server's answer, because the machine outlives the phase it
+	// arrived in and the server counts it from there.
 	res.arrivedAt = time.Now()
 	if noteArrival != nil {
 		noteArrival()
@@ -134,6 +136,32 @@ func agentCapabilities(opts loadOptions) []protocol.AgentCapability {
 		caps = append(caps, protocol.CapBackfill, protocol.CapLiveConfirmations, protocol.CapResendRequests)
 	}
 	return caps
+}
+
+// signInAnswerWait bounds the wait for the server's first answer to a sign-in: the fleet-return
+// promise's five minutes for every machine.
+const signInAnswerWait = 5 * time.Minute
+
+// signIn sends AgentRegister and returns once the server's first answer has arrived and been
+// served, since the server writes to the machine only after it has taken it.
+func signIn(ctx context.Context, codec *protocol.Codec, stream soakStream, hostname string, opts loadOptions) error {
+	if err := register(codec, stream, hostname, agentCapabilities(opts)); err != nil {
+		return err
+	}
+	if opts.leaveAtSend {
+		return nil
+	}
+	if err := stream.SetReadDeadline(time.Now().Add(signInAnswerWait)); err != nil {
+		return fmt.Errorf("set sign-in deadline: %w", err)
+	}
+	answer, err := readControlFrame(codec, stream)
+	if err != nil {
+		return fmt.Errorf("await the server's answer to the sign-in: %w", err)
+	}
+	if err := stream.SetReadDeadline(time.Time{}); err != nil {
+		return fmt.Errorf("clear sign-in deadline: %w", err)
+	}
+	return answerServerFrame(ctx, codec, stream, opts, answer)
 }
 
 // register sends the AgentRegister control frame that completes enrollment.

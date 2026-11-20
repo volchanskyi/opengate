@@ -36,8 +36,9 @@ not a dead one.
 says the teardown code ran. Only a reading says the resource came back. The gate
 is a slope: [`conservation_test.go`](../../server/tests/integration/conservation_test.go)
 drives a growing number of complete sessions against one server, fits a line
-through goroutines and retained memory against sessions completed, and requires
-both slopes flat. A fixed baseline would have to guess at what the process holds
+through goroutines and retained memory against sessions completed, and holds
+each slope under its tolerance. A falling line is goroutines or memory given back,
+so only the rise is held. A fixed baseline would have to guess at what the process holds
 at rest and would go stale on the next change; a slope states the property
 directly — a finished operation gives back what it took. Each test states its
 tolerance beside the two readings that bracket it: what the defect read, and

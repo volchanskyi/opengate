@@ -21,17 +21,17 @@ func (p *PostgresDevices) Upsert(ctx context.Context, d *Device) error {
 	if err != nil {
 		return err
 	}
-	// A device naming no customer takes the tenant's oldest; a reconnect keeps its customer and site.
+	// A device naming no customer takes the tenant's default; a reconnect keeps its customer and site.
 	// A site on first registration counts only when it belongs to the customer the device lands in.
 	organizationID := nullableUUID(d.OrganizationID)
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		_, err = tx.ExecContext(ctx,
 			`INSERT INTO devices (id, tenant_id, organization_id, site_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
 			 VALUES ($1, $2,
-			         COALESCE($10::uuid, (SELECT o.id FROM organizations o WHERE o.tenant_id = $2 ORDER BY o.created_at, o.id LIMIT 1)),
+			         COALESCE($10::uuid, (SELECT o.id FROM organizations o WHERE o.tenant_id = $2 AND o.is_default)),
 			         (SELECT s.id FROM sites s
 			           WHERE s.id = $3::uuid
-			             AND s.organization_id = COALESCE($10::uuid, (SELECT o.id FROM organizations o WHERE o.tenant_id = $2 ORDER BY o.created_at, o.id LIMIT 1))),
+			             AND s.organization_id = COALESCE($10::uuid, (SELECT o.id FROM organizations o WHERE o.tenant_id = $2 AND o.is_default))),
 			         $4, $5, $6, $7, $8, $9, NOW(), NOW(), NOW())
 			 ON CONFLICT (id) DO UPDATE SET
 			   tenant_id = EXCLUDED.tenant_id,

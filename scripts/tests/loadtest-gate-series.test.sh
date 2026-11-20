@@ -203,8 +203,10 @@ BUCKETS_FILE="$REPO_ROOT/server/internal/metrics/registration_pool.go"
 if [ ! -f "$BUCKETS_FILE" ]; then
   fail "the registration histogram's buckets are not where the limits are checked against them"
 else
-  buckets_line="$(grep -E '^var registrationDurationBuckets' "$BUCKETS_FILE" || true)"
-  bounds="$(tr -d '{} ' <<<"${buckets_line#*\{}")"
+  # The declaration may run over several lines, ending at its closing brace.
+  buckets_decl="$(sed -n '/^var registrationDurationBuckets/,/}/p' "$BUCKETS_FILE")"
+  bounds="$(tr -d '{} \t\n' <<<"${buckets_decl#*\{}")"
+  bounds="${bounds%,}"
   top_bucket_ms="$(awk -F, '{ printf "%d", $NF * 1000 }' <<<"$bounds")"
   if [ -z "$top_bucket_ms" ] || [ "$top_bucket_ms" -le 0 ]; then
     fail "could not read the registration histogram's last boundary out of $BUCKETS_FILE"

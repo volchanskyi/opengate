@@ -8,6 +8,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/require"
 )
 
@@ -173,10 +174,22 @@ func TestRegistrationDurationBucketsAreReadableByWhatReadsTheSeries(t *testing.T
 	require.NotEqual(t, -1.0, registrationDurationBuckets[0], "the caller gets a copy, not the series' own bounds")
 }
 
-func TestRegistrationDurationReachesAMinute(t *testing.T) {
-	buckets := RegistrationDurationBuckets()
+func TestASignInIsTimedUpToTheFleetReturnPromise(t *testing.T) {
+	m := NewMetrics(prometheus.NewRegistry())
 
-	require.Contains(t, buckets, 30.0)
-	require.Contains(t, buckets, 60.0)
-	require.Equal(t, 60.0, buckets[len(buckets)-1], "a minute is the widest arrival the server describes")
+	m.ObserveAgentRegistration(RegistrationOK, 100*time.Second)
+	m.ObserveAgentRegistration(RegistrationOK, 4*time.Minute)
+
+	var reading dto.Metric
+	observer := m.AgentRegistrationDuration.WithLabelValues(RegistrationOK)
+	require.NoError(t, observer.(prometheus.Metric).Write(&reading))
+	within := map[float64]uint64{}
+	for _, bucket := range reading.GetHistogram().GetBucket() {
+		within[bucket.GetUpperBound()] = bucket.GetCumulativeCount()
+	}
+	require.Zero(t, within[60], "a sign-in past a minute is told apart from one inside it")
+	require.EqualValues(t, 1, within[180], "95% of a returning fleet is promised three minutes")
+	require.EqualValues(t, 2, within[300], "every machine is promised five, the widest bound")
+	buckets := RegistrationDurationBuckets()
+	require.Equal(t, 300.0, buckets[len(buckets)-1], "a sign-in slower than the promise reads past the scale")
 }

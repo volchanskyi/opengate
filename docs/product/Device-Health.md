@@ -203,7 +203,8 @@ The server tells the machine each minute it has stored, live or caught up, and
 the machine keeps that list. When the agent reconnects:
 
 1. It asks the server for permission to catch up, and the server grants it a
-   pace.
+   pace. A request with no answer within a minute and a few seconds is asked
+   again, each machine a few seconds apart from the next.
 2. It sends only the minutes the server never confirmed: the newest two days
    first, then older and coarser history. A minute still in progress is never
    sent.

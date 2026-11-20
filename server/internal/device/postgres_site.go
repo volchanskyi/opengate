@@ -54,14 +54,12 @@ func (p *PostgresSites) Create(ctx context.Context, s *Site) error {
 	})
 }
 
-// tenantOwnOrganization returns the caller's tenant's oldest customer.
+// tenantOwnOrganization returns the caller's tenant's default customer.
 func tenantOwnOrganization(ctx context.Context, tx *sql.Tx) (OrganizationID, error) {
 	var id OrganizationID
 	err := tx.QueryRowContext(ctx,
 		`SELECT id FROM organizations
-		  WHERE tenant_id = current_setting('app.current_tenant')::uuid
-		  ORDER BY created_at, id
-		  LIMIT 1`).Scan(&id)
+		  WHERE tenant_id = current_setting('app.current_tenant')::uuid AND is_default`).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return uuid.Nil, ErrOrganizationNotFound
 	}

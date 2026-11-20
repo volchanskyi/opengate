@@ -81,6 +81,13 @@ its customer rather than across the tenant.
 Deleting a customer cascades its sites, its devices and, through them, their
 telemetry, inventory, hardware and update rows.
 
+[`023_default_customer`](../../server/internal/db/migrations/023_default_customer.up.sql)
+marks each tenant's default customer, the one a device or site written without a customer
+joins, and a partial unique index holds one per tenant. A tenant's first customer takes the
+mark when it is created, and a delete of the default hands it to the oldest customer left
+([`organization/postgres.go`](../../server/internal/organization/postgres.go)). The mark is
+stored, so a clock that steps back leaves each new machine in the default customer.
+
 The order these levels resolve in is one shared primitive,
 [`internal/settings`](../../server/internal/settings/settings.go), so the ordering
 exists in one place and cannot drift between the things that depend on it.

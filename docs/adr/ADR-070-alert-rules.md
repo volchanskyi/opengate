@@ -70,7 +70,8 @@ long as it is healthy, so a change delivered only on registration would be
 delivered only when something unrelated broke — the change goes out to that
 customer's connected machines as it is made, and to an offline machine as it
 arrives. Retuning travels the same path, because a boundary nobody's machines
-are comparing against is a row in a table.
+are comparing against is a row in a table, and so does a change to the
+customer's per-machine alert allowance, which rides down with the rules.
 
 **A rule's revision and its severity travel with it.** An alert is identified by
 the machine, the rule, that revision and the window it fired for, so a machine

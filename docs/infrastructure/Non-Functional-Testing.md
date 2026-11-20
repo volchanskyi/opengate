@@ -135,8 +135,8 @@ began more than 100 ms past their turn. Past 1% the phase followed the generator
 schedule and the run is thrown out; below it, arrivals slower than offered are the
 server's answer, and the arrival share judges nothing on its own. A measured phase
 also counts its wave to the finish: it holds still at its end, for at most the 30 s a
-machine has to connect and register, until each machine it asked for has come online
-or given up, and records the share that came online and the 95th percentile of their
+machine has to connect and the five minutes its sign-in has to be answered, until each
+machine it asked for has come online or given up, and records the share that came online and the 95th percentile of their
 times from dial to online, which a profile can hold to a limit. A phase's latency is
 a live round trip taken
 during the phase — a machine that connects, handshakes, registers and hangs up —
@@ -554,18 +554,21 @@ of any relay session the server hands it. It reports p50/p95/p99 for connect,
 handshake and register, and writes an evidence bundle.
 
 It also reports the window the fleet arrived in — from the run's start to the
-moment the last machine finished registering — and that is what the run's arrival
-rate divides by. The run's own wall clock is nearly all hold: `-hold` keeps every
+moment the server answered the last machine's sign-in — and that is what the run's
+arrival rate divides by. The run's own wall clock is nearly all hold: `-hold` keeps every
 machine connected so the k6 relay scenario has something to open sessions
 against, so a rate taken from it describes the hold rather than the arrival, and
 a hundred machines that all arrived report a fraction of one per second.
 
-Registration is the one figure it does not time itself. The harness's own clock
-would stop when the frame reaches a local send buffer, which reports microseconds
-however slow the write behind it becomes, and the device row is written later and
-elsewhere — so `-metrics-url` points it at the server's own account of how long
-registration took, published where that row lands, with the connection pool
-beside it. A registration queued behind a connection and one executing slowly are
+A machine is online for the harness when the server's first answer to its sign-in
+arrives, because the server writes to a machine only once it has taken it. The
+harness times the sign-in from its send to that answer, so a wait inside the server
+counts, and waits at most the five minutes the fleet-return promise gives every
+machine; the fleet-online figures and the census read that moment, so the run never
+counts a machine the server has not. The registration figure the run publishes is
+still the server's own: `-metrics-url` points the harness at how long registration
+took from the register frame to the device row, published where that row lands,
+with the connection pool beside it, its scale reaching the same five minutes. A registration queued behind a connection and one executing slowly are
 the same latency until the pool says which. That figure is the one the run
 publishes: a run the server did not answer publishes no registration line at all,
 because an absent figure is honest where a local write under registration's name
@@ -620,6 +623,16 @@ answered, and a run in which any request went unanswered is not a valid night.
 Sessions themselves stay on the relay: a direct session's bytes never cross the
 server, so the relay-only case is the server's worst
 ([ADR-127](../adr/ADR-127-direct-link.md)).
+
+A machine returning with history catches up as the agent does: it asks for a turn,
+and asks again when no answer comes within a minute and a few seconds, each repeat
+counted in the bundle; a connection that goes silent ends the wait without a repeat.
+Each machine records why its catch-up ended — caught up, never granted a turn, told
+to wait more often than it asks again and how many times, a connection that broke
+after its turn, or the run ending — once however often it reconnects: a machine
+that caught up on any connection counts as caught up, and one that never did is
+counted by its last ending. The machines caught up the catch-up profile holds to its
+fleet are those machines, so a machine that reconnected is never counted twice.
 
 Against staging the harness is launched detached inside its own cluster pod
 through [`scripts/loadtest-quic-incluster.sh`](../../scripts/loadtest-quic-incluster.sh),
@@ -766,8 +779,9 @@ runs against **one** assembled server and, at several different session counts:
 3. plots those readings against the number of sessions completed, and fits a
    line through them.
 
-**The assertion is that both lines are flat** — zero retained per completed
-session, within a stated tolerance.
+**The assertion is that neither line rises** — zero retained per completed
+session, within a stated tolerance. A falling line is goroutines or memory given
+back, so only the rise is held.
 
 **Why a slope and not a single reading.** A server starts goroutines that take no
 context and never stop, and its store and connection pool add more. Any fixed

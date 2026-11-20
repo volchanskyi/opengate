@@ -31,6 +31,13 @@ within a customer, not across the tenant — two customers may each have a
 and the suggestion counts only when the server can match it inside that device's
 own customer.
 
+**Each tenant marks one default customer**, and a machine or site written without a
+customer joins it. The tenant's first customer takes the mark when it is created; a
+delete of the default hands it to the oldest customer left. The mark is stored rather
+than read from creation times because a server clock can step back: on a workstation
+whose clock stepped back about a second every half minute, a customer made second read
+older than the first, and new machines were filed under it.
+
 **Settings resolve device, then site, then organization, then tenant, then the
 shipped default.** One class reads the ladder the other way — a ceiling set at
 the tenant that a customer may lower but not raise — and that class is named

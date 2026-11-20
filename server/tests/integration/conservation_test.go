@@ -3,7 +3,6 @@ package integration
 import (
 	"context"
 	"io"
-	"math"
 	"runtime"
 	"testing"
 	"time"
@@ -68,9 +67,9 @@ func TestRelaySessionsConserveGoroutinesAndHeap(t *testing.T) {
 	t.Logf("completed sessions %v → goroutines %v (%.3f/session), heap %v (%.0f B/session)",
 		xs, goroutines, goroutineSlope, heap, heapSlope)
 
-	assert.LessOrEqualf(t, math.Abs(goroutineSlope), goroutineSlopeTolerance,
+	assert.LessOrEqualf(t, goroutineSlope, goroutineSlopeTolerance,
 		"a completed relay session must give back its goroutines: %.3f retained per session", goroutineSlope)
-	assert.LessOrEqualf(t, math.Abs(heapSlope), float64(heapSlopeTolerance),
+	assert.LessOrEqualf(t, heapSlope, float64(heapSlopeTolerance),
 		"a completed relay session must give back its heap: %.0f bytes retained per session", heapSlope)
 }
 

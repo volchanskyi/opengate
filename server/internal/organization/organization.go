@@ -49,7 +49,7 @@ func (o *Organization) Archived() bool {
 // Repository is the outbound persistence port for the Organization aggregate.
 // Every operation is scoped to the caller's tenant and fails closed without one.
 type Repository interface {
-	// Create stores a new customer in the caller's tenant.
+	// Create stores a new customer in the caller's tenant; the tenant's first is its default.
 	Create(ctx context.Context, org *Organization) error
 	// Get returns one customer by id, or ErrNotFound.
 	Get(ctx context.Context, id ID) (*Organization, error)
@@ -61,10 +61,10 @@ type Repository interface {
 	// SetArchived retires or restores a customer.
 	SetArchived(ctx context.Context, id ID, archived bool) error
 	// Delete removes a customer, cascading its devices and everything hanging
-	// off them.
+	// off them; deleting the default makes the oldest customer left the default.
 	Delete(ctx context.Context, id ID) error
-	// EnsureDefault returns an organization the caller's tenant can put a device in,
-	// creating the default one when the tenant has none.
+	// EnsureDefault returns the customer a device naming none joins in the caller's
+	// tenant, creating it when the tenant has none.
 	EnsureDefault(ctx context.Context) (ID, error)
 }
 

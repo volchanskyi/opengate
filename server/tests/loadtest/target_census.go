@@ -12,8 +12,8 @@ const (
 	// censusSettleInterval is how often the run asks again while the target is still behind.
 	censusSettleInterval = 500 * time.Millisecond
 
-	// censusSettleLimit bounds how long the run holds still while the target admits machines.
-	// It bounds the wait only; a shortfall that outlasts it still counts.
+	// censusSettleLimit bounds how long the run holds still while the target reads fewer machines
+	// than it answered. It bounds the wait only; a shortfall that outlasts it still counts.
 	censusSettleLimit = 180 * time.Second
 )
 

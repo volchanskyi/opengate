@@ -10,16 +10,13 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
+// takesRules is what a machine that watches the readings it is given and raises alerts registers.
+var takesRules = []protocol.AgentCapability{protocol.CapTerminal, protocol.CapThresholdAlerts, protocol.CapAlerts}
+
 func TestAStoppedRuleReachesAMachineThatNeverDisconnects(t *testing.T) {
 	t.Parallel()
 
-	product := newProduct(t)
-	contoso := product.arrangeCustomer("Contoso")
-	admin := product.Administrator(contoso)
-
-	machine := product.Machine(admin.mintEnrolmentToken("Head Office").Token, "contoso-fs01",
-		protocol.CapTerminal, protocol.CapThresholdAlerts, protocol.CapAlerts)
-	machine.AwaitOnline()
+	admin, machine := contosoMachine(t, newProduct(t), "Head Office", "contoso-fs01", takesRules...)
 
 	_, carried := rulesFor(machine.Await(protocol.MsgPushAlertRules), triageRule)
 	require.True(t, carried, "the machine starts out watching for it")
@@ -40,13 +37,7 @@ func TestARetunedThresholdReachesAMachineThatNeverDisconnects(t *testing.T) {
 
 	const retuned = 77
 
-	product := newProduct(t)
-	contoso := product.arrangeCustomer("Contoso")
-	admin := product.Administrator(contoso)
-
-	machine := product.Machine(admin.mintEnrolmentToken("Head Office").Token, "contoso-fs01",
-		protocol.CapTerminal, protocol.CapThresholdAlerts, protocol.CapAlerts)
-	machine.AwaitOnline()
+	admin, machine := contosoMachine(t, newProduct(t), "Head Office", "contoso-fs01", takesRules...)
 
 	shipped, carried := rulesFor(machine.Await(protocol.MsgPushAlertRules), triageRule)
 	require.True(t, carried)
@@ -57,7 +48,7 @@ func TestARetunedThresholdReachesAMachineThatNeverDisconnects(t *testing.T) {
 
 	tuned := admin.Put(admin.InCustomer("/api/v1/rules/"+triageRule+"/bindings"), map[string]any{
 		"level":     "organization",
-		"level_key": contoso.String(),
+		"level_key": admin.Customer.String(),
 		"params":    map[string]float64{"threshold": float64(retuned)},
 	})
 	require.Equalf(t, http.StatusOK, tuned.Status, "retuning the rule failed: %s", tuned.Text())
@@ -66,4 +57,28 @@ func TestARetunedThresholdReachesAMachineThatNeverDisconnects(t *testing.T) {
 	require.True(t, carried)
 	assert.InDelta(t, float64(retuned), updated.Threshold, 0.001,
 		"the machine compares against the number the administrator set, from now rather than from next week")
+}
+
+func TestAChangedAlertBudgetReachesAMachineThatNeverDisconnects(t *testing.T) {
+	t.Parallel()
+
+	const budget = 7
+
+	admin, machine := contosoMachine(t, newProduct(t), "Head Office", "contoso-fs01", takesRules...)
+
+	first := machine.Await(protocol.MsgPushAlertRules)
+	require.NotEqualf(t, uint32(budget), first.DeviceHourlyCeiling,
+		"the case is only about the change if the machine starts on a different allowance")
+
+	delivered := machine.PushesSoFar(protocol.MsgPushAlertRules)
+
+	set := admin.Put(admin.InCustomer("/api/v1/alert-limits"), map[string]any{
+		"organization_hourly": 500,
+		"device_hourly":       budget,
+	})
+	require.Equalf(t, http.StatusOK, set.Status, "setting the alert budget failed: %s", set.Text())
+
+	updated := machine.AwaitPast(protocol.MsgPushAlertRules, delivered)
+	assert.EqualValues(t, budget, updated.DeviceHourlyCeiling,
+		"the machine holds itself to the allowance the administrator set, from now rather than its next start")
 }

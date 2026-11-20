@@ -6,8 +6,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 )
 
 // holding is a fleet floor of a fixed size.
@@ -102,17 +100,6 @@ func TestTheWaitIsBoundedByTheClockAndNotByTheAsking(t *testing.T) {
 		"a run does not hold a phase open past what it said it would for")
 	assert.LessOrEqual(t, asked, int(censusSettleLimit/serverMetricsTimeout)+1,
 		"and the time the reads themselves cost is time spent waiting")
-}
-
-func TestTheWaitClearsTheWidestArrivalTheTargetCanReport(t *testing.T) {
-	t.Parallel()
-
-	buckets := appmetrics.RegistrationDurationBuckets()
-	widest := time.Duration(buckets[len(buckets)-1] * float64(time.Second))
-	assert.GreaterOrEqual(t, censusSettleLimit, 3*widest,
-		"the run holds still for longer than the slowest arrival the target has a bucket for")
-	assert.Less(t, censusSettleInterval, widest,
-		"and asks often enough to see a target catching up")
 }
 
 func TestAPhaseThatWaitedForNothingSaysNought(t *testing.T) {

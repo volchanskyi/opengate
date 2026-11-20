@@ -21,7 +21,6 @@ import (
 	"github.com/quic-go/quic-go"
 	"github.com/stretchr/testify/require"
 
-	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/testutil/machinecert"
 )
@@ -296,13 +295,37 @@ func (m *Machine) Disconnect() {
 	require.NoError(m.t, m.conn.CloseWithError(0, "machine left the network"))
 }
 
-// AwaitOnline blocks until the device row reads online.
+// AwaitOnline blocks until the device list shows the machine online.
 func (m *Machine) AwaitOnline() {
 	m.t.Helper()
-	require.Eventually(m.t, func() bool {
-		d, err := m.product.deviceRow(m.DeviceID)
-		return err == nil && d.Status == db.StatusOnline
-	}, eventually, poll, "the machine must appear online once it has registered")
+	m.product.awaitShown(m.DeviceID, statusOnline, "the machine must appear online once it has registered")
+}
+
+// statusOnline and statusOffline are the states the device list shows.
+const (
+	statusOnline  = "online"
+	statusOffline = "offline"
+)
+
+// awaitShown blocks until the device list shows the machine in status.
+func (p *Product) awaitShown(id uuid.UUID, status, msg string) {
+	p.t.Helper()
+	require.Eventually(p.t, func() bool {
+		d, listed := p.shown(id)
+		return listed && d.Status == status
+	}, eventually, poll, msg)
+}
+
+// contosoMachine is a customer named Contoso, its administrator, and one of its machines that
+// enrolled with a token labelled label, registered with capabilities, and is online.
+func contosoMachine(t *testing.T, product *Product, label, hostname string,
+	capabilities ...protocol.AgentCapability,
+) (*Technician, *Machine) {
+	t.Helper()
+	admin := product.Administrator(product.arrangeCustomer("Contoso"))
+	machine := product.Machine(admin.mintEnrolmentToken(label).Token, hostname, capabilities...)
+	machine.AwaitOnline()
+	return admin, machine
 }
 
 // Renew answers the product's renewal offer as an agent does: a request from a new key, then the
@@ -333,8 +356,14 @@ func (p *Product) machineTLS(identity *tls.Certificate) *tls.Config {
 // returning is a machine coming back with the certificate it kept: dialled, greeted and
 // registered, its pushed messages collected, and how the server closed it, if it did.
 type returning struct {
-	conn  *quic.Conn
-	inbox chan *protocol.ControlMessage
+	conn   *quic.Conn
+	stream *quic.Stream
+	inbox  chan *protocol.ControlMessage
+}
+
+// hangUp ends the machine's side of its control stream, as an agent removing itself does.
+func (r *returning) hangUp() {
+	_ = r.stream.Close()
 }
 
 // returnWith connects as a machine holding identity, on the full or the quick path, and registers.
@@ -365,7 +394,7 @@ func (p *Product) returnWith(identity *tls.Certificate, hostname string, quick b
 	require.NoError(p.t, err)
 	_ = codec.WriteFrame(stream, protocol.FrameControl, payload)
 
-	r := &returning{conn: conn, inbox: make(chan *protocol.ControlMessage, 32)}
+	r := &returning{conn: conn, stream: stream, inbox: make(chan *protocol.ControlMessage, 32)}
 	go func() {
 		defer close(r.inbox)
 		for {

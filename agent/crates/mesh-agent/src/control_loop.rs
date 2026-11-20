@@ -450,6 +450,10 @@ impl Agent {
                 .backfill
                 .as_ref()
                 .and_then(backfill_loop::BackfillCoordinator::answer_deadline);
+            let bf_turn_by = self
+                .backfill
+                .as_ref()
+                .and_then(backfill_loop::BackfillCoordinator::turn_deadline);
             tokio::select! {
                 biased;
                 _ = tokio::signal::ctrl_c() => {
@@ -485,6 +489,15 @@ impl Agent {
                 _ = sleep_until_opt(bf_answer_by) => {
                     if let Some(bf) = self.backfill.as_mut() {
                         bf_resend_at = Some(tokio::time::Instant::now() + bf.on_missed_answer());
+                    }
+                }
+                _ = sleep_until_opt(bf_turn_by) => {
+                    // A turn request the scheduler never answered is asked for again.
+                    if let Some(msg) = self.backfill.as_mut().and_then(|bf| bf.on_unanswered_turn()) {
+                        if let Err(e) = control.send_control(msg).await {
+                            warn!(error = %e, "backfill turn request failed, will reconnect");
+                            break;
+                        }
                     }
                 }
                 _ = sleep_until_opt(bf_resend_at) => {

@@ -278,14 +278,81 @@ covered, fixed first in commit 0 (Ivan, modals, 2026-11-17):
 Ivan (modal): commit 0 lands as it stands; these two go into commits 1 and 2.
 
 - `TestATunedThresholdReachesOneCustomerAndNotTheOther` failed once in about 27 runs (62
-  expected, 95 read) and not again in 58 tries. One path to it: a failed `ScopeFor` at sign-in
-  falls back to a scope without the customer (`settingsScope`), and the catalogue then sends
-  the shipped rules, a tested choice (`TestAlertRulesFallBackToWhatTheConnectionKnows`).
-  Commit 1 proves the cause; commit 2 (step 5, the setup reads in one conversation) decides
-  what a machine whose customer cannot be read is sent.
+  expected, 95 read) and not again in 58 tries. Cause, proven 2026-11-19 (6 failures in 300
+  runs under load, the sign-in captured): the machine was filed under the wrong customer. A
+  machine naming no customer took the tenant's oldest by creation time, in the device write,
+  the customer store's default and the site fallback; the workstation's clock steps back about
+  0.93 s every 31 s, so Fabrikam, made after Contoso, read older, and Contoso's new machine
+  joined Fabrikam and got its 95. A failed `ScopeFor` was not the path. Fixed in commit 1 (Ivan,
+  modal: "mark the default"): each tenant's default customer is marked once, by its first
+  create, a delete of the default hands the mark to the oldest left, migration 023 marks
+  today's oldest with one default per tenant held by the database, and all four readers and
+  the staging reset read or write the mark; the test then passed 300 of 300 under `-race`,
+  across about nine of the clock's steps. A machine whose customer cannot be read is
+  turned away (Ivan, modal, 2026-11-19): with step 5's one conversation a failed read is a failed
+  sign-in, and the agent reconnects after its random 1–30 s wait, as on a failed device write
+  today; the shipped-rules fallback in `settingsScope` goes with commit 2.
 - `TestMPSRequestsConserveGoroutinesAndHeap` failed once under `-race` on a heap that fell
   (−1773 B per request against 1024): the three conservation checks hold the slope's size,
   so memory given back reads as a leak. Commit 1 holds the retained side alone.
+
+## What the first nightlies after commit 0 read (2026-11-19, `df4dfdbf`)
+
+Read by job and step result.
+
+- Load test (staging, run 44538860137): valid; `server` and `database` owed and produced, no
+  breach.
+- Mutation (run 44509053241): Rust 92.5 (floor 91.5), Go 88.5, web 85.3; `rust-agent-loops` 32 min,
+  `rust-agent-host` 52 min, `go-observability-harness` 12 min. A raised floor is on offer (Rust 92,
+  Go 88.3).
+- Technicians: on the spike, peak, breakpoint and catch-up legs both sign-ins finished 10–25 s
+  before the walk began.
+- Soak (run 44626427362, dispatched by hand on `df4dfdbf`): valid, 0 of 251,866 requests refused,
+  46 limits read and none breached, both ends had their receive buffer, not past the weeks before
+  it, no alert sent; the technicians' two journeys were folded in. Commit 0's wave-limit removal
+  holds.
+- Catch-up (run 44565500921): technicians in their own half processor and 1 GiB, refused 0.08% of
+  it. Red: the census (harness 4,995, server 4,986 after 180 s) made the run invalid, which step 1
+  removes; 4,093 of 5,000 caught up, 50 batches unanswered, connect p95 557 ms. The technicians'
+  journeys ran for the first time and breached: command p95 16.2 s, device detail 6.7 s, device
+  list 8.0 s, relay 406 ms; only 697 of 15,820 relay sessions were created (cause unread).
+- Breakpoint (run 44566882413): invalid, recovery error rate 0.344 past 0.25 (11-18 was valid and
+  over its recovery sign-in limits); step 10's recovery verdict covers it.
+- Benchmark Trends (run 44526590309): `BenchmarkAdmitAlertWithFullEvidence` +11.5% against the
+  anchor `9a7c64f3`, slower in 9 of 10 interleaved rounds; the other 20 Go benchmarks moved under 2%.
+  Ivan (modal): a real regression, to be addressed. Cause (2026-11-19): the code under it is the same
+  on both sides (the two commits' test binaries are byte-identical with `-trimpath`, and at the CI
+  checkout paths every function sits at the same address); each check allocated and cleared a fresh
+  40 KB decompressor, so the time was mostly garbage collection on the runner's other processors.
+  The same binary read +15.4% (p=0.000) with one of four processors busy, and identical code read
+  −4.9% on 11-17. Fixed in commit 1: the check reuses a held decompressor, 12.8 µs → 1.95 µs and
+  40 KB → 8 B a check, and one busy processor moves it +4.7%.
+- Catch-up's `catchup/watched/drain within_5s_share` limit gets no row on any night: its source,
+  the harness's `live_delay`, left in `f25263a2` (11-11) and the profile and
+  `loadtest-bundle-rows.sh` still name it. Why it left: the numeric-ingest review settled that the
+  5 s live promise runs from the server's receipt to the store's acceptance, a reading never stored
+  counted late, on the server's own clock (`catchup/live/drain`, still gating). `74d1435c` (11-12)
+  then added the limit, the row and a dashboard chart reading the removed field. Ivan (modal):
+  removed in commit 1, the chart pointed at the server's count.
+
+## What commit 1's rehearsal read (2026-11-19, workstation, the catch-up profile at production's limits)
+
+`before` on commit 0's server with the step-2 harness; `after` on commit 1's tree. Both read
+invalid for the same two reasons: the server's start time read 32–50 s apart at the two ends
+(one start in its log, no restarts: the workstation clock stepping back), and the drain's error
+rate (0.091, then 0.068), which is the sign-ins left unanswered at 5 minutes that steps 4–6 address.
+
+| Reading | before | after |
+|---|---|---|
+| Machines caught up (per machine after step 2) | 8,083 endings per connection, 18 with the run | 5,000 of 5,000, none with the run |
+| Fleet online share / online p95 | 99.63% / 154 s | 100% / 138 s |
+| Sign-in, send to the server's answer: p50 / p95 / mean | 79.5 s / 275 s / 105 s | 68.1 s / 273 s / 99 s |
+| Sign-ins unanswered at 5 minutes, then redialed | 673 | 506 |
+| Machines cut off mid-hold / first dials retried | 18 / 102 | 0 / 20 |
+| Live readings stored within 5 s | 99.76% | 100% |
+| Connect p95 / handshake p95 | 685 / 504 ms | 609 / 500 ms |
+| Catch-up told to wait / turns asked again | 19 / 1 | 5 / 1 |
+| Server busy over the return and the drain | 97.6% / 97.3% | 97.0% / 97.3% |
 
 ## Work, each step test first
 
@@ -318,7 +385,9 @@ Ivan (modal): commit 0 lands as it stands; these two go into commits 1 and 2.
    machine's place and maintenance flag, then its tags, and the customer's
    machine count while a rollout is staged. The connection's two setup reads
    (`TenantForDevice`, `devices.Get` in `server_connection.go`) join it. The reads
-   (only the customer's own machine) and the trips proven against a real database.
+   (only the customer's own machine) and the trips proven against a real database. A
+   failed conversation ends the sign-in: no machine runs on rules that are not its
+   customer's (Ivan, modal, 2026-11-19).
 6. The sign-in line: a number in progress sized from the server's processor share
    (measured on the rehearsal; the rule per processor and its readings written
    into the decision record), the rest waiting with their connections kept and
@@ -365,7 +434,9 @@ Ivan (modal): commit 0 lands as it stands; these two go into commits 1 and 2.
    soak's wave limits and the profile check, the Rust survivors, the two mutation
    shards, the technicians' accounts before the return and their own half processor.
 1. Steps 1–3 and 11: the timers, the three's cause and its fix, a turn request
-   asked again, the alert-budget push, the acceptance tests' own fixes.
+   asked again, the alert-budget push, the acceptance tests' own fixes; the two
+   commit-0 flakes (the default customer marked, the conservation slopes' retained
+   side), the benchmark's held decompressor and the dead catch-up limit.
 2. Steps 4–5: customer-wide settings in memory, a sign-in's own rows in one
    conversation.
 3. Steps 6–8 and 10: the sign-in line and "come back later" in Go and Rust, less

@@ -57,10 +57,14 @@ func redialDelay(attempt int) time.Duration {
 			window = scaled
 		}
 	}
-	n, err := rand.Int(rand.Reader, big.NewInt(int64(window)+1))
+	return jitterUpTo(window)
+}
+
+// jitterUpTo is a uniform wait from nought to most; a failed random read waits the whole of most.
+func jitterUpTo(most time.Duration) time.Duration {
+	n, err := rand.Int(rand.Reader, big.NewInt(int64(most)+1))
 	if err != nil {
-		// A failed random read waits the whole window, which delays the redial.
-		return window
+		return most
 	}
 	return time.Duration(n.Int64())
 }
