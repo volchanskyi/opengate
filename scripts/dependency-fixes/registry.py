@@ -90,8 +90,6 @@ def _built_for(image):
     endpoint = _endpoint(image.registry)
     manifest = fetch.http_json(f"https://{endpoint}/v2/{image.repository}/manifests/{image.digest}",
                                [f"Accept: {MANIFESTS}"] + _auth(image))
-    if manifest.get("manifests") == []:
-        return []
     if "manifests" in manifest:
         found = {_platform(entry.get("platform") or {}) for entry in manifest["manifests"]}
     else:
@@ -106,20 +104,13 @@ def _built_for(image):
     return sorted(found)
 
 
-class NoBuild(fetch.Unreadable):
-    """A digest whose index lists no build, as a registry publishes a tag ahead of a release."""
-
-
 def platforms(image):
     """Every os/architecture IMAGE, which carries its digest, has a build for: each entry of its
     index, or the configuration of its one build; an attestation entry counts for none."""
     if not image.digest:
         raise fetch.Unreadable(f"{image}: platforms are read only for a digest")
-    built = frozenset(cache.remember("platforms", f"{image.registry}/{image.repository}@{image.digest}",
-                                     lambda: _built_for(image)))
-    if not built:
-        raise NoBuild(f"{image}: the registry lists no build for the digest")
-    return built
+    return frozenset(cache.remember("platforms", f"{image.registry}/{image.repository}@{image.digest}",
+                                    lambda: _built_for(image)))
 
 
 def pinned(image):

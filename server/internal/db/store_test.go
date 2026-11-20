@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/testpg"
@@ -31,20 +32,21 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// setupPostgresTestDB recreates the opengate_test schema, whose literal name keeps the SQL static.
+// setupPostgresTestDB recreates the opengate_test schema, whose literal name keeps the SQL static,
+// over a plain connection that leaves the shared database's public schema as it found it.
 func setupPostgresTestDB(baseURL string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	setup, err := NewPostgresStore(ctx, baseURL)
+	setup, err := sql.Open("pgx", baseURL)
 	if err != nil {
 		return fmt.Errorf("open base url: %w", err)
 	}
-	if _, err := setup.db.ExecContext(ctx, `DROP SCHEMA IF EXISTS opengate_test CASCADE`); err != nil {
+	if _, err := setup.ExecContext(ctx, `DROP SCHEMA IF EXISTS opengate_test CASCADE`); err != nil {
 		_ = setup.Close()
 		return fmt.Errorf("drop schema: %w", err)
 	}
-	if _, err := setup.db.ExecContext(ctx, `CREATE SCHEMA opengate_test`); err != nil {
+	if _, err := setup.ExecContext(ctx, `CREATE SCHEMA opengate_test`); err != nil {
 		_ = setup.Close()
 		return fmt.Errorf("create schema: %w", err)
 	}

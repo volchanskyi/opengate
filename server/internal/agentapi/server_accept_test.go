@@ -49,12 +49,20 @@ func newAcceptEnvWithMetrics(t *testing.T, m *appmetrics.Metrics) *acceptEnv {
 // newAcceptEnvOver serves machines over the device store wrap makes of the real one.
 func newAcceptEnvOver(t *testing.T, m *appmetrics.Metrics, wrap func(device.Repository) device.Repository) *acceptEnv {
 	t.Helper()
+	return newAcceptEnvTuned(t, wrap, func(cfg *AgentServerConfig) { cfg.Metrics = m })
+}
+
+// newAcceptEnvTuned is newAcceptEnvOver with the server's configuration changed by tune.
+func newAcceptEnvTuned(t *testing.T, wrap func(device.Repository) device.Repository,
+	tune func(*AgentServerConfig),
+) *acceptEnv {
+	t.Helper()
 	store := testutil.NewTestStore(t)
 	devices := wrap(testutil.NewTestDevices(t, store))
 	cm, err := cert.NewManager(t.TempDir())
 	require.NoError(t, err)
 	issuer := machinecert.NewIssuer(t, store, cm)
-	srv := NewAgentServer(AgentServerConfig{
+	cfg := AgentServerConfig{
 		Issuer:        issuer,
 		Cert:          cm,
 		Devices:       devices,
@@ -62,9 +70,10 @@ func newAcceptEnvOver(t *testing.T, m *appmetrics.Metrics, wrap func(device.Repo
 		DeviceUpdates: testutil.NewTestDeviceUpdates(t, store),
 		Relay:         relay.NewRelay(testLogger()),
 		Notifier:      &notifications.NoopNotifier{},
-		Metrics:       m,
 		Logger:        testLogger(),
-	})
+	}
+	tune(&cfg)
+	srv := NewAgentServer(cfg)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	listening := make(chan struct{})

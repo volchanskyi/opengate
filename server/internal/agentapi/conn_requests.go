@@ -53,6 +53,14 @@ func (a *AgentConn) SendAgentDeregistered(ctx context.Context, reason string) er
 	})
 }
 
+// SendComeBackLater tells a machine the sign-in line is full and to dial again after wait seconds.
+func (a *AgentConn) SendComeBackLater(ctx context.Context, wait uint32) error {
+	return a.sendControl(&protocol.ControlMessage{
+		Type:       protocol.MsgComeBackLater,
+		RetryAfter: wait,
+	})
+}
+
 // SendRestartAgent asks the agent to restart itself.
 func (a *AgentConn) SendRestartAgent(ctx context.Context, reason string) error {
 	return a.sendControl(&protocol.ControlMessage{

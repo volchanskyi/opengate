@@ -7,10 +7,10 @@ environment: runner
 fixture: small
 
 phases:
-  # The whole fleet comes back within a minute, as a site does when its link returns. Every machine
-  # was installed before the walk, so it dials with the certificate it holds.
+  # The whole fleet comes back within 30 s, as after a release restart, faster than the promised
+  # rate; every machine was installed and filed before the walk, so it holds its certificate.
   - name: return
-    duration: 1m
+    duration: 30s
     operator_arrivals_per_second: 0
     connected_agents: 5000
     sessions: 0
@@ -57,6 +57,11 @@ gates:
   - series: quic/online/return
     metric: online_all_seconds
     max: 300
+    blocking: true
+  # The server signs in a hundred returning machines a second while any waits for its answer.
+  - series: quic/online/return
+    metric: sign_ins_per_second
+    min: 100
     blocking: true
   - series: catchup/gaps/drain
     metric: machines_caught_up

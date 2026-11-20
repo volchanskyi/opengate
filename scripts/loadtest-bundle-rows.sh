@@ -19,7 +19,7 @@ rows_from() {
       "machines_caught_up", "fill_seconds", "unanswered", "deferred", "readings_per_second",
       "live_within_5s_share", "duration_seconds", "cpu_share", "memory_share", "peak_memory_share",
       "store_failures", "retained_goroutines_per_operation", "retained_bytes_per_operation", "growing_sites",
-      "online_p95_seconds", "online_all_seconds"];
+      "online_p95_seconds", "online_all_seconds", "sign_ins_per_second", "inventory_stored", "inventory_sent", "latency_max_ms", "requests"];
     (.observations // []) as $observed
     | (reduce $observed[] as $o ({}; .[$o.series] = $o.value)) as $value
     | {
@@ -41,10 +41,12 @@ rows_from() {
                      + (if $value.register_p50_ms == null then {}
                         else {latency_p50_ms: $value.register_p50_ms} end))
          end),
-        # Each phase the harness timed, from its start to 95% and to every one of its machines online.
+        # Each phase the harness timed, from its start to 95% and to every one of its machines online,
+        # and the sign-in rate of the server over the time any of them waited for its answer.
         (.phases[]? | select(.fleet_online_p95_seconds != null or .fleet_online_all_seconds != null)
          | $base + {scenario: "online", phase: .name, online_p95_seconds: .fleet_online_p95_seconds,
-                    online_all_seconds: .fleet_online_all_seconds}),
+                    online_all_seconds: .fleet_online_all_seconds,
+                    sign_ins_per_second: .fleet_sign_ins_per_second}),
         # Each phase where machines signed in, timed by the server over that phase alone.
         (.phases[]? | select(.register_p95_ms != null)
          | $base + {scenario: "register", phase: .name, latency_p50_ms: .register_p50_ms,
@@ -55,6 +57,10 @@ rows_from() {
                      + (if $value.wave_online_p95_ms == null then {}
                         else {latency_p95_ms: $value.wave_online_p95_ms} end))
          end),
+        # Each phase whose machines all sent an inventory, and how many of those the server stored.
+        (.phases[]? | select(.inventory_sent != null)
+         | $base + {source: "burst", scenario: "inventory", phase: .name,
+                    inventory_sent: .inventory_sent, inventory_stored: .inventory_stored}),
         # The catch-up promises: live readings within 5 s by the count the server keeps, a reading never
         # stored a miss, and every machine caught up by when.
         (if .live_acceptance == null then empty
@@ -99,7 +105,10 @@ rows_from() {
              "device-list": ["api-baseline", "device_list"], "relay-session-echo": ["relay-throughput", "relay"]}[$j.name]
              // ["journeys", $j.name]) as $where
          | $base + {source: "k6", scenario: $where[0], phase: $where[1], error_rate: $j.error_rate,
-                    latency_p50_ms: $j.latency_p50_ms, latency_p95_ms: $j.latency_p95_ms}),
+                    latency_p50_ms: $j.latency_p50_ms, latency_p95_ms: $j.latency_p95_ms}
+           # A log page is held to its slowest and to how many were shown, every page being owed.
+           + (if $j.name == "log-page" then {latency_max_ms: $j.latency_max_ms, requests: $j.requests}
+              else {} end)),
         # The leak readings of a soak: what each completed operation left behind, and the heap sites
         # that grew in more than half the intervals.
         (if .leak_trail == null then empty

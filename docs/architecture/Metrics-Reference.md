@@ -107,6 +107,7 @@ that series the audited-read count.
 | `opengate_edge_telemetry_ingested_total` | `type` | Telemetry control messages accepted for ingest, by control type |
 | `opengate_edge_telemetry_drops_total` | `reason` | Messages discarded by a server-side bound, by typed reason |
 | `opengate_edge_telemetry_clock_clamped_total` | `direction` | Agent-stamped timestamps pulled inside the accepted clock window |
+| `opengate_inventory_reports_stored_total` | — | Package inventories machines sent that the server stored |
 | `opengate_edge_backfill_answers_total` | `answer` | Catch-up answers the server sent: `granted` for a request for permission; `stored`, `deferred_no_grant`, `deferred_busy`, `deferred_write_failed`, `deferred_waited_too_long` or `deferred_refused` for a batch |
 | `opengate_edge_backfill_active_slots` | — | Catch-up batches admitted and not yet answered, across all agents |
 | `opengate_edge_backfill_grant_rate_samples_per_second` | — | Per-slot ingest rate of the most recent grant |
@@ -291,7 +292,9 @@ nothing counted is exactly that.
 | Series | Labels | Counts |
 |---|---|---|
 | `opengate_agent_registrations_total` | `result` | Registrations the server completed, by outcome |
-| `opengate_agent_registration_duration_seconds` | `result` | Time from an accepted register frame to the device row being written and online |
+| `opengate_agent_registration_duration_seconds` | `result` | Time from an accepted register frame, through any wait in the sign-in line, to the device row being written and online |
+| `opengate_sign_in_line_waiting` | — | Machines whose sign-in waits in the line for one in progress to finish |
+| `opengate_sign_ins_turned_away_total` | — | Sign-ins a full line told to come back later |
 
 Both are measured **where the device row is written**, which is the only place
 the whole operation has happened. A client that stops its own clock after
@@ -351,11 +354,18 @@ resources did not come back — the invariant
 the pairing a load run records in its own bundle
 ([Non-Functional Testing](../infrastructure/Non-Functional-Testing.md#load-and-soak-tests)).
 
-`process_start_time_seconds` answers a different question from the rest: it
-changes only when the process is replaced. A reading taken at the start of a
+| Series | Labels | Reads |
+|---|---|---|
+| `opengate_process_instance_info` | `instance_id` | Always 1; `instance_id` is a random ID the process makes once when it starts |
+
+`opengate_process_instance_info` answers a different question from the rest: its
+ID changes only when the process is replaced. A reading taken at the start of a
 measurement and again at the end tells whoever compares them whether both
 readings came from the same process, which is what makes every other number in
-between comparable.
+between comparable. `process_start_time_seconds` is worked out from the host's
+boot time on every read, so a step of the host clock moves it under one process;
+the ID is OpenTelemetry's `service.instance.id` idea, one per start
+([`metrics.go`](../../server/internal/metrics/metrics.go)).
 
 ## Chart reads
 

@@ -50,7 +50,6 @@ digest example/app 1.2.6 6
 digest example/app 1.3.0 3
 digest library/alpine 3.20 4
 digest library/alpine 3.22 5
-digest library/alpine 3.24 7
 
 # built NAME N PLATFORM... writes the index digest N answers with, an entry a platform, beside the
 # attestation entry a registry lists under a platform of unknown/unknown.
@@ -81,9 +80,6 @@ built example/app 3 linux/amd64 linux/arm64
 built_once example/app 6 linux/amd64
 built library/alpine 4 linux/amd64 linux/arm64
 built library/alpine 5 linux/amd64 linux/arm64
-# A registry publishes a line's tag ahead of its release as an index listing no build.
-printf '{"schemaVersion": 2, "mediaType": "application/vnd.oci.image.index.v1+json", "manifests": []}\n' \
-  >"$REGISTRY/library/alpine/manifests/sha256:$(printf '%064d' 7)"
 for repository in example/app library/alpine; do
   token="$HTTP/auth.docker.io/token%3Fservice=registry.docker.io&scope=repository:$repository:pull"
   mkdir -p "$(dirname "$token")"
@@ -95,7 +91,7 @@ printf 'HTTP/2 200\r\nlink: </v2/example/app/tags/list?n=10000&last=1.2.5-debug>
   >"$REGISTRY/example/app/tags/list%3Fn=10000.headers"
 printf '{"name": "example/app", "tags": ["1.2.5", "1.2.6", "1.3.0"]}\n' \
   >"$REGISTRY/example/app/tags/list%3Fn=10000&last=1.2.5-debug"
-printf '{"name": "library/alpine", "tags": ["3.20", "3.22", "3.22-edge", "3.24"]}\n' \
+printf '{"name": "library/alpine", "tags": ["3.20", "3.22", "3.22-edge"]}\n' \
   >"$REGISTRY/library/alpine/tags/list%3Fn=10000"
 
 # Trivy names, for each digest, the advisories its package source has a fix for.
@@ -144,11 +140,6 @@ if grep -qF 'image (Dockerfile) library/alpine 3.20: CVE-2026-0003 fixed in 3.22
   pass "a line tag is read at its current build, and only a newer line can drop its findings"
 else
   fail "the line tag's findings must be listed, never refused (out=[$(cat "$WORK/out")])"
-fi
-if [ "$status" -eq 1 ] && ! out_has '3.24'; then
-  pass "a newer tag whose index lists no build is passed over for the newest built one"
-else
-  fail "a tag with no build must be passed over, never read as unreadable (status=$status out=[$(cat "$WORK/out")])"
 fi
 if ! grep -qF 'nexample' "$WORK/http.log" && grep -qF 'move example/app:1.2.3 to tag 1.2.5' "$WORK/out"; then
   pass "an escape such as \\n before an image reference separates it from the word before"

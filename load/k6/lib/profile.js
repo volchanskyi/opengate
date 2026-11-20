@@ -104,6 +104,32 @@ export function arrivalTechnicians(walk, requestsPerIteration) {
 }
 
 /**
+ * Log-page scenarios, one per phase declaring log pages: each technician pulls one page as the
+ * phase starts, given the phase's length to be answered in.
+ */
+export function logPageScenarios(walk) {
+  const scenarios = {};
+  let startTime = 0;
+  for (const phase of walk) {
+    if (phase.log_pages > 0) {
+      scenarios[scenarioName(phase.name)] = {
+        executor: "per-vu-iterations",
+        vus: phase.log_pages,
+        iterations: 1,
+        startTime: `${Math.round(startTime)}s`,
+        maxDuration: `${Math.max(60, Math.round(phase.seconds))}s`,
+        tags: phaseTag(phase.name),
+      };
+    }
+    startTime += phase.seconds;
+  }
+  if (Object.keys(scenarios).length === 0) {
+    throw new Error("the profile's walk pulls no log page in any phase");
+  }
+  return scenarios;
+}
+
+/**
  * How many accounts, and machines, a session walk holds at once: one per held session over two
  * adjacent phases, since one phase's last sessions can still be closing as the next one's open.
  */
@@ -129,6 +155,8 @@ export function technicianRoster(scenario, walk) {
       return { prefix: "agent-load", count: arrivalTechnicians(walk, REQUESTS_PER_ROUND[scenario]) };
     case "relay-throughput":
       return { prefix: "relay", count: sessionTechnicians(walk) };
+    case "log-pages":
+      return { prefix: "logs", count: Math.max(0, ...walk.map((phase) => phase.log_pages || 0)) };
     default:
       throw new Error(`no scenario named ${scenario} signs technicians in`);
   }

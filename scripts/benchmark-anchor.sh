@@ -3,7 +3,8 @@
 # only on a slowdown benchstat finds significant and past the limit.
 #
 # Usage:
-#   benchmark-anchor.sh rounds go|rust <anchor-tree> <tonight-tree> <out-dir>
+#   benchmark-anchor.sh rounds go <anchor-tree> <tonight-tree> <out-dir> <anchor-db> <tonight-db>
+#   benchmark-anchor.sh rounds rust <anchor-tree> <tonight-tree> <out-dir>
 #   benchmark-anchor.sh judge go|rust <out-dir> <baseline.json> <anchor-commit> <tonight-commit>
 #   benchmark-anchor.sh anchor <baseline.json>
 #
@@ -32,13 +33,15 @@ SUMMARY="${BENCHMARK_ANCHOR_SUMMARY:-benchmark-anchor.md}"
 FENCE='~~~'
 
 usage() {
-  sed -n '5,8p' "${BASH_SOURCE[0]}" | sed 's/^# *//' >&2
+  sed -n '5,9p' "${BASH_SOURCE[0]}" | sed 's/^# *//' >&2
   exit 2
 }
 
-# go_round TREE OUT runs the Go suite once in TREE at the nightly's four processors.
+# go_round TREE OUT DATABASE runs the Go suite once in TREE at the nightly's four processors, its
+# test setup migrating DATABASE.
 go_round() {
-  (cd "$1/server" && go test -bench=. -benchmem -count=1 -cpu 4 -run='^$' ./internal/...) >"$2"
+  (cd "$1/server" && POSTGRES_TEST_URL="$3" go test -bench=. -benchmem -count=1 -cpu 4 -run='^$' \
+    ./internal/...) >"$2"
 }
 
 # rust_round TREE OUT runs the Rust suites once in TREE, each benchmark's mean becoming a reading.
@@ -62,8 +65,11 @@ results() {
   sed -nE '/^Benchmark/ { s/^(Benchmark[^[:space:]]*)-[0-9]+([[:space:]])/\1\2/; p; }' "$1"
 }
 
+# Each side keeps one database for all its rounds: a suite migrates the database it is given, and
+# the anchor's code refuses a schema tonight's has moved past.
 rounds() {
-  local lang="$1" anchor="$2" tonight="$3" out="$4" n side tree raw
+  local lang="$1" anchor="$2" tonight="$3" out="$4" anchor_db="${5:-}" tonight_db="${6:-}"
+  local n side tree db raw
   case "$lang" in go | rust) ;; *) usage ;; esac
   [ -d "$anchor" ] && [ -d "$tonight" ] || {
     echo "missing work tree: $anchor or $tonight" >&2
@@ -79,10 +85,19 @@ rounds() {
   for ((n = 1; n <= ROUNDS; n++)); do
     for side in anchor tonight; do
       tree="$anchor"
-      [ "$side" = anchor ] || tree="$tonight"
+      db="$anchor_db"
+      if [ "$side" = tonight ]; then
+        tree="$tonight"
+        db="$tonight_db"
+      fi
       raw="$out/$side-$n.raw"
       echo "round $n of $ROUNDS: $side" >&2
-      if ! "${lang}_round" "$tree" "$raw"; then
+      if ! "${lang}_round" "$tree" "$raw" "$db"; then
+        if [ -s "$raw" ]; then
+          echo "::group::the $lang suite's output at the $side commit, round $n" >&2
+          cat "$raw" >&2
+          echo "::endgroup::" >&2
+        fi
         echo "::error::the $lang benchmarks failed at the $side commit, round $n" >&2
         return 1
       fi
@@ -215,8 +230,10 @@ anchor() {
 main() {
   case "${1:-}" in
     rounds)
-      [ "$#" -eq 5 ] || usage
-      rounds "$2" "$3" "$4" "$5"
+      case "${2:-}:$#" in
+        go:7 | rust:5) rounds "${@:2}" ;;
+        *) usage ;;
+      esac
       ;;
     judge)
       [ "$#" -eq 6 ] || usage

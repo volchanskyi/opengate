@@ -3,27 +3,60 @@ package agentapi
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"time"
+
+	"github.com/quic-go/quic-go"
 
 	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// signIn reads the machine's AgentRegister, then signs it in and holds it under one status gate,
-// so a departing older connection goes offline first or finds this one in its place.
-func (s *AgentServer) signIn(ctx context.Context, ac *AgentConn) (*protocol.ControlMessage, device.SignIn, error) {
+// signIn waits the AgentRegister's turn in the line, then signs in under the status gate, and
+// returns the slot to give back once its pushes are out; a full line returns errComeBackLater.
+func (s *AgentServer) signIn(ctx context.Context, ac *AgentConn) (*protocol.ControlMessage, device.SignIn, func(), error) {
 	msg, err := ac.awaitRegister(ctx)
 	if err != nil {
-		return nil, device.SignIn{}, err
+		return nil, device.SignIn{}, nil, err
+	}
+	arrived := time.Now()
+	leaveLine, err := s.line.enter(ctx, s.customerNote.customerOf(ac.DeviceID))
+	if err != nil {
+		return nil, device.SignIn{}, nil, err
 	}
 	leave := s.statusGate.enter(ac.DeviceID)
 	defer leave()
-	signedIn, err := ac.signIn(ctx, msg)
+	signedIn, err := ac.signIn(ctx, msg, arrived)
 	if err != nil {
-		return nil, device.SignIn{}, err
+		leaveLine()
+		return nil, device.SignIn{}, nil, err
 	}
+	s.customerNote.remember(ac.DeviceID, signedIn.OrganizationID)
 	ac.TenantID, ac.SiteID = signedIn.TenantID, signedIn.SiteID
 	s.swapIn(ctx, ac)
-	return msg, signedIn, nil
+	return msg, signedIn, leaveLine, nil
+}
+
+// comeBackHangUpWait bounds how long a turned-away machine has to read its answer and hang up.
+const comeBackHangUpWait = 5 * time.Second
+
+// tellToComeBackLater answers a sign-in the line has no room for with a random wait, then closes
+// the connection once the machine hangs up, which frees what the connection held.
+func (s *AgentServer) tellToComeBackLater(ctx context.Context, ac *AgentConn, stream *quic.Stream,
+	conn *quic.Conn, logger *slog.Logger,
+) {
+	if s.metrics != nil {
+		s.metrics.SignInsTurnedAwayTotal.Inc()
+	}
+	wait := comeBackWait()
+	if err := ac.SendComeBackLater(ctx, wait); err != nil {
+		logger.Warn("tell a machine to come back later", "error", err)
+	}
+	_ = stream.Close()
+	if !awaitHangUp(stream, conn, comeBackHangUpWait) {
+		logger.Info("turned-away machine did not hang up")
+	}
+	closeWithCode(conn, protocol.CloseBye, "come back later")
 }
 
 // awaitRegister reads the machine's first control message, answering pings on the way; the agent

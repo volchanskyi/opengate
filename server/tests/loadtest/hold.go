@@ -50,6 +50,7 @@ func proveConnection(ctx context.Context, codec *protocol.Codec, stream soakStre
 	}
 
 	nextBeat := time.Now().Add(holdHeartbeatInterval)
+	answered := 0
 	// Each machine sends at its own second of the period, so a fleet that came back together
 	// arrives evenly through it.
 	nextWindow := time.Now()
@@ -66,6 +67,13 @@ func proveConnection(ctx context.Context, codec *protocol.Codec, stream soakStre
 				return err
 			}
 			nextBeat = time.Now().Add(holdHeartbeatInterval)
+		}
+		if payload, epoch := opts.inventory.due(answered); payload != nil {
+			if err := codec.WriteFrame(stream, protocol.FrameControl, payload); err != nil {
+				return fmt.Errorf("%w: %w", ErrHeldPeerGone, err)
+			}
+			answered = epoch
+			opts.inventory.noteSent()
 		}
 		wait := min(holdReadSlice, remaining)
 		if opts.liveEvery > 0 {

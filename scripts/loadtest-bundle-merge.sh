@@ -39,7 +39,8 @@ journeys_from() {
         requests: ($s.count // 0 | floor),
         error_rate: 0,
         latency_p50_ms: ($s["p(50)"] // $s.med // 0),
-        latency_p95_ms: ($s["p(95)"] // 0)
+        latency_p95_ms: ($s["p(95)"] // 0),
+        latency_max_ms: ($s.max // 0)
       })
     | sort_by(.name)' "$1"
 }

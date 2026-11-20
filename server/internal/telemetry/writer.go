@@ -57,7 +57,9 @@ type Submission struct {
 
 // Importer writes encoded readings to the store in one request.
 type Importer interface {
-	Import(ctx context.Context, body []byte) error
+	// Import sends the parts in order as one request body and holds none of them once it returns,
+	// so the writer reuses their bytes.
+	Import(ctx context.Context, parts ...[]byte) error
 }
 
 // WriterObserver receives the writer's readings; labels are the class and outcome only.
@@ -159,13 +161,24 @@ func (w *Writer) Submit(sub Submission) {
 		w.cfg.Observer.ReadingsSettled(class, "invalid", readings.refused)
 	}
 	if readings.kept == 0 {
+		bodies.Put(readings.body)
 		sub.Done(Outcome{Refused: readings.refused})
 		return
 	}
 	e := &entry{sub: sub, readings: readings, received: time.Now()}
 	if err := q.push(e); err != nil {
 		w.settle(q, e, err)
+		bodies.Put(e.readings.body)
 	}
+}
+
+// answer settles an entry that held its place in the queue, gives the place back and keeps its
+// body for the next readings; nothing reads the body once the entry is answered.
+func (w *Writer) answer(q *queue, e *entry, err error, now time.Time) {
+	size := e.size()
+	w.settle(q, e, err)
+	q.finish(size, now)
+	bodies.Put(e.readings.body)
 }
 
 // Fill is the share of a class's bound held right now.

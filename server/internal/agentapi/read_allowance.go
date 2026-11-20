@@ -5,12 +5,13 @@ import (
 	"math"
 
 	"golang.org/x/sync/semaphore"
+
+	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
 const (
-	// maxMachineMessageBytes is the largest message a machine sends; a longer declared length is
-	// refused from the header, before anything is allocated for it.
-	maxMachineMessageBytes = 1 << 20
+	// maxMachineMessageBytes is refused from the header, before anything is allocated for it.
+	maxMachineMessageBytes = protocol.MaxMachineMessageBytes
 	// readAllowanceShare is the share of Go's memory limit every machine connection together may
 	// hold read but not yet handled: each byte held costs four to six while it is decoded.
 	readAllowanceShare = 0.05

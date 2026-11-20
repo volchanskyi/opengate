@@ -78,6 +78,10 @@ const (
 	// about why it fired, since the server holds no high-resolution history.
 	MsgAgentAlert ControlMessageType = "AgentAlert"
 
+	// MsgComeBackLater answers a sign-in the server's line has no room for: the machine hangs up
+	// and dials again after RetryAfter seconds.
+	MsgComeBackLater ControlMessageType = "ComeBackLater"
+
 	// MsgLiveWindowStored tells a machine advertising CapLiveConfirmations that the live window
 	// stamped TS is stored.
 	MsgLiveWindowStored ControlMessageType = "LiveWindowStored"

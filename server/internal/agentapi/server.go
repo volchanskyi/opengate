@@ -60,7 +60,10 @@ type AgentServer struct {
 	// resend remembers the last store restart, which a machine offline then is told at connect.
 	resend resendState
 	// allowance bounds what every connection together holds read and not yet handled.
-	allowance      *readAllowance
+	allowance *readAllowance
+	// line meters sign-ins to the processor; customerNote seats each machine in its customer's turn.
+	line           *signInLine
+	customerNote   customerNote
 	tombstoneStore tombstoneLoader
 	// issuer records and renews machine certificates; admission reads its ledger.
 	issuer   *devicecert.Issuer
@@ -97,6 +100,9 @@ type AgentServerConfig struct {
 	// Customers lists a tenant's customers, whose held rule settings a tenant-wide change reads
 	// again. Optional.
 	Customers CustomerDirectory
+	// ProcessorShare is the processors the server's container allows, which sizes the sign-in
+	// line; zero is every processor of the machine.
+	ProcessorShare float64
 	// RuleCoverage persists which machines cannot evaluate a rule at all.
 	// Optional; nil keeps coverage in memory.
 	RuleCoverage UnsupportedCoverageStore
@@ -156,6 +162,7 @@ func NewAgentServer(cfg AgentServerConfig) *AgentServer {
 		logger:         cfg.Logger,
 		addrCh:         make(chan string, 1),
 		allowance:      newReadAllowance(readAllowanceFor(debug.SetMemoryLimit(-1))),
+		line:           newSignInLineFor(cfg.ProcessorShare, cfg.Metrics),
 	}
 	if cfg.Issuer != nil {
 		s.renewals = &renewals{

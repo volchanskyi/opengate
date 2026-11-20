@@ -124,7 +124,7 @@ fresh_export() {
   jq -n '{
     metrics: {
       journey_device_list_ms:   { type: "trend", values: { med: 41.0, "p(95)": 88.5, count: 1200 } },
-      journey_device_detail_ms: { type: "trend", values: { med: 60.0, "p(95)": 140.25, count: 600 } },
+      journey_device_detail_ms: { type: "trend", values: { med: 60.0, "p(95)": 140.25, max: 2900, count: 600 } },
       http_req_duration:        { type: "trend", values: { med: 7.0, "p(95)": 12.0, count: 7228 } },
       http_reqs:                { type: "counter", values: { count: 7228, rate: 40.1 } },
       requests_refused:         { type: "counter", values: { count: 0, rate: 0 } }
@@ -176,6 +176,8 @@ assert_eq "each carries its own tail" "88.5" \
   "$(jq -r '.journeys[] | select(.name == "device-list") | .latency_p95_ms' "$WORK/bundle.json")"
 assert_eq "each carries how many requests timed it" "1200" \
   "$(jq -r '.journeys[] | select(.name == "device-list") | .requests' "$WORK/bundle.json")"
+assert_eq "each carries its slowest" "2900" \
+  "$(jq -r '.journeys[] | select(.name == "device-detail") | .latency_max_ms' "$WORK/bundle.json")"
 
 # k6 v1.x puts a trend statistic flat on the metric; the fixture above is v0.x, which nests
 # them under "values".

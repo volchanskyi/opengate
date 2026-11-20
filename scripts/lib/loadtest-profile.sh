@@ -128,7 +128,7 @@ PY
 }
 
 # profile_phases prints a profile's walk as a JSON array of {name, seconds, arrivals_per_second,
-# sessions, agents, measured}; the optional second argument is the seconds of the walk already gone.
+# sessions, log_pages, inventory_bytes, agents, measured}; the second argument is the seconds gone.
 profile_phases() {
   local profile="$1" elapsed="${2:-0}"
 
@@ -189,6 +189,8 @@ for phase in profile.get("phases") or []:
             "seconds": length,
             "arrivals_per_second": float(phase.get("operator_arrivals_per_second") or 0),
             "sessions": int(phase.get("sessions") or 0),
+            "log_pages": int(phase.get("log_pages") or 0),
+            "inventory_bytes": int(phase.get("inventory_bytes") or 0),
             "agents": int(phase.get("connected_agents") or 0),
             "measured": bool(phase.get("measured")),
         }

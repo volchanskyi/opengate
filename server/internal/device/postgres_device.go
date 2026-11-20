@@ -181,6 +181,31 @@ func (p *PostgresDevices) TenantForDevice(ctx context.Context, id DeviceID) (uui
 	return tenantID, err
 }
 
+// CustomerOfEach implements Repository in one statement for the scope's tenant.
+func (p *PostgresDevices) CustomerOfEach(ctx context.Context) (map[DeviceID]OrganizationID, error) {
+	listed := make(map[DeviceID]OrganizationID)
+	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx,
+			`SELECT id, organization_id
+			   FROM devices
+			  WHERE tenant_id = current_setting('app.current_tenant')::uuid`)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id DeviceID
+			var organizationID OrganizationID
+			if err := rows.Scan(&id, &organizationID); err != nil {
+				return err
+			}
+			listed[id] = organizationID
+		}
+		return rows.Err()
+	})
+	return listed, err
+}
+
 // List implements Repository. Every statement carries the tenant clause; filters narrow within it.
 func (p *PostgresDevices) List(ctx context.Context, filter Filter) ([]*Device, error) {
 	if filter.WithoutSite && filter.SiteID != uuid.Nil {

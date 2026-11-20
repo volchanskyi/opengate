@@ -10,6 +10,7 @@
     - [One address per technician](#one-address-per-technician)
   - [QUIC harness](#quic-harness)
   - [The catch-up leg](#the-catch-up-leg)
+  - [The burst leg](#the-burst-leg)
   - [In CI](#in-ci)
 - [Leak checks](#leak-checks)
 - [Speed checks](#speed-checks)
@@ -227,6 +228,7 @@ package's tests.
 | [Normal](../../load/profiles/normal.yaml) | Staging, nightly | [`load-test.yml`](../../.github/workflows/load-test.yml) | the everyday shape on the hardware production runs on, against a server reserving and capped at exactly what production is |
 | [Peak](../../load/profiles/peak.yaml) | GitHub-hosted runner, nightly | [`perf-shapes.yml`](../../.github/workflows/perf-shapes.yml) | the busiest ordinary morning is two thousand machines, and the cluster node has 150 millicores left to reserve |
 | [Spike](../../load/profiles/spike.yaml) | GitHub-hosted runner, nightly | [`perf-shapes.yml`](../../.github/workflows/perf-shapes.yml) | a site whose link came back is the same two thousand, arriving at once |
+| [Burst](../../load/profiles/burst.yaml) | GitHub's ARM runner, nightly | [`perf-shapes.yml`](../../.github/workflows/perf-shapes.yml) | the spike's two burst cases at production's size and limits, on production's processor family |
 | [Breakpoint](../../load/profiles/breakpoint.yaml) | GitHub-hosted runner, nightly | [`perf-shapes.yml`](../../.github/workflows/perf-shapes.yml) | a capacity test that stops short of the capacity measures nothing, and saturating the cluster node throttles production's own probes |
 | [Volume 500](../../load/profiles/volume-500.yaml) | GitHub-hosted runner, nightly | [`perf-volume.yml`](../../.github/workflows/perf-volume.yml) | staging's database shares the node root with production; a runner brings its own disk |
 | [Volume 2,000](../../load/profiles/volume-2000.yaml) | GitHub-hosted runner, nightly | [`perf-volume.yml`](../../.github/workflows/perf-volume.yml) | the middle point of the sweep: the legs differ in machines enrolled, because the fixture names do not differ in how much data they hold |
@@ -681,8 +683,8 @@ carries. It reads, in order:
   store; every machine installed before the walk, a few at a time
   (`-enrol-first`): enrolled, connected once so the server writes its row, and
   filed, so the walk's dial is a return with the certificate it holds, as an
-  installed agent's is; then the harness's machines returning with an hour's
-  gap each
+  installed agent's is; then the harness's machines returning all at once, as
+  after a release restarts the server, with an hour's gap each
   (`-backfill-gap`) and sending a live window each minute (`-live-every`), each
   at the second of the minute its machine id names, while they drain, with the
   busy morning's technicians at work beside them: the profile's sessions and
@@ -701,12 +703,19 @@ carries. It reads, in order:
 The fleet's gates in the profile fail the night: live readings stored within
 5 seconds, every machine's hour filled within fifteen minutes of the fleet's
 return, 95% of the returning fleet online within 3 minutes of the return's start
-and every machine within 5, none refused, and the busy morning's connection
-limits, read against the run's own rows by
+and every machine within 5, none refused, the server's sign-in rate, and the
+busy morning's connection limits, read against the run's own rows by
 [`perf-bundle-limits.sh`](../../scripts/perf-bundle-limits.sh). The harness times
 a phase's fleet online only where a limit names it, once the walk ends, so a
 machine that came online after the phase closed still counts; a machine's own
-sign-in time in the wave is watched. The store
+sign-in time in the wave is watched. The return offers the fleet faster than the
+promised rate, since a rate shows only when more than it is offered, and the rate
+is the sign-ins finished per second over the time any machine of the phase waited
+between its first dial and the server's answer, so an idle stretch counts for
+nothing ([`fleet_online.go`](../../server/tests/loadtest/fleet_online.go)). A
+machine a full sign-in line tells to come back later dials again after the wait,
+as an agent does, and the count of such answers is recorded beside the run's
+figures. The store
 probe's marks sit in the same profile and read pass/over; the night fails only
 when a probe did not run its fifteen minutes. Its rate and live timing reach the
 Performance Stack Trends dashboard beside the fleet's figures. The probe's readings are written into the leg's uploaded
@@ -717,6 +726,25 @@ whatever the fleet's verdict
 ([`perf-vm-push.sh`](../../scripts/perf-vm-push.sh)), since they read the store
 and the runner; a fleet run that measured nothing keeps only its own figures
 out.
+
+### The burst leg
+
+The shapes nightly runs a second spike leg on GitHub's ARM runner with the server
+at production's limits ([`burst.yaml`](../../load/profiles/burst.yaml)), through the
+same shared leg workflow as catch-up, with the fleet installed and filed before
+the walk. It holds two cases. The real peak: the whole fleet returns at once while
+technicians each open one connected machine's log page
+([`log-pages.js`](../../load/k6/scenarios/log-pages.js)); every page is owed, and
+the slowest page shown and the count shown are its limits, beside every machine
+online and live readings within 5 s. The safety case: every machine then sends one
+package inventory padded to the server's message ceiling at once, as a fleet-wide
+reinstall has every machine send its inventory
+([`inventory_burst.go`](../../server/tests/loadtest/inventory_burst.go)); the
+inventories sent and the server's count of those it stored
+([`opengate_inventory_reports_stored_total`](../architecture/Metrics-Reference.md#telemetry-ingest))
+are read over the phase, which is the recovery the case is judged on, and no
+machine may drop. A server that ran out of memory stops answering or comes back
+as another process, which makes the night invalid.
 
 ### In CI
 

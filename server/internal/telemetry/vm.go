@@ -8,10 +8,13 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -89,18 +92,62 @@ func (v *VMClient) WriteSamples(ctx context.Context, tenantID uuid.UUID, deviceI
 	return v.Import(ctx, body.Bytes())
 }
 
-// Import posts readings already in Prometheus exposition text, stamped with the environment.
-func (v *VMClient) Import(ctx context.Context, body []byte) error {
+// Import posts readings already in Prometheus exposition text, stamped with the environment, its
+// parts read in order as one body. It returns once the transport has closed every reader of them.
+func (v *VMClient) Import(ctx context.Context, parts ...[]byte) error {
 	target := v.baseURL + "/api/v1/import/prometheus"
 	if v.namespace != "" {
 		target += "?" + url.Values{"extra_label": {environmentLabel + "=" + v.namespace}}.Encode()
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
+	body := &importBody{parts: parts}
+	first := body.reader()
+	defer body.wait()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, first)
 	if err != nil {
+		_ = first.Close()
 		return fmt.Errorf("build vm import request: %w", err)
 	}
+	req.ContentLength = body.length()
+	req.GetBody = func() (io.ReadCloser, error) { return body.reader(), nil }
 	req.Header.Set("Content-Type", "text/plain; version=0.0.4")
 	return v.sendChecked(req, "post", "import")
+}
+
+// importBody hands out readers over the same parts and counts those still open; the transport
+// closes each it was given, though perhaps after the request returns.
+type importBody struct {
+	parts [][]byte
+	open  sync.WaitGroup
+}
+
+func (b *importBody) reader() io.ReadCloser {
+	b.open.Add(1)
+	return &partsReader{parts: net.Buffers(slices.Clone(b.parts)), closed: b.open.Done}
+}
+
+func (b *importBody) length() int64 {
+	var n int64
+	for _, p := range b.parts {
+		n += int64(len(p))
+	}
+	return n
+}
+
+// wait returns once every reader handed out is closed.
+func (b *importBody) wait() { b.open.Wait() }
+
+// partsReader reads its parts in order and reports its close once.
+type partsReader struct {
+	parts  net.Buffers
+	once   sync.Once
+	closed func()
+}
+
+func (r *partsReader) Read(p []byte) (int, error) { return r.parts.Read(p) }
+
+func (r *partsReader) Close() error {
+	r.once.Do(r.closed)
+	return nil
 }
 
 // Flush forces pending imports to become immediately queryable. It is intended

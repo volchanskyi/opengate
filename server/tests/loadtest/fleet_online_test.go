@@ -97,3 +97,54 @@ func TestAFleetWithAMachineNeverOnlineHasNoTimeForItsWholeFleet(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, results[0].FleetOnlineP95Seconds, "fewer than ninety-five in a hundred online leaves the 95% time unread")
 }
+
+// answeredInTurn is count machines dialled every dialEvery from first, answered one per answerEvery
+// in dial order, as a line serving them at that pace would.
+func answeredInTurn(first time.Time, count int, dialEvery, answerEvery time.Duration) Wave {
+	var wave Wave
+	for i := range count {
+		dial := first.Add(time.Duration(i) * dialEvery)
+		answered := first.Add(time.Duration(i+1) * answerEvery)
+		wave.Online = append(wave.Online, answered.Sub(dial))
+		wave.OnlineAt = append(wave.OnlineAt, answered)
+	}
+	wave.Dialled = count
+	return wave
+}
+
+func TestAPhaseReadsItsSignInRateOnlyWhileAMachineWaited(t *testing.T) {
+	start := time.Unix(1_800_000_000, 0)
+	clock := &testClock{now: start}
+	fleet := &recordingFleet{clock: clock}
+	// Two hundred dial over the first second and are answered one every 10 ms, so the server is
+	// busy for 2 s; ten more dial 10 s in, answered the same way, busy for 0.1 s.
+	busy := answeredInTurn(start, 200, 5*time.Millisecond, 10*time.Millisecond)
+	later := answeredInTurn(start.Add(10*time.Second), 10, time.Millisecond, 10*time.Millisecond)
+	fleet.wave = Wave{
+		Dialled:  210,
+		Online:   append(busy.Online, later.Online...),
+		OnlineAt: append(busy.OnlineAt, later.OnlineAt...),
+	}
+	profile := returnShapedProfile()
+	profile.Gates = append(profile.Gates,
+		Gate{Series: "quic/online/return", Metric: "sign_ins_per_second", Min: ptrFloat(100), Blocking: true})
+
+	results, err := RunPhasesWatched(profile, fleet, clock, alwaysRoomToRun, unreadTarget)
+	require.NoError(t, err)
+
+	rate := results[0].FleetSignInsPerSecond
+	require.NotNil(t, rate)
+	assert.InDelta(t, 100.0, *rate, 0.5,
+		"210 sign-ins over the 2.1 s some machine waited; the idle 8 s between count for nothing")
+}
+
+func TestAPhaseWithNoMachineOnlineHasNoSignInRate(t *testing.T) {
+	start := time.Unix(1_800_000_000, 0)
+	clock := &testClock{now: start}
+	fleet := &recordingFleet{clock: clock}
+	fleet.wave = Wave{Dialled: 100}
+
+	results, err := RunPhasesWatched(returnShapedProfile(), fleet, clock, alwaysRoomToRun, unreadTarget)
+	require.NoError(t, err)
+	assert.Nil(t, results[0].FleetSignInsPerSecond, "no sign-in finished, so there is no rate to read")
+}

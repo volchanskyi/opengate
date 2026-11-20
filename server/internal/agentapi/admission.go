@@ -102,20 +102,30 @@ func (s *AgentServer) deliverRemovalOrder(stream *quic.Stream, conn *quic.Conn, 
 	}
 	_ = stream.Close()
 
+	if !awaitHangUp(stream, conn, removalOrderWait) {
+		logger.Info("deleted machine did not hang up after its removal order")
+	}
+	closeWithCode(conn, protocol.CloseDeviceDeleted, "device deregistered")
+}
+
+// awaitHangUp waits until the machine ends its side of the stream or the connection, reporting
+// whether it did within wait.
+func awaitHangUp(stream *quic.Stream, conn *quic.Conn, wait time.Duration) bool {
 	hungUp := make(chan struct{})
 	go func() {
 		_, _ = io.Copy(io.Discard, stream)
 		close(hungUp)
 	}()
-	timer := time.NewTimer(removalOrderWait)
+	timer := time.NewTimer(wait)
 	defer timer.Stop()
 	select {
 	case <-conn.Context().Done():
+		return true
 	case <-hungUp:
+		return true
 	case <-timer.C:
-		logger.Info("deleted machine did not hang up after its removal order")
+		return false
 	}
-	closeWithCode(conn, protocol.CloseDeviceDeleted, "device deregistered")
 }
 
 func closeWithCode(conn *quic.Conn, code uint64, reason string) {

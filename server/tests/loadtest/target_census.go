@@ -96,4 +96,5 @@ type PhaseReadings struct {
 	Generator    GeneratorRoom
 	Network      NetworkDrops
 	Registration PhaseRegistration
+	Inventory    InventoryBurst
 }

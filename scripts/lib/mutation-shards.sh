@@ -426,7 +426,7 @@ mutation_go_shard_units() {
       echo "file:internal/api/handlers_updates.go file:internal/api/handlers_purge.go"
       ;;
     go-agentapi-connection)
-      echo "file:internal/agentapi/conn.go file:internal/agentapi/conn_requests.go file:internal/agentapi/conn_register.go file:internal/agentapi/conn_guard.go file:internal/agentapi/conn_maintenance.go file:internal/agentapi/server.go file:internal/agentapi/server_connection.go file:internal/agentapi/server_sign_in.go file:internal/agentapi/deregister.go file:internal/agentapi/presence_sweep.go file:internal/agentapi/read_allowance.go"
+      echo "file:internal/agentapi/conn.go file:internal/agentapi/conn_requests.go file:internal/agentapi/conn_register.go file:internal/agentapi/conn_guard.go file:internal/agentapi/conn_maintenance.go file:internal/agentapi/server.go file:internal/agentapi/server_connection.go file:internal/agentapi/server_sign_in.go file:internal/agentapi/deregister.go file:internal/agentapi/presence_sweep.go file:internal/agentapi/read_allowance.go file:internal/agentapi/sign_in_line.go file:internal/agentapi/customer_note.go"
       ;;
     go-agentapi-handshake)
       echo "file:internal/agentapi/handshaker.go file:internal/agentapi/errors.go file:internal/agentapi/admission.go file:internal/agentapi/conn_restricted.go file:internal/agentapi/renewal.go file:internal/agentapi/renewal_sweep.go"
@@ -456,7 +456,7 @@ mutation_go_shard_units() {
       echo "dir:internal/updater dir:internal/cert dir:internal/devicecert dir:internal/authority dir:cmd/opengate-authority dir:internal/notifications"
       ;;
     go-protocol-wire)
-      echo "dir:internal/protocol dir:internal/osutil"
+      echo "dir:internal/protocol dir:internal/osutil dir:internal/bufpool"
       ;;
     go-relay-signaling)
       echo "dir:internal/relay dir:internal/signaling dir:internal/clientapi dir:internal/stunhelper"

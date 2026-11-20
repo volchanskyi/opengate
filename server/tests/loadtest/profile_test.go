@@ -102,6 +102,21 @@ func TestProfileRefusesWhatCannotBeCompared(t *testing.T) {
 			wantErr: "duration",
 		},
 		{
+			name:    "a negative count of log pages",
+			mutate:  func(p *Profile) { p.Phases[0].LogPages = -1 },
+			wantErr: "log_pages",
+		},
+		{
+			name:    "an inventory past the server's message ceiling",
+			mutate:  func(p *Profile) { p.Phases[1].InventoryBytes = 1<<20 + 1 },
+			wantErr: "inventory_bytes",
+		},
+		{
+			name:    "an inventory with no machines to send it",
+			mutate:  func(p *Profile) { p.Phases[0].ConnectedAgents = 0; p.Phases[0].InventoryBytes = 4096 },
+			wantErr: "inventory_bytes",
+		},
+		{
 			name:    "a negative arrival rate",
 			mutate:  func(p *Profile) { p.Phases[0].OperatorArrivalsPerSecond = -1 },
 			wantErr: "operator_arrivals_per_second",

@@ -167,7 +167,12 @@ apart from faults; counting an enforced limit as a defect buries the real ones.
 
 **The target is read at both ends of the run.** Replaced mid-run makes the run
 invalid; not giving back what it took makes it failed. Both readings travel in
-the bundle, taken off the exposition rather than the cluster.
+the bundle, taken off the exposition rather than the cluster. A process is told
+by the random ID it makes at its start (OpenTelemetry's `service.instance.id`),
+published as `opengate_process_instance_info`. Its start time is worked out from
+the host's boot time on every read, and a workstation clock stepping back 0.59 s
+every 32 s read as a restart with none; a reading that names no process makes the
+run invalid, since a restart can then be neither seen nor ruled out.
 
 ### The fleet
 

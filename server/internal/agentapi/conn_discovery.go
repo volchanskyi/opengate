@@ -30,7 +30,13 @@ func (a *AgentConn) handleDiscoveryReport(ctx context.Context, msg *protocol.Con
 	}
 	ts := a.telemetryTimestamp(msg.TS)
 	a.persistTelemetry(ctx, 1, func(jobCtx context.Context, _ dbtx.Tenant) error {
-		return a.inventory.Replace(jobCtx, a.DeviceID, ts, components)
+		if err := a.inventory.Replace(jobCtx, a.DeviceID, ts, components); err != nil {
+			return err
+		}
+		if a.metrics != nil {
+			a.metrics.InventoryReportsStoredTotal.Inc()
+		}
+		return nil
 	})
 	return nil
 }

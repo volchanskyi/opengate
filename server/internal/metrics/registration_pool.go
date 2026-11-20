@@ -94,6 +94,15 @@ func newRegistrationAndPoolMetrics(m *Metrics) []prometheus.Collector {
 		"Time from an accepted AgentRegister frame to the device row being written and online, by outcome.",
 		registrationDurationBuckets, "result")
 
+	m.SignInLineWaiting = gauge("sign_in_line_waiting",
+		"Machines whose sign-in waits in the line for one in progress to finish.")
+
+	m.SignInsTurnedAwayTotal = counter("sign_ins_turned_away_total",
+		"Sign-ins a full line told to come back later.")
+
+	m.InventoryReportsStoredTotal = counter("inventory_reports_stored_total",
+		"Package inventories machines sent that the server stored.")
+
 	m.DBPoolConnections = gaugeVec("db_pool_connections",
 		"Database connection-pool occupancy by state: open connections, those checked out, those parked idle, and the ceiling they are measured against.",
 		"state")
@@ -107,6 +116,9 @@ func newRegistrationAndPoolMetrics(m *Metrics) []prometheus.Collector {
 	return []prometheus.Collector{
 		m.AgentRegistrationsTotal,
 		m.AgentRegistrationDuration,
+		m.SignInLineWaiting,
+		m.SignInsTurnedAwayTotal,
+		m.InventoryReportsStoredTotal,
 		m.DBPoolConnections,
 		m.DBPoolWaitsTotal,
 		m.DBPoolWaitSecondsTotal,

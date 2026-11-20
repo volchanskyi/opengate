@@ -743,6 +743,13 @@ pub enum ControlMessage {
         since_ts: i64,
     },
 
+    /// Server → Agent: the sign-in line is full; hang up and dial again after `retry_after`
+    /// seconds plus a sub-second jitter, zero meaning at once.
+    ComeBackLater {
+        #[serde(default)]
+        retry_after: u32,
+    },
+
     /// Agent → Server: pre-rolled samples for one tier; `cursor` is the newest bucket timestamp,
     /// and the batch's range counts as confirmed only after the matching `MetricBackfillAck`.
     MetricBackfillBatch {

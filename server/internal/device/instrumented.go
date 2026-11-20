@@ -45,6 +45,12 @@ func (i *InstrumentedDevices) SignIn(ctx context.Context, d *Device, needsFleetS
 	})
 }
 
+func (i *InstrumentedDevices) CustomerOfEach(ctx context.Context) (map[DeviceID]OrganizationID, error) {
+	return observe1(i.observer, "device.Device.CustomerOfEach", func() (map[DeviceID]OrganizationID, error) {
+		return i.inner.CustomerOfEach(ctx)
+	})
+}
+
 func (i *InstrumentedDevices) Get(ctx context.Context, id DeviceID) (*Device, error) {
 	return observe1(i.observer, "device.Device.Get", func() (*Device, error) { return i.inner.Get(ctx, id) })
 }

@@ -21,6 +21,9 @@ func latencyObservations(at time.Time, connect, handshake []time.Duration, error
 	// Retries are recorded even at zero; only a machine whose retry failed too counts as an error.
 	observations = append(observations,
 		Observation{At: at, Series: "retried_first_dials", Value: float64(retriedFirstDials(in.Results))})
+	// A full sign-in line's answers are recorded even at zero, so a line that never filled reads so.
+	observations = append(observations,
+		Observation{At: at, Series: "told_to_come_back_later", Value: float64(toldToComeBackLater(in.Results))})
 
 	// Refusals are recorded even at zero, which marks the zero as a reading of an actual run.
 	observations = append(observations,
@@ -74,6 +77,15 @@ func retriedFirstDials(results []agentResult) int {
 		retried += result.retried
 	}
 	return retried
+}
+
+// toldToComeBackLater counts the "come back later" answers every machine was given.
+func toldToComeBackLater(results []agentResult) int {
+	told := 0
+	for _, result := range results {
+		told += result.toldToComeBack
+	}
+	return told
 }
 
 // severedMidHold counts the machines whose connection went away while they were held.
