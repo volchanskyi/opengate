@@ -82,3 +82,38 @@ func TestAChangedAlertBudgetReachesAMachineThatNeverDisconnects(t *testing.T) {
 	assert.EqualValues(t, budget, updated.DeviceHourlyCeiling,
 		"the machine holds itself to the allowance the administrator set, from now rather than its next start")
 }
+
+func TestARemovedTuningReachesAMachineThatNeverDisconnects(t *testing.T) {
+	t.Parallel()
+
+	const retuned = 77
+
+	admin, machine := contosoMachine(t, newProduct(t), "Head Office", "contoso-fs01", takesRules...)
+
+	shipped, carried := rulesFor(machine.Await(protocol.MsgPushAlertRules), triageRule)
+	require.True(t, carried)
+	require.NotEqualf(t, float64(retuned), shipped.Threshold,
+		"the case is only about the removal if the tuned number differs from the shipped one")
+
+	delivered := machine.PushesSoFar(protocol.MsgPushAlertRules)
+	var binding struct {
+		ID string `json:"id"`
+	}
+	tuned := admin.Put(admin.InCustomer("/api/v1/rules/"+triageRule+"/bindings"), map[string]any{
+		"level":     "organization",
+		"level_key": admin.Customer.String(),
+		"params":    map[string]float64{"threshold": float64(retuned)},
+	}).Into(&binding)
+	require.Equalf(t, http.StatusOK, tuned.Status, "retuning the rule failed: %s", tuned.Text())
+	updated, _ := rulesFor(machine.AwaitPast(protocol.MsgPushAlertRules, delivered), triageRule)
+	require.InDelta(t, float64(retuned), updated.Threshold, 0.001)
+
+	delivered = machine.PushesSoFar(protocol.MsgPushAlertRules)
+	removed := admin.Delete("/api/v1/rules/" + triageRule + "/bindings/" + binding.ID)
+	require.Equalf(t, http.StatusNoContent, removed.Status, "removing the tuning failed: %s", removed.Text())
+
+	restored, carried := rulesFor(machine.AwaitPast(protocol.MsgPushAlertRules, delivered), triageRule)
+	require.True(t, carried)
+	assert.InDelta(t, shipped.Threshold, restored.Threshold, 0.001,
+		"the machine goes back to the shipped number once the administrator removes the tuning")
+}

@@ -106,9 +106,9 @@ func (e *certEnv) machine(t *testing.T) (uuid.UUID, *tls.Certificate) {
 	t.Helper()
 	id := uuid.New()
 	site := testutil.SeedSite(t, context.Background(), e.store)
-	require.NoError(t, e.devices.Upsert(dbtx.WithDefaultTenant(context.Background(), false), &device.Device{
+	testutil.SignIn(t, dbtx.WithDefaultTenant(context.Background(), false), e.devices, &device.Device{
 		ID: id, SiteID: site.ID, Hostname: "machine", OS: "linux", Status: device.StatusOffline,
-	}))
+	})
 	return id, machinecert.Issue(t, e.issuer, id)
 }
 
@@ -221,13 +221,19 @@ func (m *machineConn) await(t *testing.T, want protocol.ControlMessageType, wait
 // closedWith waits for the server to close the connection and returns the code it used.
 func (m *machineConn) closedWith(t *testing.T, wait time.Duration) quic.ApplicationErrorCode {
 	t.Helper()
+	return closedWithin(t, m.conn, wait)
+}
+
+// closedWithin waits for the server to close conn and returns the code it used.
+func closedWithin(t *testing.T, conn *quic.Conn, wait time.Duration) quic.ApplicationErrorCode {
+	t.Helper()
 	select {
-	case <-m.conn.Context().Done():
+	case <-conn.Context().Done():
 	case <-time.After(wait):
 		t.Fatalf("the server held the connection open past %s", wait)
 	}
 	var appErr *quic.ApplicationError
-	require.ErrorAs(t, context.Cause(m.conn.Context()), &appErr)
+	require.ErrorAs(t, context.Cause(conn.Context()), &appErr)
 	return appErr.ErrorCode
 }
 

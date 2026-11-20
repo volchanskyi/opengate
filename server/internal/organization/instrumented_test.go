@@ -60,6 +60,10 @@ func (s stubRepo) EnsureDefault(context.Context) (organization.ID, error) {
 	return uuid.New(), nil
 }
 
+func (s stubRepo) AllCustomers(context.Context) ([]organization.Ref, error) {
+	return nil, s.err
+}
+
 func call(t *testing.T, repo *organization.Instrumented, method string) error {
 	t.Helper()
 	ctx, id := context.Background(), uuid.New()
@@ -81,6 +85,9 @@ func call(t *testing.T, repo *organization.Instrumented, method string) error {
 	case "organization.EnsureDefault":
 		_, err := repo.EnsureDefault(ctx)
 		return err
+	case "organization.AllCustomers":
+		_, err := repo.AllCustomers(ctx)
+		return err
 	}
 	t.Fatalf("no such method on the wrapper: %s", method)
 	return nil
@@ -97,6 +104,7 @@ func TestInstrumentedObservesEveryCallAsASuccess(t *testing.T) {
 		"organization.SetArchived",
 		"organization.Delete",
 		"organization.EnsureDefault",
+		"organization.AllCustomers",
 	} {
 		t.Run(method, func(t *testing.T) {
 			t.Parallel()
@@ -124,6 +132,7 @@ func TestInstrumentedObservesEveryCallAsAFailure(t *testing.T) {
 		"organization.SetArchived",
 		"organization.Delete",
 		"organization.EnsureDefault",
+		"organization.AllCustomers",
 	} {
 		t.Run(method, func(t *testing.T) {
 			t.Parallel()

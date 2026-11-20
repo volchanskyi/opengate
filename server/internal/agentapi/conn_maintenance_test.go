@@ -3,26 +3,13 @@ package agentapi
 import (
 	"bytes"
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/volchanskyi/opengate/server/internal/dbtx"
-	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
-
-type stubMaintDevices struct {
-	device.Repository
-	dev *device.Device
-	err error
-}
-
-func (s *stubMaintDevices) Get(context.Context, device.DeviceID) (*device.Device, error) {
-	return s.dev, s.err
-}
 
 func TestAgentConn_SendSetMaintenanceMode(t *testing.T) {
 	for _, enabled := range []bool{true, false} {
@@ -41,12 +28,11 @@ func TestAgentConn_SendSetMaintenanceMode(t *testing.T) {
 
 func TestAgentConn_PushMaintenanceState_Reconciles(t *testing.T) {
 	t.Run("in maintenance pushes true", func(t *testing.T) {
-		ac := &AgentConn{DeviceID: uuid.New(), codec: &protocol.Codec{}, logger: testLogger(),
-			devices: &stubMaintDevices{dev: &device.Device{MaintenanceOn: true}}}
+		ac := &AgentConn{DeviceID: uuid.New(), codec: &protocol.Codec{}, logger: testLogger()}
 		var buf bytes.Buffer
 		ac.stream = &buf
 
-		ac.pushMaintenanceState(context.Background())
+		ac.pushMaintenanceState(context.Background(), true)
 		msg := readReply(t, ac, &buf)
 		assert.Equal(t, protocol.MsgSetMaintenanceMode, msg.Type)
 		require.NotNil(t, msg.Enabled)
@@ -54,34 +40,11 @@ func TestAgentConn_PushMaintenanceState_Reconciles(t *testing.T) {
 	})
 
 	t.Run("active pushes nothing", func(t *testing.T) {
-		ac := &AgentConn{DeviceID: uuid.New(), codec: &protocol.Codec{}, logger: testLogger(),
-			devices: &stubMaintDevices{dev: &device.Device{MaintenanceOn: false}}}
+		ac := &AgentConn{DeviceID: uuid.New(), codec: &protocol.Codec{}, logger: testLogger()}
 		var buf bytes.Buffer
 		ac.stream = &buf
 
-		ac.pushMaintenanceState(context.Background())
+		ac.pushMaintenanceState(context.Background(), false)
 		assert.Zero(t, buf.Len(), "an Active device needs no reconcile push — the agent defaults to Active")
 	})
-
-	t.Run("read error writes nothing", func(t *testing.T) {
-		ac := &AgentConn{DeviceID: uuid.New(), codec: &protocol.Codec{}, logger: testLogger(),
-			devices: &stubMaintDevices{err: errors.New("boom")}}
-		var buf bytes.Buffer
-		ac.stream = &buf
-
-		ac.pushMaintenanceState(context.Background())
-		assert.Zero(t, buf.Len(), "a read failure must not push a stale reconcile")
-	})
-}
-
-func TestAgentConn_HandleMaintenanceApplied(t *testing.T) {
-	for _, enabled := range []bool{true, false} {
-		ac, buf := newTestAgentConn(t, uuid.New(), nil)
-		writeControlMsg(t, ac.codec, buf, &protocol.ControlMessage{
-			Type:    protocol.MsgMaintenanceApplied,
-			Enabled: &enabled,
-		})
-		require.NoError(t, ac.handleControl(dbtx.WithDefaultTenant(context.Background(), false)))
-		assert.Equal(t, enabled, ac.maintenanceApplied.Load())
-	}
 }

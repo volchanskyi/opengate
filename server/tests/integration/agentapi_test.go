@@ -133,13 +133,13 @@ func (e *agentTestEnv) caCertHash() [48]byte {
 // The device row exists before the agent connects so accept resolves its site without a race.
 func (e *agentTestEnv) seedDevice(t *testing.T, deviceID, siteID uuid.UUID) {
 	t.Helper()
-	require.NoError(t, e.devices.Upsert(defaultTenantContext(), &device.Device{
+	testutil.SignIn(t, defaultTenantContext(), e.devices, &device.Device{
 		ID:       deviceID,
 		SiteID:   siteID,
 		Hostname: "pre-seed",
 		OS:       "linux",
 		Status:   db.StatusOffline,
-	}))
+	})
 }
 
 func (e *agentTestEnv) dialAgentStream(t *testing.T, deviceID uuid.UUID) (*quic.Stream, []byte) {

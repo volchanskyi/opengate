@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"github.com/volchanskyi/opengate/server/internal/testutil"
 	"net/http"
 	"sort"
 	"testing"
@@ -22,7 +23,7 @@ func seedSummaryDevice(t *testing.T, srv *Server, status device.DeviceStatus, ma
 	t.Helper()
 	ctx := testTenantContext(t)
 	d := &device.Device{ID: uuid.New(), Hostname: "sum-" + uuid.New().String()[:8], OS: "linux", Status: status}
-	require.NoError(t, srv.devices.Upsert(ctx, d))
+	testutil.SignIn(t, ctx, srv.devices, d)
 	if maintenance {
 		require.NoError(t, srv.devices.SetMaintenance(ctx, d.ID, true, uuid.New(), "patching"))
 	}

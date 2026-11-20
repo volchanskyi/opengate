@@ -95,7 +95,7 @@ func TestDeleteDeviceRunsPurgeWhenWired(t *testing.T) {
 	// Seed an ungrouped device so the admin owner check passes.
 	ctx := testTenantContext(t)
 	dev := &device.Device{ID: uuid.New(), Hostname: "doomed", OS: "linux", Status: device.StatusOffline}
-	require.NoError(t, srv.devices.Upsert(ctx, dev))
+	testutil.SignIn(t, ctx, srv.devices, dev)
 
 	w := doRequest(srv, http.MethodDelete, "/api/v1/devices/"+dev.ID.String(), token, nil)
 	assert.Equal(t, http.StatusNoContent, w.Code)
@@ -166,7 +166,7 @@ func TestDeleteDeviceRefusedWithoutPurger(t *testing.T) {
 
 	ctx := testTenantContext(t)
 	dev := &device.Device{ID: uuid.New(), Hostname: "survivor", OS: "linux", Status: device.StatusOffline}
-	require.NoError(t, srv.devices.Upsert(ctx, dev))
+	testutil.SignIn(t, ctx, srv.devices, dev)
 
 	w := doRequest(srv, http.MethodDelete, "/api/v1/devices/"+dev.ID.String(), token, nil)
 	assert.Equal(t, http.StatusForbidden, w.Code,

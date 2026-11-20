@@ -9,13 +9,26 @@ import (
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/osutil"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
+	"github.com/volchanskyi/opengate/server/internal/rules"
+	"github.com/volchanskyi/opengate/server/internal/settings"
 )
 
-// handleRegister completes enrollment and records the server-side duration, which spans the
-// device row write that brings the device online.
+// handleRegister answers an AgentRegister on a connection already signed in with a sign-in of
+// its own; a failed one ends the connection.
 func (a *AgentConn) handleRegister(ctx context.Context, msg *protocol.ControlMessage) error {
+	signedIn, err := a.signIn(ctx, msg)
+	if err != nil {
+		return err
+	}
+	a.afterSignIn(ctx, msg, signedIn)
+	return nil
+}
+
+// signIn runs the machine's sign-in conversation and records the server-side duration, which
+// spans the write that brings the machine online.
+func (a *AgentConn) signIn(ctx context.Context, msg *protocol.ControlMessage) (device.SignIn, error) {
 	start := time.Now()
-	err := a.register(ctx, msg)
+	signedIn, err := a.writeSignIn(ctx, msg)
 	if a.metrics != nil {
 		result := appmetrics.RegistrationOK
 		if err != nil {
@@ -23,10 +36,10 @@ func (a *AgentConn) handleRegister(ctx context.Context, msg *protocol.ControlMes
 		}
 		a.metrics.ObserveAgentRegistration(result, time.Since(start))
 	}
-	return err
+	return signedIn, err
 }
 
-func (a *AgentConn) register(ctx context.Context, msg *protocol.ControlMessage) error {
+func (a *AgentConn) writeSignIn(ctx context.Context, msg *protocol.ControlMessage) (device.SignIn, error) {
 	osName := osutil.NormalizeOS(msg.OS)
 	arch := osutil.NormalizeArch(msg.Arch)
 	a.setMeta(osName, arch, msg.Version, msg.Capabilities)
@@ -36,22 +49,29 @@ func (a *AgentConn) register(ctx context.Context, msg *protocol.ControlMessage) 
 		caps[i] = string(c)
 	}
 
-	d := &device.Device{
+	// The row is what makes a machine exist for the product, so a failed sign-in ends it.
+	signedIn, err := a.devices.SignIn(ctx, &device.Device{
 		ID:           a.DeviceID,
-		SiteID:       a.SiteID,
 		Hostname:     msg.Hostname,
 		OS:           osName,
 		OsDisplay:    msg.OS,
 		AgentVersion: msg.Version,
 		Capabilities: caps,
 		Status:       device.StatusOnline,
+	}, a.needsFleetSize)
+	if err != nil {
+		return device.SignIn{}, fmt.Errorf("sign in device: %w", err)
 	}
+	return signedIn, nil
+}
 
-	// The row is what makes a machine exist for the product, so a failed write ends registration.
-	if err := a.devices.Upsert(ctx, d); err != nil {
-		return fmt.Errorf("upsert device: %w", err)
-	}
+// needsFleetSize asks the rule provider whether the customer's rollouts are sized by its count.
+func (a *AgentConn) needsFleetSize(organizationID device.OrganizationID) bool {
+	return a.alertRules != nil && a.alertRules.NeedsFleetSize(organizationID)
+}
 
+// afterSignIn sends what a signed-in machine is owed, from what its sign-in read.
+func (a *AgentConn) afterSignIn(ctx context.Context, msg *protocol.ControlMessage, signedIn device.SignIn) {
 	a.logger.Info("agent registered",
 		"device_id", a.DeviceID,
 		"hostname", msg.Hostname,
@@ -59,13 +79,23 @@ func (a *AgentConn) register(ctx context.Context, msg *protocol.ControlMessage) 
 		"capabilities", msg.Capabilities,
 	)
 
+	machine := rules.Device{
+		Scope: settings.Scope{
+			DeviceID:       a.DeviceID,
+			SiteID:         signedIn.SiteID,
+			OrganizationID: signedIn.OrganizationID,
+			TenantID:       signedIn.TenantID,
+		},
+		Tags:      signedIn.Tags,
+		FleetSize: signedIn.FleetSize,
+	}
 	// A capability error means the agent did not opt in; no push error fails registration.
-	if err := a.pushAlertRules(ctx); err != nil && !IsCapabilityError(err) {
+	if err := a.pushSignInRules(ctx, machine); err != nil && !IsCapabilityError(err) {
 		a.logger.Warn("push alert rules failed", "device_id", a.DeviceID, "error", err)
 	}
 
 	// Agents start Active on every registration, so only a device in maintenance needs a push.
-	a.pushMaintenanceState(ctx)
+	a.pushMaintenanceState(ctx, signedIn.MaintenanceOn)
 
 	if err := a.SendRequestHardwareReport(ctx); err != nil && !IsCapabilityError(err) {
 		a.logger.Warn("request hardware report on register failed", "device_id", a.DeviceID, "error", err)
@@ -82,5 +112,4 @@ func (a *AgentConn) register(ctx context.Context, msg *protocol.ControlMessage) 
 	if a.registered != nil {
 		a.registered(a)
 	}
-	return nil
 }

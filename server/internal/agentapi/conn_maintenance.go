@@ -15,15 +15,9 @@ func (a *AgentConn) SendSetMaintenanceMode(ctx context.Context, enabled bool) er
 	})
 }
 
-// pushMaintenanceState pushes SetMaintenanceMode(true) for a device in maintenance so a
-// reconnecting agent re-enters suppression; a failure is logged and never fails registration.
-func (a *AgentConn) pushMaintenanceState(ctx context.Context) {
-	d, err := a.devices.Get(ctx, a.DeviceID)
-	if err != nil {
-		a.logger.Warn("read maintenance state failed", "device_id", a.DeviceID, "error", err)
-		return
-	}
-	if !d.MaintenanceOn {
+// pushMaintenanceState tells a machine its sign-in found in maintenance to hold its collectors.
+func (a *AgentConn) pushMaintenanceState(ctx context.Context, on bool) {
+	if !on {
 		return
 	}
 	if err := a.SendSetMaintenanceMode(ctx, true); err != nil {

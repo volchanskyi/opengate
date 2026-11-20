@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
+
 	"github.com/volchanskyi/opengate/server/internal/rules"
 )
 
@@ -54,8 +56,12 @@ func (s *Server) DeleteRuleBinding(ctx context.Context, request DeleteRuleBindin
 	if s.ruleAdmin == nil {
 		return nil, errRulesNotAdministrable
 	}
-	if err := s.ruleAdmin.DeleteBinding(ctx, request.BindingId); err != nil {
+	organizationID, err := s.ruleAdmin.DeleteBinding(ctx, request.BindingId)
+	if err != nil {
 		return nil, err
+	}
+	if organizationID != uuid.Nil {
+		s.deliverRuleChange(ctx, organizationID, false)
 	}
 
 	s.auditLog(ctx, ContextUserID(ctx), "rule.binding.delete", request.RuleId,

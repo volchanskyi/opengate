@@ -30,7 +30,9 @@ type unreachableDevices struct{ calls atomic.Int64 }
 
 func (u *unreachableDevices) fail() error { u.calls.Add(1); return errDatabaseDown }
 
-func (u *unreachableDevices) Upsert(context.Context, *device.Device) error { return u.fail() }
+func (u *unreachableDevices) SignIn(context.Context, *device.Device, func(device.OrganizationID) bool) (device.SignIn, error) {
+	return device.SignIn{}, u.fail()
+}
 func (u *unreachableDevices) Get(context.Context, device.DeviceID) (*device.Device, error) {
 	return nil, u.fail()
 }
@@ -106,7 +108,8 @@ func onlineMachine(t *testing.T, ctx context.Context, devices device.Repository)
 	t.Helper()
 	d := &device.Device{ID: uuid.New(), Hostname: "contoso-" + uuid.NewString()[:8], OS: "linux",
 		Status: device.StatusOnline}
-	require.NoError(t, devices.Upsert(ctx, d))
+	_, err := devices.SignIn(ctx, d, nil)
+	require.NoError(t, err)
 	return d.ID
 }
 
@@ -146,7 +149,7 @@ func TestAHeartbeatWritesNothingToTheDatabase(t *testing.T) {
 func TestAFailedStatusWriteNeverEndsTheConnection(t *testing.T) {
 	srv, metrics, logs := newPresenceServer(t, &unreachableDevices{})
 	departing := &AgentConn{DeviceID: protocol.DeviceID(uuid.New())}
-	srv.registerConn(context.Background(), departing, "contoso-workstation")
+	holdSignedIn(context.Background(), srv, departing, "contoso-workstation")
 
 	srv.releaseDeviceStatus(departing, "contoso-workstation", srv.logger)
 
@@ -173,9 +176,9 @@ func TestThePresenceSweepReconcilesAMissedOfflineWrite(t *testing.T) {
 
 	leavingFabrikam := &AgentConn{DeviceID: fabrikamLast, TenantID: fabrikamID}
 	leavingContoso := &AgentConn{DeviceID: contosoLeaving}
-	srv.registerConn(fabrikam, leavingFabrikam, "fabrikam-desk-01")
-	srv.registerConn(contoso, leavingContoso, "contoso-desk-01")
-	srv.registerConn(contoso, &AgentConn{DeviceID: contosoStaying}, "contoso-desk-02")
+	holdSignedIn(fabrikam, srv, leavingFabrikam, "fabrikam-desk-01")
+	holdSignedIn(contoso, srv, leavingContoso, "contoso-desk-01")
+	holdSignedIn(contoso, srv, &AgentConn{DeviceID: contosoStaying}, "contoso-desk-02")
 	srv.releaseDeviceStatus(leavingFabrikam, "fabrikam-desk-01", srv.logger)
 	srv.releaseDeviceStatus(leavingContoso, "contoso-desk-01", srv.logger)
 
@@ -209,10 +212,10 @@ func TestAPresenceSweepThatFailsForOneTenantStillSweepsTheOthers(t *testing.T) {
 	fabrikam := dbtx.WithTenant(context.Background(), fabrikamID, false)
 	contoso := dbtx.WithDefaultTenant(context.Background(), false)
 
-	srv.registerConn(fabrikam, &AgentConn{DeviceID: onlineMachine(t, fabrikam, rows), TenantID: fabrikamID}, "f")
+	holdSignedIn(fabrikam, srv, &AgentConn{DeviceID: onlineMachine(t, fabrikam, rows), TenantID: fabrikamID}, "f")
 	stale := onlineMachine(t, contoso, rows)
 	ageRow(t, contoso, store, stale, 2*time.Minute)
-	srv.registerConn(contoso, &AgentConn{DeviceID: onlineMachine(t, contoso, rows)}, "c")
+	holdSignedIn(contoso, srv, &AgentConn{DeviceID: onlineMachine(t, contoso, rows)}, "c")
 
 	offline, err := srv.SweepPresence(context.Background())
 	require.ErrorIs(t, err, errDatabaseDown)

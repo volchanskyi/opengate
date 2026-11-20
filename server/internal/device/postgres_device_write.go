@@ -11,45 +11,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 )
 
-func (p *PostgresDevices) Upsert(ctx context.Context, d *Device) error {
-	tenant, ok := dbtx.TenantFromContext(ctx)
-	if !ok {
-		return dbtx.ErrTenantRequired
-	}
-	siteID := nullableUUID(d.SiteID)
-	capsJSON, err := marshalCapabilities(d.Capabilities)
-	if err != nil {
-		return err
-	}
-	// A device naming no customer takes the tenant's default; a reconnect keeps its customer and site.
-	// A site on first registration counts only when it belongs to the customer the device lands in.
-	organizationID := nullableUUID(d.OrganizationID)
-	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
-		_, err = tx.ExecContext(ctx,
-			`INSERT INTO devices (id, tenant_id, organization_id, site_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
-			 VALUES ($1, $2,
-			         COALESCE($10::uuid, (SELECT o.id FROM organizations o WHERE o.tenant_id = $2 AND o.is_default)),
-			         (SELECT s.id FROM sites s
-			           WHERE s.id = $3::uuid
-			             AND s.organization_id = COALESCE($10::uuid, (SELECT o.id FROM organizations o WHERE o.tenant_id = $2 AND o.is_default))),
-			         $4, $5, $6, $7, $8, $9, NOW(), NOW(), NOW())
-			 ON CONFLICT (id) DO UPDATE SET
-			   tenant_id = EXCLUDED.tenant_id,
-			   organization_id = COALESCE($10::uuid, devices.organization_id),
-			   site_id = devices.site_id,
-			   hostname = EXCLUDED.hostname,
-			   os = EXCLUDED.os,
-			   os_display = EXCLUDED.os_display,
-			   agent_version = EXCLUDED.agent_version,
-			   capabilities = EXCLUDED.capabilities,
-			   status = EXCLUDED.status,
-			   last_seen = NOW(),
-			   updated_at = NOW()`,
-			d.ID, tenant.TenantID, siteID, d.Hostname, d.OS, d.OsDisplay, d.AgentVersion, capsJSON, string(d.Status), organizationID)
-		return err
-	})
-}
-
 // UpdateOrganization implements Repository. It checks the customer against the caller's tenant
 // first because foreign-key checks bypass row-level security.
 func (p *PostgresDevices) UpdateOrganization(ctx context.Context, id DeviceID, organizationID OrganizationID) error {

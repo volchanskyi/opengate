@@ -23,7 +23,7 @@ const presenceGrace = time.Minute
 func seedMachine(t *testing.T, ctx context.Context, devices device.Repository, status device.DeviceStatus) device.DeviceID {
 	t.Helper()
 	d := &device.Device{ID: uuid.New(), Hostname: "contoso-" + uuid.NewString()[:8], OS: "linux", Status: status}
-	require.NoError(t, devices.Upsert(ctx, d))
+	testutil.SignIn(t, ctx, devices, d)
 	return d.ID
 }
 

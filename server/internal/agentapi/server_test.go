@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/cert"
-	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
@@ -46,11 +45,11 @@ func TestAgentServer_ReconnectRaceCondition(t *testing.T) {
 	ctx := context.Background()
 
 	oldConn := &AgentConn{DeviceID: deviceID}
-	srv.registerConn(ctx, oldConn, "host")
+	holdSignedIn(ctx, srv, oldConn, "host")
 	assert.Equal(t, 1, srv.ConnectedAgentCount())
 
 	newConn := &AgentConn{DeviceID: deviceID}
-	srv.registerConn(ctx, newConn, "host")
+	holdSignedIn(ctx, srv, newConn, "host")
 	assert.Equal(t, 1, srv.ConnectedAgentCount(),
 		"one machine is one machine, however many connections it has open")
 
@@ -77,26 +76,6 @@ func TestAgentServer_ListConnectedAgents(t *testing.T) {
 
 	agents := srv.ListConnectedAgents()
 	assert.Len(t, agents, 2)
-}
-
-func TestAgentServer_ScopeForDeviceUsesStoredTenant(t *testing.T) {
-	store := testutil.NewTestStore(t)
-	tenantB := uuid.New()
-	ctxB := dbtx.WithTenant(context.Background(), tenantB, false)
-	testutil.EnsureTenant(t, context.Background(), store, tenantB, "Tenant "+tenantB.String()[:8])
-	site := testutil.SeedSite(t, ctxB, store)
-	d := testutil.SeedDevice(t, ctxB, store, site.ID)
-	srv := AgentServer{
-		devices: testutil.NewTestDevices(t, store),
-		logger:  testLogger(),
-	}
-
-	scoped := srv.scopeForDevice(context.Background(), d.ID, testLogger())
-
-	tenant, ok := dbtx.TenantFromContext(scoped)
-	require.True(t, ok)
-	assert.Equal(t, tenantB, tenant.TenantID)
-	assert.False(t, tenant.IsAdmin)
 }
 
 func TestAgentServer_DeregisterAgent(t *testing.T) {

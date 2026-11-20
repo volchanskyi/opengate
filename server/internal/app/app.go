@@ -309,6 +309,15 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 	// Seeding exports every rule at zero, so a quiet rule differs from an empty scrape.
 	appMetrics.SeedRuleVocabulary(ruleIDs(ruleCatalogue))
 
+	// Each machine gets the pack as its customer retuned it, with its per-machine alert allowance;
+	// every customer's settings are held before the server takes machines.
+	alertRules := agentapi.NewCatalogueAlertRuleProvider(
+		ruleCatalogue, ruleStore, ruleStore, repos.devices, alertStore, logger)
+	customers := customerDirectory{organizations: repos.organizations}
+	if err := alertRules.Load(ctx, customers); err != nil {
+		return nil, fmt.Errorf("app: hold customer rule settings: %w", err)
+	}
+
 	// The writer reads the agent server's deny-list, and the agent server hands it readings.
 	var agentSrv *agentapi.AgentServer
 	ingest := newNumericIngest(telemetryPorts, appMetrics, func(device uuid.UUID) bool { return agentSrv.Erased(device) })
@@ -326,11 +335,9 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 		QuicHost:      cfg.QuicHost,
 		Tombstones:    tombstoneStore,
 		Settings:      settings.NewPostgresReader(store.DB()),
-		// Each machine gets the pack as its customer retuned it, narrowed by its labels,
-		// with the customer's per-machine alert allowance.
-		AlertRules: agentapi.NewCatalogueAlertRuleProvider(
-			ruleCatalogue, ruleStore, ruleStore, repos.devices, alertStore, logger),
-		RuleCoverage: ruleStore,
+		AlertRules:    alertRules,
+		Customers:     customers,
+		RuleCoverage:  ruleStore,
 		// The same store answers the fleet-wide fold the platform's own
 		// coverage gauge is refreshed from.
 		FleetCoverage: ruleStore,

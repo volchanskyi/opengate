@@ -3,6 +3,7 @@ package device_test
 import (
 	"context"
 	"database/sql"
+	"github.com/volchanskyi/opengate/server/internal/testutil"
 	"testing"
 
 	"github.com/google/uuid"
@@ -45,7 +46,7 @@ func TestAMachineNamingNoCustomerLandsInTheDefaultWhateverTheClockRead(t *testin
 	tenant := newClockSteppedBack(t, store)
 
 	d := &device.Device{ID: uuid.New(), Hostname: "new-machine", Status: device.StatusOnline}
-	require.NoError(t, devices.Upsert(tenant.ctx, d))
+	testutil.SignIn(t, tenant.ctx, devices, d)
 
 	got, err := devices.Get(tenant.ctx, d.ID)
 	require.NoError(t, err)
@@ -60,7 +61,7 @@ func TestARegisteringSiteCountsAgainstTheDefaultCustomer(t *testing.T) {
 	dallas := newSite(t, tenant.ctx, store, tenant.contoso, "Dallas")
 
 	d := &device.Device{ID: uuid.New(), SiteID: dallas.ID, Hostname: "dallas-fs01", Status: device.StatusOnline}
-	require.NoError(t, devices.Upsert(tenant.ctx, d))
+	testutil.SignIn(t, tenant.ctx, devices, d)
 
 	got, err := devices.Get(tenant.ctx, d.ID)
 	require.NoError(t, err)

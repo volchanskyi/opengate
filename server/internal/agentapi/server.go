@@ -40,6 +40,7 @@ type AgentServer struct {
 	notifier      notifications.Notifier
 	scheduler     *BackfillScheduler
 	alertRules    AlertRuleProvider
+	customers     CustomerDirectory
 	alertStore    AlertRecorder
 	ruleCatalog   *rules.Catalogue
 	coverage      *RuleCoverageStore
@@ -93,6 +94,9 @@ type AgentServerConfig struct {
 	// AlertRules provides each agent's threshold-alert ruleset for its place in the
 	// tenancy ladder. Optional; nil falls back to DefaultAlertRules for every tenant.
 	AlertRules AlertRuleProvider
+	// Customers lists a tenant's customers, whose held rule settings a tenant-wide change reads
+	// again. Optional.
+	Customers CustomerDirectory
 	// RuleCoverage persists which machines cannot evaluate a rule at all.
 	// Optional; nil keeps coverage in memory.
 	RuleCoverage UnsupportedCoverageStore
@@ -137,6 +141,7 @@ func NewAgentServer(cfg AgentServerConfig) *AgentServer {
 		notifier:       cfg.Notifier,
 		scheduler:      NewBackfillScheduler(DefaultBackfillSchedulerConfig(), nil, nil, catchUpFill(cfg.Telemetry)),
 		alertRules:     resolveAlertRuleProvider(cfg.AlertRules),
+		customers:      cfg.Customers,
 		alertStore:     cfg.AlertStore,
 		ruleCatalog:    cfg.RuleCatalogue,
 		coverage:       NewRuleCoverageStore(),

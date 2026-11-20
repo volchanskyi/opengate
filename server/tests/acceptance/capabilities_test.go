@@ -79,6 +79,7 @@ var capabilityOutcomes = map[string][]string{
 		"TestAStoppedRuleReachesAMachineThatNeverDisconnects",
 		"TestARetunedThresholdReachesAMachineThatNeverDisconnects",
 		"TestAChangedAlertBudgetReachesAMachineThatNeverDisconnects",
+		"TestARemovedTuningReachesAMachineThatNeverDisconnects",
 	},
 	"Investigations.md": {
 		"TestAnAlertBecomesAnIncidentATechnicianClosesWithACause",

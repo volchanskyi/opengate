@@ -133,3 +133,23 @@ func TestTheDatabaseHoldsOneDefaultPerTenant(t *testing.T) {
 // backdateQuery moves a customer's creation an hour back, as a clock stepping back reads it.
 const backdateQuery = `UPDATE organizations SET created_at = created_at - INTERVAL '1 hour'
 		  WHERE tenant_id = current_setting('app.current_tenant')::uuid AND id = $1`
+
+func TestTheAdministratorListsEveryTenantsCustomersAndATenantOnlyItsOwn(t *testing.T) {
+	t.Parallel()
+	contoso := newEmptyTenant(t)
+	contosoID := contoso.create(t, "Contoso")
+	fabrikamTenant, fabrikamCtx := seedBareTenant(t, contoso.store)
+	fabrikam := &organization.Organization{ID: uuid.New(), Name: "Fabrikam"}
+	require.NoError(t, contoso.repo.Create(fabrikamCtx, fabrikam))
+
+	all, err := contoso.repo.AllCustomers(dbtx.WithDefaultTenant(context.Background(), true))
+	require.NoError(t, err)
+	assert.Contains(t, all, organization.Ref{TenantID: fabrikamTenant, ID: fabrikam.ID})
+	contosoTenant, _ := dbtx.TenantFromContext(contoso.ctx)
+	assert.Contains(t, all, organization.Ref{TenantID: contosoTenant.TenantID, ID: contosoID})
+
+	own, err := contoso.repo.AllCustomers(fabrikamCtx)
+	require.NoError(t, err)
+	assert.Equal(t, []organization.Ref{{TenantID: fabrikamTenant, ID: fabrikam.ID}}, own,
+		"a tenant's own scope reads only its own customers")
+}

@@ -300,6 +300,14 @@ func SeedOrganization(t testing.TB, ctx context.Context, s *db.PostgresStore, na
 	return org.ID
 }
 
+// SignIn writes d through repo's sign-in in ctx's tenant and fails the test when it fails.
+func SignIn(t testing.TB, ctx context.Context, repo device.Repository, d *device.Device) device.SignIn {
+	t.Helper()
+	got, err := repo.SignIn(ctx, d, nil)
+	require.NoError(t, err)
+	return got
+}
+
 // SeedDevice inserts an offline device belonging to siteID into the store and returns it.
 func SeedDevice(t testing.TB, ctx context.Context, s *db.PostgresStore, siteID uuid.UUID) *device.Device {
 	t.Helper()
@@ -311,7 +319,7 @@ func SeedDevice(t testing.TB, ctx context.Context, s *db.PostgresStore, siteID u
 		OS:       "linux",
 		Status:   device.StatusOffline,
 	}
-	require.NoError(t, NewTestDevices(t, s).Upsert(ctx, d))
+	SignIn(t, ctx, NewTestDevices(t, s), d)
 	return d
 }
 
@@ -327,7 +335,7 @@ func SeedDeviceIn(t testing.TB, ctx context.Context, s *db.PostgresStore, organi
 		OS:             "linux",
 		Status:         device.StatusOffline,
 	}
-	require.NoError(t, NewTestDevices(t, s).Upsert(ctx, d))
+	SignIn(t, ctx, NewTestDevices(t, s), d)
 	return d
 }
 

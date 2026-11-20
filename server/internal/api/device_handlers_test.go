@@ -37,7 +37,7 @@ func TestDeviceHandlers(t *testing.T) {
 		OS:       "linux",
 		Status:   db.StatusOnline,
 	}
-	require.NoError(t, srv.devices.Upsert(ctx, dev))
+	testutil.SignIn(t, ctx, srv.devices, dev)
 
 	t.Run("list devices", func(t *testing.T) {
 		w := doRequest(srv, http.MethodGet, testPathDevices+"?site_id="+site.ID.String(), token, nil)
@@ -151,7 +151,7 @@ func TestDeviceAMTProperty(t *testing.T) {
 
 	seed := func(hostname string) *device.Device {
 		d := &device.Device{ID: uuid.New(), SiteID: site.ID, Hostname: hostname, OS: "linux", Status: db.StatusOnline}
-		require.NoError(t, srv.devices.Upsert(ctx, d))
+		testutil.SignIn(t, ctx, srv.devices, d)
 		return d
 	}
 	available := true
@@ -212,7 +212,7 @@ func TestDeviceResponseNeverLeaksSystemUUID(t *testing.T) {
 	site := &device.Site{ID: uuid.New(), Name: "leak-site"}
 	require.NoError(t, srv.sites.Create(ctx, site))
 	d := &device.Device{ID: uuid.New(), SiteID: site.ID, Hostname: "leak-host", OS: "linux", Status: db.StatusOnline}
-	require.NoError(t, srv.devices.Upsert(ctx, d))
+	testutil.SignIn(t, ctx, srv.devices, d)
 
 	systemUUID := uuid.New()
 	available := true

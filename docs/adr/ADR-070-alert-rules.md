@@ -70,8 +70,25 @@ long as it is healthy, so a change delivered only on registration would be
 delivered only when something unrelated broke — the change goes out to that
 customer's connected machines as it is made, and to an offline machine as it
 arrives. Retuning travels the same path, because a boundary nobody's machines
-are comparing against is a row in a table, and so does a change to the
-customer's per-machine alert allowance, which rides down with the rules.
+are comparing against is a row in a table, and so do removing a retuned number
+and a change to the customer's per-machine alert allowance, which rides down with
+the rules.
+
+**Each customer's rule settings are held in memory.** Its retuned numbers,
+rollouts and per-machine alert allowance are read for every customer before the
+server takes machines, each inside that customer's own tenant so the tenant wall
+still guards the read, and a server whose read fails does not start
+([`alert_rules_memory.go`](../../server/internal/agentapi/alert_rules_memory.go)).
+A sign-in then reads only the machine's own rows. Every change made through the
+product reads its customer again before it goes out, and a change made outside
+the product is picked up by the next start. Each read carries a stamp, and a
+sign-in whose ruleset was built before a change landed pushes again, up to three
+times. The memory belongs to one server copy, and production replaces its server
+rather than running two side by side
+([`server-deployment.yaml`](../../deploy/helm/opengate/templates/server-deployment.yaml)).
+MeshCentral serves device groups from memory the same way; a reload on a timer,
+as Zabbix's configuration cache does, was not taken, since a change would wait up
+to one period.
 
 **A rule's revision and its severity travel with it.** An alert is identified by
 the machine, the rule, that revision and the window it fired for, so a machine

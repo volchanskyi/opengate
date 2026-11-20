@@ -206,9 +206,9 @@ func enrolled(t *testing.T, s *certServer, store *db.PostgresStore) (uuid.UUID, 
 	t.Helper()
 	id := uuid.New()
 	site := testutil.SeedSite(t, context.Background(), store)
-	require.NoError(t, testutil.NewTestDevices(t, store).Upsert(defaultTenantContext(), &device.Device{
+	testutil.SignIn(t, defaultTenantContext(), testutil.NewTestDevices(t, store), &device.Device{
 		ID: id, SiteID: site.ID, Hostname: "returning", OS: "linux", Status: device.StatusOffline,
-	}))
+	})
 	return id, machinecert.Issue(t, s.issuer, id)
 }
 

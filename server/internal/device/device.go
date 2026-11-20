@@ -174,7 +174,9 @@ type LogFilter struct {
 
 // Repository is the persistence port for devices.
 type Repository interface {
-	Upsert(ctx context.Context, d *Device) error
+	// SignIn writes a machine online in one transaction and reads back its tenant (the caller's
+	// for one never seen), customer, site, maintenance flag, tags and, when asked, fleet size.
+	SignIn(ctx context.Context, d *Device, needsFleetSize func(OrganizationID) bool) (SignIn, error)
 	Get(ctx context.Context, id DeviceID) (*Device, error)
 	// GetByAMTUUID resolves the device behind an AMT CIRA identity within the caller's tenant.
 	// The AMT connection map carries no tenant, so this lookup scopes AMT commands to it.
@@ -202,6 +204,18 @@ type Repository interface {
 	RecordSharedIdentity(ctx context.Context, id DeviceID, addresses []string, at time.Time) error
 	// Counts returns the status rollup from one aggregate row; a zero organizationID counts the tenant.
 	Counts(ctx context.Context, organizationID OrganizationID) (Counts, error)
+}
+
+// SignIn is what one machine's sign-in wrote and read back.
+type SignIn struct {
+	TenantID       uuid.UUID
+	OrganizationID OrganizationID
+	// SiteID is zero for an unfiled machine.
+	SiteID        SiteID
+	MaintenanceOn bool
+	Tags          map[string]string
+	// FleetSize is the customer's machine count, zero when it was not asked for.
+	FleetSize int
 }
 
 // Counts is the fleet status rollup behind the dashboard tiles.

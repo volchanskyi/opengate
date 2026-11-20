@@ -147,9 +147,11 @@ stopping it is an intervention, and afterwards the two have to be tellable apart
 | Precedence | A stop outranks the stage — the canary machines proving the rule lose it too |
 | Deploy needed | None |
 
-A retuned number travels the same way. A boundary sitting in a table is not one
-any machine is comparing against, so a change reaches that customer's connected
-machines as it is made rather than the next time each one happens to reconnect.
+A retuned number travels the same way, and so does removing one: the machines it
+covered go back to the next level up as it is removed. A boundary sitting in a
+table is not one any machine is comparing against, so a change reaches that
+customer's connected machines as it is made rather than the next time each one
+happens to reconnect.
 
 A rule that misbehaves is pulled back to a smaller population by the rollout
 machinery itself. That is not configuration: there is no field, column or endpoint

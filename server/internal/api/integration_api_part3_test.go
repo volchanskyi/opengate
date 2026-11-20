@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/device"
+	"github.com/volchanskyi/opengate/server/internal/testutil"
 	"net/http"
 	"testing"
 )
@@ -38,7 +39,7 @@ func TestDeviceLifecycle(t *testing.T) {
 		OS:       "linux",
 		Status:   db.StatusOnline,
 	}
-	require.NoError(t, env.devices.Upsert(defaultTenantContext(), d))
+	testutil.SignIn(t, defaultTenantContext(), env.devices, d)
 
 	t.Run("list devices in site", func(t *testing.T) {
 		resp := env.doJSON(t, http.MethodGet, "/api/v1/devices?site_id="+site.ID.String(), token, nil)

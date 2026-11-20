@@ -69,7 +69,8 @@ func TestDeletingALabelARuleAimsAtIsRefused(t *testing.T) {
 	assert.Len(t, mustListLabels(t, s, e.ctx, e.org), 1, "a refused delete must leave the label")
 	assert.Equal(t, map[string]string{"role": "file-server"}, mustTagsFor(t, s, e.ctx, e.device))
 
-	require.NoError(t, s.DeleteBinding(e.ctx, aimed.ID))
+	_, err = s.DeleteBinding(e.ctx, aimed.ID)
+	require.NoError(t, err)
 	require.NoError(t, s.DeleteLabel(e.ctx, fileServer.ID))
 	assert.Empty(t, mustListLabels(t, s, e.ctx, e.org))
 	assert.Empty(t, mustTagsFor(t, s, e.ctx, e.device))

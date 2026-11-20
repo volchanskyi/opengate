@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/quic-go/quic-go"
 
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
@@ -55,14 +54,9 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 		return
 	}
 
-	ctx = s.scopeForDevice(ctx, result.DeviceID, logger)
-	siteID, hostname := s.lookupDeviceMeta(ctx, result.DeviceID)
-
 	deviceID := result.DeviceID
 	ac := &AgentConn{
 		DeviceID:      deviceID,
-		TenantID:      agentTenantID(ctx),
-		SiteID:        siteID,
 		isTombstoned:  func() bool { return s.isTombstoned(deviceID) },
 		stream:        stream,
 		codec:         &protocol.Codec{},
@@ -91,23 +85,35 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 		allowance:     s.allowance,
 	}
 
-	s.registerConn(ctx, ac, hostname)
-	defer s.unregisterConn(stream, conn, ac, hostname, logger)
+	// A machine never seen signs in to the default tenant, and one seen before to its own.
+	ctx = dbtx.WithDefaultTenant(ctx, false)
+	msg, signedIn, err := s.signIn(ctx, ac)
+	if err != nil {
+		logger.Warn("sign-in refused; the machine dials again", "error", err)
+		_ = stream.Close()
+		closeWithCode(conn, protocol.CloseBye, "bye")
+		return
+	}
+	ctx = dbtx.WithTenant(ctx, signedIn.TenantID, false)
+	s.announceOnline(ctx, ac, msg.Hostname)
+	defer s.unregisterConn(stream, conn, ac, msg.Hostname, logger)
+	ac.afterSignIn(ctx, msg, signedIn)
 	s.runControlLoop(ctx, ac, logger)
 }
 
-// registerConn stores the connection in the server map and emits an online event. The newest
-// connection for a device wins: an older one is probed, then closed with code 6.
-func (s *AgentServer) registerConn(ctx context.Context, ac *AgentConn, hostname string) {
-	leave := s.statusGate.enter(ac.DeviceID)
+// swapIn puts the connection in the server map. The newest connection for a device wins: an
+// older one is probed, then closed with code 6.
+func (s *AgentServer) swapIn(ctx context.Context, ac *AgentConn) {
 	older, replaced := s.conns.Swap(ac.DeviceID, ac)
 	if !replaced {
 		s.count.Add(1)
+		return
 	}
-	leave()
-	if replaced {
-		go s.retire(context.WithoutCancel(ctx), older.(*AgentConn), ac)
-	}
+	go s.retire(context.WithoutCancel(ctx), older.(*AgentConn), ac)
+}
+
+// announceOnline records the connection's tenant for the presence sweep and emits the online event.
+func (s *AgentServer) announceOnline(ctx context.Context, ac *AgentConn, hostname string) {
 	s.seenTenants.Store(presenceTenant(ac), struct{}{})
 	onlineEvt := notifications.Event{
 		Type:           notifications.EventDeviceOnline,
@@ -247,26 +253,6 @@ func (g *deviceStatusGate) inFlight() []protocol.DeviceID {
 	return ids
 }
 
-func (s *AgentServer) scopeForDevice(ctx context.Context, deviceID uuid.UUID, logger *slog.Logger) context.Context {
-	resolveCtx := dbtx.WithDefaultTenant(ctx, true)
-	tenantID, err := s.devices.TenantForDevice(resolveCtx, deviceID)
-	if err != nil {
-		if !errors.Is(err, device.ErrDeviceNotFound) {
-			logger.Warn("resolve device tenant failed; falling back to default tenant", "error", err)
-		}
-		return dbtx.WithDefaultTenant(ctx, false)
-	}
-	return dbtx.WithTenant(ctx, tenantID, false)
-}
-
-func agentTenantID(ctx context.Context) uuid.UUID {
-	tenant, ok := dbtx.TenantFromContext(ctx)
-	if !ok {
-		return uuid.Nil
-	}
-	return tenant.TenantID
-}
-
 // runControlLoop processes control messages until the stream errors or the context is cancelled.
 func (s *AgentServer) runControlLoop(ctx context.Context, ac *AgentConn, logger *slog.Logger) {
 	for {
@@ -317,18 +303,4 @@ func (s *AgentServer) performHandshake(ctx context.Context, conn *quic.Conn, str
 		return nil, err
 	}
 	return result, nil
-}
-
-// lookupDeviceMeta resolves the site and hostname for a device, falling back
-// to defaults if the device is not yet persisted.
-func (s *AgentServer) lookupDeviceMeta(ctx context.Context, deviceID uuid.UUID) (uuid.UUID, string) {
-	siteID := uuid.Nil
-	hostname := deviceID.String()[:8]
-	if existing, err := s.devices.Get(ctx, deviceID); err == nil {
-		siteID = existing.SiteID
-		if existing.Hostname != "" {
-			hostname = existing.Hostname
-		}
-	}
-	return siteID, hostname
 }

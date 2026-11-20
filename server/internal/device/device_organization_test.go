@@ -28,7 +28,7 @@ func TestDeviceAlwaysLandsInAnOrganization(t *testing.T) {
 
 	site := testutil.SeedSite(t, ctx, store)
 	d := &device.Device{ID: uuid.New(), SiteID: site.ID, Hostname: "unassigned", Status: device.StatusOffline}
-	require.NoError(t, devices.Upsert(ctx, d))
+	testutil.SignIn(t, ctx, devices, d)
 
 	got, err := devices.Get(ctx, d.ID)
 	require.NoError(t, err)
@@ -39,7 +39,7 @@ func TestDeviceAlwaysLandsInAnOrganization(t *testing.T) {
 	assert.Equal(t, fallback, got.OrganizationID, "the fallback is the tenant's own organization")
 }
 
-func TestUpsertKeepsTheDeviceOrganizationOnReconnect(t *testing.T) {
+func TestASignInKeepsTheDeviceOrganizationOnReconnect(t *testing.T) {
 	t.Parallel()
 	devices, _, _, store := newRepos(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
@@ -50,7 +50,7 @@ func TestUpsertKeepsTheDeviceOrganizationOnReconnect(t *testing.T) {
 	require.NoError(t, devices.UpdateOrganization(ctx, d.ID, contoso))
 
 	reconnect := &device.Device{ID: d.ID, SiteID: site.ID, Hostname: d.Hostname, Status: device.StatusOnline}
-	require.NoError(t, devices.Upsert(ctx, reconnect))
+	testutil.SignIn(t, ctx, devices, reconnect)
 
 	got, err := devices.Get(ctx, d.ID)
 	require.NoError(t, err)

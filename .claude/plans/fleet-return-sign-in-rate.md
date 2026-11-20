@@ -428,6 +428,40 @@ rate (0.091, then 0.068), which is the sign-ins left unanswered at 5 minutes tha
     nothing was stored, as its message says; `onlineAtContoso` and
     `contosoOnlineMachine` become one helper.
 
+## Commit 2's shape, as the code reads (2026-11-19)
+
+What a sign-in reads today, in order: `TenantForDevice` (admin) and `devices.Get` at accept, then on
+`AgentRegister` the device write, `ScopeFor`, `ListBindings`, `ListRollouts`, `TagsFor`, `Counts`
+(rollout staged), `alerts.Limits`, and `devices.Get` again for the maintenance flag: nine
+transactions of about four trips. The agent sends `AgentRegister` first on every connection
+(`control_loop.rs` `open`), and the sign-in write is the only place a device row is created.
+
+- **Customer settings in memory** (step 4): `CatalogueAlertRuleProvider` holds, per customer,
+  its bindings, rollouts and alert budget with a version. Loaded for every tenant's customers,
+  each inside its tenant's boundary, before the agent listener starts (`internal/app`); reloaded
+  for one customer (or every customer of a tenant) by `RefreshAlertRules` /
+  `RefreshAlertRulesForTenant`, which every product change already calls through
+  `deliverRuleChange` (tuning upsert and delete, stop and resume, alert budget). A customer the
+  memory lacks is read on first use. A sign-in that read version v pushes again when the
+  customer's version has moved by the time its push is sent.
+- **One conversation** (step 5): `devices.SignIn` runs one transaction: the admin scope, the
+  device's tenant read and the switch to that tenant in one statement, the write returning the
+  machine's customer, site and maintenance flag with its tags in one statement, and the customer's
+  machine count only when the customer's rollouts in memory need it. Five trips, six with the count. `accept`
+  reads the first control frame, requires `AgentRegister`, runs the sign-in, and only then
+  builds and registers the connection with the tenant, customer and site it returned.
+- **Turned away**: a failed sign-in closes the connection with the failure's close code and
+  registers nothing; the agent redials after its 1–30 s wait. A later push to a connected machine
+  (a rule change) reads its scope again and keeps the scope the sign-in established on failure.
+- **A removed tuning** (found writing its acceptance test, 2026-11-19): `DeleteRuleBinding` pushed
+  nothing, so with settings in memory a removed number would have stayed until the next start. The
+  delete returns the customer it tuned and goes out as a retune does.
+- **Tests**: real-database `SignIn` tests (place, flag, tags, the count only when asked, the
+  tenant's own machine only, the trips counted through a pgx query tracer); a failed sign-in
+  turns the machine away (unit); a change racing a sign-in pushes again (unit); settings stored
+  before a start reach the first sign-in (server assembly); a removed tuning reaches a machine
+  that never disconnects (acceptance).
+
 ## Commits (Ivan, modal, 2026-11-12: four; commit 0 added 2026-11-17)
 
 0. The nightlies' unplanned failures, before step 1: the load test's owed levels, the

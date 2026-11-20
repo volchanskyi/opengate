@@ -83,8 +83,8 @@ type refusingDevices struct {
 	device.Repository
 }
 
-func (refusingDevices) Upsert(context.Context, *device.Device) error {
-	return errors.New("device store unavailable")
+func (refusingDevices) SignIn(context.Context, *device.Device, func(device.OrganizationID) bool) (device.SignIn, error) {
+	return device.SignIn{}, errors.New("device store unavailable")
 }
 
 func countRegistrationObservations(t *testing.T, m *appmetrics.Metrics, result string) int {

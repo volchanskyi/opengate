@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/volchanskyi/opengate/server/internal/testutil"
 	"net/http"
 	"testing"
 	"time"
@@ -47,7 +48,7 @@ func TestGetDeviceInventoryHandler(t *testing.T) {
 	site := &device.Site{ID: uuid.New(), Name: "inv-site"}
 	require.NoError(t, srv.sites.Create(ctx, site))
 	dev := &device.Device{ID: uuid.New(), SiteID: site.ID, Hostname: "inv-host", OS: "linux", Status: db.StatusOnline}
-	require.NoError(t, srv.devices.Upsert(ctx, dev))
+	testutil.SignIn(t, ctx, srv.devices, dev)
 
 	path := "/api/v1/devices/" + dev.ID.String() + "/inventory"
 
@@ -95,7 +96,7 @@ func TestGetDeviceInventoryHandler(t *testing.T) {
 		peerGroup := &device.Site{ID: uuid.New(), Name: "inv-peer-site"}
 		require.NoError(t, srv.sites.Create(ctx, peerGroup))
 		peerDev := &device.Device{ID: uuid.New(), SiteID: peerGroup.ID, Hostname: "peer-host", OS: "linux", Status: db.StatusOnline}
-		require.NoError(t, srv.devices.Upsert(ctx, peerDev))
+		testutil.SignIn(t, ctx, srv.devices, peerDev)
 
 		fake := &fakeInventoryRepo{}
 		srv.inventory = fake

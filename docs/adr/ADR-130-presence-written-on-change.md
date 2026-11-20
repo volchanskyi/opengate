@@ -16,11 +16,26 @@ connected machines for a reason they had no part in.
 ## Decision
 
 **The connection is presence; the database records changes.** A machine is
-online while the server holds its connection. Registration writes online with
+online while the server holds its connection. The sign-in writes online with
 the machine's row
-([`conn_register.go`](../../server/internal/agentapi/conn_register.go)), and
+([`postgres_sign_in.go`](../../server/internal/device/postgres_sign_in.go)), and
 disconnect writes offline with last-seen at the moment it left. A heartbeat
 writes nothing to the database.
+
+**A sign-in is one database conversation.** The machine's first control message
+is its `AgentRegister`, and anything else closes the connection
+([`server_connection.go`](../../server/internal/agentapi/server_connection.go)).
+One transaction then reads the machine's tenant under the administrator scope
+and switches into that tenant in the same statement, writes the row and reads
+back its customer, site, maintenance flag and tags in one statement, and counts
+the customer's machines only while one of its rules is part-way through a
+rollout: five round trips, six with the count
+([`device_sign_in_test.go`](../../server/internal/device/device_sign_in_test.go)).
+The customer's rule settings come from memory
+([ADR-070](ADR-070-alert-rules.md)). The server holds the connection only once
+its sign-in is written, so the connected count and the rows agree. MeshCentral
+reads one device row per connect, and PostgREST folds every per-request setting
+into one call, counting each extra round trip as the cost to avoid.
 
 **Last-seen is refreshed in bulk.** A sweep on the server's background schedule
 ([`background.go`](../../server/internal/app/background.go), `PresenceSweep`)
@@ -37,8 +52,9 @@ whose last machine left while its offline write failed is still reconciled.
 
 **A failed status write never ends a connection.** It is counted in
 `opengate_presence_write_failures_total` and logged; the next sweep corrects
-the row. A failed registration still ends the connection, since the row is what
-makes a machine exist for the product. The start-up reset marks every row
+the row. A failed sign-in ends the connection before the server holds it, since
+the row is what makes a machine exist for the product, and the machine dials
+again after its random wait. The start-up reset marks every row
 offline before machines reconnect, which bounds staleness after a server crash.
 
 Kubernetes moved node heartbeats to a small lease record to spare its store at

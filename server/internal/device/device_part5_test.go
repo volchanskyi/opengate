@@ -92,7 +92,9 @@ func (m *memDevices) maybeFail() error {
 	return nil
 }
 
-func (m *memDevices) Upsert(_ context.Context, _ *device.Device) error { return m.maybeFail() }
+func (m *memDevices) SignIn(context.Context, *device.Device, func(device.OrganizationID) bool) (device.SignIn, error) {
+	return device.SignIn{}, m.maybeFail()
+}
 
 func (m *memDevices) Get(_ context.Context, _ device.DeviceID) (*device.Device, error) {
 	return &device.Device{}, m.maybeFail()

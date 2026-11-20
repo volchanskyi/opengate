@@ -218,7 +218,8 @@ Indexed on `device_id` and `version` for fast lookups.
 
 The `devices.capabilities` column stores a JSONB array of capability strings
 (e.g., `'["Terminal","FileManager","RemoteDesktop"]'`). Capabilities are
-reported by the agent during registration and persisted via `UpsertDevice`.
+reported by the agent during registration and persisted by its sign-in
+([`postgres_sign_in.go`](../../server/internal/device/postgres_sign_in.go)).
 The web client uses this field to determine which session tabs to show.
 
 The `devices.group_id` foreign key is nullable with `ON DELETE SET NULL` —

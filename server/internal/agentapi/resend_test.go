@@ -20,7 +20,7 @@ func connectedMachine(t *testing.T, srv *AgentServer, caps ...protocol.AgentCapa
 	stream := &sentStream{}
 	ac := &AgentConn{DeviceID: uuid.New(), stream: stream, codec: &protocol.Codec{}, logger: testLogger()}
 	ac.setMeta("linux", "amd64", "0.1.0", caps)
-	srv.registerConn(context.Background(), ac, "contoso-desk")
+	holdSignedIn(context.Background(), srv, ac, "contoso-desk")
 	return ac, stream
 }
 
