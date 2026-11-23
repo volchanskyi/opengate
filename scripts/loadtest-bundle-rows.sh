@@ -59,7 +59,7 @@ rows_from() {
          end),
         # Each phase whose machines all sent an inventory, and how many of those the server stored.
         (.phases[]? | select(.inventory_sent != null)
-         | $base + {source: "burst", scenario: "inventory", phase: .name,
+         | $base + {scenario: "inventory", phase: .name,
                     inventory_sent: .inventory_sent, inventory_stored: .inventory_stored}),
         # The catch-up promises: live readings within 5 s by the count the server keeps, a reading never
         # stored a miss, and every machine caught up by when.

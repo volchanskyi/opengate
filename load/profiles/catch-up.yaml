@@ -2,6 +2,8 @@
 # busy morning's technicians, at production's limits on ARM; the writer's promises fail the night.
 schema_version: 1
 name: catch-up
+# The fleet's return within 30 s is a load of its own.
+version: 2
 family: spike
 environment: runner
 fixture: small

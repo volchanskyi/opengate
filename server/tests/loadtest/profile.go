@@ -55,8 +55,6 @@ type Phase struct {
 	// Measured marks the phase the browser-side percentiles are taken over; at most one phase
 	// carries it, and a profile that marks none is measured whole.
 	Measured bool `yaml:"measured"`
-	// LogPages is how many technicians each pull one machine's log page as the phase starts.
-	LogPages int `yaml:"log_pages"`
 	// InventoryBytes, when set, has every connected machine send one package inventory of that
 	// size as the phase starts, as a fleet-wide reinstall does.
 	InventoryBytes int `yaml:"inventory_bytes"`
@@ -263,9 +261,6 @@ func (p *Profile) validatePhases() []error {
 // burstProblems refuses a burst the server or the fleet could not carry.
 func (phase Phase) burstProblems() []error {
 	var problems []error
-	if phase.LogPages < 0 {
-		problems = append(problems, fmt.Errorf("phase %q: log_pages cannot be negative", phase.Name))
-	}
 	switch {
 	case phase.InventoryBytes < 0 || phase.InventoryBytes > protocol.MaxMachineMessageBytes:
 		problems = append(problems, fmt.Errorf(

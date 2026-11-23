@@ -20,11 +20,12 @@ func TestTheBurstProfileHoldsTheNightToBothCases(t *testing.T) {
 	back, inventory := p.Phases[0], p.Phases[1]
 	assert.Equal(t, 5000, back.ConnectedAgents, "production's fleet returns")
 	assert.LessOrEqual(t, back.Duration.Duration, 30*time.Second, "at once, as after a release restart")
-	assert.Equal(t, 20, back.LogPages, "while twenty technicians each open a log page")
+	assert.InDelta(t, 1, back.OperatorArrivalsPerSecond, 0, "while technicians open a log page a second")
+	assert.True(t, back.Measured, "the night's technician times are read over the return")
 	assert.Equal(t, protocol.MaxMachineMessageBytes, inventory.InventoryBytes,
 		"then every machine sends a message at the server's ceiling")
 	assert.Equal(t, 5*time.Minute, inventory.Duration.Duration, "and the recovery is judged on five minutes")
-	assert.True(t, inventory.Measured)
+	assert.False(t, inventory.Measured, "the inventory is judged on its own counts")
 
 	blocking := map[string]Gate{}
 	for _, gate := range p.Gates {
@@ -43,10 +44,10 @@ func TestTheBurstProfileHoldsTheNightToBothCases(t *testing.T) {
 		assert.InDelta(t, max, *gate.Max, 0, measurement)
 	}
 	for measurement, min := range map[string]float64{
-		"k6/journeys/log-page|requests":              20,
-		"burst/inventory/inventory|inventory_sent":   5000,
-		"burst/inventory/inventory|inventory_stored": 5000,
-		"catchup/live/drain|within_5s_share":         0.99,
+		"k6/journeys/log-page|requests":             30,
+		"quic/inventory/inventory|inventory_sent":   5000,
+		"quic/inventory/inventory|inventory_stored": 5000,
+		"catchup/live/drain|within_5s_share":        0.99,
 	} {
 		gate, held := blocking[measurement]
 		require.Truef(t, held, "%s fails the night", measurement)

@@ -158,7 +158,7 @@ Folded in by Ivan (modal, 2026-11-13). Each reading below is part of step 9's be
 - **The burst runs on a second spike leg, on ARM at production's limits** (Ivan, modal,
   2026-11-20): the shapes nightly keeps its x86 spike and gains an ARM spike leg beside it, through
   the shared leg workflow's ARM switch and production's limits, with 5,000 machines: the return
-  with 20 technicians each pulling a log page, then every machine's 1 MiB package inventory (the
+  with technicians pulling a log page a second, then every machine's 1 MiB package inventory (the
   one machine message allowed that size, sent by every machine after a fleet-wide reinstall), then
   the recovery.
 - **The safety case sends a 1 MiB inventory, stored in one statement** (Ivan, modal, 2026-11-20):
@@ -180,6 +180,11 @@ Folded in by Ivan (modal, 2026-11-13). Each reading below is part of step 9's be
 - **The burst safety case is judged on recovery** (Ivan, modal): memory under the
   limit, nobody offline, and within 5 minutes every message stored and live
   readings back within 5 s, the fleet-return promise's 5 minutes.
+- **The burst's log pages come a page a second** (Ivan, modal, 2026-11-20, after CI on
+  `13506f53`): twenty at once fired before any machine was back and fit neither kind of
+  technician load the test kit reads. Technicians open a log page a second through the 30 s
+  return, all 30 owed within 30 s; the return is the measured phase, so the server and database
+  watches read over it, and the returning wave gains two watches (all online, 95% within 3 min).
 
 ## Research, before the steps it gates
 
@@ -452,7 +457,7 @@ rate (0.091, then 0.068), which is the sign-ins left unanswered at 5 minutes tha
    8,000-machine sign-in median and database share, the spike's database share,
    the breakpoint's recovery sign-ins, and the catch-up leg's technician sign-up.
 10. The burst, two cases at production's limits (Ivan, modal). The real peak:
-    5,000 machines returning while 20 technicians each pull a log page; live
+    5,000 machines returning while technicians pull a log page a second; live
     readings within 5 s, every log page shown within 30 s, every machine online.
     The safety case: every machine sends a 1 MiB message at once; memory stays
     under the limit, no machine goes offline, and within 5 minutes every message

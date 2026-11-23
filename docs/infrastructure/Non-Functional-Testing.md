@@ -733,10 +733,11 @@ The shapes nightly runs a second spike leg on GitHub's ARM runner with the serve
 at production's limits ([`burst.yaml`](../../load/profiles/burst.yaml)), through the
 same shared leg workflow as catch-up, with the fleet installed and filed before
 the walk. It holds two cases. The real peak: the whole fleet returns at once while
-technicians each open one connected machine's log page
-([`log-pages.js`](../../load/k6/scenarios/log-pages.js)); every page is owed, and
-the slowest page shown and the count shown are its limits, beside every machine
-online and live readings within 5 s. The safety case: every machine then sends one
+technicians open a connected machine's log page at the return's steady rate
+([`log-pages.js`](../../load/k6/scenarios/log-pages.js)), the return being the
+phase the technicians' times are read over; every page is owed, and the slowest
+page shown and the count shown are its limits, beside every machine online and
+live readings within 5 s. The safety case: every machine then sends one
 package inventory padded to the server's message ceiling at once, as a fleet-wide
 reinstall has every machine send its inventory
 ([`inventory_burst.go`](../../server/tests/loadtest/inventory_burst.go)); the

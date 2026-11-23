@@ -102,11 +102,6 @@ func TestProfileRefusesWhatCannotBeCompared(t *testing.T) {
 			wantErr: "duration",
 		},
 		{
-			name:    "a negative count of log pages",
-			mutate:  func(p *Profile) { p.Phases[0].LogPages = -1 },
-			wantErr: "log_pages",
-		},
-		{
 			name:    "an inventory past the server's message ceiling",
 			mutate:  func(p *Profile) { p.Phases[1].InventoryBytes = 1<<20 + 1 },
 			wantErr: "inventory_bytes",

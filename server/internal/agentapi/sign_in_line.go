@@ -45,7 +45,7 @@ func comeBackWait() uint32 {
 	if err != nil {
 		return comeBackWithinSeconds
 	}
-	return uint32(n.Int64())
+	return uint32(min(n.Uint64(), comeBackWithinSeconds))
 }
 
 // newSignInLineFor sizes a line for the processor share, every processor when it is zero, and

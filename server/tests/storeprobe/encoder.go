@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -24,8 +25,8 @@ var vitals = func() []string {
 	return names
 }()
 
-// keptBody is a transport that keeps a request's body and answers it as stored, so the shipped
-// client encodes without sending.
+// keptBody is a transport that keeps a request's body, closes it as every transport does, and
+// answers it as stored, so the shipped client encodes without sending.
 type keptBody struct {
 	mu   sync.Mutex
 	body []byte
@@ -33,6 +34,7 @@ type keptBody struct {
 
 func (k *keptBody) RoundTrip(r *http.Request) (*http.Response, error) {
 	body, err := io.ReadAll(r.Body)
+	err = errors.Join(err, r.Body.Close())
 	if err != nil {
 		return nil, err
 	}

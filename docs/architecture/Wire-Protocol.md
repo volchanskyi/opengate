@@ -7,6 +7,7 @@
 - [Control messages](#control-messages)
   - [Message variants](#message-variants)
   - [Certificate messages](#certificate-messages)
+  - [The sign-in line](#the-sign-in-line)
   - [Request errors](#request-errors)
   - [Alert rules, breaches and coverage](#alert-rules-breaches-and-coverage)
   - [Alerts and their evidence](#alerts-and-their-evidence)

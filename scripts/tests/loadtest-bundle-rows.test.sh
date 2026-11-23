@@ -91,11 +91,11 @@ jq '.live_acceptance = {received: 360000, stored: 359900, within_five_seconds: 3
   | .database_levels = {cpu_percent: 20, cpu_cap: "1 processor", memory_percent: 30, memory_cap: "1 GiB"}' \
   "$WORK/full.json" >"$WORK/full-catch-up.json"
 mv "$WORK/full-catch-up.json" "$WORK/full.json"
-# Every leg writes machines, technicians, live readings and levels; catch-up adds its catch-up and
-# probe, the soak its leak trail, the breakpoint its ladder, and none of the three counts a wave.
+# Every leg writes machines, technicians, live readings, levels and a wave, the burst its log pages
+# too; catch-up (catch-up, probe), the soak (leak trail) and the breakpoint (ladder) count no wave.
 jq 'del(.catch_up, .store_probe, .leak_trail, .breaking_point)' "$WORK/full.json" >"$WORK/kind-plain.json"
-jq 'del(.catch_up, .store_probe, .leak_trail, .breaking_point) | .observations |= map(select(.series | startswith("wave") | not))
-  | .journeys = [{name: "log-page", requests: 20, error_rate: 0, latency_p50_ms: 900, latency_p95_ms: 2400,
+jq 'del(.catch_up, .store_probe, .leak_trail, .breaking_point)
+  | .journeys = [{name: "log-page", requests: 30, error_rate: 0, latency_p50_ms: 900, latency_p95_ms: 2400,
       latency_max_ms: 2900}]' "$WORK/full.json" >"$WORK/kind-burst.json"
 jq 'del(.leak_trail, .breaking_point) | .observations |= map(select(.series | startswith("wave") | not))' \
   "$WORK/full.json" >"$WORK/kind-catch-up.json"
@@ -155,11 +155,11 @@ assert_eq "a timed phase's sign-in rate is read off it" "104.2" \
     <<<"$("$ROWS" "$WORK/sign-in-rate.json")")"
 jq '.phases[1] += {inventory_sent: 5000, inventory_stored: 4990}' "$WORK/full.json" >"$WORK/inventory.json"
 assert_eq "a phase's stored inventories are read off it" "4990 5000" \
-  "$(jq -r '.[] | select(.source == "burst" and .phase == "step-2000") | "\(.inventory_stored) \(.inventory_sent)"' \
+  "$(jq -r '.[] | select(.scenario == "inventory" and .phase == "step-2000") | "\(.inventory_stored) \(.inventory_sent)"' \
     <<<"$("$ROWS" "$WORK/inventory.json")")"
 jq '.phases[1] += {inventory_sent: 5000}' "$WORK/full.json" >"$WORK/inventory-unread.json"
 assert_eq "a count the server never gave leaves the stored figure unread" "null" \
-  "$(jq -r '.[] | select(.source == "burst") | .inventory_stored' <<<"$("$ROWS" "$WORK/inventory-unread.json")")"
+  "$(jq -r '.[] | select(.scenario == "inventory") | .inventory_stored' <<<"$("$ROWS" "$WORK/inventory-unread.json")")"
 jq '.journeys += [{name: "log-page", requests: 20, error_rate: 0, latency_p50_ms: 900, latency_p95_ms: 2400,
   latency_max_ms: 2900}]' "$WORK/full.json" >"$WORK/log-pages.json"
 assert_eq "the log pages are held to their slowest and to how many were shown" "2900 20" \

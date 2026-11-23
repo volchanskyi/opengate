@@ -1,4 +1,4 @@
-# Five thousand machines return within 30 s while twenty technicians each open a log page, then a
+# Five thousand machines return within 30 s while technicians open a log page a second, then a
 # fleet-wide reinstall has every machine send its package inventory, at production's limits on ARM.
 schema_version: 1
 name: burst
@@ -8,13 +8,13 @@ fixture: small
 
 phases:
   # The fleet comes back as after a release restart, every machine installed and filed before the
-  # walk, so it dials with the certificate it holds.
+  # walk, so it dials with the certificate it holds; the technicians' times are read over it.
   - name: return
     duration: 30s
-    operator_arrivals_per_second: 0
+    operator_arrivals_per_second: 1
     connected_agents: 5000
     sessions: 0
-    log_pages: 20
+    measured: true
   # Every machine sends one message at the server's ceiling at once; the five minutes are the
   # recovery it is judged on.
   - name: inventory
@@ -23,7 +23,6 @@ phases:
     connected_agents: 5000
     sessions: 0
     inventory_bytes: 1048576
-    measured: true
 
 # No processor ceiling, since a full server is what the leg sets out to see.
 safety:
@@ -68,13 +67,22 @@ gates:
     metric: sign_ins_per_second
     min: 100
     blocking: false
+  # The returning wave watched for every machine online, 95% within the return's three minutes.
+  - series: quic/quic-agents/wave
+    metric: arrival_share
+    min: 1
+    blocking: false
+  - series: quic/quic-agents/wave
+    metric: latency_p95_ms
+    max: 180000
+    blocking: false
   - series: k6/journeys/log-page
     metric: latency_max_ms
     max: 30000
     blocking: true
   - series: k6/journeys/log-page
     metric: requests
-    min: 20
+    min: 30
     blocking: true
   - series: k6/journeys/log-page
     metric: error_rate
@@ -93,11 +101,11 @@ gates:
     min: 0.99
     blocking: true
   # The safety case: every inventory sent and stored within the five minutes, nobody offline.
-  - series: burst/inventory/inventory
+  - series: quic/inventory/inventory
     metric: inventory_sent
     min: 5000
     blocking: true
-  - series: burst/inventory/inventory
+  - series: quic/inventory/inventory
     metric: inventory_stored
     min: 5000
     blocking: true

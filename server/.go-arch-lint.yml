@@ -55,6 +55,10 @@ components:
   session:
     in: internal/session
 
+  # The buffer pool keeps freed byte buffers for reuse and imports stdlib only.
+  bufpool:
+    in: internal/bufpool
+
   # The telemetry module owns numeric VictoriaMetrics access and the Postgres RLS process table.
   telemetry:
     in: internal/telemetry
@@ -138,6 +142,7 @@ deps:
   telemetry:
     mayDependOn:
       - dbtx
+      - bufpool
     anyVendorDeps: true
     deepScan: false
   inventory:
@@ -157,6 +162,10 @@ deps:
       - notifications
       - session
       - protocol  # protocol.RedactToken
+    anyVendorDeps: true
+    deepScan: false
+  bufpool:
+    mayDependOn: []
     anyVendorDeps: true
     deepScan: false
   protocol:

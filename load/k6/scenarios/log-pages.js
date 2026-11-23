@@ -1,5 +1,5 @@
-// Log pages: each technician opens one connected machine's log page as its phase starts, timed
-// from the request to the page the machine sent back through the server.
+// Log pages: technicians open a connected machine's log page at the phase's rate, timed from the
+// request to the page the machine sent back through the server.
 import { check } from "k6";
 import { Trend } from "k6/metrics";
 // The shared request client sees every request the run makes and counts server refusals.
@@ -12,7 +12,13 @@ import {
   techniciansFor,
 } from "../lib/session.js";
 import { onlineIds } from "../lib/fleet.js";
-import { exportOnly, logPageScenarios, phases, technicianRoster } from "../lib/profile.js";
+import {
+  arrivalScenarios,
+  exportOnly,
+  measuredExports,
+  phases,
+  technicianRoster,
+} from "../lib/profile.js";
 
 const BASE_URL = __ENV.BASE_URL || "http://localhost:8080";
 
@@ -22,11 +28,23 @@ const logPageLatency = new Trend("journey_log_page_ms");
 // The lines a technician's first look at a machine's log asks for.
 const PAGE_LINES = 100;
 
+// A page may take its whole allowance, so each arrival holds a virtual user for that long.
+const PAGE_ALLOWANCE_SECONDS = 30;
+
 const WALK = phases();
 
 export const options = {
-  scenarios: logPageScenarios(WALK),
-  thresholds: { journey_log_page_ms: exportOnly("trend") },
+  scenarios: arrivalScenarios(WALK, PAGE_ALLOWANCE_SECONDS),
+  // The measured phase's pages, completed arrivals and their time, and any dropped arrivals join
+  // the export; the profile judges what it names.
+  thresholds: Object.assign(
+    { dropped_iterations: exportOnly("counter") },
+    measuredExports(WALK, {
+      iterations: "counter",
+      iteration_duration: "trend",
+      journey_log_page_ms: "trend",
+    })
+  ),
 };
 
 export function setup() {
