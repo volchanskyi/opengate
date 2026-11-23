@@ -1,0 +1,127 @@
+# Five thousand machines return within 30 s while technicians open a log page a second, then a
+# fleet-wide reinstall has every machine send its package inventory, at production's limits on ARM.
+schema_version: 1
+name: burst
+family: spike
+environment: runner
+fixture: small
+
+phases:
+  # The fleet comes back as after a release restart, every machine installed and filed before the
+  # walk, so it dials with the certificate it holds; the technicians' times are read over it.
+  - name: return
+    duration: 30s
+    operator_arrivals_per_second: 1
+    connected_agents: 5000
+    sessions: 0
+    measured: true
+  # Every machine sends one message at the server's ceiling at once; the five minutes are the
+  # recovery it is judged on.
+  - name: inventory
+    duration: 5m
+    operator_arrivals_per_second: 0
+    connected_agents: 5000
+    sessions: 0
+    inventory_bytes: 1048576
+
+# No processor ceiling, since a full server is what the leg sets out to see.
+safety:
+  max_node_memory_percent: 90
+  max_error_rate: 0.05
+
+gates:
+  # The real peak: every machine online and every log page shown, live readings within 5 s.
+  - series: quic/quic-agents/aggregate
+    metric: error_rate
+    max: 0
+    blocking: true
+  - series: quic/quic-agents/connect
+    metric: latency_p95_ms
+    max: 500
+    blocking: false
+  - series: quic/quic-agents/register
+    metric: latency_p50_ms
+    max: 100
+    blocking: false
+  - series: quic/quic-agents/register
+    metric: latency_p95_ms
+    max: 5000
+    blocking: false
+  - series: quic/register/return
+    metric: latency_p50_ms
+    max: 100
+    blocking: false
+  - series: quic/register/return
+    metric: latency_p95_ms
+    max: 5000
+    blocking: false
+  - series: quic/online/return
+    metric: online_p95_seconds
+    max: 180
+    blocking: true
+  - series: quic/online/return
+    metric: online_all_seconds
+    max: 300
+    blocking: true
+  - series: quic/online/return
+    metric: sign_ins_per_second
+    min: 100
+    blocking: false
+  # The returning wave watched for every machine online, 95% within the return's three minutes.
+  - series: quic/quic-agents/wave
+    metric: arrival_share
+    min: 1
+    blocking: false
+  - series: quic/quic-agents/wave
+    metric: latency_p95_ms
+    max: 180000
+    blocking: false
+  - series: k6/journeys/log-page
+    metric: latency_max_ms
+    max: 30000
+    blocking: true
+  - series: k6/journeys/log-page
+    metric: requests
+    min: 30
+    blocking: true
+  - series: k6/journeys/log-page
+    metric: error_rate
+    max: 0.01
+    blocking: false
+  - series: k6/journeys/log-page
+    metric: latency_p50_ms
+    max: 30000
+    blocking: false
+  - series: k6/journeys/log-page
+    metric: latency_p95_ms
+    max: 30000
+    blocking: false
+  - series: catchup/live/drain
+    metric: within_5s_share
+    min: 0.99
+    blocking: true
+  # The safety case: every inventory sent and stored within the five minutes, nobody offline.
+  - series: quic/inventory/inventory
+    metric: inventory_sent
+    min: 5000
+    blocking: true
+  - series: quic/inventory/inventory
+    metric: inventory_stored
+    min: 5000
+    blocking: true
+  - series: service/server/measured
+    metric: cpu_percent
+    max: 80
+    blocking: false
+  - series: service/server/measured
+    metric: memory_percent
+    max: 80
+    blocking: false
+  - series: service/database/measured
+    metric: cpu_percent
+    max: 80
+    blocking: false
+  - series: service/database/measured
+    metric: memory_percent
+    max: 80
+    blocking: false

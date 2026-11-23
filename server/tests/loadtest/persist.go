@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"math/big"
 	"time"
 )
@@ -13,39 +14,67 @@ const (
 	redialCap  = 30 * time.Second
 )
 
-// persistThrough redials a persistent machine until the run winds down, keeping its first arrival,
-// and gives any other machine one more dial when its first never arrived.
+// persistThrough redials a persistent machine until the run ends and any other once more; every
+// machine obeys each "come back later", which is neither a failed dial nor a redial.
 func persistThrough(ctx context.Context, opts loadOptions, live func(context.Context) agentResult) agentResult {
-	res := live(ctx)
+	res, told := liveThroughComeBacks(ctx, live)
 	if !opts.reconnect {
 		if res.err == nil || !res.arrivedAt.IsZero() {
+			res.toldToComeBack = told
 			return res
 		}
 		select {
 		case <-ctx.Done():
+			res.toldToComeBack = told
 			return res
 		case <-time.After(redialDelay(0)):
 		}
-		again := live(ctx)
+		again, toldAgain := liveThroughComeBacks(ctx, live)
 		again.retried = 1
+		again.toldToComeBack = told + toldAgain
 		return again
 	}
 
 	for attempt := 0; res.err != nil && ctx.Err() == nil; attempt++ {
 		select {
 		case <-ctx.Done():
+			res.toldToComeBack = told
 			return res
 		case <-time.After(redialDelay(attempt)):
 		}
 
-		again := live(ctx)
+		again, toldAgain := liveThroughComeBacks(ctx, live)
+		told += toldAgain
 		res.redials++
 		res.err = again.err
 		if !again.arrivedAt.IsZero() {
 			res.reconnected++
 		}
 	}
+	res.toldToComeBack = told
 	return res
+}
+
+// comeBackJitter is the most the agent adds to the server's whole-second wait.
+const comeBackJitter = time.Second
+
+// liveThroughComeBacks dials until the server stops telling the machine to come back later,
+// keeping each wait it is given as the agent does, and returns the last dial and the come-backs.
+func liveThroughComeBacks(ctx context.Context, live func(context.Context) agentResult) (agentResult, int) {
+	told := 0
+	for {
+		res := live(ctx)
+		var later *toldToComeBack
+		if !errors.As(res.err, &later) {
+			return res, told
+		}
+		told++
+		select {
+		case <-ctx.Done():
+			return res, told
+		case <-time.After(later.wait + jitterUpTo(comeBackJitter)):
+		}
+	}
 }
 
 // redialDelay is one full-jitter wait, uniform up to a window that doubles

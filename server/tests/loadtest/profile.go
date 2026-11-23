@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
 // profileSchemaVersion is the schema version this build reads;
@@ -53,6 +55,9 @@ type Phase struct {
 	// Measured marks the phase the browser-side percentiles are taken over; at most one phase
 	// carries it, and a profile that marks none is measured whole.
 	Measured bool `yaml:"measured"`
+	// InventoryBytes, when set, has every connected machine send one package inventory of that
+	// size as the phase starts, as a fleet-wide reinstall does.
+	InventoryBytes int `yaml:"inventory_bytes"`
 }
 
 // Safety is what makes a run stop itself.
@@ -240,6 +245,7 @@ func (p *Profile) validatePhases() []error {
 		if phase.Sessions < 0 {
 			problems = append(problems, fmt.Errorf("phase %q: sessions cannot be negative", phase.Name))
 		}
+		problems = append(problems, phase.burstProblems()...)
 		if phase.Measured {
 			measured = append(measured, phase.Name)
 		}
@@ -248,6 +254,20 @@ func (p *Profile) validatePhases() []error {
 		problems = append(problems, fmt.Errorf(
 			"phases %v are all marked measured — percentiles pooled across two loads describe neither, so at most one phase carries it",
 			measured))
+	}
+	return problems
+}
+
+// burstProblems refuses a burst the server or the fleet could not carry.
+func (phase Phase) burstProblems() []error {
+	var problems []error
+	switch {
+	case phase.InventoryBytes < 0 || phase.InventoryBytes > protocol.MaxMachineMessageBytes:
+		problems = append(problems, fmt.Errorf(
+			"phase %q: inventory_bytes must be between 0 and the server's %d-byte message ceiling",
+			phase.Name, protocol.MaxMachineMessageBytes))
+	case phase.InventoryBytes > 0 && phase.ConnectedAgents == 0:
+		problems = append(problems, fmt.Errorf("phase %q: inventory_bytes names no machine to send it", phase.Name))
 	}
 	return problems
 }

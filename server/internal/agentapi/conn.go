@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/quic-go/quic-go"
 
+	"github.com/volchanskyi/opengate/server/internal/bufpool"
 	"github.com/volchanskyi/opengate/server/internal/cert"
 	"github.com/volchanskyi/opengate/server/internal/certledger"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
@@ -388,17 +389,25 @@ func (a *AgentConn) readFrame(ctx context.Context) (byte, []byte, func(), error)
 	if length > maxMachineMessageBytes {
 		return 0, nil, nil, fmt.Errorf("%w: %d bytes (max %d)", protocol.ErrFrameTooLarge, length, maxMachineMessageBytes)
 	}
-	release, err := a.allowance.reserve(ctx, int64(length))
+	giveBack, err := a.allowance.reserve(ctx, int64(length))
 	if err != nil {
 		return 0, nil, nil, err
 	}
-	payload, err := a.codec.ReadPayload(a.stream, length)
-	if err != nil {
+	payload := payloads.Get(int(length))[:length]
+	release := func() {
+		payloads.Put(payload)
+		giveBack()
+	}
+	if _, err := io.ReadFull(a.stream, payload); err != nil {
 		release()
-		return 0, nil, nil, err
+		return 0, nil, nil, fmt.Errorf("%w: %v", protocol.ErrIncompleteFrame, err)
 	}
 	return frameType, payload, release, nil
 }
+
+// payloads holds read buffers a handled frame gave back; a decoded message keeps nothing of its
+// payload, so the buffer is free once the frame is released.
+var payloads = bufpool.New(256 << 10)
 
 // rejectTombstonedWrite drops a write-path message from a purged device and
 // reports that it was rejected, so the caller stops without persisting anything.

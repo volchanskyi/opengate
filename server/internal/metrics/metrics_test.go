@@ -181,3 +181,34 @@ func TestDirectLinkOutcomesAndHelperResultsCountUnderTheirOneLabel(t *testing.T)
 	require.Equal(t, 4, testutil.CollectAndCount(m.DirectLinkOutcomesTotal),
 		"four series: the outcome is the only label")
 }
+
+// instanceIDsOn gathers the registry and returns the instance_id label of each info sample.
+func instanceIDsOn(t *testing.T, reg *prometheus.Registry) []string {
+	t.Helper()
+	families, err := reg.Gather()
+	require.NoError(t, err)
+	var ids []string
+	for _, family := range families {
+		if family.GetName() != "opengate_process_instance_info" {
+			continue
+		}
+		for _, sample := range family.GetMetric() {
+			require.InDelta(t, 1, sample.GetGauge().GetValue(), 0)
+			for _, label := range sample.GetLabel() {
+				if label.GetName() == "instance_id" {
+					ids = append(ids, label.GetValue())
+				}
+			}
+		}
+	}
+	return ids
+}
+
+func TestTheRegistryNamesThisProcessByOneIDMadeAtItsStart(t *testing.T) {
+	first := instanceIDsOn(t, NewRegistry())
+	second := instanceIDsOn(t, NewRegistry())
+
+	require.Len(t, first, 1, "one process publishes one instance")
+	require.GreaterOrEqual(t, len(first[0]), 26, "the ID carries 128 random bits")
+	require.Equal(t, first, second, "every registry in one process names the same start")
+}

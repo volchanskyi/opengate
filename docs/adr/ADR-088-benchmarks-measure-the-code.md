@@ -77,7 +77,10 @@ builds the commit `benchmarks/baseline.json` names as its `anchor` beside
 tonight's, runs each language's whole suite at the two in turns, ten turns a
 side, and compares the turns through `benchstat`, Go's documented method
 ([`benchmark-anchor.sh`](../../scripts/benchmark-anchor.sh)). A Rust turn reads
-each benchmark's Criterion mean, compared the same way. A slowdown fails the
+each benchmark's Criterion mean, compared the same way. Each side's Go turns run
+against a database of their own: a suite's test setup migrates the database it is
+given, and the anchor's code refuses a schema tonight's has moved past, so a shared
+one leaves the anchor's turns refused. A slowdown fails the
 night when benchstat finds it significant and it is past 10%; the machine cancels
 out, since both sides ran on it. The anchor moves only by a commit accepting a
 change, the same commit on both sides is recorded and not judged, and a benchmark
@@ -89,6 +92,19 @@ tools prescribe for shared runners. Comparing only nights on the same processor
 model was weighed and rejected: over 29 Go nights it left 248 of 497 readings
 unjudged and still raised one alarm on unchanged code. The Rust turns take about
 50 minutes a night.
+
+**A flagged slowdown is read against the code before it is fixed.** Moving code
+moves the hot functions in the binary, and that alone moves a time: of four
+slowdowns the nights of 2026-11-12, 11-13 and 11-19 flagged, reproduced on one
+machine with both builds run in turn, the control encoder (+12%) and the
+file-piece relay (+11%) ran functions of the same size at new addresses, the
+relay's code untouched, and the anchor's encoder starting on a 64-byte boundary
+where later ones start half a line in. That is placement, which no change to the
+code under test answers. The alert check (+11.5%) was a fresh 40 KB decompressor
+a check, and now reuses a held one. The agent store's commit (+19%) pays for the
+index that let an hour's raw read decode only its blocks, 3.4 times faster; its
+upkeep writes a block's label once and leaves an unmoved one alone, which took
+the commit from 854 to 797 µs against the anchor's 716.
 
 **The baseline names every benchmark the suites run.** A benchmark it names that
 tonight did not run fails the night, so a deleted or renamed benchmark never

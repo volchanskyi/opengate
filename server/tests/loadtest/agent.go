@@ -158,10 +158,20 @@ func signIn(ctx context.Context, codec *protocol.Codec, stream soakStream, hostn
 	if err != nil {
 		return fmt.Errorf("await the server's answer to the sign-in: %w", err)
 	}
+	if answer.Type == protocol.MsgComeBackLater {
+		return &toldToComeBack{wait: time.Duration(answer.RetryAfter) * time.Second}
+	}
 	if err := stream.SetReadDeadline(time.Time{}); err != nil {
 		return fmt.Errorf("clear sign-in deadline: %w", err)
 	}
 	return answerServerFrame(ctx, codec, stream, opts, answer)
+}
+
+// toldToComeBack is a sign-in the server's full line answered with a wait before the next dial.
+type toldToComeBack struct{ wait time.Duration }
+
+func (t *toldToComeBack) Error() string {
+	return fmt.Sprintf("the server's sign-in line is full: come back in %s", t.wait)
 }
 
 // register sends the AgentRegister control frame that completes enrollment.

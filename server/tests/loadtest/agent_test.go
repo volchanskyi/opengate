@@ -94,3 +94,15 @@ func TestASignInThatLeavesAtItsSendWaitsForNoAnswer(t *testing.T) {
 	assert.Equal(t, protocol.MsgAgentRegister, readControl(t, codec, &sent).Type)
 	assert.Empty(t, stream.deadlines, "nothing is read, so nothing is waited for")
 }
+
+func TestAMachineToldToComeBackLaterReportsTheWait(t *testing.T) {
+	codec := &protocol.Codec{}
+	var replies bytes.Buffer
+	writeControl(t, codec, &replies, &protocol.ControlMessage{Type: protocol.MsgComeBackLater, RetryAfter: 7})
+
+	err := signIn(context.Background(), codec, &pipeStream{r: &replies, w: &bytes.Buffer{}}, "host-1", loadOptions{})
+
+	var told *toldToComeBack
+	require.ErrorAs(t, err, &told, "a full line is an answer, not a silence")
+	assert.Equal(t, 7*time.Second, told.wait)
+}

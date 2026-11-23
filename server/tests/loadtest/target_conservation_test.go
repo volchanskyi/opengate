@@ -22,10 +22,9 @@ func classifyWithTarget(target TargetConservation) Verdict {
 // bracket is one pair of readings across a stated number of operations, with
 // the same process at both ends unless a case says otherwise.
 func bracket(startGoroutines, endGoroutines float64, operations int) TargetConservation {
-	const processStart = 1756761000
 	return TargetConservation{
-		Start:      TargetHealth{Read: true, Goroutines: startGoroutines, StartTimeSeconds: processStart},
-		End:        TargetHealth{Read: true, Goroutines: endGoroutines, StartTimeSeconds: processStart},
+		Start:      TargetHealth{Read: true, Goroutines: startGoroutines, InstanceID: targetInstance},
+		End:        TargetHealth{Read: true, Goroutines: endGoroutines, InstanceID: targetInstance},
 		Operations: operations,
 	}
 }
@@ -43,7 +42,7 @@ func TestClassifyInvalidatesARunWhoseTargetWasReplaced(t *testing.T) {
 	t.Parallel()
 
 	replaced := bracket(29, 32, 100)
-	replaced.End.StartTimeSeconds = 1756761838
+	replaced.End.InstanceID = "R8M2X5KQ7TB3WN6PZC4HJYDFVG"
 
 	verdict := classifyWithTarget(replaced)
 
@@ -51,6 +50,21 @@ func TestClassifyInvalidatesARunWhoseTargetWasReplaced(t *testing.T) {
 		"numbers measured across a process replacement describe two systems, not one")
 	require.NotEmpty(t, verdict.Reasons)
 	assert.Contains(t, verdict.Reasons[0], "target restarted mid-run")
+	assert.Contains(t, verdict.Reasons[0], "R8M2X5KQ7TB3WN6PZC4HJYDFVG", "the reason names the new process")
+}
+
+func TestClassifyInvalidatesARunWhoseTargetNamedNoInstance(t *testing.T) {
+	t.Parallel()
+
+	anonymous := bracket(29, 32, 100)
+	anonymous.End.InstanceID = ""
+
+	verdict := classifyWithTarget(anonymous)
+
+	require.Equal(t, ResultInvalid, verdict.Result,
+		"a reading that names no process cannot rule a restart out")
+	require.NotEmpty(t, verdict.Reasons)
+	assert.Contains(t, verdict.Reasons[0], "opengate_process_instance_info")
 }
 
 func TestClassifyInvalidatesARunWhoseTargetStoppedAnswering(t *testing.T) {

@@ -16,7 +16,7 @@ import (
 // handleRegister answers an AgentRegister on a connection already signed in with a sign-in of
 // its own; a failed one ends the connection.
 func (a *AgentConn) handleRegister(ctx context.Context, msg *protocol.ControlMessage) error {
-	signedIn, err := a.signIn(ctx, msg)
+	signedIn, err := a.signIn(ctx, msg, time.Now())
 	if err != nil {
 		return err
 	}
@@ -24,17 +24,16 @@ func (a *AgentConn) handleRegister(ctx context.Context, msg *protocol.ControlMes
 	return nil
 }
 
-// signIn runs the machine's sign-in conversation and records the server-side duration, which
-// spans the write that brings the machine online.
-func (a *AgentConn) signIn(ctx context.Context, msg *protocol.ControlMessage) (device.SignIn, error) {
-	start := time.Now()
+// signIn runs the machine's sign-in conversation and records the server-side duration, from the
+// AgentRegister's arrival at since, a wait in the line included, to the write bringing it online.
+func (a *AgentConn) signIn(ctx context.Context, msg *protocol.ControlMessage, since time.Time) (device.SignIn, error) {
 	signedIn, err := a.writeSignIn(ctx, msg)
 	if a.metrics != nil {
 		result := appmetrics.RegistrationOK
 		if err != nil {
 			result = appmetrics.RegistrationError
 		}
-		a.metrics.ObserveAgentRegistration(result, time.Since(start))
+		a.metrics.ObserveAgentRegistration(result, time.Since(since))
 	}
 	return signedIn, err
 }

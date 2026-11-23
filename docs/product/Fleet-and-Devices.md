@@ -141,6 +141,12 @@ warning.
   during that pass is left online.
 - A failure to record status never drops a machine's connection or a remote
   session running on it.
+- When a whole fleet comes back at once — after a release restarts the server, or
+  an office's internet returns — machines sign in a few at a time and the rest wait
+  connected, each customer's machines taking turns, so a small customer is not held
+  behind a large one. A machine that arrives when about half a minute of sign-ins is
+  already waiting is told to come back after a random wait of up to half a minute,
+  and its agent dials again then.
 
 ## Inventory
 

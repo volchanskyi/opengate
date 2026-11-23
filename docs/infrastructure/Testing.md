@@ -217,7 +217,10 @@ stop and a start, and `agent-c-copy` starts from a copy of that folder, as a
 cloned disk would. The spec deletes a machine while it is off, reinstalls over a
 deleted machine, repairs a live one, cuts the power during a fresh reinstall,
 reinstalls over a half-finished removal, and runs two copies of one identity,
-reading each container's log, data folder and exit beside the console.
+reading each container's log, data folder and exit beside the console. A
+device it waits for is one the console did not list before the machine
+started: a workstation's clock can step back seconds between the spec's
+reading and the server's.
 
 [`docker-compose.test.yml`](../../deploy/docker-compose.test.yml) runs the local
 stack — a database, a metrics store, a server listening for machines, and the
@@ -238,7 +241,9 @@ direct-link address on a page it reached over IPv6 loopback. The networks need
 Docker Engine 28, which the bring-up checks first.
 
 The machines install the way a real one does.
-[`e2e-stack-up.sh`](../../deploy/scripts/e2e-stack-up.sh) builds every image once,
+[`e2e-stack-up.sh`](../../deploy/scripts/e2e-stack-up.sh) first takes down any
+stack an earlier run left up, its in-memory database with it, so every run
+starts from an empty one. It then builds every image once,
 from one reading of the tree — the server keeps its master key in memory, so a
 second build would start it under a key the machines' note does not name — then
 starts the database, the metrics store and the server, signs in as the bootstrap

@@ -160,8 +160,8 @@ else
   echo "  note docker not on PATH; what compose renders is not read back here (CI runs it)"
 fi
 
-# legs prints one line a leg every domain calls the shared leg for, its matrix expanded:
-# domain, job, leg, profile, catch-up, weigh, technician allowance and arm, separated by tabs.
+# legs prints a line for each leg a domain calls, its matrix expanded: domain, job, leg, profile,
+# catch-up, weigh, technician allowance, arm and technician scenarios, separated by tabs.
 legs() {
   python3 - "$LEG_WORKFLOW" "${DOMAINS[@]}" <<'PY_LEGS'
 import itertools, os, re, sys
@@ -169,6 +169,10 @@ import itertools, os, re, sys
 import yaml
 
 leg_file, domains = os.path.basename(sys.argv[1]), sys.argv[2:]
+leg_doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+# PyYAML reads the bare key `on` as the boolean true.
+leg_inputs = (leg_doc.get("on") or leg_doc.get(True) or {})["workflow_call"]["inputs"]
+default_journeys = str(leg_inputs["journeys"].get("default", ""))
 expr = re.compile(r"\$\{\{\s*matrix\.(\w+)(?:\s*\|\|\s*'([^']*)')?\s*\}\}")
 
 
@@ -195,7 +199,8 @@ for path in domains:
             given = {k: resolve(v, combo) for k, v in (job.get("with") or {}).items()}
             print("\t".join([os.path.basename(path), job_name, given.get("leg", ""), given.get("profile", ""),
                              given.get("catch-up", "False"), given.get("weigh", "False"),
-                             given.get("technician-cpus", ""), given.get("arm", "False")]))
+                             given.get("technician-cpus", ""), given.get("arm", "False"),
+                             given.get("journeys") or default_journeys]))
 PY_LEGS
 }
 
@@ -313,20 +318,19 @@ k6 = re.search(r"loadtest-k6-alongside\.sh\s+\S+\s+([^&\n]+)&", run)
 if not k6:
     print("the leg starts no browser-side generator")
     sys.exit(0)
-scenarios = k6.group(1).split()
-folds = "\n".join(str(s.get("run", "")) for s in steps if "--journeys" in str(s.get("run", "")))
-for scenario in scenarios:
-    if f"--journeys /tmp/perf-k6/{scenario}.json" not in folds:
-        print(f"the leg offers {scenario} and folds its numbers nowhere")
-for folded in re.findall(r"--journeys /tmp/perf-k6/([a-z0-9-]+)\.json", folds):
-    if folded not in scenarios:
-        print(f"the leg folds {folded}'s export and never runs it")
-print("scenarios=" + " ".join(scenarios))
+# The generator and the fold each read the leg's journeys input, so both name the same scenarios.
+reads = 'read -ra JOURNEY_SCENARIOS <<<"$JOURNEYS"'
+if "inputs.journeys" not in str(env.get("JOURNEYS", "")):
+    print("the leg's technician scenarios come from somewhere other than its journeys input")
+if k6.group(1).split() != ['"${JOURNEY_SCENARIOS[@]}"'] or reads not in run:
+    print("the leg offers technicians other than its journeys input")
+folds = [str(s.get("run", "")) for s in steps if "--journeys" in str(s.get("run", ""))]
+fold_each = ('for scenario in "${JOURNEY_SCENARIOS[@]}"', '--journeys "/tmp/perf-k6/$scenario.json"')
+if len(folds) != 1 or reads not in folds[0] or not all(part in folds[0] for part in fold_each):
+    print("the leg folds something other than each scenario its journeys input ran")
 PY_WALK
 )"
-SCENARIOS="$(sed -n 's/^scenarios=//p' <<<"$walk_problems")"
-walk_problems="$(grep -v '^scenarios=' <<<"$walk_problems" || true)"
-if [ -z "$walk_problems" ] && [ -n "$SCENARIOS" ]; then
+if [ -z "$walk_problems" ]; then
   pass "the leg's harness and technicians walk one profile against the server's authority, and fold what they ran"
 else
   fail "the leg's walk:"$'\n'"$walk_problems"
@@ -334,18 +338,24 @@ fi
 
 # Every leg's profile declares a technician load, and its declared sessions are held open by a
 # scenario the leg runs.
-offers_sessions=no
-for scenario in $SCENARIOS; do
-  script="$REPO_ROOT/load/k6/scenarios/$scenario.js"
-  if [ ! -f "$script" ]; then
-    fail "the leg names scenario $scenario and there is no such script"
+legs_read=0
+while IFS= read -r row; do
+  IFS=$'\t' read -r domain _ leg profile _ <<<"$row"
+  [ -n "$leg" ] || continue
+  journeys="$(cut -f9 <<<"$row")"
+  if [ -z "$journeys" ]; then
+    fail "$domain's $leg leg runs no technician scenario"
     continue
   fi
-  grep -q 'sessionScenarios' "$script" && offers_sessions=yes
-done
-legs_read=0
-while IFS=$'\t' read -r domain _ leg profile _; do
-  [ -n "$leg" ] || continue
+  offers_sessions=no
+  for scenario in $journeys; do
+    script="$REPO_ROOT/load/k6/scenarios/$scenario.js"
+    if [ ! -f "$script" ]; then
+      fail "$domain's $leg leg names scenario $scenario and there is no such script"
+      continue
+    fi
+    grep -q 'sessionScenarios' "$script" && offers_sessions=yes
+  done
   if [ -z "$profile" ] || [ ! -f "$REPO_ROOT/$profile" ]; then
     fail "$domain's $leg leg names [$profile], which is no profile"
     continue

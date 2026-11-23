@@ -23,7 +23,8 @@ type fakeStore struct {
 	fail   atomic.Pointer[error]
 }
 
-func (s *fakeStore) Import(ctx context.Context, body []byte) error {
+func (s *fakeStore) Import(ctx context.Context, parts ...[]byte) error {
+	body := bytes.Join(parts, nil)
 	if s.hold != nil {
 		s.hold(body)
 	}
@@ -32,7 +33,7 @@ func (s *fakeStore) Import(ctx context.Context, body []byte) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.bodies = append(s.bodies, append([]byte(nil), body...))
+	s.bodies = append(s.bodies, body)
 	return ctx.Err()
 }
 

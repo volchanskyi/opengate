@@ -31,7 +31,8 @@ impl<'txn> RawTables<'txn> {
         })
     }
 
-    /// Writes one raw block and relabels it with the span of its samples.
+    /// Writes one raw block and relabels it with the span of its samples; a label that did not
+    /// move is left as it is, which is the open block recommitted with nothing new.
     pub(super) fn put(
         &mut self,
         key: (u32, i64),
@@ -40,15 +41,25 @@ impl<'txn> RawTables<'txn> {
         logical: &mut u64,
     ) -> Result<()> {
         upsert_block(&mut self.blocks, key, bytes, logical)?;
-        self.unlabel(key)?;
-        if let Some(span) = ts_span(samples.iter().map(|(s, _)| s.ts)) {
-            self.label(key, span)?;
+        match ts_span(samples.iter().map(|(s, _)| s.ts)) {
+            Some(span) => self.label(key, span),
+            None => self.unlabel(key),
         }
-        Ok(())
     }
 
+    /// Labels a block with its span, reading its old label from the same write that replaces it.
     fn label(&mut self, key: (u32, i64), (earliest, latest): (i64, i64)) -> Result<()> {
-        self.span.insert(key, (earliest, latest)).map_err(re)?;
+        let old = self
+            .span
+            .insert(key, (earliest, latest))
+            .map_err(re)?
+            .map(|g| g.value());
+        if old == Some((earliest, latest)) {
+            return Ok(());
+        }
+        if let Some((_, was_latest)) = old {
+            self.by_end.remove((key.0, was_latest, key.1)).map_err(re)?;
+        }
         self.by_end
             .insert((key.0, latest, key.1), earliest)
             .map_err(re)?;

@@ -41,7 +41,43 @@ func markFleetOnline(results []PhaseResult, fleet Fleet, timed map[string]bool) 
 		slices.Sort(after)
 		phase.FleetOnlineP95Seconds = onlineBy(after, int(math.Ceil(fleetOnlineShare*float64(offered))))
 		phase.FleetOnlineAllSeconds = onlineBy(after, offered)
+		phase.FleetSignInsPerSecond = signInsWhileWaited(wave)
 	}
+}
+
+// signInsWhileWaited is the wave's sign-ins per second over the time some machine waited between
+// its first dial and the answer, so an idle stretch counts for nothing; absent when none signed in.
+func signInsWhileWaited(wave Wave) *float64 {
+	type span struct{ from, to time.Time }
+	spans := make([]span, 0, len(wave.OnlineAt))
+	for i, at := range wave.OnlineAt {
+		if i < len(wave.Online) {
+			spans = append(spans, span{from: at.Add(-wave.Online[i]), to: at})
+		}
+	}
+	if len(spans) == 0 {
+		return nil
+	}
+	slices.SortFunc(spans, func(a, b span) int { return a.from.Compare(b.from) })
+
+	var waited time.Duration
+	current := spans[0]
+	for _, next := range spans[1:] {
+		if next.from.After(current.to) {
+			waited += current.to.Sub(current.from)
+			current = next
+			continue
+		}
+		if next.to.After(current.to) {
+			current.to = next.to
+		}
+	}
+	waited += current.to.Sub(current.from)
+	if waited <= 0 {
+		return nil
+	}
+	rate := float64(len(spans)) / waited.Seconds()
+	return &rate
 }
 
 // onlineBy is the time the count-th machine came online, absent when fewer than count did.

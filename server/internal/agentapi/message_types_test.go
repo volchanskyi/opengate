@@ -33,7 +33,7 @@ var allControlMessageTypes = []protocol.ControlMessageType{
 	protocol.MsgMetricBackfillAck, protocol.MsgRequestLocalHistory, protocol.MsgLocalHistoryResponse,
 	protocol.MsgDiscoveryReport, protocol.MsgPushAlertRules, protocol.MsgSetMaintenanceMode,
 	protocol.MsgMaintenanceApplied, protocol.MsgAgentAlert, protocol.MsgAlertAnswer, protocol.MsgLiveWindowStored,
-	protocol.MsgRenewCertificate,
+	protocol.MsgComeBackLater, protocol.MsgRenewCertificate,
 	protocol.MsgCertificateSigningRequest, protocol.MsgCertificateIssued, protocol.MsgCertificateRefused,
 	protocol.MsgCertificateInstalled, protocol.MsgTrustBundle,
 }

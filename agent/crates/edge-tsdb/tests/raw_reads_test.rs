@@ -115,6 +115,27 @@ fn the_newest_block_is_read_once_as_it_grows_across_commits() {
 }
 
 #[test]
+fn a_commit_with_nothing_new_leaves_every_read_as_it_was() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = store(dir.path());
+    let written: Vec<i64> = (T..T + 250).collect();
+    for &ts in &written {
+        db.append(0, Sample::new(ts, 1.0), false).unwrap();
+    }
+    db.commit(Durability::None).unwrap();
+
+    for _ in 0..3 {
+        db.commit(Durability::None).unwrap();
+    }
+
+    assert_eq!(
+        timestamps(&db, T, T + 1_000),
+        expected(&written, T, T + 1_000)
+    );
+    assert_eq!(timestamps(&db, T + 249, T + 250), vec![T + 249]);
+}
+
+#[test]
 fn after_eviction_every_read_agrees_with_what_the_store_kept() {
     let dir = tempfile::tempdir().unwrap();
     let mut db = LocalTsdb::open(

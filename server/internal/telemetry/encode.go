@@ -7,7 +7,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/volchanskyi/opengate/server/internal/bufpool"
 )
+
+// bodies holds encoded bodies the store has taken, a flush's worth a size class, for the next
+// readings to be encoded into.
+var bodies = bufpool.New(256 << 10)
 
 // tenantLabel and deviceLabel are the labels the server stamps on every reading it writes.
 const (
@@ -45,7 +51,7 @@ func encodeReadings(scope Scope, samples []Sample) encodedReadings {
 	for i := range samples {
 		bound += lineBound(&samples[i])
 	}
-	body := make([]byte, 0, bound)
+	body := bodies.Get(bound)
 	keys := make([]string, 0, 4)
 	for _, sample := range samples {
 		line, sorted, err := appendSample(body, keys, scope, sample)

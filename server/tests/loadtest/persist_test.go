@@ -228,3 +228,57 @@ func TestErrHeldPeerGoneSurvivesWrapping(t *testing.T) {
 	wrapped := fmt.Errorf("hold open: %w", ErrHeldPeerGone)
 	assert.True(t, errors.Is(wrapped, ErrHeldPeerGone))
 }
+
+// toldToComeBackAfter is a dial the server's full line answered with a wait.
+func toldToComeBackAfter(wait time.Duration) agentResult {
+	return agentResult{connectDur: time.Millisecond, err: &toldToComeBack{wait: wait}}
+}
+
+func TestAMachineToldToComeBackLaterDialsAgainAfterTheWaitUntilItArrives(t *testing.T) {
+	var dials []time.Time
+	res := persistThrough(context.Background(), loadOptions{}, func(context.Context) agentResult {
+		dials = append(dials, time.Now())
+		if len(dials) <= 2 {
+			return toldToComeBackAfter(50 * time.Millisecond)
+		}
+		return arrived(time.Now())
+	})
+
+	require.Len(t, dials, 3, "a machine not asked to persist still comes back each time it is told")
+	assert.NoError(t, res.err)
+	assert.Equal(t, 2, res.toldToComeBack)
+	assert.Zero(t, res.retried, "a come-back is no failed dial")
+	assert.GreaterOrEqual(t, dials[1].Sub(dials[0]), 50*time.Millisecond, "the wait is kept")
+}
+
+func TestAPersistentMachineToldToComeBackLaterCountsItApartFromRedials(t *testing.T) {
+	calls := 0
+	res := persistThrough(context.Background(), loadOptions{reconnect: true}, func(context.Context) agentResult {
+		calls++
+		switch calls {
+		case 1:
+			return severed(time.Now())
+		case 2:
+			return toldToComeBackAfter(10 * time.Millisecond)
+		default:
+			return arrived(time.Now())
+		}
+	})
+
+	assert.Equal(t, 3, calls)
+	assert.NoError(t, res.err)
+	assert.Equal(t, 1, res.toldToComeBack)
+	assert.Equal(t, 1, res.reconnected)
+}
+
+func TestTheBundleCountsMachinesToldToComeBackLater(t *testing.T) {
+	bundle := buildRunBundle(runBundleInputs{
+		Results:    []agentResult{{toldToComeBack: 2}, {}, {toldToComeBack: 1}},
+		StartedAt:  time.Now().Add(-time.Minute),
+		Total:      time.Minute,
+		AgentCount: 3,
+		Target:     "127.0.0.1:9090",
+	})
+
+	assert.Equal(t, 3.0, observationValue(t, bundle, "told_to_come_back_later"))
+}

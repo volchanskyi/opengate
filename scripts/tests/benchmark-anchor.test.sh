@@ -31,13 +31,18 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 export BENCHMARK_ANCHOR_SUMMARY="$WORK/anchor.md"
 
-# The stand-in go prints what go test prints around its results: goos, goarch, pkg and cpu lines
-# before them, and PASS and ok after; each tree's readings come from its own file.
+# The stand-in go prints go test's lines around its results, each tree's readings from its own file.
+# A tree's refusal goes to stdout with exit 1, where go test prints a failing package's output.
 mkdir -p "$WORK/bin"
 cat >"$WORK/bin/go" <<'STUB'
 #!/usr/bin/env bash
 tree="$(cd .. && pwd)"
 printf '%s\n' "go $(basename "$tree") $*" >>"$ROUNDS_LOG"
+printf '%s %s\n' "$(basename "$tree")" "${POSTGRES_TEST_URL:-}" >>"$DATABASES_LOG"
+if [ -f "$tree/refusal" ]; then
+  cat "$tree/refusal"
+  exit 1
+fi
 printf 'goos: linux\ngoarch: amd64\npkg: github.com/volchanskyi/opengate/server/internal/protocol\n'
 printf 'cpu: AMD EPYC 7763 64-Core Processor\n'
 while read -r name ns; do
@@ -60,6 +65,9 @@ done <"$tree/readings"
 STUB
 chmod +x "$WORK/bin/go" "$WORK/bin/cargo"
 export ROUNDS_LOG="$WORK/rounds.log"
+export DATABASES_LOG="$WORK/databases.log"
+ANCHOR_DB="postgres://opengate@localhost:5432/opengate_anchor?sslmode=disable"
+TONIGHT_DB="postgres://opengate@localhost:5432/opengate_tonight?sslmode=disable"
 
 # tree NAME LINE… makes a work tree whose suites read the lines given, one benchmark a line.
 tree() {
@@ -75,9 +83,13 @@ echo "benchmark-anchor rounds:"
 tree anchor "BenchmarkCodec_ReadFrame 100" "BenchmarkRelayForward_Keystroke 2000"
 tree tonight "BenchmarkCodec_ReadFrame 130" "BenchmarkRelayForward_Keystroke 2000"
 : >"$ROUNDS_LOG"
+: >"$DATABASES_LOG"
 rc=0
-PATH="$WORK/bin:$PATH" "$ANCHOR" rounds go "$WORK/anchor" "$WORK/tonight" "$WORK/out-go" >"$WORK/log" 2>&1 || rc=$?
+PATH="$WORK/bin:$PATH" "$ANCHOR" rounds go "$WORK/anchor" "$WORK/tonight" "$WORK/out-go" \
+  "$ANCHOR_DB" "$TONIGHT_DB" >"$WORK/log" 2>&1 || rc=$?
 assert_eq "the Go rounds complete" "0" "$rc"
+assert_eq "each side runs against a database of its own in every round" \
+  "anchor $ANCHOR_DB"$'\n'"tonight $TONIGHT_DB" "$(sort -u "$DATABASES_LOG")"
 assert_eq "each side's suite runs ten times" "10 10" \
   "$(grep -c '^go anchor ' "$ROUNDS_LOG") $(grep -c '^go tonight ' "$ROUNDS_LOG")"
 assert_eq "the two sides take turns, the anchor first" "anchor tonight anchor tonight" \
@@ -94,6 +106,27 @@ else
 fi
 assert_eq "tonight's first run is kept whole for the trend and the allocation check" "1" \
   "$(grep -c '^cpu: ' "$WORK/out-go/tonight-first.txt")"
+
+: >"$ROUNDS_LOG"
+rc=0
+PATH="$WORK/bin:$PATH" "$ANCHOR" rounds go "$WORK/anchor" "$WORK/tonight" "$WORK/out-go-unnamed" \
+  "$ANCHOR_DB" >"$WORK/log" 2>&1 || rc=$?
+assert_eq "the Go rounds refuse to start without a database for each side" "2" "$rc"
+assert_eq "a refusal to start runs no suite" "" "$(cat "$ROUNDS_LOG")"
+
+printf '%s\n' '--- FAIL: TestMain' \
+  'postgres test setup failed: migrate up: no migration found for version 23' \
+  'FAIL	github.com/volchanskyi/opengate/server/internal/db	0.040s' >"$WORK/anchor/refusal"
+rc=0
+PATH="$WORK/bin:$PATH" "$ANCHOR" rounds go "$WORK/anchor" "$WORK/tonight" "$WORK/out-go-refused" \
+  "$ANCHOR_DB" "$TONIGHT_DB" >"$WORK/log" 2>&1 || rc=$?
+rm -f "$WORK/anchor/refusal"
+assert_eq "a round the suite refuses fails the rounds" "1" "$rc"
+if grep -qF 'no migration found for version 23' "$WORK/log"; then
+  pass "a refused round's own output reaches the log"
+else
+  fail "a refused round's own output reaches the log"
+fi
 
 tree anchor "frame_decode_control 583" "edge_sentinel_sampler/edge_sentinel_sysinfo_sample 900"
 tree tonight "frame_decode_control 590" "edge_sentinel_sampler/edge_sentinel_sysinfo_sample 905"

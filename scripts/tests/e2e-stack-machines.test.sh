@@ -148,7 +148,8 @@ fi
 # The server keeps its master key in memory, and the note carries the key the first server
 # announced; a later build that changes the image recreates the server under another key.
 compose_calls="$(grep -E '^[[:space:]]*compose[[:space:]]' "$BRINGUP" || true)"
-first_call="$(head -n 1 <<<"$compose_calls")"
+starting_calls="$(grep -vE '^[[:space:]]*compose[[:space:]]+down([[:space:]]|$)' <<<"$compose_calls" || true)"
+first_call="$(head -n 1 <<<"$starting_calls")"
 if [[ "$first_call" =~ ^[[:space:]]*compose[[:space:]]+build([[:space:]]|$) ]] \
   && ! grep -qE -- '--build' <<<"$compose_calls"; then
   pass "the bring-up builds every image once, so the machines reach the server their note names"

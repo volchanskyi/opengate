@@ -56,6 +56,9 @@ func (u *unreachableDevices) SetStatus(context.Context, device.DeviceID, device.
 	return u.fail()
 }
 func (u *unreachableDevices) ResetAllStatuses(context.Context) error { return u.fail() }
+func (u *unreachableDevices) CustomerOfEach(context.Context) (map[device.DeviceID]device.OrganizationID, error) {
+	return nil, u.fail()
+}
 func (u *unreachableDevices) RefreshPresence(context.Context, []device.DeviceID, time.Duration) (int, int, error) {
 	return 0, 0, u.fail()
 }

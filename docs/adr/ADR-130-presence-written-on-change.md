@@ -54,8 +54,9 @@ whose last machine left while its offline write failed is still reconciled.
 `opengate_presence_write_failures_total` and logged; the next sweep corrects
 the row. A failed sign-in ends the connection before the server holds it, since
 the row is what makes a machine exist for the product, and the machine dials
-again after its random wait. The start-up reset marks every row
-offline before machines reconnect, which bounds staleness after a server crash.
+again after its random wait. The start-up reset marks every tenant's
+rows offline, each inside its own boundary, before machines reconnect, which bounds
+staleness after a server crash.
 
 Kubernetes moved node heartbeats to a small lease record to spare its store at
 5,000 nodes; Nomad keeps heartbeat timers in memory and writes status only on a

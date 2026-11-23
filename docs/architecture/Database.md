@@ -297,7 +297,10 @@ logs is the agent connection's scope rather than an RLS row. See
 The `device_inventory` table stores each device's current auto-discovered
 footprint — one row per discovered component from a
 [`DiscoveryReport`](Wire-Protocol.md): a listening port, host service, database
-engine, container, or installed package.
+engine, container, or installed package. A whole report is written in one
+statement over one array per column, then the components it no longer names are
+pruned, so a report costs the same five round trips at any size
+([`postgres.go`](../../server/internal/inventory/postgres.go)).
 
 | Column | Type | Description |
 |--------|------|-------------|

@@ -80,6 +80,16 @@ on:
         required: false
         type: boolean
         default: false
+      burst:
+        description: "Installs the fleet first, so its walk is a return, with live minutes and no gap"
+        required: false
+        type: boolean
+        default: false
+      journeys:
+        description: "The technician scenarios k6 runs beside the fleet, separated by spaces"
+        required: false
+        type: string
+        default: api-baseline relay-throughput
     secrets:
       DOCKERHUB_USERNAME:
         required: true
@@ -107,6 +117,8 @@ jobs:
       AGENTS: ${{ inputs.agents }}
       HOLD: ${{ inputs.hold }}
       CATCH_UP: ${{ inputs.catch-up }}
+      BURST: ${{ inputs.burst }}
+      JOURNEYS: ${{ inputs.journeys }}
       # The harness records these caps as the target's fingerprint, so they match the container.
       PERF_SERVER_CPUS: ${{ inputs.server-cpus }}
       PERF_SERVER_MEMORY: ${{ inputs.server-memory }}
@@ -281,7 +293,13 @@ jobs:
             WALK=(-backfill-gap=1h -retry-deferred -enrol-first -live-every=60s)
             DESCRIPTION="compose stack, production's limits, $PERF_SERVER_CPUS processors"
           fi
-          "${TECHNICIAN_SHARE[@]}" scripts/loadtest-k6-alongside.sh /tmp/perf-quic.txt api-baseline relay-throughput &
+          # The burst's fleet is installed first too, and returns sending its live minutes.
+          if [ "$BURST" = true ]; then
+            WALK=(-enrol-first -live-every=60s)
+            DESCRIPTION="compose stack, production's limits, $PERF_SERVER_CPUS processors"
+          fi
+          read -ra JOURNEY_SCENARIOS <<<"$JOURNEYS"
+          "${TECHNICIAN_SHARE[@]}" scripts/loadtest-k6-alongside.sh /tmp/perf-quic.txt "${JOURNEY_SCENARIOS[@]}" &
           K6_LEG=$!
           # Exit 1 is a partly arrived fleet, which is a measurement; the verdict step judges it.
           set +e
@@ -333,9 +351,12 @@ jobs:
         if: always() && steps.stack.outcome == 'success'
         run: |
           set -euo pipefail
-          scripts/loadtest-bundle-merge.sh "$PERF_BUNDLE_DIR/$LEG/bundle.json" \
-            --journeys /tmp/perf-k6/api-baseline.json \
-            --journeys /tmp/perf-k6/relay-throughput.json
+          MERGE=()
+          read -ra JOURNEY_SCENARIOS <<<"$JOURNEYS"
+          for scenario in "${JOURNEY_SCENARIOS[@]}"; do
+            MERGE+=(--journeys "/tmp/perf-k6/$scenario.json")
+          done
+          scripts/loadtest-bundle-merge.sh "$PERF_BUNDLE_DIR/$LEG/bundle.json" "${MERGE[@]}"
 
       # The probe ran before the walk, so its readings reach the bundle whatever the walk did.
       - name: Fold the store probe's readings into the bundle

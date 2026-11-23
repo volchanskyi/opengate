@@ -7,6 +7,7 @@
 - [Control messages](#control-messages)
   - [Message variants](#message-variants)
   - [Certificate messages](#certificate-messages)
+  - [The sign-in line](#the-sign-in-line)
   - [Request errors](#request-errors)
   - [Alert rules, breaches and coverage](#alert-rules-breaches-and-coverage)
   - [Alerts and their evidence](#alerts-and-their-evidence)
@@ -140,6 +141,7 @@ the frame and continue. Malformed frames and oversized payloads remain fatal.
 | `CertificateSigningRequest` | Agent → Server | `csr` |
 | `CertificateIssued` | Server → Agent | `cert`, `ca_bundle` |
 | `CertificateRefused` | Server → Agent | `reason`, `retry_after` |
+| `ComeBackLater` | Server → Agent | `retry_after` |
 | `CertificateInstalled` | Agent → Server | _(none)_ |
 | `TrustBundle` | Server → Agent | `ca_bundle` |
 | `RelayReady` | Bidirectional | _(none)_ |
@@ -285,6 +287,19 @@ which makes it the device's current certificate. The server also sends
 `CertificateIssued` on a connection is the agent's proof that the server accepted
 its identity. The reasons are the `reason*` and `refused*` constants in
 [`renewal.go`](../../server/internal/agentapi/renewal.go).
+
+### The sign-in line
+
+The server runs a few sign-ins at once and holds the rest of the machines that sent
+their `AgentRegister` waiting, connected, each customer's machines in arrival order
+and the customers taking turns
+([ADR-131](../adr/ADR-131-sign-in-line.md)). A machine that arrives when the line
+is full is answered `ComeBackLater` with `retry_after`, a random whole number of
+seconds up to the line's length; the server then closes the connection once the
+machine hangs up. The agent hangs up at once, waits `retry_after` seconds plus up
+to a second of its own jitter, and dials again
+([`control_loop.rs`](../../agent/crates/mesh-agent/src/control_loop.rs)). Every
+agent understands it, so the server sends it with no capability check.
 
 ### Request errors
 

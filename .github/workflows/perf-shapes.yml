@@ -50,6 +50,23 @@ jobs:
             agents: '2000'
             hold: 7m
             minutes: 45
+          # The spike's two burst cases at production's size and limits, on the chip production runs.
+          - profile: burst
+            path: load/profiles/burst.yaml
+            title: Link came back at production's limits (ARM)
+            agents: '5000'
+            hold: 8m
+            minutes: 60
+            arm: true
+            burst: true
+            server_cpus: '0.25'
+            server_memory: 384m
+            server_memory_bytes: '402653184'
+            # About 400 KB of generator memory per machine over a 1.25 GiB baseline is roughly 3.3 GB.
+            generator_memory: 5G
+            technician_cpus: '0.5'
+            technician_memory: 1G
+            journeys: log-pages
           - profile: breakpoint
             path: load/profiles/breakpoint.yaml
             title: Raise it until it gives (breakpoint)
@@ -72,6 +89,12 @@ jobs:
       agents: ${{ matrix.agents }}
       hold: ${{ matrix.hold }}
       minutes: ${{ matrix.minutes }}
+      arm: ${{ matrix.arm || false }}
+      burst: ${{ matrix.burst || false }}
+      server-cpus: ${{ matrix.server_cpus || '1.0' }}
+      server-memory: ${{ matrix.server_memory || '1g' }}
+      server-memory-bytes: ${{ matrix.server_memory_bytes || '1073741824' }}
+      journeys: ${{ matrix.journeys || 'api-baseline relay-throughput' }}
       generator-cpus: ${{ matrix.generator_cpus || '1.0' }}
       generator-memory: ${{ matrix.generator_memory || '10G' }}
       technician-cpus: ${{ matrix.technician_cpus || '' }}

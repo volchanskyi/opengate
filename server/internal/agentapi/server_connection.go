@@ -87,7 +87,11 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 
 	// A machine never seen signs in to the default tenant, and one seen before to its own.
 	ctx = dbtx.WithDefaultTenant(ctx, false)
-	msg, signedIn, err := s.signIn(ctx, ac)
+	msg, signedIn, leaveLine, err := s.signIn(ctx, ac)
+	if errors.Is(err, errComeBackLater) {
+		s.tellToComeBackLater(ctx, ac, stream, conn, logger)
+		return
+	}
 	if err != nil {
 		logger.Warn("sign-in refused; the machine dials again", "error", err)
 		_ = stream.Close()
@@ -98,6 +102,7 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 	s.announceOnline(ctx, ac, msg.Hostname)
 	defer s.unregisterConn(stream, conn, ac, msg.Hostname, logger)
 	ac.afterSignIn(ctx, msg, signedIn)
+	leaveLine()
 	s.runControlLoop(ctx, ac, logger)
 }
 

@@ -34,6 +34,11 @@ compose() {
     docker compose -f "$COMPOSE_FILE" "$@"
 }
 
+# A run stopped before its teardown leaves its stack up, database included, so each run starts
+# from no stack at all.
+echo "▶ taking down any stack an earlier run left up"
+compose down -v --remove-orphans
+
 if [ ! -f "$AGENT_BINARY" ]; then
   echo "✗ the agent binary is missing: $AGENT_BINARY" >&2
   echo "  Build it with: make agent-binary" >&2
@@ -49,7 +54,7 @@ compose build
 echo "▶ bringing up the database and the server"
 compose up -d --wait postgres server
 
-# A refusal is not fatal: registering an existing account is normal on a re-run.
+# The operator's token, or nothing when the server refused it.
 bearer_token() {
   curl -sS -X POST "$1" \
     -H 'Content-Type: application/json' \
@@ -59,9 +64,6 @@ bearer_token() {
 
 echo "▶ signing in as the bootstrap operator"
 token="$(bearer_token "$BASE_URL/api/v1/auth/register")"
-if [ -z "$token" ]; then
-  token="$(bearer_token "$BASE_URL/api/v1/auth/login")"
-fi
 
 if [ -z "$token" ]; then
   echo "✗ could not sign in as the bootstrap operator" >&2

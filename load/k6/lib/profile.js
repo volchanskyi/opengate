@@ -114,8 +114,15 @@ export function sessionTechnicians(walk) {
   }, 0);
 }
 
-/** Requests one round of each arrival scenario makes; it sizes the virtual users and accounts. */
-export const REQUESTS_PER_ROUND = Object.freeze({ "api-baseline": 6, "concurrent-agents": 3 });
+/**
+ * Requests one round of each arrival scenario makes; it sizes the accounts, and the virtual users
+ * of a scenario whose requests take about a second.
+ */
+export const REQUESTS_PER_ROUND = Object.freeze({
+  "api-baseline": 6,
+  "concurrent-agents": 3,
+  "log-pages": 2,
+});
 
 /**
  * The accounts a scenario signs in as over a walk: the prefix their addresses carry and how many.
@@ -129,6 +136,8 @@ export function technicianRoster(scenario, walk) {
       return { prefix: "agent-load", count: arrivalTechnicians(walk, REQUESTS_PER_ROUND[scenario]) };
     case "relay-throughput":
       return { prefix: "relay", count: sessionTechnicians(walk) };
+    case "log-pages":
+      return { prefix: "logs", count: arrivalTechnicians(walk, REQUESTS_PER_ROUND[scenario]) };
     default:
       throw new Error(`no scenario named ${scenario} signs technicians in`);
   }

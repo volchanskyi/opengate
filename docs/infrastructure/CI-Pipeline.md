@@ -399,8 +399,9 @@ nightly schedule and by `workflow_dispatch`:
 
 Each language's job checks out the anchor commit
 [`benchmarks/baseline.json`](../../benchmarks/baseline.json) names beside tonight's and runs
-the whole suite at the two in turns on its one runner
-([`benchmark-anchor.sh`](../../scripts/benchmark-anchor.sh)), and records the runner's
+the whole suite at the two in turns on its one runner, each side's Go turns against a database
+of its own ([`benchmark-anchor.sh`](../../scripts/benchmark-anchor.sh)); a refused turn prints
+the suite's own output. The job records the runner's
 processor model and the time the host took back in its summary. A run by hand may name
 another anchor commit through its `anchor` input, which checks unchanged code against itself
 for noise. The gauntlet holds every

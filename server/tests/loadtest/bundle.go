@@ -122,6 +122,12 @@ type PhaseResult struct {
 	// the machines it asked for, and every one, had come online; absent where too few ever did.
 	FleetOnlineP95Seconds *float64 `json:"fleet_online_p95_seconds,omitempty"`
 	FleetOnlineAllSeconds *float64 `json:"fleet_online_all_seconds,omitempty"`
+	// InventorySent and InventoryStored are the phase's inventories sent by machines and stored by
+	// the server; absent on a phase that called for none.
+	InventorySent   *int64 `json:"inventory_sent,omitempty"`
+	InventoryStored *int64 `json:"inventory_stored,omitempty"`
+	// FleetSignInsPerSecond is the server's sign-in rate over the time any of those machines waited.
+	FleetSignInsPerSecond *float64 `json:"fleet_sign_ins_per_second,omitempty"`
 
 	// askedFrom and askedTo mark the machines the phase asked for, timed once the walk ends.
 	askedFrom, askedTo     int

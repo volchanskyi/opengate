@@ -148,6 +148,10 @@ type FileEntry struct {
 // MaxFrameSize is the maximum payload size for a single frame (16 MiB).
 const MaxFrameSize = 16 * 1024 * 1024
 
+// MaxMachineMessageBytes is the largest message a machine sends the server; a longer declared
+// length is refused from the frame's header.
+const MaxMachineMessageBytes = 1 << 20
+
 // RedactToken returns the first 8 characters of a token for safe logging.
 func RedactToken(token string) string {
 	if len(token) <= 8 {

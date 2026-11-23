@@ -91,9 +91,12 @@ jq '.live_acceptance = {received: 360000, stored: 359900, within_five_seconds: 3
   | .database_levels = {cpu_percent: 20, cpu_cap: "1 processor", memory_percent: 30, memory_cap: "1 GiB"}' \
   "$WORK/full.json" >"$WORK/full-catch-up.json"
 mv "$WORK/full-catch-up.json" "$WORK/full.json"
-# Every leg writes machines, technicians, live readings and levels; catch-up adds its catch-up and
-# probe, the soak its leak trail, the breakpoint its ladder, and none of the three counts a wave.
+# Every leg writes machines, technicians, live readings, levels and a wave, the burst its log pages
+# too; catch-up (catch-up, probe), the soak (leak trail) and the breakpoint (ladder) count no wave.
 jq 'del(.catch_up, .store_probe, .leak_trail, .breaking_point)' "$WORK/full.json" >"$WORK/kind-plain.json"
+jq 'del(.catch_up, .store_probe, .leak_trail, .breaking_point)
+  | .journeys = [{name: "log-page", requests: 30, error_rate: 0, latency_p50_ms: 900, latency_p95_ms: 2400,
+      latency_max_ms: 2900}]' "$WORK/full.json" >"$WORK/kind-burst.json"
 jq 'del(.leak_trail, .breaking_point) | .observations |= map(select(.series | startswith("wave") | not))' \
   "$WORK/full.json" >"$WORK/kind-catch-up.json"
 jq 'del(.catch_up, .store_probe, .breaking_point) | .observations |= map(select(.series | startswith("wave") | not))' \
@@ -145,6 +148,26 @@ jq '.phases[1] += {fleet_online_p95_seconds: 130.5, fleet_online_all_seconds: 19
 assert_eq "a timed phase's fleet-online times are read off it" "130.5 198" \
   "$(jq -r '.[] | select(.scenario == "online" and .phase == "step-2000") | "\(.online_p95_seconds) \(.online_all_seconds)"' \
     <<<"$("$ROWS" "$WORK/fleet-online.json")")"
+jq '.phases[1] += {fleet_online_p95_seconds: 130.5, fleet_sign_ins_per_second: 104.2}' "$WORK/full.json" \
+  >"$WORK/sign-in-rate.json"
+assert_eq "a timed phase's sign-in rate is read off it" "104.2" \
+  "$(jq -r '.[] | select(.scenario == "online" and .phase == "step-2000") | .sign_ins_per_second' \
+    <<<"$("$ROWS" "$WORK/sign-in-rate.json")")"
+jq '.phases[1] += {inventory_sent: 5000, inventory_stored: 4990}' "$WORK/full.json" >"$WORK/inventory.json"
+assert_eq "a phase's stored inventories are read off it" "4990 5000" \
+  "$(jq -r '.[] | select(.scenario == "inventory" and .phase == "step-2000") | "\(.inventory_stored) \(.inventory_sent)"' \
+    <<<"$("$ROWS" "$WORK/inventory.json")")"
+jq '.phases[1] += {inventory_sent: 5000}' "$WORK/full.json" >"$WORK/inventory-unread.json"
+assert_eq "a count the server never gave leaves the stored figure unread" "null" \
+  "$(jq -r '.[] | select(.scenario == "inventory") | .inventory_stored' <<<"$("$ROWS" "$WORK/inventory-unread.json")")"
+jq '.journeys += [{name: "log-page", requests: 20, error_rate: 0, latency_p50_ms: 900, latency_p95_ms: 2400,
+  latency_max_ms: 2900}]' "$WORK/full.json" >"$WORK/log-pages.json"
+assert_eq "the log pages are held to their slowest and to how many were shown" "2900 20" \
+  "$(jq -r '.[] | select(.scenario == "journeys" and .phase == "log-page") | "\(.latency_max_ms) \(.requests)"' \
+    <<<"$("$ROWS" "$WORK/log-pages.json")")"
+assert_eq "no other journey carries its slowest" "0" \
+  "$(jq '[.[] | select(.source == "k6" and .latency_max_ms != null and .phase != "log-page")] | length' \
+    <<<"$("$ROWS" "$WORK/log-pages.json")")"
 assert_eq "an untimed phase writes no fleet-online row" "0" \
   "$(jq '[.[] | select(.scenario == "online")] | length' <<<"$OUT")"
 assert_eq "the server's level is read over the measured phase" "38" \
@@ -260,7 +283,7 @@ while IFS= read -r relative; do
   profiles=$((profiles + 1))
   name="$(basename "$relative" .yaml)"
   case "$name" in
-    catch-up | soak | breakpoint) kind="$WORK/kind-$name.json" ;;
+    catch-up | soak | breakpoint | burst) kind="$WORK/kind-$name.json" ;;
     *) kind="$WORK/kind-plain.json" ;;
   esac
   # A phase signs machines in only where it climbs past the phase before, so only such a phase
@@ -271,7 +294,9 @@ while IFS= read -r relative; do
       | .value + {before: (if .key == 0 then 0 else $phases[.key - 1].agents end)}
       | {name}
         + (if .agents > .before then {register_p50_ms: 3, register_p95_ms: 9} else {} end)
-        + (if (.name | IN($timed[])) then {fleet_online_p95_seconds: 120, fleet_online_all_seconds: 190} else {} end)]' \
+        + (if (.name | IN($timed[])) then {fleet_online_p95_seconds: 120, fleet_online_all_seconds: 190,
+                                           fleet_sign_ins_per_second: 140} else {} end)
+        + (if .inventory_bytes > 0 then {inventory_sent: 5000, inventory_stored: 5000} else {} end)]' \
     "$kind" >"$WORK/leg.json"
   written="$(measurements_of "$("$ROWS" "$WORK/leg.json")")"
   limited="$(profile_gates "$profile" | jq -r '.[] | "\(.series)|\(.metric)"' | sort -u)"

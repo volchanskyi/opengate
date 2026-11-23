@@ -95,6 +95,9 @@ type Config struct {
 	BaseURL string
 	// QuicHost overrides the hostname an enrolling agent is told to dial.
 	QuicHost string
+	// ProcessorShare is the processors the container allows, which sizes the sign-in line; zero
+	// is every processor of the machine.
+	ProcessorShare float64
 	// TrustedProxies lists the proxies whose X-Forwarded-For picks a caller's request allowance.
 	// Empty trusts none, so callers behind one proxy share a single allowance.
 	TrustedProxies string
@@ -260,8 +263,9 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 	tombstoneStore := lifecycle.NewTombstoneStore(store.DB())
 	jobStore := lifecycle.NewJobStore(store.DB())
 
-	// A status left online by a previous run is cleared before serving.
-	if err := repos.devices.ResetAllStatuses(dbtx.WithDefaultTenant(ctx, false)); err != nil {
+	// A status left online by a previous run is cleared before serving, in every tenant.
+	customers := customerDirectory{organizations: repos.organizations}
+	if err := resetStatuses(ctx, repos.devices, customers); err != nil {
 		return nil, fmt.Errorf("app: reset device statuses: %w", err)
 	}
 
@@ -313,7 +317,6 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 	// every customer's settings are held before the server takes machines.
 	alertRules := agentapi.NewCatalogueAlertRuleProvider(
 		ruleCatalogue, ruleStore, ruleStore, repos.devices, alertStore, logger)
-	customers := customerDirectory{organizations: repos.organizations}
 	if err := alertRules.Load(ctx, customers); err != nil {
 		return nil, fmt.Errorf("app: hold customer rule settings: %w", err)
 	}
@@ -343,11 +346,16 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 		FleetCoverage: ruleStore,
 		// An alert names a rule and carries a customer, so the store that files
 		// it and the catalogue that says the rule exists are both wired here.
-		AlertStore:    alertStore,
-		RuleCatalogue: ruleCatalogue,
-		Issuer:        deviceIssuer,
-		Logger:        logger,
+		AlertStore:     alertStore,
+		RuleCatalogue:  ruleCatalogue,
+		Issuer:         deviceIssuer,
+		ProcessorShare: cfg.ProcessorShare,
+		Logger:         logger,
 	})
+	// The note only orders the sign-in line, so a machine it lacks waits in a turn of its own.
+	if err := agentSrv.WarmCustomerNote(ctx); err != nil {
+		logger.Error("note each machine's customer", "error", err)
+	}
 
 	purge := buildPurgeOrchestrator(ctx, purgeDeps{
 		agentSrv:        agentSrv,
@@ -689,6 +697,21 @@ func buildPurgeOrchestrator(ctx context.Context, d purgeDeps) purgePorts {
 		d.metrics.PurgeJobsUnfinished.Set(float64(unfinished))
 	}
 	return purgePorts{purger: orchestrator, jobs: d.jobs, reconciler: reconciler, resumer: orchestrator}
+}
+
+// resetStatuses marks offline the rows a previous run left online, each tenant inside its own
+// boundary.
+func resetStatuses(ctx context.Context, devices device.Repository, customers customerDirectory) error {
+	tenants, err := customers.tenants(ctx)
+	if err != nil {
+		return fmt.Errorf("list tenants: %w", err)
+	}
+	for _, tenant := range tenants {
+		if err := devices.ResetAllStatuses(dbtx.WithTenant(ctx, tenant, false)); err != nil {
+			return fmt.Errorf("tenant %s: %w", tenant, err)
+		}
+	}
+	return nil
 }
 
 // startupWorkBudget bounds the database work Build does before returning.

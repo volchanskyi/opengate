@@ -37,6 +37,7 @@ func (s *AgentServer) WarmTombstones(ctx context.Context) error {
 // (if online) to clean up and exit. Future reconnection attempts will be rejected.
 func (s *AgentServer) DeregisterAgent(ctx context.Context, deviceID protocol.DeviceID) {
 	s.tombstones.Store(deviceID, struct{}{})
+	s.customerNote.forget(deviceID)
 
 	ac := s.GetAgent(deviceID)
 	if ac == nil {

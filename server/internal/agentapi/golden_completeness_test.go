@@ -32,6 +32,8 @@ var reverseGoldenBySendMethod = map[string][]string{
 	"SendCertificateRefused": {"go_control_certificate_refused.bin", "go_control_certificate_refused_min.bin"},
 	"SendTrustBundle":        {"go_control_trust_bundle.bin"},
 	"SendResendRequest":      {"go_control_defer_backfill_since.bin"},
+	// The _min fixture covers a wait of nought, which the encoder drops.
+	"SendComeBackLater": {"go_control_come_back_later.bin", "go_control_come_back_later_min.bin"},
 }
 
 // reverseGoldenByInlineWrite names the goldens of variants written through sendControl

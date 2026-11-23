@@ -148,8 +148,12 @@ func invalidReasons(in RunInputs, verdict Verdict) []string {
 	// A restart splits the readings across two processes, so it invalidates the run.
 	if in.Target.Restarted() {
 		reasons = append(reasons, fmt.Sprintf(
-			"target restarted mid-run: the process answering at the end started at %.0f, not %.0f, so the readings either side describe two systems",
-			in.Target.End.StartTimeSeconds, in.Target.Start.StartTimeSeconds))
+			"target restarted mid-run: the process answering at the end is instance %s, not %s, so the readings either side describe two systems",
+			in.Target.End.InstanceID, in.Target.Start.InstanceID))
+	}
+	if in.Target.Unidentified() {
+		reasons = append(reasons, "the target's page carried no "+instanceInfoMetric+
+			" at the start or the end, so a restart between them cannot be ruled out")
 	}
 
 	for _, breach := range in.SafetyBreaches {
@@ -236,9 +240,9 @@ func pastTheBreakingPoint(answer *BreakingPoint, phase PhaseResult) bool {
 }
 
 // conservationBreaches reports what the target took and did not give back; it fails the run.
-// A run that never read its target, or read it across a restart, reports none.
+// A run that never read its target, read it across a restart or could not tell, reports none.
 func conservationBreaches(target TargetConservation) []string {
-	if !target.Bracketed() || target.Restarted() {
+	if !target.Bracketed() || target.Restarted() || target.Unidentified() {
 		return nil
 	}
 

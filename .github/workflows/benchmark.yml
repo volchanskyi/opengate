@@ -67,16 +67,19 @@ jobs:
           dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Start Postgres with max_connections=400
+      # Each side of the comparison keeps a database of its own. The TCP probe answers only once
+      # the image's first-start setup has finished.
+      - name: Start Postgres with a database for each side
         if: matrix.lang == 'go'
         run: |
           set -euo pipefail
           docker run -d --rm --name pg-ci \
-            -e POSTGRES_USER=opengate -e POSTGRES_PASSWORD=opengate -e POSTGRES_DB=opengate_test \
+            -e POSTGRES_USER=opengate -e POSTGRES_PASSWORD=opengate -e POSTGRES_DB=opengate_anchor \
             --shm-size=1g -p 5432:5432 postgres:17-alpine -c max_connections=400 -c max_locks_per_transaction=256
           for i in {1..30}; do
-            if docker exec pg-ci pg_isready -U opengate -d opengate_test >/dev/null 2>&1; then
+            if docker exec pg-ci pg_isready -h 127.0.0.1 -U opengate -d opengate_anchor >/dev/null 2>&1; then
               echo "postgres ready after ${i} attempt(s)"
+              docker exec pg-ci createdb -U opengate opengate_tonight
               exit 0
             fi
             sleep 1
@@ -95,10 +98,11 @@ jobs:
       - name: Run the Go benchmarks in turns with the anchor's
         if: matrix.lang == 'go'
         env:
-          POSTGRES_TEST_URL: postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable
+          POSTGRES_SERVER: postgres://opengate:opengate@localhost:5432
         run: |
           set -euo pipefail
-          scripts/benchmark-anchor.sh rounds go "$RUNNER_TEMP/anchor" "$GITHUB_WORKSPACE" bench-compare
+          scripts/benchmark-anchor.sh rounds go "$RUNNER_TEMP/anchor" "$GITHUB_WORKSPACE" bench-compare \
+            "$POSTGRES_SERVER/opengate_anchor?sslmode=disable" "$POSTGRES_SERVER/opengate_tonight?sslmode=disable"
           cp bench-compare/tonight-first.txt bench-go.txt
 
       - uses: actions/upload-artifact@v7

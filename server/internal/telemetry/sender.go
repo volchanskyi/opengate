@@ -1,7 +1,6 @@
 package telemetry
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"time"
@@ -23,8 +22,7 @@ func (w *Writer) run(ctx context.Context, q *queue) {
 	}
 	now := time.Now()
 	for _, e := range q.take(now) {
-		w.settle(q, e, ErrShuttingDown)
-		q.finish(e.size(), now)
+		w.answer(q, e, ErrShuttingDown, now)
 	}
 }
 
@@ -63,39 +61,33 @@ func (w *Writer) sleepUntilDue(ctx context.Context, q *queue, queued int, oldest
 	}
 }
 
-// sendOnce writes everything queued in one request. Each entry's write is registered before its
-// machine is checked against the deny-list, so an erasure waits for any check that passed.
+// sendOnce writes everything queued in one request read from the entries in place; each write is
+// registered before the deny-list check, so an erasure waits for any check that passed.
 func (w *Writer) sendOnce(q *queue) {
 	now := time.Now()
 	batch := q.take(now)
 	if len(batch) == 0 {
 		return
 	}
-	var body bytes.Buffer
+	sending := make([]*entry, 0, len(batch))
+	parts := make([][]byte, 0, len(batch))
+	tokens := make([]*writeToken, 0, len(batch))
 	total := 0
 	for _, e := range batch {
-		total += e.size()
-	}
-	// The request is sized once to the batch, so a multi-megabyte catch-up body never doubles.
-	body.Grow(total)
-	sending := make([]*entry, 0, len(batch))
-	tokens := make([]*writeToken, 0, len(batch))
-	for _, e := range batch {
 		if q.class == ClassCatchUp && now.Sub(e.received) > w.cfg.QueueWait {
-			w.settle(q, e, ErrWaitedTooLong)
-			q.finish(e.size(), now)
+			w.answer(q, e, ErrWaitedTooLong, now)
 			continue
 		}
 		token := w.writes.register(e.sub.Scope)
 		if w.cfg.Tombstoned != nil && w.cfg.Tombstoned(e.sub.Scope.Device) {
 			w.writes.finish(token)
-			w.settle(q, e, ErrTombstoned)
-			q.finish(e.size(), now)
+			w.answer(q, e, ErrTombstoned, now)
 			continue
 		}
-		body.Write(e.readings.body)
 		sending = append(sending, e)
+		parts = append(parts, e.readings.body)
 		tokens = append(tokens, token)
+		total += e.size()
 	}
 	if len(sending) == 0 {
 		return
@@ -103,10 +95,10 @@ func (w *Writer) sendOnce(q *queue) {
 
 	started := time.Now()
 	reqCtx, cancel := context.WithTimeout(context.Background(), w.cfg.WriteTimeout)
-	err := w.cfg.Store.Import(reqCtx, body.Bytes())
+	err := w.cfg.Store.Import(reqCtx, parts...)
 	cancel()
 	if w.cfg.Observer != nil {
-		w.cfg.Observer.Request(q.class.String(), body.Len(), time.Since(started), err)
+		w.cfg.Observer.Request(q.class.String(), total, time.Since(started), err)
 	}
 	if err != nil {
 		err = fmt.Errorf("%w: %w", ErrStoreWrite, err)
@@ -114,7 +106,6 @@ func (w *Writer) sendOnce(q *queue) {
 	answered := time.Now()
 	for i, e := range sending {
 		w.writes.finish(tokens[i])
-		w.settle(q, e, err)
-		q.finish(e.size(), answered)
+		w.answer(q, e, err, answered)
 	}
 }

@@ -45,32 +45,12 @@ func (r *PostgresInventoryRepository) Replace(ctx context.Context, deviceID uuid
 	}
 	ts = ts.UTC()
 	tenant, _ := dbtx.TenantFromContext(ctx)
+	rows := inventoryRowsOf(components)
 	return dbtx.Scoped(ctx, r.db, func(tx *sql.Tx) error {
-		for _, c := range components {
-			if !validKind(c.Kind) {
-				continue
-			}
-			if _, err := tx.ExecContext(ctx,
-				`INSERT INTO device_inventory
-				   (tenant_id, device_id, kind, name, version, port, proto, state, runtime, image, first_seen, last_seen)
-				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
-				 ON CONFLICT (tenant_id, device_id, kind, name, port, proto) DO UPDATE SET
-				   version   = EXCLUDED.version,
-				   state     = EXCLUDED.state,
-				   runtime   = EXCLUDED.runtime,
-				   image     = EXCLUDED.image,
-				   last_seen = EXCLUDED.last_seen`,
-				tenant.TenantID, deviceID, c.Kind,
-				sanitizeInventoryText(c.Name),
-				sanitizeInventoryText(c.Version),
-				int(c.Port),
-				sanitizeInventoryText(c.Proto),
-				sanitizeInventoryText(c.State),
-				sanitizeInventoryText(c.Runtime),
-				sanitizeInventoryText(c.Image),
-				ts); err != nil {
-				return fmt.Errorf("upsert inventory component: %w", err)
-			}
+		if _, err := tx.ExecContext(ctx, upsertInventoryStatement,
+			tenant.TenantID, deviceID, ts, rows.kinds, rows.names, rows.versions, rows.ports,
+			rows.protos, rows.states, rows.runtimes, rows.images); err != nil {
+			return fmt.Errorf("upsert inventory components: %w", err)
 		}
 		// Prune components absent from this scan so the stored rows always equal
 		// the device's latest footprint (bounded by the agent's per-category caps).
@@ -82,6 +62,61 @@ func (r *PostgresInventoryRepository) Replace(ctx context.Context, deviceID uuid
 		}
 		return nil
 	})
+}
+
+// upsertInventoryStatement writes a whole report in one statement, one array per column.
+const upsertInventoryStatement = `INSERT INTO device_inventory
+	   (tenant_id, device_id, kind, name, version, port, proto, state, runtime, image, first_seen, last_seen)
+	 SELECT $1, $2, kind, name, version, port, proto, state, runtime, image, $3, $3
+	   FROM unnest($4::text[], $5::text[], $6::text[], $7::int[], $8::text[], $9::text[], $10::text[], $11::text[])
+	     AS c(kind, name, version, port, proto, state, runtime, image)
+	 ON CONFLICT (tenant_id, device_id, kind, name, port, proto) DO UPDATE SET
+	   version   = EXCLUDED.version,
+	   state     = EXCLUDED.state,
+	   runtime   = EXCLUDED.runtime,
+	   image     = EXCLUDED.image,
+	   last_seen = EXCLUDED.last_seen`
+
+// inventoryRows is a report's valid components column by column, sanitized, each key once.
+type inventoryRows struct {
+	kinds, names, versions, protos, states, runtimes, images []string
+	ports                                                    []int32
+}
+
+// inventoryRowsOf keeps the last component a report names under each key, since one statement
+// updates a row once, and skips a component of no accepted kind.
+func inventoryRowsOf(components []Component) inventoryRows {
+	type key struct {
+		kind, name, proto string
+		port              int32
+	}
+	at := make(map[key]int, len(components))
+	var rows inventoryRows
+	for _, c := range components {
+		if !validKind(c.Kind) {
+			continue
+		}
+		name, proto, port := sanitizeInventoryText(c.Name), sanitizeInventoryText(c.Proto), int32(c.Port)
+		k := key{kind: c.Kind, name: name, proto: proto, port: port}
+		i, seen := at[k]
+		if !seen {
+			i = len(rows.kinds)
+			at[k] = i
+			rows.kinds = append(rows.kinds, c.Kind)
+			rows.names = append(rows.names, name)
+			rows.ports = append(rows.ports, port)
+			rows.protos = append(rows.protos, proto)
+			rows.versions = append(rows.versions, "")
+			rows.states = append(rows.states, "")
+			rows.runtimes = append(rows.runtimes, "")
+			rows.images = append(rows.images, "")
+		}
+		rows.versions[i] = sanitizeInventoryText(c.Version)
+		rows.states[i] = sanitizeInventoryText(c.State)
+		rows.runtimes[i] = sanitizeInventoryText(c.Runtime)
+		rows.images[i] = sanitizeInventoryText(c.Image)
+	}
+	return rows
 }
 
 // ListForDevice implements Repository.

@@ -2,8 +2,11 @@
   "breakpoint": {
     "3": "a7cbb7a506952b25"
   },
+  "burst": {
+    "1": "4b51fa089ee84f4a"
+  },
   "catch-up": {
-    "1": "2798844081653ed8"
+    "2": "c92bf63adea10861"
   },
   "normal": {
     "1": "b57261ffe729dffb"

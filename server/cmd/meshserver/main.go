@@ -82,6 +82,11 @@ func main() {
 		logger.Info("Go memory limit set from the container", "bytes", limit)
 	}
 
+	processorShare, err := app.ReadProcessorShare(app.CgroupCPUMax)
+	if err != nil {
+		logger.Warn("container processor limit not read; the sign-in line is sized to the machine", "error", err)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -102,6 +107,7 @@ func main() {
 		GitHubRepo:         os.Getenv("OPENGATE_GITHUB_REPO"),
 		BaseURL:            os.Getenv("OPENGATE_BASE_URL"),
 		QuicHost:           os.Getenv("OPENGATE_QUIC_HOST"),
+		ProcessorShare:     processorShare,
 		TrustedProxies:     os.Getenv("OPENGATE_TRUSTED_PROXIES"),
 		WebDir:             *webDir,
 		InternalListen:     *internalListen,

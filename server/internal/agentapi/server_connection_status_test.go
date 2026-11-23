@@ -80,8 +80,10 @@ func TestAMachineDiallingBackWaitsForTheDepartingOfflineWrite(t *testing.T) {
 	registered := make(chan struct{})
 	go func() {
 		defer close(registered)
-		_, _, err := srv.signIn(context.Background(), returning)
-		assert.NoError(t, err)
+		_, _, leaveLine, err := srv.signIn(context.Background(), returning)
+		if assert.NoError(t, err) {
+			leaveLine()
+		}
 	}()
 
 	assert.Never(t, func() bool {

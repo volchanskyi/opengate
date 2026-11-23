@@ -55,6 +55,8 @@ type loadOptions struct {
 	// backfillGap sizes the catch-up from the time a machine lost, overriding the counted batches.
 	backfillGap time.Duration
 
+	// inventory is the fleet-wide call for a package inventory, answered once per call while held.
+	inventory *inventoryCall
 	// liveEvery sends a live window each period while the machine is held; zero sends none.
 	liveEvery time.Duration
 

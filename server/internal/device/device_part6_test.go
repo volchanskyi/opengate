@@ -20,6 +20,10 @@ func (m *memDevices) SetStatus(_ context.Context, _ device.DeviceID, _ device.De
 
 func (m *memDevices) ResetAllStatuses(_ context.Context) error { return m.maybeFail() }
 
+func (m *memDevices) CustomerOfEach(_ context.Context) (map[device.DeviceID]device.OrganizationID, error) {
+	return nil, m.maybeFail()
+}
+
 func (m *memDevices) RefreshPresence(_ context.Context, connected []device.DeviceID, _ time.Duration) (int, int, error) {
 	if err := m.maybeFail(); err != nil {
 		return 0, 0, err

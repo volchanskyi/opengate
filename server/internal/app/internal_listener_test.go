@@ -62,6 +62,7 @@ func TestInternalListenerServesTheExposition(t *testing.T) {
 		"process_resident_memory_bytes",
 		"process_open_fds",
 		"process_start_time_seconds",
+		"opengate_process_instance_info",
 	} {
 		assert.True(t, strings.Contains(page, family),
 			"the exposition must carry %s — a load run reads its target's health off this page", family)

@@ -103,6 +103,8 @@ enum End {
     },
     /// The server closed a session after the agent installed a renewal on it.
     Renewed,
+    /// The server's sign-in line was full; the agent dials again after this wait.
+    ComeBackLater(Duration),
 }
 
 /// What the loop learned while serving one connection, and where its requests reply.
@@ -182,6 +184,15 @@ pub(crate) async fn run(mut agent: Agent, mut sigterm: tokio::signal::unix::Sign
         match end {
             End::Shutdown => break,
             End::Renewed => continue,
+            End::ComeBackLater(wait) => {
+                // The server's wait spreads a turned-away crowd, so the flap guard stays out of it.
+                tokio::select! {
+                    biased;
+                    _ = sigterm.recv() => break,
+                    _ = tokio::signal::ctrl_c() => break,
+                    () = tokio::time::sleep(wait) => continue,
+                }
+            }
             End::Verdict(verdict) => {
                 agent.act_on(verdict).await?;
                 continue;
@@ -216,6 +227,12 @@ pub(crate) async fn run(mut agent: Agent, mut sigterm: tokio::signal::unix::Sign
     agent.service.notify_stopping();
     info!("mesh-agent stopped");
     Ok(())
+}
+
+/// The server's wait in seconds plus up to a second of jitter, so the machines it gave one second
+/// spread across it.
+fn come_back_wait(retry_after: u32, rng: &mut impl rand::RngExt) -> Duration {
+    Duration::from_secs(u64::from(retry_after)) + Duration::from_millis(rng.random_range(0..1000))
 }
 
 /// What a dropped connection's close code leaves the loop to do.
@@ -631,6 +648,17 @@ impl Agent {
                 );
                 self.renewal.refused();
                 Flow::Continue
+            }
+            ControlMessage::ComeBackLater { retry_after } => {
+                let wait = come_back_wait(retry_after, &mut rand::rng());
+                info!(
+                    retry_after,
+                    wait_ms = wait.as_millis(),
+                    "the server asked this machine to come back later"
+                );
+                // Hanging up frees what the connection holds on the server at once.
+                link.conn.close(close_code::BYE.into(), b"bye");
+                Flow::End(End::ComeBackLater(wait))
             }
             ControlMessage::AgentDeregistered { reason } => {
                 warn!(reason, "device deregistered by server, cleaning up");

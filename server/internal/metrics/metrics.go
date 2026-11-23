@@ -4,6 +4,7 @@ package metrics
 
 import (
 	"context"
+	"crypto/rand"
 	"log/slog"
 	"strconv"
 	"sync/atomic"
@@ -33,6 +34,11 @@ type Metrics struct {
 	// Agent registration, measured server-side where the device row lands.
 	AgentRegistrationsTotal   *prometheus.CounterVec
 	AgentRegistrationDuration *prometheus.HistogramVec
+	// InventoryReportsStoredTotal counts the package inventories machines sent that were stored.
+	InventoryReportsStoredTotal prometheus.Counter
+	// The sign-in line: machines waiting their turn, and those told to come back later.
+	SignInLineWaiting      prometheus.Gauge
+	SignInsTurnedAwayTotal prometheus.Counter
 
 	// The resumed split comes from the server's connection state, since a client
 	// can present a ticket the server declines.
@@ -375,12 +381,21 @@ func (m *Metrics) Observe(operation string, duration time.Duration, ok bool) {
 	m.DBQueriesTotal.WithLabelValues(operation, status).Inc()
 }
 
-// NewRegistry creates a Prometheus registry with Go and process collectors.
+// instanceID names this process's start with 128 random bits, made once when the program loads.
+// The host clock moves the process start time, so a reader telling processes apart compares this.
+var instanceID = rand.Text()
+
+// NewRegistry creates a Prometheus registry with Go and process collectors and the instance ID.
 func NewRegistry() *prometheus.Registry {
 	reg := prometheus.NewRegistry()
 	reg.MustRegister(
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+		prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+			Name:        "opengate_process_instance_info",
+			Help:        "Always 1; instance_id is a random ID made once at each start of the process.",
+			ConstLabels: prometheus.Labels{"instance_id": instanceID},
+		}, func() float64 { return 1 }),
 	)
 	return reg
 }

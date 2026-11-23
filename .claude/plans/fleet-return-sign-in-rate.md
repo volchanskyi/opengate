@@ -135,9 +135,56 @@ Folded in by Ivan (modal, 2026-11-13). Each reading below is part of step 9's be
 - **The acceptance tier's own four gaps are fixed in commit 1** (Ivan, modal):
   checks read what a technician sees, "nothing happened" waits for a later
   marker, a message says only what its check proves, one setup helper (step 11).
+- **The line knows a waiting machine's customer from a note** (Ivan, modal, 2026-11-20, after
+  pros, cons, speed and upkeep): a returning machine shows only its device number, so the server
+  keeps each machine's customer, read at start per tenant beside the customer settings and
+  updated by every sign-in, dropped on erasure; a machine the note lacks waits in a turn of its
+  own. The note orders the line only; rules come from the sign-in. A full line turns away the
+  newest of the customer holding the most of it. Kubernetes' API server knows its caller at the
+  door; AWS IoT and Azure IoT Hub limit per account or hub, which the address tells.
+- **The catch-up return comes back in 30 s** (Ivan, modal, 2026-11-20, after the history check):
+  a rate shows only when more than it is offered, and the one-minute return offered about 83 a
+  second. The return brings all 5,000 within 30 s (a release restart's shape: agents redial within
+  their 1–30 s wait); the rate is sign-ins finished per second while any machine waited, at least
+  100, blocking. volume-8000's 30 s ramp (backed out in `27e2ba53`) failed on enrolment and filing
+  in the walk; catch-up installs and files before the clock. Handshakes run before the line, about
+  40% of a quarter processor at 167 a second; a night under 100 is step 9's size finding.
+- **The line holds 30 s of the pace it measures** (Ivan, modal, 2026-11-20, after the sizing
+  readings): the pace is read from the slots handed straight to a waiting machine, the promised
+  rate standing until it has one (Little's law; Azure DPS spreads by the rate achieved). Sizing at a
+  quarter processor, 5,000 back within 30 s: 1, 2, 4, 8 at once read 29, 31, 28, 18 sign-ins a
+  second, so 8 per processor; the processor was full throughout, nobody new got in for about 50 s
+  after the first ~750 while their catch-up ran, and ~2,000 were told to come back.
+- **The burst runs on a second spike leg, on ARM at production's limits** (Ivan, modal,
+  2026-11-20): the shapes nightly keeps its x86 spike and gains an ARM spike leg beside it, through
+  the shared leg workflow's ARM switch and production's limits, with 5,000 machines: the return
+  with technicians pulling a log page a second, then every machine's 1 MiB package inventory (the
+  one machine message allowed that size, sent by every machine after a fleet-wide reinstall), then
+  the recovery.
+- **The safety case sends a 1 MiB inventory, stored in one statement** (Ivan, modal, 2026-11-20):
+  no real agent sends 1 MiB (its inventory caps at about 5,200 entries, roughly 300 KB), so each
+  machine sends an inventory padded to the server's 1 MiB message ceiling, testing the ceiling and
+  the read allowance at their limit. The server wrote an inventory one row per round trip (about
+  5,200 trips for one full report, hours for a fleet-wide reinstall, reports past a connection's
+  write slots dropped); commit 3 writes a whole inventory in one statement, its trips counted
+  against a real database (PostgreSQL and pgx: many rows per statement).
+- **Step 13's findings** (2026-11-20, A/B on one machine, builds interleaved): the alert check was
+  real and fixed in commit 1; the control encoder (+12%) and the file-piece relay (+11%) are code
+  placement (same function sizes, moved addresses; the relay's code unchanged); the agent store's
+  commit (+19%) is real, the price of the raw-read index that made an hour's read 3.4x faster.
+  Ivan (modal): trim the index upkeep (skip an unchanged label, keep the tail's in memory), no
+  format change, measured before and after.
+- **The start-up reset covers every tenant** (Ivan, modal, 2026-11-20, found wiring the note): it
+  ran in the default tenant only, so other tenants' machines stayed online after a restart; it now
+  runs inside each tenant's boundary, as ADR-130 states.
 - **The burst safety case is judged on recovery** (Ivan, modal): memory under the
   limit, nobody offline, and within 5 minutes every message stored and live
   readings back within 5 s, the fleet-return promise's 5 minutes.
+- **The burst's log pages come a page a second** (Ivan, modal, 2026-11-20, after CI on
+  `13506f53`): twenty at once fired before any machine was back and fit neither kind of
+  technician load the test kit reads. Technicians open a log page a second through the 30 s
+  return, all 30 owed within 30 s; the return is the measured phase, so the server and database
+  watches read over it, and the returning wave gains two watches (all online, 95% within 3 min).
 
 ## Research, before the steps it gates
 
@@ -410,7 +457,7 @@ rate (0.091, then 0.068), which is the sign-ins left unanswered at 5 minutes tha
    8,000-machine sign-in median and database share, the spike's database share,
    the breakpoint's recovery sign-ins, and the catch-up leg's technician sign-up.
 10. The burst, two cases at production's limits (Ivan, modal). The real peak:
-    5,000 machines returning while 20 technicians each pull a log page; live
+    5,000 machines returning while technicians pull a log page a second; live
     readings within 5 s, every log page shown within 30 s, every machine online.
     The safety case: every machine sends a 1 MiB message at once; memory stays
     under the limit, no machine goes offline, and within 5 minutes every message
@@ -427,6 +474,50 @@ rate (0.091, then 0.068), which is the sign-ins left unanswered at 5 minutes tha
     marker to arrive, then checks absence; the expired-machine check confirms
     nothing was stored, as its message says; `onlineAtContoso` and
     `contosoOnlineMachine` become one helper.
+12. The benchmark nightly's two sides kept apart (Ivan, modal, 2026-11-20: both fixes). Run
+    `44737728144` failed at the anchor (`9a7c64f3`), round 2: tonight's round 1 took the shared
+    test database to migration 23 (`023_default_customer`), and the anchor's `db` package
+    startup then refused it ("no migration found for version 23", reproduced locally). The
+    log named no cause: a round's output goes to its raw file, lost with the job. Best
+    practice: a test owns its own database space and setup touches nothing shared (pgtestdb,
+    Encore), old code is refused on a newer schema by design (Coder, GoAlert, Bytebase), and an
+    A/B benchmark starts both sides from the same conditions (Quansight, benchdiff). Fixes,
+    test first in `benchmark-anchor.test.sh`: each side gets a database of its own for all
+    ten rounds; a failed round prints its own output; the `db` package's `TestMain` sets up
+    its schema over a plain connection, as `testutil` does, and leaves the shared database's
+    `public` schema alone.
+13. The nightly's flagged slowdowns, read in commit 3 from the three red nights' own rounds and an
+    A/B run of the anchor and tonight on one machine (Ivan, modal,
+    2026-11-20): `AdmitAlertWithFullEvidence` +11.5% (11-19), `RelayForward_FilePiece`
+    +10.9% (11-13), `Codec_EncodeControl` +12.4% (11-12), Rust `tsdb_commit_window` +18–19%
+    (11-12, 11-13), each past the 10% limit; whether each is real or the machine, and the
+    fix where real.
+14. A restart judged by a per-start ID (Ivan, modal, 2026-11-20). The Prometheus process
+    collector recomputes `process_start_time_seconds` from the kernel's boot time on every
+    read, and that moves with each wall-clock step, so the workstation rehearsals read
+    "target restarted" with restarts=0. Measured 2026-11-20: the wall clock steps back
+    0.59 s every ~32 s, and the steady clock runs 2.26% fast against the Windows clock
+    (clocksource `tsc`, systemd-timesyncd beside Hyper-V's sync). The server publishes a
+    random ID made once at each start (OpenTelemetry's `service.instance.id` idea); the
+    harness's `Restarted` compares IDs (`target_health.go`). Test first: a clock step with
+    one process reads no restart, a new ID reads one.
+15. The tracing library to 1.47.0 (Ivan, modal, 2026-11-20): Dependabot alert 49,
+    GHSA-q7gw-24fr-5p69 (moderate, an attribute length limit bypassed by U+FFFD values),
+    `go.opentelemetry.io/otel/trace` 1.44.0, reached only through testcontainers → the
+    moby client; `otel` and `otel/metric` move with it.
+16. Commit 1's empty-tag change undone (Ivan, modal, 2026-11-20): `NoBuild` and the pass-over
+    in `scripts/dependency-fixes/` (`images.py` `newer`, `registry.py` `platforms`) go;
+    Docker Hub has since filled `postgres:19-alpine` (7 builds), so the check passes today
+    either way.
+17. Rule rollouts move by hand (Ivan, modal, 2026-11-20; the plan's last item). Nothing calls
+    `rules.DecideStage` or `Store.SetRolloutStage`, and `GateReporter` has no
+    implementation, while `Rule-Administration.md` and ADR-070 promise earned stages and an
+    automatic pull-back. Research: LaunchDarkly guarded rollouts and Argo Rollouts promote
+    and roll back on metrics; NinjaOne's rings are moved by an administrator; Hexnode and
+    Ivanti offer either. Decided: remove what does nothing. The hold times leave the rule
+    screen (`RolloutPanel.tsx`), the API and the database (one migration dropping
+    `canary_hold_secs`, `staged_hold_secs`, `stage_entered_at`); the gate code and
+    `SetRolloutStage` go; the docs and ADR-070 say an administrator moves a rule's stage.
 
 ## Commit 2's shape, as the code reads (2026-11-19)
 
@@ -462,7 +553,7 @@ transactions of about four trips. The agent sends `AgentRegister` first on every
   before a start reach the first sign-in (server assembly); a removed tuning reaches a machine
   that never disconnects (acceptance).
 
-## Commits (Ivan, modal, 2026-11-12: four; commit 0 added 2026-11-17)
+## Commits (Ivan, modal, 2026-11-12: four; commit 0 added 2026-11-17, commit 5 2026-11-20)
 
 0. The nightlies' unplanned failures, before step 1: the load test's owed levels, the
    soak's wave limits and the profile check, the Rust survivors, the two mutation
@@ -473,11 +564,19 @@ transactions of about four trips. The agent sends `AgentRegister` first on every
    side), the benchmark's held decompressor and the dead catch-up limit.
 2. Steps 4–5: customer-wide settings in memory, a sign-in's own rows in one
    conversation.
-3. Steps 6–8 and 10: the sign-in line and "come back later" in Go and Rust, less
-   memory churn, the rate check, the burst.
+3. Steps 6–8, 10 and 12–16: the sign-in line and "come back later" in Go and Rust, less
+   memory churn, the rate check, the burst, the benchmark nightly's two sides kept apart and
+   its flagged slowdowns, the per-start ID, the tracing library, the empty-tag change undone.
+   Built and checked, uncommitted (2026-11-20): steps 12, 15, 16 (session 5); step 14 (per-start
+   ID, ADR-082); step 6 (the line, the customer note, `ComeBackLater` both ways, ADR-131); step 7
+   (`bufpool`, the writer's parts, pooled bodies and payloads); step 8 (30 s return, the busy-span
+   rate row); step 10 (the ARM burst leg, `log-pages.js`, the inventory call and its stored count,
+   the inventory in one statement); step 13 (ADR-088 findings, the store's label trim); the
+   start-up reset in every tenant.
 4. After the first ARM night and step 9's readings: what the open question needs,
-   the readings in the decision record, this plan deleted with its `phases.md`
-   row.
+   the readings in the decision record.
+5. Step 17, on its own (Ivan, modal, 2026-11-20): rule rollouts move by hand; this plan
+   deleted with its `phases.md` row.
 
 ## Open, for Ivan
 
@@ -487,7 +586,8 @@ transactions of about four trips. The agent sends `AgentRegister` first on every
 ## Done when
 
 - The catch-up night passes `machines_caught_up` and the 100-a-second sign-in rate
-  on the workstation rehearsal and on the ARM nightly.
+  on the ARM nightly (the workstation run dropped, Ivan, modal, 2026-11-20: its steady
+  clock runs 2.26% fast, so its rehearsal is a reading, never the verdict).
 - The fleet-online figures and the sign-in timer are recorded here before and
   after each step.
 - This plan is deleted in the commit landing its last step, with its `phases.md`

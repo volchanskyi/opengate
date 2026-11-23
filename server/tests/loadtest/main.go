@@ -46,6 +46,8 @@ type agentResult struct {
 	reconnected int
 	// retried is 1 when the first dial never arrived and the machine dialled once more.
 	retried int
+	// toldToComeBack counts the times a full sign-in line told the machine to dial again later.
+	toldToComeBack int
 
 	err error
 }
@@ -135,6 +137,7 @@ func run() int {
 	sessionsJoined := &atomic.Int64{}
 	helpers := &helperTally{}
 	catchUp := &catchUpTally{}
+	inventory := &inventoryCall{}
 
 	opts := loadOptions{
 		sessionsJoined:          sessionsJoined,
@@ -152,6 +155,7 @@ func run() int {
 		backfillGap:             *backfillGap,
 		liveEvery:               *liveEvery,
 		relaySessions:           *relaySessions,
+		inventory:               inventory,
 	}
 
 	tenants := max(*tenantFlag, 1)
@@ -246,6 +250,7 @@ func run() int {
 			Generator:    NewGeneratorRoom(),
 			Network:      NewNetworkDrops(*targetNetCounters),
 			Registration: NewPhaseRegistration(*metricsURL),
+			Inventory:    NewInventoryBurst(inventory, *metricsURL),
 		}, filer, clock, venue)
 	totalDur := time.Since(start)
 	live := liveAcceptanceOver(liveAtStart, readLiveAcceptance(*metricsURL))

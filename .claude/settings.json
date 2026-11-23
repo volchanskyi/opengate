@@ -157,7 +157,7 @@
           {
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pretooluse-git-commit-guard.sh",
-            "timeout": 1800
+            "timeout": 3600
           },
           {
             "type": "command",

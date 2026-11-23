@@ -182,6 +182,8 @@ type Repository interface {
 	// The AMT connection map carries no tenant, so this lookup scopes AMT commands to it.
 	GetByAMTUUID(ctx context.Context, amtUUID uuid.UUID) (*Device, error)
 	TenantForDevice(ctx context.Context, id DeviceID) (uuid.UUID, error)
+	// CustomerOfEach lists every machine of the caller's tenant with the customer it belongs to.
+	CustomerOfEach(ctx context.Context) (map[DeviceID]OrganizationID, error)
 	// List returns the caller's tenant devices matching filter; an empty filter matches all.
 	List(ctx context.Context, filter Filter) ([]*Device, error)
 	Delete(ctx context.Context, id DeviceID) error

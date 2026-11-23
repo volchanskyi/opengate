@@ -6,12 +6,12 @@ import (
 	"time"
 )
 
-// The four process series a run brackets itself with, and the server's own fleet count.
+// The three process series a run brackets itself with, the server's per-start ID and fleet count.
 const (
 	goroutinesMetric      = "go_goroutines"
 	residentMetric        = "process_resident_memory_bytes"
 	openFDsMetric         = "process_open_fds"
-	startTimeMetric       = "process_start_time_seconds"
+	instanceInfoMetric    = "opengate_process_instance_info"
 	agentsConnectedMetric = "opengate_agents_connected"
 )
 
@@ -24,8 +24,8 @@ type TargetHealth struct {
 	ResidentBytes float64 `json:"resident_bytes"`
 	OpenFDs       float64 `json:"open_fds"`
 
-	// StartTimeSeconds is when this process started; equal values mean the same process.
-	StartTimeSeconds float64 `json:"start_time_seconds"`
+	// InstanceID is the random ID the process made at its start; equal IDs mean the same process.
+	InstanceID string `json:"instance_id"`
 
 	// AgentsConnected is the fleet the target reports holding; nil when it publishes no count.
 	AgentsConnected *float64 `json:"agents_connected,omitempty"`
@@ -46,12 +46,18 @@ func (c TargetConservation) Bracketed() bool {
 }
 
 // Restarted reports whether the process answering at the end is the one that
-// answered at the start.
+// answered at the start. Readings that name no process are Unidentified.
 func (c TargetConservation) Restarted() bool {
-	if !c.Start.Read || !c.End.Read {
+	if !c.Start.Read || !c.End.Read || c.Unidentified() {
 		return false
 	}
-	return c.Start.StartTimeSeconds != c.End.StartTimeSeconds
+	return c.Start.InstanceID != c.End.InstanceID
+}
+
+// Unidentified reports whether both ends answered and either named no process, so a restart
+// between them can be neither seen nor ruled out.
+func (c TargetConservation) Unidentified() bool {
+	return c.Start.Read && c.End.Read && (c.Start.InstanceID == "" || c.End.InstanceID == "")
 }
 
 // StoppedAnswering reports whether the target answered at the start and not at the end, so the
@@ -78,7 +84,7 @@ func perOperation(c TargetConservation, delta float64) float64 {
 	return delta / float64(c.Operations)
 }
 
-// ParseTargetHealth reads the five families out of an exposition page.
+// ParseTargetHealth reads the three process families, the instance ID and the fleet count.
 func ParseTargetHealth(page string) TargetHealth {
 	var health TargetHealth
 
@@ -87,7 +93,7 @@ func ParseTargetHealth(page string) TargetHealth {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		name, _, value, ok := splitSample(line)
+		name, labels, value, ok := splitSample(line)
 		if !ok {
 			continue
 		}
@@ -101,11 +107,10 @@ func ParseTargetHealth(page string) TargetHealth {
 		case openFDsMetric:
 			health.OpenFDs = value
 			health.Read = true
-		case startTimeMetric:
-			health.StartTimeSeconds = value
-			health.Read = true
+		case instanceInfoMetric:
+			health.InstanceID = labels["instance_id"]
 		case agentsConnectedMetric:
-			// Only the four process families mark the page read; this one is the product's own.
+			// Only the three process families mark the page read; this one is the product's own.
 			held := value
 			health.AgentsConnected = &held
 		}
@@ -121,8 +126,8 @@ func FetchTargetHealth(baseURL string) (TargetHealth, error) {
 	}
 	health := ParseTargetHealth(page)
 	if !health.Read {
-		return TargetHealth{}, fmt.Errorf("read target health: the page carries none of %s, %s, %s, %s",
-			goroutinesMetric, residentMetric, openFDsMetric, startTimeMetric)
+		return TargetHealth{}, fmt.Errorf("read target health: the page carries none of %s, %s, %s",
+			goroutinesMetric, residentMetric, openFDsMetric)
 	}
 	return health, nil
 }
