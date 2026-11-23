@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.115.5] - 2026-11-23
+
+### Fixed
+- **ci:** the burst's log pages, probe body closed
+
+### Changed
+- **sign-in:** a sign-in line, the ARM burst leg
+
 ## [v0.115.4] - 2026-11-20
 
 ### Fixed
