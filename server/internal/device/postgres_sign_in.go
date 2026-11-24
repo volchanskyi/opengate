@@ -55,7 +55,9 @@ const (
 
 // SignIn implements Repository. The transaction opens under the admin scope, so the tenant read
 // finds the machine whichever tenant holds it.
-func (p *PostgresDevices) SignIn(ctx context.Context, d *Device, needsFleetSize func(OrganizationID) bool) (SignIn, error) {
+func (p *PostgresDevices) SignIn(ctx context.Context, d *Device, needsFleetSize func(OrganizationID) bool,
+	beforeCommit func(SignIn),
+) (SignIn, error) {
 	caller, ok := dbtx.TenantFromContext(ctx)
 	if !ok {
 		return SignIn{}, dbtx.ErrTenantRequired
@@ -67,6 +69,9 @@ func (p *PostgresDevices) SignIn(ctx context.Context, d *Device, needsFleetSize 
 	var got SignIn
 	err = dbtx.Scoped(dbtx.WithTenant(ctx, caller.TenantID, true), p.db, func(tx *sql.Tx) error {
 		got, err = signInWithin(ctx, tx, d, capsJSON, caller.TenantID, needsFleetSize)
+		if err == nil && beforeCommit != nil {
+			beforeCommit(got)
+		}
 		return err
 	})
 	if err != nil {

@@ -195,7 +195,7 @@ func TestPostgresConcurrentUpsertDevices(t *testing.T) {
 				OsDisplay:    "Linux",
 				AgentVersion: "0.1.0",
 				Status:       db.StatusOnline,
-			}, nil)
+			}, nil, nil)
 			if err != nil {
 				errCh <- fmt.Errorf("goroutine %d: %w", i, err)
 			}
@@ -232,7 +232,7 @@ func TestPostgresPreparedStatementCacheReuse(t *testing.T) {
 			OsDisplay:    "Linux",
 			AgentVersion: "0.1.0",
 			Status:       db.StatusOnline,
-		}, nil)
+		}, nil, nil)
 		if err != nil {
 			require.NoErrorf(t, err, "upsert %d failed; possible prepared-statement cache regression", i)
 		}

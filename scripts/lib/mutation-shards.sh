@@ -322,7 +322,7 @@ mutation_web_shard_budget_minutes() {
 }
 
 mutation_go_shards() {
-  echo "go-api-runtime go-api-limits go-api-proxytrust go-api-intake go-api-status go-api-metrics-grid go-api-converters go-api-identity go-api-accounts go-api-console-session go-api-tenancy-admin go-api-tags-limits-push go-api-device-control go-api-device-sessions go-api-device-reads go-api-incidents go-api-rules go-api-rules-rollout go-api-enrollment go-api-updates-purge go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-rules go-domain-alerts-room go-domain-alerts-record go-domain-persistence go-amt go-updates-certificates go-protocol-wire go-relay-signaling go-observability-harness go-composition-root"
+  echo "go-api-runtime go-api-limits go-api-proxytrust go-api-intake go-api-status go-api-metrics-grid go-api-converters go-api-identity go-api-accounts go-api-console-session go-api-tenancy-admin go-api-tags-limits-push go-api-device-control go-api-device-sessions go-api-device-reads go-api-incidents go-api-rules go-api-rules-rollout go-api-enrollment go-api-updates-purge go-agentapi-connection go-agentapi-sign-in-line go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-rules go-domain-alerts-room go-domain-alerts-record go-domain-persistence go-amt go-updates-certificates go-protocol-wire go-relay-signaling go-observability-harness go-composition-root"
 }
 
 mutation_all_shards() {
@@ -426,7 +426,10 @@ mutation_go_shard_units() {
       echo "file:internal/api/handlers_updates.go file:internal/api/handlers_purge.go"
       ;;
     go-agentapi-connection)
-      echo "file:internal/agentapi/conn.go file:internal/agentapi/conn_requests.go file:internal/agentapi/conn_register.go file:internal/agentapi/conn_guard.go file:internal/agentapi/conn_maintenance.go file:internal/agentapi/server.go file:internal/agentapi/server_connection.go file:internal/agentapi/server_sign_in.go file:internal/agentapi/deregister.go file:internal/agentapi/presence_sweep.go file:internal/agentapi/read_allowance.go file:internal/agentapi/sign_in_line.go file:internal/agentapi/customer_note.go"
+      echo "file:internal/agentapi/conn.go file:internal/agentapi/conn_requests.go file:internal/agentapi/conn_register.go file:internal/agentapi/conn_guard.go file:internal/agentapi/conn_maintenance.go file:internal/agentapi/server.go file:internal/agentapi/server_connection.go file:internal/agentapi/server_sign_in.go file:internal/agentapi/deregister.go file:internal/agentapi/presence_sweep.go file:internal/agentapi/read_allowance.go"
+      ;;
+    go-agentapi-sign-in-line)
+      echo "file:internal/agentapi/sign_in_line.go file:internal/agentapi/customer_note.go"
       ;;
     go-agentapi-handshake)
       echo "file:internal/agentapi/handshaker.go file:internal/agentapi/errors.go file:internal/agentapi/admission.go file:internal/agentapi/conn_restricted.go file:internal/agentapi/renewal.go file:internal/agentapi/renewal_sweep.go"
@@ -499,6 +502,8 @@ mutation_go_shard_seconds_per_mutant() {
     go-api-device-sessions) echo 76 ;;
     go-api-device-reads) echo 83 ;;
     go-agentapi-connection) echo 10 ;;
+    # The line's mutants are killed by the same package's tests as the connection's.
+    go-agentapi-sign-in-line) echo 10 ;;
     go-agentapi-handshake) echo 8 ;;
     go-agentapi-edge-telemetry) echo 7 ;;
     go-agentapi-backfill) echo 3 ;;
@@ -528,6 +533,9 @@ mutation_go_shard_blocking_mutants() {
     # server.go's listener guard and server_connection.go's read guard: a mutant that stops the
     # server publishing its address leaves every dialling test waiting.
     go-agentapi-connection) echo 2 ;;
+    # sign_in_line.go's room check: each of its three negations leaves a sign-in waiting on an
+    # answer that never comes.
+    go-agentapi-sign-in-line) echo 3 ;;
     # transport/mps.go's accept loop returns on a cancelled context; negated, it accepts forever.
     go-amt) echo 1 ;;
     # notifications/vapid.go pads a private key to 32 bytes; negated, it prepends zeros forever.

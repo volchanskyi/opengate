@@ -14,9 +14,9 @@ import (
 )
 
 // handleRegister answers an AgentRegister on a connection already signed in with a sign-in of
-// its own; a failed one ends the connection.
+// its own, the connection already held; a failed one ends the connection.
 func (a *AgentConn) handleRegister(ctx context.Context, msg *protocol.ControlMessage) error {
-	signedIn, err := a.signIn(ctx, msg, time.Now())
+	signedIn, err := a.signIn(ctx, msg, time.Now(), nil)
 	if err != nil {
 		return err
 	}
@@ -24,10 +24,12 @@ func (a *AgentConn) handleRegister(ctx context.Context, msg *protocol.ControlMes
 	return nil
 }
 
-// signIn runs the machine's sign-in conversation and records the server-side duration, from the
-// AgentRegister's arrival at since, a wait in the line included, to the write bringing it online.
-func (a *AgentConn) signIn(ctx context.Context, msg *protocol.ControlMessage, since time.Time) (device.SignIn, error) {
-	signedIn, err := a.writeSignIn(ctx, msg)
+// signIn writes the machine online, handing held what it read before the write shows, and records
+// the time from the AgentRegister's arrival at since, a wait in the line included.
+func (a *AgentConn) signIn(ctx context.Context, msg *protocol.ControlMessage, since time.Time,
+	held func(device.SignIn),
+) (device.SignIn, error) {
+	signedIn, err := a.writeSignIn(ctx, msg, held)
 	if a.metrics != nil {
 		result := appmetrics.RegistrationOK
 		if err != nil {
@@ -38,7 +40,9 @@ func (a *AgentConn) signIn(ctx context.Context, msg *protocol.ControlMessage, si
 	return signedIn, err
 }
 
-func (a *AgentConn) writeSignIn(ctx context.Context, msg *protocol.ControlMessage) (device.SignIn, error) {
+func (a *AgentConn) writeSignIn(ctx context.Context, msg *protocol.ControlMessage,
+	held func(device.SignIn),
+) (device.SignIn, error) {
 	osName := osutil.NormalizeOS(msg.OS)
 	arch := osutil.NormalizeArch(msg.Arch)
 	a.setMeta(osName, arch, msg.Version, msg.Capabilities)
@@ -57,7 +61,7 @@ func (a *AgentConn) writeSignIn(ctx context.Context, msg *protocol.ControlMessag
 		AgentVersion: msg.Version,
 		Capabilities: caps,
 		Status:       device.StatusOnline,
-	}, a.needsFleetSize)
+	}, a.needsFleetSize, held)
 	if err != nil {
 		return device.SignIn{}, fmt.Errorf("sign in device: %w", err)
 	}

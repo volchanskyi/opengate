@@ -14,7 +14,7 @@ import (
 func instrumentedCalls(ctx context.Context) []func(device.Repository) error {
 	return []func(device.Repository) error{
 		func(r device.Repository) error {
-			_, err := r.SignIn(ctx, &device.Device{}, nil)
+			_, err := r.SignIn(ctx, &device.Device{}, nil, nil)
 			return err
 		},
 		func(r device.Repository) error { _, err := r.Get(ctx, uuid.New()); return err },

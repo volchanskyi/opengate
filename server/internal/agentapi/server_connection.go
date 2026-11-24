@@ -106,15 +106,34 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 	s.runControlLoop(ctx, ac, logger)
 }
 
-// swapIn puts the connection in the server map. The newest connection for a device wins: an
-// older one is probed, then closed with code 6.
-func (s *AgentServer) swapIn(ctx context.Context, ac *AgentConn) {
+// hold puts the connection in the server map and returns the one it replaced, or nil. The newest
+// connection for a device wins once its sign-in commits.
+func (s *AgentServer) hold(ac *AgentConn) *AgentConn {
 	older, replaced := s.conns.Swap(ac.DeviceID, ac)
 	if !replaced {
 		s.count.Add(1)
+		return nil
+	}
+	return older.(*AgentConn)
+}
+
+// retireReplaced probes the connection a committed sign-in replaced, then closes it with code 6.
+func (s *AgentServer) retireReplaced(ctx context.Context, older, newer *AgentConn) {
+	if older != nil {
+		go s.retire(context.WithoutCancel(ctx), older, newer)
+	}
+}
+
+// letGo gives the machine back the connection ac replaced, or holds none, once ac's sign-in has
+// failed to commit.
+func (s *AgentServer) letGo(ac, older *AgentConn) {
+	if older != nil {
+		s.conns.CompareAndSwap(ac.DeviceID, ac, older)
 		return
 	}
-	go s.retire(context.WithoutCancel(ctx), older.(*AgentConn), ac)
+	if s.conns.CompareAndDelete(ac.DeviceID, ac) {
+		s.count.Add(-1)
+	}
 }
 
 // announceOnline records the connection's tenant for the presence sweep and emits the online event.

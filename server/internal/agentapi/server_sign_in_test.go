@@ -46,7 +46,7 @@ func TestAMachineOfAnotherTenantSignsInToItsOwnTenant(t *testing.T) {
 	_, stream := env.connect(t, machine.ID)
 	register(t, stream, "nw-ws-001")
 
-	waitForCount(t, env.srv, 1)
+	awaitSignedIn(t, stream)
 	ac := env.srv.GetAgent(protocol.DeviceID(machine.ID))
 	require.NotNil(t, ac)
 	assert.Equal(t, northwind, ac.TenantID)

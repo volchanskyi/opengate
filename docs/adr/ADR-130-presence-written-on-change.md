@@ -20,7 +20,11 @@ online while the server holds its connection. The sign-in writes online with
 the machine's row
 ([`postgres_sign_in.go`](../../server/internal/device/postgres_sign_in.go)), and
 disconnect writes offline with last-seen at the moment it left. A heartbeat
-writes nothing to the database.
+writes nothing to the database. The server holds the connection before the
+online write commits, inside the sign-in's transaction, so a machine the console
+shows online is one a push reaches. The connection it replaces is retired once
+the commit lands, and a sign-in whose commit fails hands that one back
+([`server_sign_in.go`](../../server/internal/agentapi/server_sign_in.go)).
 
 **A sign-in is one database conversation.** The machine's first control message
 is its `AgentRegister`, and anything else closes the connection

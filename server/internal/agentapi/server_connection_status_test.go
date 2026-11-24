@@ -36,7 +36,12 @@ func (r *recordingDevices) SetStatus(_ context.Context, _ device.DeviceID, statu
 	return nil
 }
 
-func (r *recordingDevices) SignIn(context.Context, *device.Device, func(device.OrganizationID) bool) (device.SignIn, error) {
+func (r *recordingDevices) SignIn(_ context.Context, _ *device.Device, _ func(device.OrganizationID) bool,
+	beforeCommit func(device.SignIn),
+) (device.SignIn, error) {
+	if beforeCommit != nil {
+		beforeCommit(device.SignIn{})
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.written = append(r.written, device.StatusOnline)
@@ -204,7 +209,7 @@ func TestTheCurrentConnectionLeavingForgetsItsRuleCoverage(t *testing.T) {
 
 // holdSignedIn holds ac in the server's map and announces it online, as a written sign-in does.
 func holdSignedIn(ctx context.Context, srv *AgentServer, ac *AgentConn, hostname string) {
-	srv.swapIn(ctx, ac)
+	srv.retireReplaced(ctx, srv.hold(ac), ac)
 	srv.announceOnline(ctx, ac, hostname)
 }
 

@@ -92,7 +92,7 @@ func (m *memDevices) maybeFail() error {
 	return nil
 }
 
-func (m *memDevices) SignIn(context.Context, *device.Device, func(device.OrganizationID) bool) (device.SignIn, error) {
+func (m *memDevices) SignIn(context.Context, *device.Device, func(device.OrganizationID) bool, func(device.SignIn)) (device.SignIn, error) {
 	return device.SignIn{}, m.maybeFail()
 }
 

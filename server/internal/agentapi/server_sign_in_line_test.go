@@ -26,10 +26,12 @@ type holdingDevices struct {
 	release chan struct{}
 }
 
-func (h *holdingDevices) SignIn(ctx context.Context, d *device.Device, needsFleetSize func(device.OrganizationID) bool) (device.SignIn, error) {
+func (h *holdingDevices) SignIn(ctx context.Context, d *device.Device, needsFleetSize func(device.OrganizationID) bool,
+	beforeCommit func(device.SignIn),
+) (device.SignIn, error) {
 	h.entered <- struct{}{}
 	<-h.release
-	return h.Repository.SignIn(ctx, d, needsFleetSize)
+	return h.Repository.SignIn(ctx, d, needsFleetSize, beforeCommit)
 }
 
 // oneInOneWaiting is the processor share whose line runs one sign-in and, before it has measured a
@@ -111,7 +113,7 @@ func TestASignInTeachesTheNoteItsMachinesCustomer(t *testing.T) {
 
 	_, stream := env.connect(t, machine.ID)
 	register(t, stream, "dal-ws-004")
-	waitForCount(t, env.srv, 1)
+	awaitSignedIn(t, stream)
 
 	assert.Equal(t, contoso, env.srv.customerNote.customerOf(machine.ID))
 }

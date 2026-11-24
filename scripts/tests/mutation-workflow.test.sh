@@ -380,7 +380,7 @@ if [ -f "$SHARDS_LIB" ]; then
     fi
   done
 
-  meaningful_go="go-api-runtime go-api-limits go-api-proxytrust go-api-intake go-api-status go-api-metrics-grid go-api-converters go-api-identity go-api-accounts go-api-console-session go-api-tenancy-admin go-api-tags-limits-push go-api-device-control go-api-device-sessions go-api-device-reads go-api-incidents go-api-rules go-api-rules-rollout go-api-enrollment go-api-updates-purge go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-rules go-domain-alerts-room go-domain-alerts-record go-domain-persistence go-amt go-updates-certificates go-protocol-wire go-relay-signaling go-observability-harness go-composition-root"
+  meaningful_go="go-api-runtime go-api-limits go-api-proxytrust go-api-intake go-api-status go-api-metrics-grid go-api-converters go-api-identity go-api-accounts go-api-console-session go-api-tenancy-admin go-api-tags-limits-push go-api-device-control go-api-device-sessions go-api-device-reads go-api-incidents go-api-rules go-api-rules-rollout go-api-enrollment go-api-updates-purge go-agentapi-connection go-agentapi-sign-in-line go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-rules go-domain-alerts-room go-domain-alerts-record go-domain-persistence go-amt go-updates-certificates go-protocol-wire go-relay-signaling go-observability-harness go-composition-root"
   if [ "$(mutation_go_shards)" = "$meaningful_go" ]; then
     pass "Go shard ids describe their owned behavior"
   else
@@ -578,20 +578,20 @@ if [ -f "$SHARDS_LIB" ]; then
       fi
     done
     case "$owner" in
-      go-agentapi-connection | go-agentapi-handshake | go-agentapi-backfill | go-agentapi-edge-telemetry) : ;;
+      go-agentapi-connection | go-agentapi-sign-in-line | go-agentapi-handshake | go-agentapi-backfill | go-agentapi-edge-telemetry) : ;;
       *) agentapi_bad="$agentapi_bad [$rel:owner=$owner]" ;;
     esac
     [ "$owners" -eq 1 ] || agentapi_bad="$agentapi_bad [$rel:owners=$owners]"
     agentapi_owners="$agentapi_owners $owner"
   done < <(find "$REPO_ROOT/server/internal/agentapi" -maxdepth 1 -type f -name '*.go' ! -name '*_test.go' | sort)
-  for required in go-agentapi-connection go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry; do
+  for required in go-agentapi-connection go-agentapi-sign-in-line go-agentapi-handshake go-agentapi-backfill go-agentapi-edge-telemetry; do
     case " $agentapi_owners " in
       *" $required "*) : ;;
       *) agentapi_bad="$agentapi_bad [$required:empty]" ;;
     esac
   done
   if [ -z "$agentapi_bad" ]; then
-    pass "agentapi sources are split across four non-empty file-unit shards"
+    pass "agentapi sources are split across five non-empty file-unit shards"
   else
     fail "agentapi file-unit partition mismatch:$agentapi_bad"
   fi
@@ -606,6 +606,20 @@ if [ -f "$SHARDS_LIB" ]; then
     pass "timeout-heavy agent API backfill and handshake files run in separate shards"
   else
     fail "conn_backfill.go and handshaker.go must be isolated (backfill=$backfill_owner handshake=$handshake_owner)"
+  fi
+
+  line_unit="file:internal/agentapi/sign_in_line.go"
+  note_unit="file:internal/agentapi/customer_note.go"
+  connection_unit="file:internal/agentapi/server_connection.go"
+  line_owner="${unit_owner[$line_unit]:-}"
+  note_owner="${unit_owner[$note_unit]:-}"
+  connection_owner="${unit_owner[$connection_unit]:-}"
+  if [ "$line_owner" = "go-agentapi-sign-in-line" ] && [ "$note_owner" = "$line_owner" ] \
+    && [ "$connection_owner" = "go-agentapi-connection" ] \
+    && [ "$(mutation_go_shard_blocking_mutants go-agentapi-sign-in-line)" = 3 ]; then
+    pass "the sign-in line's three blocking mutants run beside the customer note, apart from the connection's two"
+  else
+    fail "sign_in_line.go and customer_note.go must share a shard declaring 3 blocking mutants (line=$line_owner note=$note_owner connection=$connection_owner)"
   fi
 
   # The leash is the coverage run's elapsed time times the timeout coefficient, which bounds what

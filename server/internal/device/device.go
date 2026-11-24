@@ -174,9 +174,10 @@ type LogFilter struct {
 
 // Repository is the persistence port for devices.
 type Repository interface {
-	// SignIn writes a machine online in one transaction and reads back its tenant (the caller's
-	// for one never seen), customer, site, maintenance flag, tags and, when asked, fleet size.
-	SignIn(ctx context.Context, d *Device, needsFleetSize func(OrganizationID) bool) (SignIn, error)
+	// SignIn writes a machine online in one transaction and hands beforeCommit what it read back:
+	// tenant (the caller's if new), customer, site, maintenance flag, tags and asked-for fleet size.
+	SignIn(ctx context.Context, d *Device, needsFleetSize func(OrganizationID) bool,
+		beforeCommit func(SignIn)) (SignIn, error)
 	Get(ctx context.Context, id DeviceID) (*Device, error)
 	// GetByAMTUUID resolves the device behind an AMT CIRA identity within the caller's tenant.
 	// The AMT connection map carries no tenant, so this lookup scopes AMT commands to it.

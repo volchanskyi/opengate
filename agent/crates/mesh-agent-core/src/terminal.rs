@@ -6,6 +6,7 @@ use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, BorrowedFd};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use mesh_protocol::{Frame, TerminalFrame};
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
@@ -167,23 +168,69 @@ pub(crate) fn pty_reader_loop(
     }
 }
 
+/// How long the shell's input stays quiet after a cursor-position answer reaches it. Busybox's line
+/// editor reads 50 ms past an answer like `ESC[1;5R` and drops what follows with it.
+const CURSOR_ANSWER_QUIET: Duration = Duration::from_millis(150);
+
+/// Writes browser input to the terminal, holding the keys after a cursor-position answer until
+/// the shell has had [`CURSOR_ANSWER_QUIET`] to read the answer alone.
 pub(crate) fn stdin_writer_loop(
     mut writer: Box<dyn Write + Send>,
     mut rx: mpsc::Receiver<Vec<u8>>,
     shutdown: Arc<AtomicBool>,
 ) {
+    let mut quiet_until: Option<Instant> = None;
     while let Some(data) = rx.blocking_recv() {
         if shutdown.load(Ordering::Relaxed) {
             break;
         }
-        if writer.write_all(&data).is_err() {
-            break;
-        }
-        if let Err(e) = writer.flush() {
-            debug!("PTY writer flush failed: {e}");
-            break;
+        for (part, answered) in split_after_cursor_answers(&data) {
+            if let Some(until) = quiet_until.take() {
+                std::thread::sleep(until.saturating_duration_since(Instant::now()));
+            }
+            if writer.write_all(part).is_err() {
+                return;
+            }
+            if let Err(e) = writer.flush() {
+                debug!("PTY writer flush failed: {e}");
+                return;
+            }
+            if answered {
+                quiet_until = Some(Instant::now() + CURSOR_ANSWER_QUIET);
+            }
         }
     }
+}
+
+/// Cuts input after each cursor-position answer it carries, marking the parts that end with one.
+fn split_after_cursor_answers(data: &[u8]) -> Vec<(&[u8], bool)> {
+    let mut parts = Vec::new();
+    let (mut start, mut at) = (0, 0);
+    while let Some(offset) = data[at..].iter().position(|&b| b == 0x1b) {
+        let escape = at + offset;
+        match cursor_answer_len(&data[escape..]) {
+            Some(len) => {
+                parts.push((&data[start..escape + len], true));
+                start = escape + len;
+                at = start;
+            }
+            None => at = escape + 1,
+        }
+    }
+    if start < data.len() {
+        parts.push((&data[start..], false));
+    }
+    parts
+}
+
+/// The length of the cursor-position answer `ESC [ row ; column R` that `bytes` starts with.
+fn cursor_answer_len(bytes: &[u8]) -> Option<usize> {
+    let digits = |b: &[u8]| b.iter().take_while(|c| c.is_ascii_digit()).count();
+    let after_bracket = bytes.strip_prefix(b"\x1b[")?;
+    let row = digits(after_bracket);
+    let after_row = after_bracket[row..].strip_prefix(b";")?;
+    let column = digits(after_row);
+    (row > 0 && column > 0 && after_row.get(column) == Some(&b'R')).then_some(row + column + 4)
 }
 
 fn default_shell() -> String {
@@ -375,6 +422,73 @@ mod tests {
         assert!(
             data.is_empty(),
             "writer must not receive bytes after shutdown is set"
+        );
+    }
+
+    type Writes = Arc<std::sync::Mutex<Vec<(std::time::Instant, Vec<u8>)>>>;
+
+    /// Feeds chunks through the writer loop and returns each write with the moment it happened.
+    fn timed_writes(chunks: &[&[u8]]) -> Vec<(std::time::Instant, Vec<u8>)> {
+        struct TimedWriter(Writes);
+        impl Write for TimedWriter {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                let at = std::time::Instant::now();
+                self.0.lock().unwrap().push((at, buf.to_vec()));
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let writes: Writes = Arc::default();
+        let writer: Box<dyn Write + Send> = Box::new(TimedWriter(writes.clone()));
+        let (tx, rx) = mpsc::channel::<Vec<u8>>(16);
+        for chunk in chunks {
+            tx.try_send(chunk.to_vec()).unwrap();
+        }
+        drop(tx);
+        stdin_writer_loop(writer, rx, Arc::new(AtomicBool::new(false)));
+        let taken = std::mem::take(&mut *writes.lock().unwrap());
+        taken
+    }
+
+    fn bytes_of(writes: &[(std::time::Instant, Vec<u8>)]) -> Vec<&[u8]> {
+        writes.iter().map(|(_, b)| b.as_slice()).collect()
+    }
+
+    #[test]
+    fn keys_after_the_terminal_cursor_answer_wait_until_the_shell_has_settled() {
+        let writes = timed_writes(&[b"\x1b[1;5R", b"echo", b" opengate"]);
+
+        assert_eq!(
+            bytes_of(&writes),
+            [&b"\x1b[1;5R"[..], b"echo", b" opengate"]
+        );
+        let held = writes[1].0.duration_since(writes[0].0);
+        assert!(
+            held >= CURSOR_ANSWER_QUIET,
+            "the first key reached the shell {held:?} after the cursor answer"
+        );
+    }
+
+    #[test]
+    fn a_cursor_answer_inside_a_chunk_is_written_apart_from_the_keys_after_it() {
+        let writes = timed_writes(&[b"ls\x1b[12;40Rcd /tmp\n"]);
+
+        assert_eq!(bytes_of(&writes), [&b"ls\x1b[12;40R"[..], b"cd /tmp\n"]);
+        assert!(writes[1].0.duration_since(writes[0].0) >= CURSOR_ANSWER_QUIET);
+    }
+
+    #[test]
+    fn keys_with_no_cursor_answer_are_written_as_they_come() {
+        // Ctrl+Up, an unfinished sequence and an answer missing its column each start like one.
+        let writes = timed_writes(&[b"a\x1b[1;5A", b"\x1b[", b"3;R", b"b"]);
+
+        assert_eq!(bytes_of(&writes).concat(), b"a\x1b[1;5A\x1b[3;Rb");
+        let spread = writes.last().unwrap().0.duration_since(writes[0].0);
+        assert!(
+            spread < CURSOR_ANSWER_QUIET,
+            "plain keys took {spread:?} to reach the shell"
         );
     }
 }

@@ -2,7 +2,7 @@ import { test, expect } from "./fixtures";
 import type { Browser, Page } from "@playwright/test";
 import { createAdminUser, createTestUser, signInBrowser, type TestUser } from "./helpers/auth-helper";
 import { adminToken, enrolledMachine, MACHINE_A } from "./helpers/enrolled-machine";
-import { endHostSession, openSessionTab } from "./helpers/session-tab";
+import { endHostSession, machineEchoes, openSessionTab } from "./helpers/session-tab";
 
 // One technician per host: the session tab, who holds a host, and who may end it.
 
@@ -10,12 +10,6 @@ async function signedIn(browser: Browser, user: TestUser): Promise<Page> {
   const context = await browser.newContext({ baseURL: test.info().project.use.baseURL });
   await signInBrowser(context, user);
   return context.newPage();
-}
-
-async function echoes(tab: Page, tag: string): Promise<void> {
-  await tab.locator('[data-testid="terminal-container"]').click();
-  await tab.keyboard.type(`echo opengate-$((6*7))-${tag}\n`);
-  await expect(tab.locator(".xterm-rows")).toContainText(`opengate-42-${tag}`, { timeout: 15_000 });
 }
 
 test.describe("Session tab", () => {
@@ -27,12 +21,12 @@ test.describe("Session tab", () => {
     const machine = await enrolledMachine(request, MACHINE_A);
     const tab = await openSessionTab(authedPage, machine.id);
     await authedPage.close();
-    await echoes(tab, "orphan");
+    await machineEchoes(tab, "orphan");
 
     // Opened by its address alone, with no opener at all, it replaces the session it finds.
     const direct = await tab.context().newPage();
     await direct.goto(`/devices/${machine.id}/session`);
-    await echoes(direct, "by-address");
+    await machineEchoes(direct, "by-address");
     await expect(tab.getByText("Opened elsewhere")).toBeVisible({ timeout: 5_000 });
   });
 
@@ -45,11 +39,11 @@ test.describe("Session tab", () => {
       return ((await resp.json()) as { created_at: string }[]).map((s) => s.created_at);
     };
     const tab = await openSessionTab(authedPage, machine.id);
-    await echoes(tab, "first");
+    await machineEchoes(tab, "first");
     const first = await sessions();
 
     await tab.reload();
-    await echoes(tab, "second");
+    await machineEchoes(tab, "second");
     const second = await sessions();
     expect(first).toHaveLength(1);
     expect(second).toHaveLength(1);
@@ -59,7 +53,7 @@ test.describe("Session tab", () => {
   test("Go to session reaches the open tab without reloading it", async ({ authedPage, request }) => {
     const machine = await enrolledMachine(request, MACHINE_A);
     const tab = await openSessionTab(authedPage, machine.id);
-    await echoes(tab, "kept");
+    await machineEchoes(tab, "kept");
     await tab.evaluate(() => { (window as unknown as { mark: string }).mark = "kept"; });
 
     let opened = 0;
@@ -80,7 +74,7 @@ test.describe("Session tab", () => {
     test.setTimeout(60_000);
     const machine = await enrolledMachine(request, MACHINE_A);
     const holderTab = await openSessionTab(authedPage, machine.id);
-    await echoes(holderTab, "held");
+    await machineEchoes(holderTab, "held");
 
     const other = await signedIn(browser, await createTestUser(request));
     await other.goto(`/devices/${machine.id}`);
@@ -97,7 +91,7 @@ test.describe("Session tab", () => {
     await expect(holderTab.getByText(/^Ended by /)).toBeVisible({ timeout: 5_000 });
     await other.reload();
     const otherTab = await openSessionTab(other, machine.id);
-    await echoes(otherTab, "reopened");
+    await machineEchoes(otherTab, "reopened");
     await other.context().close();
     await admin.context().close();
   });
@@ -108,7 +102,7 @@ test.describe("Session tab", () => {
   }) => {
     const machine = await enrolledMachine(request, MACHINE_A);
     const tab = await openSessionTab(authedPage, machine.id);
-    await echoes(tab, "before");
+    await machineEchoes(tab, "before");
     const title = await tab.title();
     expect(title).toMatch(new RegExp(`^${MACHINE_A} — .+`));
 
@@ -120,7 +114,7 @@ test.describe("Session tab", () => {
       .evaluateAll((all: Element[]) => all.map((o) => (o as HTMLOptionElement).value));
     await picker.selectOption(options.find((value: string) => value !== current)!);
 
-    await echoes(tab, "after-customer");
+    await machineEchoes(tab, "after-customer");
     expect(await tab.title()).toBe(title);
 
     const signedOut = Date.now();

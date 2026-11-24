@@ -4,7 +4,7 @@ import type { Page, WebSocket } from "@playwright/test";
 import { ATTEMPT_BUDGET_MS } from "../src/lib/direct/handoff";
 import { enrolledMachine, MACHINE_A, MACHINE_B } from "./helpers/enrolled-machine";
 import { decodeControlFrame } from "./helpers/frames";
-import { endHostSession, msUntilPath, noteRelayOpen, openSessionTab, sessionPath } from "./helpers/session-tab";
+import { endHostSession, machineEchoes, msUntilPath, noteRelayOpen, openSessionTab, sessionPath } from "./helpers/session-tab";
 import { onMachine, outcomeCounts, resetRouters, router } from "./helpers/stack";
 
 // The browser runs on the test machine, beside agent-b on the stack's internet network; agent-a
@@ -41,12 +41,6 @@ function relayKind(data: Buffer): string {
   return LINK_CONTROL.has(message.type) ? "link-control" : message.type;
 }
 
-async function terminalEchoes(tab: Page, tag: string): Promise<void> {
-  await tab.locator('[data-testid="terminal-container"]').click();
-  await tab.keyboard.type(`echo opengate-$((6*7))-${tag}\n`);
-  await expect(tab.locator(".xterm-rows")).toContainText(`opengate-42-${tag}`, { timeout: 15_000 });
-}
-
 /** The machine's UDP sockets, read from its own network namespace. */
 function udpSockets(machine: string): number {
   return Number(onMachine(machine, "cat /proc/net/udp /proc/net/udp6 | grep -vc local_address").trim());
@@ -74,7 +68,7 @@ test.describe("Direct link", () => {
       await tab.waitForTimeout(500);
       const switched = Date.now();
 
-      await terminalEchoes(tab, "direct");
+      await machineEchoes(tab, "direct");
       await tab.getByRole("tab", { name: "Files" }).click();
       await expect(tab.getByRole("button", { name: "tmp", exact: true })).toBeVisible();
 
@@ -97,7 +91,7 @@ test.describe("Direct link", () => {
     const fellBack = await msUntilPath(tab, "Through server: no direct route on this network", ATTEMPT_BUDGET_MS + TIMER_SLACK_MS);
     expect(fellBack).toBeLessThanOrEqual(ATTEMPT_BUDGET_MS + TIMER_SLACK_MS);
 
-    await terminalEchoes(tab, "relayed");
+    await machineEchoes(tab, "relayed");
     await expect.poll(async () => (await outcomeCounts()).no_route).toBe(before.no_route! + 1);
   });
 

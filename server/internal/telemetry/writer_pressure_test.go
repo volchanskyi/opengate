@@ -99,7 +99,8 @@ func TestACatchUpBatchWaitingPastItsBoundIsAnsweredWaitedTooLong(t *testing.T) {
 		}
 	}}
 	cfg := quickConfig(store, nil)
-	cfg.QueueWait = 50 * time.Millisecond
+	// The bound is fifty flush ages, so the first batch is taken inside it on a loaded machine.
+	cfg.QueueWait = time.Second
 	w := started(t, cfg)
 	got := newAnswers()
 
@@ -108,7 +109,7 @@ func TestACatchUpBatchWaitingPastItsBoundIsAnsweredWaitedTooLong(t *testing.T) {
 	within(t, held, 2*time.Second)
 	w.Submit(telemetry.Submission{Class: telemetry.ClassCatchUp, Scope: anyScope(),
 		Samples: readings(1, readingTime), Done: got.done(2)})
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(cfg.QueueWait + 100*time.Millisecond)
 	close(release)
 
 	first, second := got.await(t, 2*time.Second), got.await(t, 2*time.Second)

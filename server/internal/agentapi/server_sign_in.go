@@ -26,14 +26,20 @@ func (s *AgentServer) signIn(ctx context.Context, ac *AgentConn) (*protocol.Cont
 	}
 	leave := s.statusGate.enter(ac.DeviceID)
 	defer leave()
-	signedIn, err := ac.signIn(ctx, msg, arrived)
+	// The connection is held before the online status commits, so a machine the console shows
+	// online is one a push reaches; the one it replaces is retired once the commit lands.
+	var older *AgentConn
+	signedIn, err := ac.signIn(ctx, msg, arrived, func(read device.SignIn) {
+		ac.TenantID, ac.SiteID = read.TenantID, read.SiteID
+		older = s.hold(ac)
+	})
 	if err != nil {
+		s.letGo(ac, older)
 		leaveLine()
 		return nil, device.SignIn{}, nil, err
 	}
+	s.retireReplaced(ctx, older, ac)
 	s.customerNote.remember(ac.DeviceID, signedIn.OrganizationID)
-	ac.TenantID, ac.SiteID = signedIn.TenantID, signedIn.SiteID
-	s.swapIn(ctx, ac)
 	return msg, signedIn, leaveLine, nil
 }
 

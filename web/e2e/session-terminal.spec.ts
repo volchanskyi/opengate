@@ -1,7 +1,7 @@
 import { test, expect } from "./fixtures";
 import type { Page, Route, WebSocket } from "@playwright/test";
 import { enrolledMachine, MACHINE_A } from "./helpers/enrolled-machine";
-import { endHostSession, openSessionTab } from "./helpers/session-tab";
+import { endHostSession, machineEchoes, openSessionTab } from "./helpers/session-tab";
 
 // Sessions are real: the server opens each against an enrolled machine that is online, and the
 // machine dials the relay address the server hands it.
@@ -28,10 +28,7 @@ test.describe("Session terminal flow", () => {
     await expect(tab.getByRole("tab", { name: "Terminal" })).toHaveAttribute("aria-selected", "true");
     await expect(tab).toHaveTitle(new RegExp(`^${MACHINE_A} — `));
 
-    // The output differs from the typed line, so only the machine's shell can produce it.
-    await tab.locator('[data-testid="terminal-container"]').click();
-    await tab.keyboard.type("echo opengate-$((6*7))-echoed\n");
-    await expect(tab.locator(".xterm-rows")).toContainText("opengate-42-echoed", { timeout: 15_000 });
+    await machineEchoes(tab, "echoed");
   });
 
   test("the relay connection is the browser side, signed in by its cookie alone", async ({
