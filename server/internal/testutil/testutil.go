@@ -303,7 +303,7 @@ func SeedOrganization(t testing.TB, ctx context.Context, s *db.PostgresStore, na
 // SignIn writes d through repo's sign-in in ctx's tenant and fails the test when it fails.
 func SignIn(t testing.TB, ctx context.Context, repo device.Repository, d *device.Device) device.SignIn {
 	t.Helper()
-	got, err := repo.SignIn(ctx, d, nil)
+	got, err := repo.SignIn(ctx, d, nil, nil)
 	require.NoError(t, err)
 	return got
 }

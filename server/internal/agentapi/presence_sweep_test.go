@@ -30,7 +30,7 @@ type unreachableDevices struct{ calls atomic.Int64 }
 
 func (u *unreachableDevices) fail() error { u.calls.Add(1); return errDatabaseDown }
 
-func (u *unreachableDevices) SignIn(context.Context, *device.Device, func(device.OrganizationID) bool) (device.SignIn, error) {
+func (u *unreachableDevices) SignIn(context.Context, *device.Device, func(device.OrganizationID) bool, func(device.SignIn)) (device.SignIn, error) {
 	return device.SignIn{}, u.fail()
 }
 func (u *unreachableDevices) Get(context.Context, device.DeviceID) (*device.Device, error) {
@@ -111,7 +111,7 @@ func onlineMachine(t *testing.T, ctx context.Context, devices device.Repository)
 	t.Helper()
 	d := &device.Device{ID: uuid.New(), Hostname: "contoso-" + uuid.NewString()[:8], OS: "linux",
 		Status: device.StatusOnline}
-	_, err := devices.SignIn(ctx, d, nil)
+	_, err := devices.SignIn(ctx, d, nil, nil)
 	require.NoError(t, err)
 	return d.ID
 }

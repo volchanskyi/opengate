@@ -36,6 +36,21 @@ export async function openSessionTab(page: Page, deviceId: string): Promise<Page
   return tab;
 }
 
+/** A shell prompt ending the terminal's rows: `$` or `#`, then the cursor's cell. */
+const SHELL_PROMPT = /[$#]\s*$/;
+
+/**
+ * Types a line at the machine's shell once its prompt shows, as a technician does, and waits for
+ * output that differs from the typed line, so only the machine's shell can produce it.
+ */
+export async function machineEchoes(tab: Page, tag: string): Promise<void> {
+  const rows = tab.locator(".xterm-rows");
+  await tab.locator('[data-testid="terminal-container"]').click();
+  await expect(rows).toContainText(SHELL_PROMPT, { timeout: 15_000 });
+  await tab.keyboard.type(`echo opengate-$((6*7))-${tag}\n`);
+  await expect(rows).toContainText(`opengate-42-${tag}`, { timeout: 15_000 });
+}
+
 /** The session bar's path: Direct or Through server. */
 export function sessionPath(tab: Page): Locator {
   return tab.getByText(/^(Direct|Through server)$/);

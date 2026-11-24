@@ -148,6 +148,17 @@ func readServerHello(t *testing.T, stream *quic.Stream) {
 	require.Equal(t, byte(protocol.MsgServerHello), serverHello[0])
 }
 
+// awaitSignedIn reads what the server sends up to the trust bundle, which follows the committed
+// sign-in; the held count rises before that commit.
+func awaitSignedIn(t *testing.T, stream *quic.Stream) {
+	t.Helper()
+	for {
+		if readControl(t, stream).Type == protocol.MsgTrustBundle {
+			return
+		}
+	}
+}
+
 func register(t *testing.T, stream *quic.Stream, hostname string) {
 	t.Helper()
 	codec := &protocol.Codec{}
@@ -190,14 +201,14 @@ func TestAMachineThatConnectsBecomesVisibleAndThenOffline(t *testing.T) {
 	_, stream := env.connect(t, deviceID)
 	register(t, stream, "the-machine")
 
-	waitForCount(t, env.srv, 1)
+	awaitSignedIn(t, stream)
 	ac := env.srv.GetAgent(protocol.DeviceID(deviceID))
 	require.NotNil(t, ac, "the machine that registered is the one the fleet holds")
 	assert.Equal(t, deviceID, uuid.UUID(ac.DeviceID))
 
 	stored, err := env.devices.Get(ctx, deviceID)
 	require.NoError(t, err)
-	assert.Equal(t, db.StatusOnline, stored.Status, "the fleet holds a machine once its row reads online")
+	assert.Equal(t, db.StatusOnline, stored.Status, "a signed-in machine's row reads online")
 	assert.Equal(t, "the-machine", stored.Hostname)
 
 	require.NoError(t, stream.Close())

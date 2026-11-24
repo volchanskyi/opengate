@@ -189,6 +189,7 @@ jobs:
           - { language: go, shard: go-api-updates-purge }
           # conn_backfill.go's mutants run under the Postgres-backed harness, so it is sized alone.
           - { language: go, shard: go-agentapi-connection }
+          - { language: go, shard: go-agentapi-sign-in-line }
           - { language: go, shard: go-agentapi-handshake }
           - { language: go, shard: go-agentapi-backfill }
           - { language: go, shard: go-agentapi-edge-telemetry }

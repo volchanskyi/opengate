@@ -41,9 +41,10 @@ SHAPER_SEED="${SHAPER_SEED:-0}"
 # The server admits four drains per customer, so eight is four draining and four queued.
 FLEET_MINIMUM="${NETDRILL_FLEET_MINIMUM:-8}"
 
-# The log lines the machine writes as it fails to get its link back, and as it gets it.
-ATTEMPT_FAILED_MARK="connection attempt failed"
-RECONNECTED_MARK="reconnected successfully"
+# The log lines the machine's control loop writes as it fails to get its link back, and as it gets
+# it, read with the agent's colours taken out.
+ATTEMPT_FAILED_MARK="control_loop: connection attempt failed"
+RECONNECTED_MARK="control_loop: connected attempt="
 
 SCENARIO="${1:-}"
 
@@ -223,10 +224,11 @@ machine_clock_now() {
   kubectl -n "$NAMESPACE" exec "$MACHINE_POD" -- date -u +%s.%N 2>/dev/null
 }
 
-# What the machine wrote from the given moment onward.
+# What the machine wrote from the given moment onward, without the colours the agent writes.
 machine_log_since() {
   local since="$1"
-  kubectl -n "$NAMESPACE" logs "$MACHINE_POD" --timestamps --since-time="$since" 2>/dev/null
+  kubectl -n "$NAMESPACE" logs "$MACHINE_POD" --timestamps --since-time="$since" 2>/dev/null \
+    | sed 's/\x1b\[[0-9;]*m//g'
 }
 
 # The kubectl stamp on a log line as seconds; it needs no assumption about the agent's formatter.

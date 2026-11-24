@@ -28,9 +28,12 @@ func BenchmarkEncodeLiveWindow(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		if Encode(scope, samples).Size() == 0 {
+		encoded := Encode(scope, samples)
+		if encoded.Size() == 0 {
 			b.Fatal("a live window of valid readings must encode")
 		}
+		// The writer hands each body back once the store has answered for it.
+		bodies.Put(encoded.readings.body)
 	}
 }
 
@@ -45,8 +48,11 @@ func BenchmarkEncodeCatchUpBatch(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		if Encode(scope, samples).Size() == 0 {
+		encoded := Encode(scope, samples)
+		if encoded.Size() == 0 {
 			b.Fatal("an hour of valid readings must encode")
 		}
+		// The writer hands each body back once the store has answered for it.
+		bodies.Put(encoded.readings.body)
 	}
 }

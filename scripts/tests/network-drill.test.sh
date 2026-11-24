@@ -191,34 +191,59 @@ device_list_with_herd() {
   printf '%s\n' "$WORK/devices-herd-$online.json"
 }
 
-# The agent's log shape: it notices the loss at its idle timeout, then reconnects.
+# One line as kubectl --timestamps prints the machine's log: kubectl's stamp, then the agent's
+# coloured line from its control loop.
+agent_line() {
+  local stamp="$1" level="$2" message="$3" fields="$4"
+  printf '%s \033[2m%s\033[0m \033[32m %s\033[0m \033[2mmesh_agent::control_loop\033[0m\033[2m:\033[0m %s %s\n' \
+    "$stamp" "$stamp" "$level" "$message" "$fields"
+}
+
+# One field as the agent colours it: its name, then its value.
+agent_field() {
+  printf '\033[3m%s\033[0m\033[2m=\033[0m%s' "$1" "$2"
+}
+
+# A session relay line, which names a connection that is no reconnect.
+relay_line() {
+  printf '%s \033[2m%s\033[0m \033[32m INFO\033[0m \033[2mmesh_agent_core::session\033[0m\033[2m:\033[0m connected to relay %s\n' \
+    "$1" "$1" "$(agent_field token 3f2a9c1e...)"
+}
+
+failed_attempt() {
+  agent_line "$1" WARN "connection attempt failed" \
+    "$(agent_field attempt "$2") $(agent_field error 'QUIC establish: timed out')"
+}
+
+# The agent's log shape: a failed try during the outage, then the reconnect that worked.
 machine_log() {
-  cat >"$WORK/machine.log" <<'LOG'
-2026-09-06T09:51:58.036481Z  WARN mesh_agent: connection lost, will reconnect
-2026-09-06T09:53:28.039019Z  WARN mesh_agent_core::connection: connection attempt failed attempt=1 max_attempts=10 error=QUIC establish: timed out
-2026-09-06T09:53:28.353822Z  INFO mesh_agent_core::connection: reconnected successfully attempt=2
-2026-09-06T09:53:28.355040Z  INFO mesh_agent: registered with server, entering control loop fast_path=true
-LOG
+  {
+    failed_attempt 2026-09-06T09:53:28.039019Z 0
+    relay_line 2026-09-06T09:53:28.100000Z
+    agent_line 2026-09-06T09:53:28.353822Z INFO connected "$(agent_field attempt 1)"
+    agent_line 2026-09-06T09:53:28.355040Z INFO "registration sent, entering control loop" \
+      "$(agent_field fast_path true)"
+  } >"$WORK/machine.log"
   printf '%s\n' "$WORK/machine.log"
 }
 
 # A machine whose first try after the outage worked logs no failed attempt.
 machine_log_first_try_worked() {
-  cat >"$WORK/machine-first-try.log" <<'LOG'
-2026-09-06T09:51:58.036481Z  WARN mesh_agent: connection lost, will reconnect
-2026-09-06T09:53:28.353822Z  INFO mesh_agent_core::connection: reconnected successfully attempt=1
-2026-09-06T09:53:28.355040Z  INFO mesh_agent: registered with server, entering control loop fast_path=true
-LOG
+  {
+    agent_line 2026-09-06T09:53:28.353822Z INFO connected "$(agent_field attempt 0)"
+    agent_line 2026-09-06T09:53:28.355040Z INFO "registration sent, entering control loop" \
+      "$(agent_field fast_path true)"
+  } >"$WORK/machine-first-try.log"
   printf '%s\n' "$WORK/machine-first-try.log"
 }
 
 # The same machine, still away when the drill stopped waiting.
 machine_log_never_back() {
-  cat >"$WORK/machine-away.log" <<'LOG'
-2026-09-06T09:51:58.036481Z  WARN mesh_agent: connection lost, will reconnect
-2026-09-06T09:53:28.039019Z  WARN mesh_agent_core::connection: connection attempt failed attempt=1 max_attempts=10 error=QUIC establish: timed out
-2026-09-06T09:55:00.000000Z  WARN mesh_agent_core::connection: connection attempt failed attempt=2 max_attempts=10 error=QUIC establish: timed out
-LOG
+  {
+    failed_attempt 2026-09-06T09:53:28.039019Z 0
+    relay_line 2026-09-06T09:54:10.000000Z
+    failed_attempt 2026-09-06T09:55:00.000000Z 1
+  } >"$WORK/machine-away.log"
   printf '%s\n' "$WORK/machine-away.log"
 }
 

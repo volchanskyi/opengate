@@ -50,7 +50,7 @@ func (r returning) signIn(t *testing.T, repo device.Repository, needsFleetSize f
 	t.Helper()
 	got, err := repo.SignIn(dbtx.WithDefaultTenant(context.Background(), false), &device.Device{
 		ID: r.machine.ID, Hostname: "dallas-fs01", OS: "linux", Status: device.StatusOnline,
-	}, needsFleetSize)
+	}, needsFleetSize, nil)
 	require.NoError(t, err)
 	return got
 }
@@ -97,7 +97,7 @@ func TestAFirstSignInLandsInTheDefaultTenantsDefaultCustomer(t *testing.T) {
 
 	got, err := testutil.NewTestDevices(t, store).SignIn(dbtx.WithDefaultTenant(context.Background(), false), &device.Device{
 		ID: uuid.New(), Hostname: "new-machine", Status: device.StatusOnline,
-	}, always)
+	}, always, nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, device.SignIn{TenantID: dbtx.DefaultTenantID, OrganizationID: fallback, Tags: map[string]string{},
@@ -141,7 +141,34 @@ func TestASignInTheDatabaseCannotAnswerFails(t *testing.T) {
 	t.Parallel()
 	repo := device.NewPostgresDevices(testutil.NewUnmigratedDB(t))
 
-	_, err := repo.SignIn(dbtx.WithDefaultTenant(context.Background(), false), &device.Device{ID: uuid.New(), Status: device.StatusOnline}, never)
+	called := false
+	_, err := repo.SignIn(dbtx.WithDefaultTenant(context.Background(), false),
+		&device.Device{ID: uuid.New(), Status: device.StatusOnline}, never, func(device.SignIn) { called = true })
 
 	assert.Error(t, err)
+	assert.False(t, called, "a sign-in that wrote nothing hands nothing on")
+}
+
+func TestASignInHandsOnWhatItReadWhileTheMachineStillShowsOffline(t *testing.T) {
+	t.Parallel()
+	r := newReturning(t)
+	devices := testutil.NewTestDevices(t, r.store)
+	var handed device.SignIn
+	var shown device.DeviceStatus
+
+	got, err := devices.SignIn(dbtx.WithDefaultTenant(context.Background(), false), &device.Device{
+		ID: r.machine.ID, Hostname: "dallas-fs01", OS: "linux", Status: device.StatusOnline,
+	}, never, func(read device.SignIn) {
+		handed = read
+		before, err := devices.Get(r.ctx, r.machine.ID)
+		require.NoError(t, err)
+		shown = before.Status
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, got, handed, "what the write read is handed on whole")
+	assert.Equal(t, device.StatusOffline, shown, "the console still reads the machine offline")
+	after, err := devices.Get(r.ctx, r.machine.ID)
+	require.NoError(t, err)
+	assert.Equal(t, device.StatusOnline, after.Status)
 }

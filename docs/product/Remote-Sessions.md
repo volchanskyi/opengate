@@ -1,6 +1,7 @@
 # Remote Sessions
 
 - [What you can do in a session](#what-you-can-do-in-a-session)
+  - [Typing ahead in the terminal](#typing-ahead-in-the-terminal)
 - [Opening a session](#opening-a-session)
 - [One technician per machine](#one-technician-per-machine)
 - [How a session ends](#how-a-session-ends)
@@ -29,6 +30,14 @@ network.
 
 Every tab stays open while you switch between them, so a download keeps running
 while you type in the terminal.
+
+### Typing ahead in the terminal
+
+Keys typed before the prompt shows reach the shell in order. The built-in shell of
+Alpine Linux, OpenWrt and many embedded devices asks the browser where its cursor
+is at every prompt; the agent hands it the answer on its own and holds the next
+keys for a fraction of a second, so a command typed the moment a session opens
+arrives whole.
 
 ## Opening a session
 

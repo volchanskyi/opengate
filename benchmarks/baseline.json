@@ -62,12 +62,12 @@
     {
       "name": "BenchmarkEncodeCatchUpBatch",
       "lang": "go",
-      "history_from": "2026-11-12"
+      "history_from": "2026-11-24"
     },
     {
       "name": "BenchmarkEncodeLiveWindow",
       "lang": "go",
-      "history_from": "2026-11-12"
+      "history_from": "2026-11-24"
     },
     {
       "name": "BenchmarkEncodeServerHello",

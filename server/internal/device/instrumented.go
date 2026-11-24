@@ -39,9 +39,11 @@ func NewInstrumentedDevices(inner Repository, observer Observer) *InstrumentedDe
 	return &InstrumentedDevices{inner: inner, observer: observer}
 }
 
-func (i *InstrumentedDevices) SignIn(ctx context.Context, d *Device, needsFleetSize func(OrganizationID) bool) (SignIn, error) {
+func (i *InstrumentedDevices) SignIn(ctx context.Context, d *Device, needsFleetSize func(OrganizationID) bool,
+	beforeCommit func(SignIn),
+) (SignIn, error) {
 	return observe1(i.observer, "device.Device.SignIn", func() (SignIn, error) {
-		return i.inner.SignIn(ctx, d, needsFleetSize)
+		return i.inner.SignIn(ctx, d, needsFleetSize, beforeCommit)
 	})
 }
 
