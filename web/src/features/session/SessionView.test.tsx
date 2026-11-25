@@ -191,6 +191,8 @@ describe('SessionView', () => {
     try {
       renderPage();
       await screen.findByRole('tab', { name: 'Terminal' });
+      // React starts the open session's timers in an effect that can run after the tab is drawn.
+      await vi.waitFor(() => expect(vi.getTimerCount()).toBeGreaterThan(0));
       noteRequest(0);
       act(() => {
         vi.advanceTimersByTime(60_000);

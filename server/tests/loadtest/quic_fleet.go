@@ -211,14 +211,15 @@ func (f *QUICFleet) forgetLocked(index int) {
 	}
 }
 
-// tallyLocked classifies a machine's end by whether it arrived: stood down, refused on purpose,
-// or failed to arrive; a later severed link is a fault. The caller holds the lock.
+// tallyLocked classifies a machine's end by whether it arrived: stood down, refused on purpose
+// (a spent credential, the sign-in line's turn-away), or failed; the caller holds the lock.
 func (f *QUICFleet) tallyLocked(result agentResult, arrived bool) {
+	var turnedAway *toldToComeBack
 	switch {
 	case arrived:
 	case errors.Is(result.err, context.Canceled):
 		f.outcomes.StoodDown++
-	case errors.Is(result.err, ErrEnrollmentRefused):
+	case errors.Is(result.err, ErrEnrollmentRefused), errors.As(result.err, &turnedAway):
 		f.outcomes.Rejected++
 	default:
 		f.outcomes.Failed++

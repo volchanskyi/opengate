@@ -87,6 +87,30 @@ for overlay in "$PRODUCTION" "$STAGING"; do
   fi
 done
 
+# A statement past a second and a lock wait past the deadlock check each leave a log line.
+rendered_db_args() {
+  helm template opengate "$CHART" -f "$1" 2>/dev/null \
+    | python3 -c '
+import sys, yaml
+for doc in yaml.safe_load_all(sys.stdin):
+    if doc and doc.get("kind") == "StatefulSet":
+        for c in doc["spec"]["template"]["spec"]["containers"]:
+            if c["name"] == "postgres":
+                print(" ".join(c.get("args", [])))
+'
+}
+for overlay in "$PRODUCTION" "$STAGING"; do
+  name="$(basename "$overlay" .yaml)"
+  args="$(rendered_db_args "$overlay")"
+  for setting in log_min_duration_statement=1000 log_lock_waits=on; do
+    if grep -qF -- "-c $setting" <<<"$args"; then
+      pass "$name's database runs with $setting"
+    else
+      fail "$name's database must run with $setting (args: ${args:-none})"
+    fi
+  done
+done
+
 db_pair_total="$(
   python3 - "$PRODUCTION" "$STAGING" <<'PY_PAIR'
 import sys

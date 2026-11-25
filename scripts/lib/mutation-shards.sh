@@ -368,7 +368,7 @@ mutation_go_shard_units() {
       echo "file:internal/api/api.go file:internal/api/middleware.go file:internal/api/wsconn.go"
       ;;
     go-api-limits)
-      echo "file:internal/api/ratelimit.go"
+      echo "file:internal/api/ratelimit.go file:internal/api/console_line.go"
       ;;
     go-api-proxytrust)
       echo "file:internal/api/proxytrust.go"

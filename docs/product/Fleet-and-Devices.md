@@ -147,6 +147,10 @@ warning.
   behind a large one. A machine that arrives when about half a minute of sign-ins is
   already waiting is told to come back after a random wait of up to half a minute,
   and its agent dials again then.
+- While machines wait to sign in, the returning fleet goes first: the console's
+  pages run a few at a time and load more slowly, and a page still waiting when its
+  request runs out of time is answered "machines are signing in; try again shortly"
+  with a few seconds to wait. Once every machine is in, the console runs as usual.
 
 ## Inventory
 

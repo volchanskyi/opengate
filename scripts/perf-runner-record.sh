@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Reads what the runner and the server's processor allowance did over one leg: the processor
-# model, the share of time the host took back, and how often the server's container was throttled.
+# Reads what the runner and the server's allowance did over one leg, and how a stopped server
+# ended: processor model, host steal, throttling, exit code, memory kill and stop time.
 #
 # Usage:
 #   perf-runner-record.sh snapshot <server-cgroup-dir> <out.json>
-#   perf-runner-record.sh snapshot --server-stopped <out.json>
+#   perf-runner-record.sh snapshot --server-stopped <container-state.json> <out.json>
 #   perf-runner-record.sh delta <before.json> <after.json>
 #
 # Environment:
@@ -52,11 +52,18 @@ snapshot() {
        throttled_usec: ($s.throttled_usec // 0)}' <<<"$host" >"$out"
 }
 
-# snapshot_stopped reads the runner alone: a stopped container's cgroup goes with it.
+# snapshot_stopped reads the runner and the state Docker kept: a stopped container's cgroup goes
+# with it, and `docker inspect -f '{{json .State}}'` says how it ended.
 snapshot_stopped() {
-  local host
+  local state="$1" out="$2" host
+  if [ ! -r "$state" ] || ! jq -e 'type == "object"' "$state" >/dev/null 2>&1; then
+    echo "::error::no container state at $state" >&2
+    return 1
+  fi
   host="$(host_reading)"
-  jq '. + {server_stopped: true}' <<<"$host" >"$1"
+  jq --slurpfile state "$state" '. + {server_stopped: true,
+    server_exit_code: $state[0].ExitCode, server_oom_killed: $state[0].OOMKilled,
+    server_finished_at: $state[0].FinishedAt}' <<<"$host" >"$out"
 }
 
 delta() {
@@ -76,11 +83,13 @@ delta() {
       }
       + if $a.server_stopped then
           {server_periods: null, server_throttled_periods: null, server_throttled_share: null,
-           server_throttled_ms: null}
+           server_throttled_ms: null, server_exit_code: $a.server_exit_code,
+           server_oom_killed: $a.server_oom_killed, server_finished_at: $a.server_finished_at}
         else
           ($a.nr_periods - $b.nr_periods) as $periods
           | ($a.nr_throttled - $b.nr_throttled) as $throttled
-          | {server_periods: $periods,
+          | {server_exit_code: null, server_oom_killed: null, server_finished_at: null,
+             server_periods: $periods,
              server_throttled_periods: $throttled,
              server_throttled_share: (if $periods > 0 then ($throttled / $periods | round2) else null end),
              server_throttled_ms: (($a.throttled_usec - $b.throttled_usec) / 1000 | round)}
@@ -90,10 +99,11 @@ delta() {
 main() {
   case "${1:-}" in
     snapshot)
-      [ "$#" -eq 3 ] || usage
-      if [ "$2" = --server-stopped ]; then
-        snapshot_stopped "$3"
+      if [ "${2:-}" = --server-stopped ]; then
+        [ "$#" -eq 4 ] || usage
+        snapshot_stopped "$3" "$4"
       else
+        [ "$#" -eq 3 ] || usage
         snapshot "$2" "$3"
       fi
       ;;

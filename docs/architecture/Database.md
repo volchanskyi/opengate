@@ -598,7 +598,8 @@ The production database lives in the app chart's Postgres StatefulSet
 ([`postgres-statefulset.yaml`](../../deploy/helm/opengate/templates/postgres-statefulset.yaml)).
 Production keeps a persistent `oci-bv` volume claim; staging sets
 `postgres.storage.persistent=false` and uses `emptyDir` because staging data is
-ephemeral E2E/smoke-test state.
+ephemeral E2E/smoke-test state. Both databases log a slow statement and a lock
+wait, with the thresholds the StatefulSet's container arguments set.
 
 ## Encryption inside the cluster
 

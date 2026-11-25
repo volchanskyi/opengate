@@ -95,6 +95,16 @@ func TestASignInPastAFullLineIsToldToComeBackLater(t *testing.T) {
 	assert.Nil(t, env.srv.GetAgent(protocol.DeviceID(thirdID)), "a machine turned away is held nowhere")
 }
 
+func TestTheServerSaysMachinesWaitOnlyWhileOneWaitsItsTurn(t *testing.T) {
+	env, hold := fullLine(t, nil)
+	assert.True(t, env.srv.MachinesWaiting(), "the second machine waits behind the first")
+
+	close(hold.release)
+
+	waitForCount(t, env.srv, 2)
+	assert.False(t, env.srv.MachinesWaiting(), "both machines are in")
+}
+
 func TestAWaitingMachineSignsInWhenTheOneAheadFinishes(t *testing.T) {
 	env, hold := fullLine(t, nil)
 

@@ -413,6 +413,13 @@ All API endpoints are rate limited:
 
 Requests exceeding the limit receive `429 Too Many Requests`. A 30-second request timeout applies to all API routes (WebSocket routes are excluded).
 
+While machines wait in the sign-in line, a signed-in request waits for one of a
+few places sized by the processor share
+([`console_line.go`](../../server/internal/api/console_line.go)); public routes,
+the machine's enrolment among them, never wait. A request still waiting as its
+timeout nears receives `503 Service Unavailable` with `Retry-After`. See
+[ADR-131](../adr/ADR-131-sign-in-line.md).
+
 The address a request is counted under is its peer's, unless the peer is one of
 the proxies the deployment names — then it is the last entry of that request's
 `X-Forwarded-For`. See

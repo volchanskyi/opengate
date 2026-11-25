@@ -375,7 +375,13 @@ jobs:
             scripts/perf-runner-record.sh snapshot \
               "$(scripts/database-levels.sh cgroup-of opengate-perf-server)" /tmp/runner-after.json
           else
-            scripts/perf-runner-record.sh snapshot --server-stopped /tmp/runner-after.json
+            # Docker keeps a stopped container's state and log until the stack is torn down.
+            docker inspect -f '{{json .State}}' opengate-perf-server >/tmp/server-state.json
+            scripts/perf-runner-record.sh snapshot --server-stopped /tmp/server-state.json /tmp/runner-after.json
+            mkdir -p "$PERF_BUNDLE_DIR/$LEG"
+            docker logs --tail 200 opengate-perf-server >"$PERF_BUNDLE_DIR/$LEG/server-tail.log" 2>&1
+            jq -r '"::error::the server stopped before the leg ended: exit \(.ExitCode), killed for memory \(.OOMKilled), at \(.FinishedAt); its last log lines are in server-tail.log"' \
+              /tmp/server-state.json >&2
           fi
           scripts/perf-runner-record.sh delta /tmp/runner-before.json /tmp/runner-after.json >/tmp/runner.json
           if [ -s /tmp/cpu-benchmark.json ]; then

@@ -7,6 +7,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/tool-versions.sh
 . "$SCRIPT_DIR/lib/tool-versions.sh"
+# shellcheck source=lib/download.sh
+. "$SCRIPT_DIR/lib/download.sh"
 
 AGE_VERSION="$TOOL_VERSION_AGE"
 ZSTD_VERSION="$TOOL_VERSION_ZSTD"
@@ -89,7 +91,7 @@ trap 'rm -rf "$work_dir"' EXIT
 
 download_and_verify() {
   local url="$1" destination="$2" expected_sha="$3" actual_sha
-  curl --fail --location --retry 3 --silent --show-error "$url" -o "$destination"
+  download "$url" "$destination"
   actual_sha="$(sha256sum "$destination" | awk '{print $1}')"
   if [ "$actual_sha" != "$expected_sha" ]; then
     log "ERROR: checksum mismatch for $(basename "$destination"): got $actual_sha, expected $expected_sha"

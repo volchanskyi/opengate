@@ -50,3 +50,5 @@ library	scripts/lib/reference-walk.sh	-	The core walk is sourced by the enduranc
 library	scripts/lib/summary-table.sh	-	The summary table shape is sourced by the run, drill and benchmark renderers, which each set their own policy.
 library	scripts/lib/cluster-paths.sh	-	The cluster job's trigger paths are sourced by cd.yml's decision step and inherit its policy.
 library	scripts/lib/image-inputs.sh	-	The server image's inputs are sourced by the image build gate and the staging version check, which each set their own policy.
+library	scripts/lib/step-clock.sh	-	The step clock is sourced by the gauntlet and its test, which each set their own policy.
+library	scripts/lib/download.sh	-	The release download is sourced by the three install scripts and its test, which each set their own policy.

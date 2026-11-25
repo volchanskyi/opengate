@@ -486,7 +486,9 @@ what a leg offers, which raises the version
 ([`profile-load-version.test.sh`](../../scripts/tests/profile-load-version.test.sh)),
 starts a fresh window. Every leg, a failed one
 included, also records what the runner did — its processor model, processor steal
-and the server container's throttling counters, or that the server stopped
+and the server container's throttling counters, or that the server stopped, with
+the exit code, whether it was killed for memory and when, and its last log lines
+beside the bundle
 ([`perf-runner-record.sh`](../../scripts/perf-runner-record.sh)) — so a slow night
 says whether the machine or the code was slow, and its samples carry the processor
 model as a `processor` label. Each run writes a summary table of every limit
