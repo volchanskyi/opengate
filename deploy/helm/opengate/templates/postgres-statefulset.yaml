@@ -31,6 +31,13 @@ spec:
       containers:
         - name: postgres
           image: {{ .Values.postgres.image }}
+          # A statement past a second and a lock wait past the deadlock check each leave a log line,
+          # so a slow read names its cause; the entrypoint hands flags to postgres.
+          args:
+            - "-c"
+            - "log_min_duration_statement=1000"
+            - "-c"
+            - "log_lock_waits=on"
           env:
             - name: POSTGRES_USER
               value: opengate

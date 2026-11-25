@@ -9,6 +9,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/tool-versions.sh
 . "$SCRIPT_DIR/lib/tool-versions.sh"
+# shellcheck source=lib/download.sh
+. "$SCRIPT_DIR/lib/download.sh"
 
 BIN_DIR="${RELEASE_TOOLS_BIN_DIR:-$HOME/.local/bin}"
 ALL_TOOLS=(gitleaks hadolint helm kubeconform conftest tflint trivy actionlint)
@@ -77,8 +79,7 @@ install_one() {
   inner="${spec##* }"
   work="$(mktemp -d)"
   log "$tool: $url"
-  curl --fail --silent --show-error --location --retry 3 --retry-delay 5 \
-    --connect-timeout 10 --max-time 300 -o "$work/download" "$url"
+  download "$url" "$work/download"
   case "$url" in
     *.tar.gz) tar -xzf "$work/download" -C "$work" "$inner" ;;
     *.zip) unzip -q -o "$work/download" "$inner" -d "$work" ;;

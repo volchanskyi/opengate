@@ -67,9 +67,13 @@ assert_eq "and the time it was held back, in milliseconds" "2000" \
 assert_eq "a server that ran to the end is recorded as running" "false" \
   "$(jq -r '.server_stopped' "$WORK/runner.json")"
 
-# The server's cgroup goes with its container, so the second reading of a stopped server has none.
+# The server's cgroup goes with its container, so the second reading of a stopped server has none;
+# Docker keeps the container's state, as `docker inspect -f '{{json .State}}'` prints it.
 reading 1100 100 3000 610 2050000
-"$RECORD" snapshot --server-stopped "$WORK/stopped.json"
+cat >"$WORK/state.json" <<'STATE'
+{"Status":"exited","Running":false,"Paused":false,"Restarting":false,"OOMKilled":true,"Dead":false,"Pid":0,"ExitCode":137,"Error":"","StartedAt":"2026-11-23T19:17:01.104Z","FinishedAt":"2026-11-23T19:20:41.512Z"}
+STATE
+"$RECORD" snapshot --server-stopped "$WORK/state.json" "$WORK/stopped.json"
 "$RECORD" delta "$WORK/before.json" "$WORK/stopped.json" >"$WORK/stopped-runner.json"
 assert_eq "a stopped server leaves the runner's processor model" "AMD EPYC 7763 64-Core Processor" \
   "$(jq -r '.processor_model' "$WORK/stopped-runner.json")"
@@ -79,9 +83,21 @@ assert_eq "with no throttling claimed for it" "null null null null" \
   "$(jq -r '"\(.server_periods) \(.server_throttled_periods) \(.server_throttled_share) \(.server_throttled_ms)"' \
     "$WORK/stopped-runner.json")"
 
+assert_eq "and why: the exit code it stopped with" "137" "$(jq -r '.server_exit_code' "$WORK/stopped-runner.json")"
+assert_eq "whether the kernel killed it for memory" "true" "$(jq -r '.server_oom_killed' "$WORK/stopped-runner.json")"
+assert_eq "and when it stopped" "2026-11-23T19:20:41.512Z" "$(jq -r '.server_finished_at' "$WORK/stopped-runner.json")"
+assert_eq "a server that ran to the end names no exit" "null null null" \
+  "$(jq -r '"\(.server_exit_code) \(.server_oom_killed) \(.server_finished_at)"' "$WORK/runner.json")"
+
 rc=0
-"$RECORD" snapshot --server-stopped "$WORK/x.json" extra 2>/dev/null || rc=$?
-assert_eq "a stopped-server reading takes one output path" "2" "$rc"
+"$RECORD" snapshot --server-stopped "$WORK/state.json" "$WORK/x.json" extra 2>/dev/null || rc=$?
+assert_eq "a stopped-server reading takes the container's state and one output path" "2" "$rc"
+rc=0
+"$RECORD" snapshot --server-stopped "$WORK/x.json" 2>/dev/null || rc=$?
+assert_eq "a stopped-server reading without the container's state is refused" "2" "$rc"
+rc=0
+"$RECORD" snapshot --server-stopped "$WORK/no-such-state.json" "$WORK/x.json" 2>/dev/null || rc=$?
+assert_eq "a container state that cannot be read is refused" "1" "$rc"
 
 rc=0
 "$RECORD" snapshot "$WORK/no-such-cgroup" "$WORK/x.json" 2>/dev/null || rc=$?

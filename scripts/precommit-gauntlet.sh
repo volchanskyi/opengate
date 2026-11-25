@@ -27,7 +27,10 @@ fi
 DOCKER_CONFIG="$(./scripts/docker-credstore-guard.sh)"
 export DOCKER_CONFIG
 
-START_EPOCH="$(date +%s)"
+# Each timer reads the kernel's seconds since boot, which the wall clock's steps leave alone.
+# shellcheck source=scripts/lib/step-clock.sh
+. scripts/lib/step-clock.sh
+RUN_START="$(step_clock)"
 FAIL_COUNT=0
 FAILED_STEPS=()
 
@@ -63,17 +66,18 @@ run_check() {
   shift
   [ "$1" = "--" ] && shift
   local start
-  start="$(date +%s)"
+  start="$(step_clock)"
   running "$name"
   local tmpfile
   tmpfile="$(mktemp)"
-  if "$@" >"$tmpfile" 2>&1; then
-    ok "$name" "$(($(date +%s) - start))"
+  local rc=0
+  "$@" >"$tmpfile" 2>&1 || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    ok "$name" "$(($(step_clock) - start))"
     rm -f "$tmpfile"
     return 0
   fi
-  local rc=$?
-  fail "$name" "$(($(date +%s) - start))"
+  fail "$name" "$(($(step_clock) - start))"
   tail -80 "$tmpfile" >&2 || true
   printf '  (full log: %s, exit code: %s)\n' "$tmpfile" "$rc" >&2
   FAIL_COUNT=$((FAIL_COUNT + 1))
@@ -189,13 +193,13 @@ echo "✓ all prerequisites present" >&2
 
 banner "Dependency fixes"
 # A hole a patch release fixes ends the run here, before any slower check spends time on it.
-dependency_start="$(date +%s)"
+dependency_start="$(step_clock)"
 dependency_report="$(mktemp)"
 running "dependency fixes"
 dependency_rc=0
 python3 scripts/dependency-fixes >"$dependency_report" 2>&1 || dependency_rc=$?
 if [ "$dependency_rc" -ne 0 ]; then
-  fail "dependency fixes" "$(($(date +%s) - dependency_start))"
+  fail "dependency fixes" "$(($(step_clock) - dependency_start))"
   # The newer-line list is printed as its count; a refused serious hole is printed in full, and
   # the full report keeps every entry.
   awk '/^dependency-fixes: .*newer minor or major release; bring/ { print; skip = 1; next }
@@ -203,7 +207,7 @@ if [ "$dependency_rc" -ne 0 ]; then
   printf '  (full report: %s, exit code: %s)\n' "$dependency_report" "$dependency_rc" >&2
   exit 1
 fi
-ok "dependency fixes" "$(($(date +%s) - dependency_start))"
+ok "dependency fixes" "$(($(step_clock) - dependency_start))"
 grep '^dependency-fixes:' "$dependency_report" >&2 || true
 rm -f "$dependency_report"
 
@@ -333,7 +337,7 @@ else
   run_check "sonar new-rating guard" -- bash scripts/sonar-rating-guard.sh
 fi
 
-ELAPSED=$(($(date +%s) - START_EPOCH))
+ELAPSED=$(($(step_clock) - RUN_START))
 banner "Summary"
 if [ "$FAIL_COUNT" -eq 0 ]; then
   color "1;32"

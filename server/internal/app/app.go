@@ -436,6 +436,9 @@ func Build(ctx context.Context, cfg Config) (*Assembly, error) {
 		RuleCatalogue:  ruleCatalogue,
 		RuleRollouts:   ruleStore,
 		RuleCoverage:   agentSrv,
+		// Machines waiting to sign in hold the console's requests back, sized by the same share.
+		MachineLine:    agentSrv,
+		ProcessorShare: cfg.ProcessorShare,
 		// The same store holds every operator change to a rule; the alert store holds budgets.
 		RuleAdmin:   ruleStore,
 		AlertBudget: alertStore,

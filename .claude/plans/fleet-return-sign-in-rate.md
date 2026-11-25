@@ -185,6 +185,56 @@ Folded in by Ivan (modal, 2026-11-13). Each reading below is part of step 9's be
   technician load the test kit reads. Technicians open a log page a second through the 30 s
   return, all 30 owed within 30 s; the return is the measured phase, so the server and database
   watches read over it, and the returning wave gains two watches (all online, 95% within 3 min).
+- **The pre-commit checks time their steps on a forward-only clock** (Ivan, modal, 2026-11-23,
+  found landing the fast-follow): the step and total timers read the wall clock, which steps back
+  1-2.5 s on the workstation, so two steps printed `(-2s)`. Display only; folded into commit 4.
+- **Sign-ins go first when the processor is short** (Ivan, modal, 2026-11-24, after step 9's
+  rehearsal): while machines wait to sign in, console requests wait in a short line of their own,
+  a few at once, so the returning fleet gets the processor first (Kubernetes' API Priority and
+  Fairness keeps node check-ins in a priority level of their own). In commit 4.
+- **The rate promise is decided after the fix** (Ivan, modal, 2026-11-24): commit 4 lands the
+  priority fix; the next ARM night's rate brings the promise and the server's size back to Ivan.
+- **The driver's batch is dropped; sign-ins ahead of catch-up stays open** (Ivan, modal,
+  2026-11-24): the database ran 6% busy on the ARM catch-up night and 13% at 8,000 machines;
+  catch-up's 8-13% of the return is read again on the next ARM night's profile.
+- **The console line's shape** (Ivan, modal, 2026-11-24): every signed-in console request waits
+  (a machine's enrolment, health checks and live sessions do not), only while a machine waits in
+  the sign-in line; a request waiting past the API's 30 s limit gets 503 with a retry time. How
+  many run at once is a number per processor, rehearsed at 1 and 2 at a quarter processor with
+  technicians working, keeping the one where sign-ins reach their rate while the fleet page loads.
+- **The console line holds one place per quarter processor; commit 4 lands, the ARM night next**
+  (Ivan, modals, 2026-11-24, after the rehearsals `c1` and `c2`): 1 and 2 places read the same
+  sign-in rate (about 10 a second in the return, 3.2 after), 495 against 609 machines failing to
+  connect; the next cut (the fleet page's health-rate lookup, 29% of the processor, or catch-up
+  waiting for sign-ins) comes back with the ARM night's numbers.
+- **A leg records why its server stopped** (Ivan, modal, 2026-11-24): a server not running at a
+  leg's end has its exit code, whether it was killed for memory and its last log lines written into
+  the run's evidence. In commit 4.
+- **The install scripts retry every failed download** (Ivan, modal, 2026-11-24): the shell-tools,
+  release-tools and dump-tools installs retry any error with a pause, as the dependency check does;
+  GitHub answered 403 once on CD 45316115369's first attempt. In commit 4.
+- **A "come back later" counts apart, with no cap** (Ivan, modal, 2026-11-24, after the research:
+  AWS IoT counts connects as Success, Throttle, ClientError and ServerError; Azure IoT Hub counts
+  attempted, succeeded and throttled; k6's expected statuses leave the failure rate; Google SRE
+  writes down which events count): the harness files a turn-away with the refusals made on purpose
+  and publishes it as its own number; a night is judged on its rate and its time-online promises,
+  and "none refused" reads as none refused for good. In commit 4.
+- **Both databases log a slow statement and a lock wait** (Ivan, modal, 2026-11-24, the staging
+  device-list item): the list plans in 3.9 ms and runs in 2.3 ms over 407 machines as the app's
+  login with the tenant set, and its daily median read about 3 ms for 16 days. One window was slow,
+  11-23 16:51-16:57 in CD 45133238985's browser tests: 28 of 58 list calls took 0.5-1 s (about
+  630 ms each), with no connection-pool waits, the processor idle, 2 machines, every other call
+  normal; CD 45316115369 read 3 ms. Neither log is on, so the window cannot be explained. The
+  database container runs with `log_min_duration_statement=1000` and `log_lock_waits=on` (Heroku
+  logs past 2 s by default; PostgreSQL 19 turns lock-wait logging on by default). Folded into
+  commit 4; the pod template change restarts each database once at its deploy.
+- **Commit 4's first check run failed twice; the workstation's clock and a test are fixed**
+  (Ivan, modals, 2026-11-24): the machine-lifecycle browser test and a session-tab unit test. The
+  browser test's machine removed itself on time; Docker 29.3.0 dropped the container's exit
+  because the workstation's clock stepped back 0.6 s every 32 s (Ubuntu's time service against Windows' push),
+  and a hunt caught the same drop freezing a helper. Ivan turned the Ubuntu time service off; no
+  time limits go into the helpers. The session-tab test waits for the page's timers before moving
+  the clock, and the gauntlet names a failed check's real exit code. In commit 4.
 
 ## Research, before the steps it gates
 
@@ -401,6 +451,50 @@ rate (0.091, then 0.068), which is the sign-ins left unanswered at 5 minutes tha
 | Catch-up told to wait / turns asked again | 19 / 1 | 5 / 1 |
 | Server busy over the return and the drain | 97.6% / 97.3% | 97.0% / 97.3% |
 
+## What the first ARM night after commit 3 read (2026-11-23, `dc2c9821`)
+
+Read by job and step result and from each leg's bundle. Both ARM legs invalid; the server at a
+quarter processor was throttled in 99.5% of its periods and held 343-365 MB of 384 MiB.
+
+| Reading | catch-up 11-21 / 11-22 (commit 2) | catch-up 11-23 (commit 3) | burst 11-23 (commit 3) |
+|---|---|---|---|
+| Verdict | valid / valid | invalid: return error rate 0.858, drain 0.749 | invalid: server stopped mid-run |
+| Online in the return / machines caught up | 2,170 / 4,998; 2,535 / 5,000 | 252 / 3,185 | 4,007 of 5,000 |
+| Sign-ins a second over the return | (no row) | 0.35 | 13.3 |
+| Sign-in p50 / p95 (return) | 3.4 s / 24.6 s; 2.5 s / 21.5 s | 7.1 s / 26.3 s (drain p95 300 s) | 10.2 s / 41.1 s |
+| Server UDP receive errors (return) | 0; 2,210 | 15,802 | 4,611 |
+
+- Catch-up's failures: 2,578 dials timed out, 1,660 `CONNECTION_REFUSED` from the server's QUIC
+  listener, 808 "the sign-in line is full", 219 sign-ins unanswered; 638 stood down.
+- Burst: 3,373 machines lost their connection on a failed heartbeat; the server's metrics port then
+  refused connections and the inventory phase read error rate 1.0 (exit cause unread).
+- The technicians' journeys: device list p95 9.5 s, command p95 22 s, relay p95 15.2 s.
+
+## What step 9's rehearsal read (2026-11-24, workstation, `b4058707`)
+
+The nightly's catch-up leg at production's limits, technicians on half a processor of their own
+and signed in before the walk; kit `~/.cache/opengate-step9-readings`, run `after3`.
+
+- 3,077 of 5,000 online; 808 `CONNECTION_REFUSED`, 1,407 + 653 handshake and dial timeouts, 2,483
+  told to come back, 335 "stream accept failed". Invalid: return error rate 0.685, drain 0.809.
+- **The technicians' requests took the processor from the sign-ins.** While k6 ran (return start
+  to +1,500 s) the server signed in 0.2-0.7 machines a second and held 277-492 connected; k6 ended
+  at +1,500 s and the next minute signed in 2,582 at 42 a second. The line runs 2 sign-ins at a
+  quarter processor; console requests run without a cap.
+- Server processor by minute of the return (CPU profiles): minute 1 handshakes 32%, UDP 25%,
+  sign-ins 13%; minutes 2-5 the console's device list 19-26% (each a 5,000-machine JSON body,
+  `enrichAnomalyRates` a metrics-store query per list), garbage collection 9-11%, catch-up 8-13%,
+  UDP 5-14%, handshakes 5-12%, sign-ins 1.5-5%. Throttled throughout.
+- `CONNECTION_REFUSED` is quic-go's 32-slot queue of finished handshakes overflowing
+  (`handleNewConn`): a handshake paid for is thrown away when the accept loop falls behind.
+- Processor per sign-in once the technicians stopped: about 6 ms of a quarter processor at 42 a
+  second, the newly signed-in machines' catch-up included. Memory: resident 334 MB at +61 s, about
+  64 KB per added connected machine at the end.
+- The nightlies after steps 4-8 (11-23, `dc2c9821`): volume-8000 sign-in p50 0.6 ms, database 13%
+  busy (93.7%); spike database 98.8% busy (98.7%), sign-in p50 47.9 ms (149 ms); breakpoint
+  recovery sign-in p50 43.9 s, p95 95.4 s (24 s / 57 s); catch-up technicians signed in before
+  the walk, 10,862 journeys run.
+
 ## Work, each step test first
 
 1. Timers that reach the 5-minute promise (Ivan, modal): the server's sign-in
@@ -519,6 +613,16 @@ rate (0.091, then 0.068), which is the sign-ins left unanswered at 5 minutes tha
     `canary_hold_secs`, `staged_hold_secs`, `stage_entered_at`); the gate code and
     `SetRolloutStage` go; the docs and ADR-070 say an administrator moves a rule's stage.
 
+18. Console requests wait while machines do (Ivan, modal, 2026-11-24): a line for signed-in
+    console requests, closed to none while the sign-in line is empty, a set number per processor
+    at once while it is not; past the request limit a 503 with a retry time. Tests: the line opens
+    and closes with the sign-in line's waiting count; a request past its wait answers 503; the
+    enrolment route and the relay never wait. Rehearsed at 1 and 2 at a quarter processor.
+19. A "come back later" counts apart (Ivan, modal, 2026-11-24): the harness files a turn-away
+    with the expected rejections, so the error rate leaves it out; its own count stays published.
+20. A leg records why its server stopped (Ivan, modal, 2026-11-24).
+21. The three install scripts retry every failed download (Ivan, modal, 2026-11-24).
+
 ## Commit 2's shape, as the code reads (2026-11-19)
 
 What a sign-in reads today, in order: `TenantForDevice` (admin) and `devices.Get` at accept, then on
@@ -574,14 +678,20 @@ transactions of about four trips. The agent sends `AgentRegister` first on every
    the inventory in one statement); step 13 (ADR-088 findings, the store's label trim); the
    start-up reset in every tenant.
 4. After the first ARM night and step 9's readings: what the open question needs,
-   the readings in the decision record.
+   the readings in the decision record; the pre-commit checks' step timers on a forward-only clock;
+   the databases' slow-statement and lock-wait logs; steps 18-21. Built and checked, uncommitted
+   (2026-11-24): the step clock (`scripts/lib/step-clock.sh`); the database logs (ADR-014,
+   `Database.md`); step 18's console line (`console_line.go`, `MachinesWaiting`, ADR-131,
+   `API-Reference.md`, `Fleet-and-Devices.md`), its place count rehearsed at 1 and 2; step 19's
+   turn-aways (`quic_fleet.go`, ADR-082); step 20 (`perf-runner-record.sh`, `perf-leg.yml`); step 21
+   (`scripts/lib/download.sh`).
 5. Step 17, on its own (Ivan, modal, 2026-11-20): rule rollouts move by hand; this plan
    deleted with its `phases.md` row.
 
 ## Open, for Ivan
 
-- Whether a sign-in goes ahead of catch-up when both wait, the server's size, and
-  the driver's batch if sign-in is still short: brought after step 9's readings.
+- Whether a sign-in goes ahead of catch-up when both wait, the rate promise and the server's size:
+  brought with the first ARM night after commit 4.
 
 ## Done when
 

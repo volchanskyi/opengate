@@ -43,4 +43,11 @@ start time.
 
 Migrations run with `golang-migrate` and are verified after every deploy.
 Connection-pool occupancy is published, because a slow query and a query waiting
-for a connection look identical until the pool says which it was.
+for a connection look identical until the pool says which it was. Each database
+logs a slow statement and a lock wait that outlasts the deadlock check, at the
+thresholds
+[`postgres-statefulset.yaml`](../../deploy/helm/opengate/templates/postgres-statefulset.yaml)
+sets, so a slow query that held a connection names what it waited on:
+a query over a handful of rows takes that long only while it waits. Heroku logs
+past two seconds by default, and PostgreSQL 19 turns lock-wait logging on by
+default.

@@ -50,6 +50,19 @@ understands it. Azure IoT Hub queues a burst at its rate and refuses only when t
 queue is full; HiveMQ caps handshakes in progress; Netdata spaces sign-ins a set
 time apart, which costs every turned-away child a new handshake.
 
+**While machines wait, the console's requests wait too.** A signed-in console
+request takes one of a few places, sized per processor of the same share
+([`console_line.go`](../../server/internal/api/console_line.go)), while any
+machine waits in the line; with none waiting, nothing limits it. Public routes,
+the machine's enrolment among them, never wait. A request still waiting as its
+30 s run out is answered 503 with `Retry-After`. Without it, two sign-ins at a
+quarter processor shared the processor with every console request at once: a
+rehearsal of 5,000 machines returning beside the busy morning's technicians
+signed in 0.2-0.7 machines a second while the technicians worked and 42 a second
+the minute they stopped, the fleet list alone (each a 5,000-machine body) taking
+a fifth to a quarter of the processor. Kubernetes' API Priority and Fairness keeps
+node check-ins in a priority level user requests cannot take, for the same reason.
+
 ## Consequences
 
 A returning machine waits connected, holding about 38 KB, so the line costs no more
@@ -60,3 +73,14 @@ count and the turn-aways are published as `opengate_sign_in_line_waiting` and
 ([Metrics Reference](../architecture/Metrics-Reference.md#registration)). The
 catch-up night holds the server to the rate
 ([`catch-up.yaml`](../../load/profiles/catch-up.yaml)). No setting tunes the line.
+
+The console's places were measured at a quarter processor, the same 5,000 machines
+and technicians. With none, 3,074 machines caught up and about 2,900 failed to
+connect. With one place, 4,987 caught up, 495 failed, sign-ins ran about 10 a
+second in the 30 s return, and the fleet page took a median 5.2 s (2.2 s without
+the line), about 1 in 100 console requests told to try again. Two places read the
+same sign-in rate with 609 failed, so a place costs the fleet more than it gives
+the console, and the line keeps 4 per processor. After the return the server
+signed in 3.2 machines a second while technicians worked: the console still took
+37% of the processor, 29% of it decoding every machine's health rate for each fleet
+page, catch-up 25% and garbage collection 10%, leaving sign-ins about 5%.

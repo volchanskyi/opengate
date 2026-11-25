@@ -80,6 +80,30 @@ func TestTheFleetTalliesWhatEachMachineSaw(t *testing.T) {
 		"and a refusal leaves the denominator with the numerator, or the share it produces is of a fleet that was never asked")
 }
 
+func TestAMachineEndedWhileToldToComeBackLaterIsARefusalOnPurpose(t *testing.T) {
+	outcomes := []agentResult{
+		{connectDur: time.Millisecond, arrivedAt: time.Now()},
+		{connectDur: time.Millisecond, err: &toldToComeBack{wait: 20 * time.Second}},
+		{err: errors.New("read server hello: timeout: no recent network activity")},
+	}
+	var next atomic.Int64
+	fleet := NewQUICFleet(func(_ context.Context, _ int, presence fleetPresence) agentResult {
+		result := outcomes[next.Add(1)-1]
+		if !result.arrivedAt.IsZero() {
+			presence.Arrived(time.Now())
+		}
+		return result
+	})
+
+	require.NoError(t, fleet.HoldConnected(0, len(outcomes)))
+	fleet.Stop()
+
+	tally := fleet.Outcomes()
+	assert.EqualValues(t, 1, tally.Rejected, "the sign-in line turned it away by design")
+	assert.EqualValues(t, 1, tally.Failed, "only the timed-out handshake failed to get in")
+	assert.InDelta(t, 0.5, tally.ErrorRate(), 1e-9, "the turn-away leaves the error rate's both sides")
+}
+
 func TestProbeLatencyIsALiveRoundTrip(t *testing.T) {
 	var probes atomic.Int64
 	fleet := NewQUICFleetWithProbe(

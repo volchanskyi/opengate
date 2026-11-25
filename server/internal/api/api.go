@@ -220,6 +220,12 @@ type ServerConfig struct {
 	// Lifetime is closed on process shutdown. websocket.Accept hijacks the connection, so only
 	// this channel reaches a parked relay handler; a nil channel waits for the session to end.
 	Lifetime <-chan struct{}
+	// MachineLine says whether machines wait to sign in, which holds console requests back; nil
+	// lets every request through.
+	MachineLine MachineLine
+	// ProcessorShare is the processors the container allows, which sizes the console line; zero
+	// is every processor of the machine.
+	ProcessorShare float64
 }
 
 // Server is the HTTP API server.
@@ -279,6 +285,7 @@ type Server struct {
 	peerWaitTimeout time.Duration
 	pingInterval    time.Duration
 	lifetime        <-chan struct{}
+	consoleLine     *consoleLine
 }
 
 // resolveAuditHandlers returns cfg.AuditHandlers, or wraps cfg.Audit when only that is set.
@@ -391,6 +398,7 @@ func NewServer(cfg ServerConfig) *Server {
 		peerWaitTimeout: cfg.RelayPeerTimeout,
 		pingInterval:    cfg.RelayPingInterval,
 		lifetime:        cfg.Lifetime,
+		consoleLine:     newConsoleLine(cfg.MachineLine, cfg.ProcessorShare),
 	}
 	if s.requestTimeout <= 0 {
 		s.requestTimeout = defaultRequestTimeout
@@ -473,7 +481,9 @@ func (s *Server) routes() {
 
 		HandlerWithOptions(strictHandler, ChiServerOptions{
 			BaseRouter: apiRouter,
+			// The first runs innermost: the console line holds a request once it is signed in.
 			Middlewares: []MiddlewareFunc{
+				s.consoleLine.admit,
 				s.oapiAuthMiddleware(),
 				AuthRateLimiter(10, 20, s.trustedProxies),
 			},

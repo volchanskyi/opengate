@@ -115,6 +115,12 @@ func (l *signInLine) room() int {
 	return max(1, int(math.Round(signInLineSeconds*l.pace.perSecond)))
 }
 
+// MachinesWaiting reports whether any machine waits in the sign-in line, which holds the
+// console's requests back so the returning fleet gets the processor first.
+func (s *AgentServer) MachinesWaiting() bool {
+	return s.line.waiting() > 0
+}
+
 // waiting is how many sign-ins are in the line.
 func (l *signInLine) waiting() int {
 	l.mu.Lock()

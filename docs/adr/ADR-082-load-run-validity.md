@@ -164,6 +164,11 @@ is caught by the bracket below rather than inferred from this.
 the only way to separate a phase from the run around it when a machine reports
 once at the end of its life. Refusals the server made on purpose are counted
 apart from faults; counting an enforced limit as a defect buries the real ones.
+A machine whose life ends while it obeys the sign-in line's "come back later" is
+one of them, and the turn-aways are published as a count of their own: AWS IoT
+counts a throttled connect apart from a client or server error, and Azure IoT Hub
+counts throttled sends apart from failed ones. The time-online promises still
+judge a machine sent away too long.
 
 **The target is read at both ends of the run.** Replaced mid-run makes the run
 invalid; not giving back what it took makes it failed. Both readings travel in
