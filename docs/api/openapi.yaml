@@ -1626,20 +1626,18 @@ components:
       description: How far along a rollout is.
       enum: [off, canary, staged, full]
 
+    RuleRolloutStage:
+      type: string
+      description: >-
+        The stage an administrator moves a rule to: the first share, the second
+        share or everyone. Off is the enabled switch.
+      enum: [canary, staged, full]
+
     RuleRollout:
       type: object
       description: How far a rule has reached across a customer's estate.
       required:
-        [
-          enabled,
-          rollout_percent,
-          kill,
-          stage,
-          canary_percent,
-          staged_percent,
-          canary_hold_secs,
-          staged_hold_secs,
-        ]
+        [enabled, rollout_percent, kill, stage, canary_percent, staged_percent]
       properties:
         enabled:
           type: boolean
@@ -1658,31 +1656,22 @@ components:
         staged_percent:
           type: integer
           description: The share of the estate the second stage reaches.
-        canary_hold_secs:
-          type: integer
-          description: How long the first stage is held before it may advance.
-        staged_hold_secs:
-          type: integer
-          description: How long the second stage is held before it may advance.
 
     RuleRolloutInput:
       type: object
       description: >-
-        What an administrator may change about a rollout. There is deliberately
-        nothing here for the automatic pull-back: it is the mitigation for a bad
-        rule degrading an estate, so it is not configuration.
-      required:
-        [enabled, canary_percent, staged_percent, canary_hold_secs, staged_hold_secs]
+        What an administrator may change about a rollout: whether it is on, the
+        share each partial stage reaches, and the stage it stands at. The reach
+        follows the share that stage names.
+      required: [enabled, stage, canary_percent, staged_percent]
       properties:
         enabled:
           type: boolean
+        stage:
+          $ref: "#/components/schemas/RuleRolloutStage"
         canary_percent:
           type: integer
         staged_percent:
-          type: integer
-        canary_hold_secs:
-          type: integer
-        staged_hold_secs:
           type: integer
 
     RuleBindingLevel:
@@ -5071,7 +5060,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/RuleRollout"
         "400":
-          description: A population or waiting period outside its bounds
+          description: A population outside its bounds, or a stage the rollout does not have
           content:
             application/json:
               schema:
