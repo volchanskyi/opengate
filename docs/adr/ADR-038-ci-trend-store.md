@@ -38,6 +38,15 @@ gaps. Each
 sample carries the time its run started, taken by the workflow's first job, so a
 night lands on one date however long it runs and a re-run writes the same point.
 
+**A push that loses its connection is read back before it is sent again.** The
+send goes through the cluster-call retry
+([`kubectl-retry.sh`](../../scripts/lib/kubectl-retry.sh)); after a dropped
+connection it asks the store for the push's own `ci_run_info`, the payload's last
+line, and sends again only when it is absent, so a night is written once and a
+dropped one is not lost. Prometheus's remote-write spec retries a server error with
+a growing wait, and the OpenTelemetry collector retries for five minutes before it
+gives up.
+
 **Tonight is judged against the nights before it, not the commits before it.**
 The nightly reader ([`vm-query.sh`](../../scripts/lib/vm-query.sh)) takes the
 latest reading of each date before tonight's, and the gates compare tonight with

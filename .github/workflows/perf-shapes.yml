@@ -54,7 +54,7 @@ jobs:
           - profile: burst
             path: load/profiles/burst.yaml
             title: Link came back at production's limits (ARM)
-            agents: '5000'
+            agents: '4000'
             hold: 8m
             minutes: 60
             arm: true
@@ -62,7 +62,7 @@ jobs:
             server_cpus: '0.25'
             server_memory: 384m
             server_memory_bytes: '402653184'
-            # About 400 KB of generator memory per machine over a 1.25 GiB baseline is roughly 3.3 GB.
+            # About 400 KB of generator memory per machine over a 1.25 GiB baseline is roughly 2.9 GB.
             generator_memory: 5G
             technician_cpus: '0.5'
             technician_memory: 1G

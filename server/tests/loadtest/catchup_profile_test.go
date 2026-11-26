@@ -15,10 +15,10 @@ func TestTheCatchUpProfileHoldsTheNightToTheCatchUpPromises(t *testing.T) {
 	assert.Equal(t, FamilySpike, p.Family)
 	assert.Equal(t, EnvRunner, p.Environment)
 	require.Len(t, p.Phases, 2)
-	assert.Equal(t, 5000, p.Phases[0].ConnectedAgents, "decision E's five thousand machines come back")
+	assert.Equal(t, 4000, p.Phases[0].ConnectedAgents, "one server's ceiling of machines comes back")
 	assert.LessOrEqual(t, p.Phases[0].Duration.Duration, 30*time.Second,
 		"at once, as after a release restart, and faster than the promised rate so the rate can show")
-	assert.Equal(t, 5000, p.Phases[1].ConnectedAgents, "and stay while they drain")
+	assert.Equal(t, 4000, p.Phases[1].ConnectedAgents, "and stay while they drain")
 	assert.True(t, p.Phases[1].Measured)
 
 	peak, err := LoadProfile("../../../load/profiles/peak.yaml")
@@ -37,7 +37,7 @@ func TestTheCatchUpProfileHoldsTheNightToTheCatchUpPromises(t *testing.T) {
 	assert.InDelta(t, 0.99, *live.Min, 0)
 	caught := blocking["catchup/gaps/drain|machines_caught_up"]
 	require.NotNil(t, caught.Min, "every machine's gap is filled")
-	assert.InDelta(t, 5000, *caught.Min, 0)
+	assert.InDelta(t, 4000, *caught.Min, 0)
 	rate := blocking["quic/online/return|sign_ins_per_second"]
 	require.NotNil(t, rate.Min, "the server signs in a hundred returning machines a second, or the night fails")
 	assert.InDelta(t, 100, *rate.Min, 0)

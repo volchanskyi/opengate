@@ -171,6 +171,34 @@ for signature in 'error: unexpected EOF' 'error: client connection lost' \
   assert_status "a connection lost part-way through is not asked again: ${signature:0:40}" "1" "$(attempts)"
 done
 
+run_landed() {
+  local times="$1" text="$2" check="$3"
+  shift 3
+  run_retry "$times" "$text" --landed "$check" "$@"
+}
+if run_landed 1 "$EOF_ERROR" true run vm-push -i --rm -- curl --data-binary @- vm/import; then
+  pass "a write whose connection dropped and whose data is there succeeds"
+else
+  fail "a write whose connection dropped and whose data is there succeeds (out=[$(cat "$WORK/out")])"
+fi
+assert_status "and is not sent again" "1" "$(attempts)"
+if run_landed 1 'error: unexpected EOF' false run vm-push -i --rm -- curl --data-binary @- vm/import; then
+  pass "a write whose connection dropped and whose data is absent is sent again"
+else
+  fail "a write whose connection dropped and whose data is absent is sent again (out=[$(cat "$WORK/out")])"
+fi
+assert_status "and took the two attempts it needed" "2" "$(attempts)"
+run_landed 99 "$EOF_ERROR" false run vm-push -i --rm -- curl --data-binary @- vm/import && status=0 || status=$?
+assert_status "a write that never lands fails with the lost-connection status" "$KUBECTL_RETRY_LOST" "$status"
+assert_status "and stops at the budget" "4" "$(attempts)"
+run_landed 99 'Error from server (Forbidden): pods is forbidden' true run vm-push -i --rm -- true || true
+assert_status "a refused write is neither read back as landed nor sent again" "1" "$(attempts)"
+if ! grep -qF "not sent again" "$WORK/out"; then
+  pass "and is reported as refused"
+else
+  fail "and is reported as refused (out=[$(cat "$WORK/out")])"
+fi
+
 : >"$WORK/count"
 if FAKE_COUNT="$WORK/count" FAKE_FAIL_TIMES=0 FAKE_FAIL_TEXT="" \
   KUBECTL_RETRY_BIN="$WORK/bin/kubectl" \

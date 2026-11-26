@@ -7,10 +7,12 @@ import (
 
 type recordingFleet struct {
 	connected int
-	steps     []fleetStep
-	failAfter int
-	latency   time.Duration
-	outcomes  FleetOutcomes
+	// signedInAtMost caps how many of the held machines have signed in; nought caps none.
+	signedInAtMost int
+	steps          []fleetStep
+	failAfter      int
+	latency        time.Duration
+	outcomes       FleetOutcomes
 
 	// probeCost is wall clock a round trip spends, charged to the phase that took it.
 	probeCost time.Duration
@@ -61,7 +63,12 @@ func (f *recordingFleet) arrivalsFor(asked int64) int64 {
 	return asked * f.arriveNumerator / f.arriveDenominator
 }
 
-func (f *recordingFleet) Connected() int { return f.connected }
+func (f *recordingFleet) Connected() int {
+	if f.signedInAtMost > 0 {
+		return min(f.connected, f.signedInAtMost)
+	}
+	return f.connected
+}
 
 func (f *recordingFleet) ProbeLatency() time.Duration {
 	if f.probeCost > 0 && f.clock != nil {

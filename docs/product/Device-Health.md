@@ -222,7 +222,7 @@ Two promises hold while any catch-up runs:
 | Promise | What it means for you |
 |---|---|
 | Live readings are stored within 5 seconds | The live chart keeps up even while a whole fleet catches up |
-| 5,000 machines back from an hour's outage are all filled within 15 minutes | After a site-wide outage, every chart is whole again within a quarter of an hour |
+| 4,000 machines, one server's ceiling, back from an hour's outage are all filled within 15 minutes | After a site-wide outage, every chart is whole again within a quarter of an hour |
 
 Every historical point is written at the time it was actually measured, not at
 the time it arrived, so backfilled history lands in the right place on a chart.

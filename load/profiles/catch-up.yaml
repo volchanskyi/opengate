@@ -1,9 +1,9 @@
-# Five thousand machines back with an hour's gap each catch up beside their live minutes and a
-# busy morning's technicians, at production's limits on ARM; the writer's promises fail the night.
+# Four thousand machines, one server's ceiling, back with an hour's gap each catch up beside live
+# minutes and a busy morning's technicians at production's limits on ARM; its promises gate.
 schema_version: 1
 name: catch-up
-# The fleet's return within 30 s is a load of its own.
-version: 2
+# The fleet's return within 30 s at one server's ceiling, held through the drain, is its own load.
+version: 3
 family: spike
 environment: runner
 fixture: small
@@ -14,14 +14,14 @@ phases:
   - name: return
     duration: 30s
     operator_arrivals_per_second: 0
-    connected_agents: 5000
+    connected_agents: 4000
     sessions: 0
   # Every machine stays while its hour drains, live minutes sent beside it, with the busy
   # morning's technicians at work.
   - name: drain
     duration: 24m
     operator_arrivals_per_second: 15
-    connected_agents: 5000
+    connected_agents: 4000
     sessions: 20
     measured: true
 
@@ -67,7 +67,7 @@ gates:
     blocking: true
   - series: catchup/gaps/drain
     metric: machines_caught_up
-    min: 5000
+    min: 4000
     blocking: true
   - series: catchup/gaps/drain
     metric: fill_seconds

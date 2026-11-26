@@ -104,7 +104,8 @@ func RunPhasesWatched(profile *Profile, fleet Fleet, clock Clock, read SafetyRea
 			return results, fmt.Errorf("stopping after phase %q: %w", phase.Name, err)
 		}
 		results = append(results, result)
-		from = result.AchievedConnectedAgents
+		// The fleet holds the level it was asked for, machines still waiting to sign in included.
+		from = phase.ConnectedAgents
 		if profile.GaveOut != nil && result.OfferedConnectedAgents > highest {
 			highest = result.OfferedConnectedAgents
 			gave = gaveOutBecause(*profile.GaveOut, result) != ""

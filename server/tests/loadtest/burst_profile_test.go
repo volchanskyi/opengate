@@ -18,7 +18,7 @@ func TestTheBurstProfileHoldsTheNightToBothCases(t *testing.T) {
 	assert.Equal(t, EnvRunner, p.Environment)
 	require.Len(t, p.Phases, 2)
 	back, inventory := p.Phases[0], p.Phases[1]
-	assert.Equal(t, 5000, back.ConnectedAgents, "production's fleet returns")
+	assert.Equal(t, 4000, back.ConnectedAgents, "one server's ceiling of machines returns")
 	assert.LessOrEqual(t, back.Duration.Duration, 30*time.Second, "at once, as after a release restart")
 	assert.InDelta(t, 1, back.OperatorArrivalsPerSecond, 0, "while technicians open a log page a second")
 	assert.True(t, back.Measured, "the night's technician times are read over the return")
@@ -45,8 +45,8 @@ func TestTheBurstProfileHoldsTheNightToBothCases(t *testing.T) {
 	}
 	for measurement, min := range map[string]float64{
 		"k6/journeys/log-page|requests":             30,
-		"quic/inventory/inventory|inventory_sent":   5000,
-		"quic/inventory/inventory|inventory_stored": 5000,
+		"quic/inventory/inventory|inventory_sent":   4000,
+		"quic/inventory/inventory|inventory_stored": 4000,
 		"catchup/live/drain|within_5s_share":        0.99,
 	} {
 		gate, held := blocking[measurement]

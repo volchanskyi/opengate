@@ -149,5 +149,85 @@ else
   pass "kubectl/VM transport failure propagates"
 fi
 
+drop_dir="$TMP_ROOT/drop-bin"
+mkdir -p "$drop_dir"
+cat >"$drop_dir/kubectl" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$*" == *import/prometheus* ]]; then
+  n=$(($(cat "$DROP_PUSHES_FILE" 2>/dev/null || echo 0) + 1))
+  printf '%s' "$n" >"$DROP_PUSHES_FILE"
+  cat >/dev/null
+  if [ "$n" -le "$DROP_PUSHES" ]; then
+    echo 'error: Internal error occurred: error sending request: Post "https://10.0.2.227:10250/attach/monitoring/vm-push": EOF' >&2
+    exit 1
+  fi
+  exit 0
+fi
+printf '%s\n' "$*" >>"$DROP_READS_FILE"
+if [ "$DROP_LANDED" = unread ]; then
+  echo 'Error from server (Forbidden): pods is forbidden' >&2
+  exit 1
+fi
+if [ "$DROP_LANDED" = yes ]; then
+  printf '{"metric":{"__name__":"ci_run_info","run_id":"4242"},"values":[1],"timestamps":[1790000000000]}\n'
+fi
+EOF
+chmod +x "$drop_dir/kubectl"
+
+run_dropped_push() {
+  local drops="$1" landed="$2"
+  : >"$TMP_ROOT/drop.pushes"
+  : >"$TMP_ROOT/drop.reads"
+  PATH="$drop_dir:$PATH" \
+    DROP_PUSHES="$drops" \
+    DROP_LANDED="$landed" \
+    DROP_PUSHES_FILE="$TMP_ROOT/drop.pushes" \
+    DROP_READS_FILE="$TMP_ROOT/drop.reads" \
+    KUBECTL_RETRY_DELAY=0 \
+    VM_RUN_STARTED_AT=1790000000 \
+    GITHUB_WORKFLOW="Nightly Thing" \
+    GITHUB_SHA="abc123" \
+    GITHUB_RUN_ID="4242" \
+    "$REPO_ROOT/scripts/lib/vm-push.sh" "$TMP_ROOT/metrics.prom" >"$TMP_ROOT/drop.out" 2>&1
+}
+pushes() { cat "$TMP_ROOT/drop.pushes"; }
+
+if run_dropped_push 1 yes && [ "$(pushes)" = "1" ]; then
+  pass "a dropped push whose samples landed is not sent again"
+else
+  fail "a dropped push whose samples landed is not sent again (pushes=$(pushes), out=[$(cat "$TMP_ROOT/drop.out")])"
+fi
+reads="$(cat "$TMP_ROOT/drop.reads")"
+if grep -qF 'match[]=ci_run_info{env="ci",workflow="Nightly Thing",run_id="4242"}' <<<"$reads" \
+  && grep -qF "start=1790000000" <<<"$reads" \
+  && grep -qF "api/v1/export" <<<"$reads"; then
+  pass "and the read-back asks for this run's own record at its start"
+else
+  fail "and the read-back asks for this run's own record at its start (reads=[$reads])"
+fi
+
+if run_dropped_push 1 no && [ "$(pushes)" = "2" ]; then
+  pass "a dropped push whose samples are absent is sent again"
+else
+  fail "a dropped push whose samples are absent is sent again (pushes=$(pushes), out=[$(cat "$TMP_ROOT/drop.out")])"
+fi
+
+if run_dropped_push 1 unread && [ "$(pushes)" = "2" ]; then
+  pass "a dropped push whose read-back cannot answer is sent again"
+else
+  fail "a dropped push whose read-back cannot answer is sent again (pushes=$(pushes), out=[$(cat "$TMP_ROOT/drop.out")])"
+fi
+
+if run_dropped_push 99 no; then
+  fail "a push that never lands fails"
+else
+  pass "a push that never lands fails"
+fi
+if [ "$(pushes)" = "4" ]; then
+  pass "and stops at the retry budget"
+else
+  fail "and stops at the retry budget (pushes=$(pushes))"
+fi
+
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

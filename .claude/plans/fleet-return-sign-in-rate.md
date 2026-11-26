@@ -235,6 +235,23 @@ Folded in by Ivan (modal, 2026-11-13). Each reading below is part of step 9's be
   and a hunt caught the same drop freezing a helper. Ivan turned the Ubuntu time service off; no
   time limits go into the helpers. The session-tab test waits for the page's timers before moving
   the clock, and the gauntlet names a failed check's real exit code. In commit 4.
+- **After the first ARM night on commit 4** (Ivan, modals, 2026-11-25, after the research: k6 starts
+  each stage where the last target ended, and a generator that eases off hides the slowness; the
+  Prometheus remote-write spec retries a 5xx with a growing wait, Datadog's agent with jitter, the
+  OpenTelemetry collector from 5 s to 30 s for 5 minutes; Datadog throttles backlog recovery so old
+  data does not preempt live, Kubernetes keeps node check-ins in a level of their own):
+  - a phase climbs from the level the fleet holds (step 22) and the trend push is retried, then
+    read back (step 23), in a commit of their own before commit 5; then the ARM catch-up and burst
+    legs run by hand on it;
+  - the rate promise is lowered to what that clean run reads on ARM, keeping the 3- and 5-minute
+    promises at 4,000 machines (at least 21 a second);
+  - production's server keeps a quarter processor and 384 MiB, with a stated ceiling of about
+    4,000 machines per server (64-79 KB a machine measured); the catch-up and burst legs run 4,000
+    machines, in the tool-fix commit, the ceiling written into the decision record;
+  - the next cut is catch-up waiting while machines wait to sign in (step 24);
+  - the rate rows stay filed beside an online time (not chosen);
+  - commit 5 deletes this plan as decided; step 24 and the rate number move into a plan of their
+    own, written before commit 5 lands.
 
 ## Research, before the steps it gates
 
@@ -495,6 +512,31 @@ and signed in before the walk; kit `~/.cache/opengate-step9-readings`, run `afte
   recovery sign-in p50 43.9 s, p95 95.4 s (24 s / 57 s); catch-up technicians signed in before
   the walk, 10,862 journeys run.
 
+## What the first ARM night after commit 4 read (2026-11-25, `47a7b90e`)
+
+Read by job and step result and from each leg's bundle. CD 45540997814 green, every step run.
+
+- **Catch-up (run 45668874269): valid**, turn-aways filed apart (2,568). Return: 5,000 offered in
+  30 s, 395 online at 42 s (9.4 a second), 16.5 a second while any waited, register p50 5.2 s /
+  p95 27.5 s. The online and rate rows never arrived. 4,971 of 5,000 caught up, fill 1,535 s
+  (960). Server throttled in 99% of periods, 357 MB of 384 MiB at 4,972 machines (about 64 KB a
+  machine), database 11%. Technicians: device list p50 3.7 s / p95 14.7 s, command p95 17.6 s.
+- **The harness cut its own return short**: a phase climbs from the count online when the last
+  phase ended (`safety.go` `from = result.AchievedConnectedAgents`, 2026-08-26), not the level the
+  fleet holds. The drain's first step aimed at 855, stood down 4,145 machines still in the line
+  (2,568 waiting to come back, 701 dialling), and climbed back with new machines at 3.2 a second.
+  `loadtest-bundle-rows.sh` files the rate only beside an online time, so 16.5 was dropped.
+- The same commit's run by hand at 05:37 (45554916357) read invalid: return error rate 0.760, 1,365
+  dials timed out against tonight's 133, same chip.
+- **Burst (run 45669954087): invalid**, the server killed for memory (exit 137) at 18:03:50 in the
+  inventory phase: 3,450 online after the return (32.7 a second while any waited), 314 MB, about
+  79 KB a machine; the harness was re-dialling the inventory phase's climb.
+- Breakpoint valid: recovery sign-in p50 1.3 s / p95 8.1 s (11-23: 43.9 s / 95.4 s).
+- Volume-8000 failed on technicians' pages (device list p95 5.8 s), database 95%, on an AMD EPYC
+  7763 runner; 11-24 read 14% on a Xeon 6975P-C, and 11-22's failure (78%) ran on a Xeon 8370C on
+  the code that passed 11-21. The runner's chip, not commit 4. Its trend push failed once on the
+  cluster (`kubectl run` attach EOF in `vm-push.sh`, not retried).
+
 ## Work, each step test first
 
 1. Timers that reach the 5-minute promise (Ivan, modal): the server's sign-in
@@ -612,6 +654,13 @@ and signed in before the walk; kit `~/.cache/opengate-step9-readings`, run `afte
     screen (`RolloutPanel.tsx`), the API and the database (one migration dropping
     `canary_hold_secs`, `staged_hold_secs`, `stage_entered_at`); the gate code and
     `SetRolloutStage` go; the docs and ADR-070 say an administrator moves a rule's stage.
+    **The stage moves by hand** (Ivan, modal, 2026-11-25, after the research: NinjaOne's patch
+    rings are approved by hand, Microsoft Autopatch moves its rings on a schedule, LaunchDarkly
+    offers a share set by hand, on a timer or watched, and Datadog and NinjaOne conditions aim an
+    alert rule at the machines picked with no shares): nothing in the product could move a
+    stage, so the rollout request takes the stage an administrator picks (first share, second
+    share or everyone) and the rule screen gets a control for it; the reach follows the share
+    that stage names.
 
 18. Console requests wait while machines do (Ivan, modal, 2026-11-24): a line for signed-in
     console requests, closed to none while the sign-in line is empty, a set number per processor
@@ -622,6 +671,16 @@ and signed in before the walk; kit `~/.cache/opengate-step9-readings`, run `afte
     with the expected rejections, so the error rate leaves it out; its own count stays published.
 20. A leg records why its server stopped (Ivan, modal, 2026-11-24).
 21. The three install scripts retry every failed download (Ivan, modal, 2026-11-24).
+22. A phase climbs from the level the fleet holds (Ivan, modal, 2026-11-25): `runProfile`'s next
+    `from` is the level the last phase asked for, so a wave still in the line keeps its place and
+    the next phase offers only what it adds. Test: a fleet holding its level with few online gets
+    no wind-down and no offered arrivals in a phase at the same level.
+23. The trend push retried, then read back (Ivan, modal, 2026-11-25): `vm-push.sh` sends through
+    `kubectl_retry`; after a dropped connection it reads the run's `ci_run_info` back and sends
+    again only when it is absent. Tests: a dropped send that landed is not re-sent; one that did
+    not land is.
+24. Catch-up waits while machines wait to sign in (Ivan, modal, 2026-11-25): moves to its plan of
+    its own with the rate number.
 
 ## Commit 2's shape, as the code reads (2026-11-19)
 
@@ -685,13 +744,15 @@ transactions of about four trips. The agent sends `AgentRegister` first on every
    `API-Reference.md`, `Fleet-and-Devices.md`), its place count rehearsed at 1 and 2; step 19's
    turn-aways (`quic_fleet.go`, ADR-082); step 20 (`perf-runner-record.sh`, `perf-leg.yml`); step 21
    (`scripts/lib/download.sh`).
+   Then (Ivan, modals, 2026-11-25), in a commit of its own before commit 5: steps 22-23, the
+   catch-up and burst legs at 4,000 machines, the per-server ceiling in the decision record; then
+   both ARM legs run by hand on it.
 5. Step 17, on its own (Ivan, modal, 2026-11-20): rule rollouts move by hand; this plan
-   deleted with its `phases.md` row.
+   deleted with its `phases.md` row, step 24 and the rate number written into a plan of their own.
 
 ## Open, for Ivan
 
-- Whether a sign-in goes ahead of catch-up when both wait, the rate promise and the server's size:
-  brought with the first ARM night after commit 4.
+- The rate number: from the hand-run after the tool-fix commit.
 
 ## Done when
 

@@ -38,7 +38,7 @@ jobs:
       leg: catch-up
       title: Catch-up at production's limits (ARM)
       profile: load/profiles/catch-up.yaml
-      agents: '5000'
+      agents: '4000'
       hold: 25m
       minutes: 120
       arm: true
@@ -46,7 +46,7 @@ jobs:
       server-cpus: '0.25'
       server-memory: 384m
       server-memory-bytes: '402653184'
-      # About 400 KB of generator memory per machine over a 1.25 GiB baseline is roughly 3.3 GB.
+      # About 400 KB of generator memory per machine over a 1.25 GiB baseline is roughly 2.9 GB.
       generator-memory: 5G
       # The technicians run on a half processor of their own, so the harness is refused only its own.
       technician-cpus: '0.5'
