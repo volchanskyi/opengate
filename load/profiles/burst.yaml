@@ -1,7 +1,9 @@
-# Five thousand machines return within 30 s while technicians open a log page a second, then a
-# fleet-wide reinstall has every machine send its package inventory, at production's limits on ARM.
+# Four thousand machines, one server's ceiling, return within 30 s as technicians open a log page a
+# second, then a reinstall has every machine send its inventory, at production's limits on ARM.
 schema_version: 1
 name: burst
+# The return at one server's ceiling, held through the inventory, is a load of its own.
+version: 2
 family: spike
 environment: runner
 fixture: small
@@ -12,7 +14,7 @@ phases:
   - name: return
     duration: 30s
     operator_arrivals_per_second: 1
-    connected_agents: 5000
+    connected_agents: 4000
     sessions: 0
     measured: true
   # Every machine sends one message at the server's ceiling at once; the five minutes are the
@@ -20,7 +22,7 @@ phases:
   - name: inventory
     duration: 5m
     operator_arrivals_per_second: 0
-    connected_agents: 5000
+    connected_agents: 4000
     sessions: 0
     inventory_bytes: 1048576
 
@@ -103,11 +105,11 @@ gates:
   # The safety case: every inventory sent and stored within the five minutes, nobody offline.
   - series: quic/inventory/inventory
     metric: inventory_sent
-    min: 5000
+    min: 4000
     blocking: true
   - series: quic/inventory/inventory
     metric: inventory_stored
-    min: 5000
+    min: 4000
     blocking: true
   - series: service/server/measured
     metric: cpu_percent

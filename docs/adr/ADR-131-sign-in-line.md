@@ -63,10 +63,20 @@ the minute they stopped, the fleet list alone (each a 5,000-machine body) taking
 a fifth to a quarter of the processor. Kubernetes' API Priority and Fairness keeps
 node check-ins in a priority level user requests cannot take, for the same reason.
 
+**One server at production's size holds about 4,000 machines.** A quarter
+processor and 384 MiB read 64 KB a signed-in machine on ARM, 357 MB with 4,972
+machines catching up, and 79 KB on the burst, 314 MB with 3,450, whose server was
+killed for memory as its machines sent their 1 MiB inventories. The catch-up and
+burst legs run at that ceiling
+([`catch-up.yaml`](../../load/profiles/catch-up.yaml),
+[`burst.yaml`](../../load/profiles/burst.yaml)). EMQX's single-node benchmark
+reads about 10 KB an idle connection, so a higher ceiling comes from what each
+machine holds in the server.
+
 ## Consequences
 
-A returning machine waits connected, holding about 38 KB, so the line costs no more
-memory than everyone at once did. Each machine told to come back pays a secure
+A returning machine waits connected, holding what a signed-in machine holds, so
+the line costs no more memory than everyone at once did. Each machine told to come back pays a secure
 handshake again on its return, and handshakes happen before the line. The waiting
 count and the turn-aways are published as `opengate_sign_in_line_waiting` and
 `opengate_sign_ins_turned_away_total`

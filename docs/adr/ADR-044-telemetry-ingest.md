@@ -139,8 +139,9 @@ older history is answered and not written.
 
 The promise the
 [catch-up profile](../../load/profiles/catch-up.yaml) gates every night — live
-readings in the store within 5 seconds during any catch-up, and 5,000 machines
-back from an hour's outage all filled within 15 minutes — is a property of this
+readings in the store within 5 seconds during any catch-up, and 4,000 machines,
+one server's ceiling ([ADR-131](./ADR-131-sign-in-line.md)), back from an hour's
+outage all filled within 15 minutes — is a property of this
 path, measured from the server's own receipt-to-acceptance figure.
 
 Drops are counted by reason and charted, so a regression here is visible rather

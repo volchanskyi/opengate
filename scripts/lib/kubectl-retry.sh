@@ -20,20 +20,25 @@ KUBECTL_RETRY_COMMAND_EXIT='command terminated with exit code'
 # The status returned when every attempt lost its connection, telling the caller no answer came.
 KUBECTL_RETRY_LOST=75
 
-# kubectl_retry [--unstarted] [--stdin] <args...> runs a kubectl call, retrying dropped connections.
-# --stdin replays the buffered input on each attempt; --unstarted retries only undelivered requests.
+# kubectl_retry [--unstarted] [--landed <check>] [--stdin] <args...> retries dropped connections.
+# --stdin replays the input; --unstarted retries undelivered calls; --landed <check> ends a write.
 kubectl_retry() {
   local attempts="${KUBECTL_RETRY_ATTEMPTS:-4}"
   local delay="${KUBECTL_RETRY_DELAY:-3}"
   local bin="${KUBECTL_RETRY_BIN:-kubectl}"
   local retryable="$KUBECTL_RETRY_TRANSPORT"
-  local stdin_copy="" status=0 attempt=1
+  local stdin_copy="" landed="" status=0 attempt=1
   local stderr_copy
   stderr_copy="$(mktemp)"
 
   if [ "${1:-}" = "--unstarted" ]; then
     shift
     retryable="$KUBECTL_RETRY_UNSTARTED"
+  fi
+  # A dropped write whose check finds it in its store is made once.
+  if [ "${1:-}" = "--landed" ]; then
+    landed="${2:?--landed names the check that reads the write back}"
+    shift 2
   fi
   if [ "${1:-}" = "--stdin" ]; then
     shift
@@ -62,6 +67,12 @@ kubectl_retry() {
       echo "kubectl ${1:-} refused for a reason retrying cannot change; not retried." >&2
       rm -f "$stderr_copy" "$stdin_copy"
       return "$status"
+    fi
+
+    if [ -n "$landed" ] && "$landed"; then
+      echo "kubectl ${1:-} lost its connection after its write landed; not sent again." >&2
+      rm -f "$stderr_copy" "$stdin_copy"
+      return 0
     fi
 
     if [ "$attempt" -ge "$attempts" ]; then

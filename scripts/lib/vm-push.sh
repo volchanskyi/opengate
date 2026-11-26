@@ -7,6 +7,10 @@
 #   VM_NAMESPACE  namespace of the Service (default monitoring)
 #   VM_SERVICE  the Service name (default monitoring-victoriametrics)
 #   VM_CURL_IMAGE  the curl pod image (default docker.io/curlimages/curl:8.11.1)
+#   KUBECTL_RETRY_ATTEMPTS, KUBECTL_RETRY_DELAY  the send's retry budget (kubectl-retry.sh)
+
+# shellcheck source=scripts/lib/kubectl-retry.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/kubectl-retry.sh"
 
 # The labels a sample may not carry: each changes every run.
 VM_PER_RUN_LABELS='commit|run_id|grade'
@@ -59,6 +63,20 @@ vm_stamp() {
     "$(vm_label_escape "${GITHUB_RUN_ID:-local}")" "$ms"
 }
 
+# vm_push_landed asks the store for the ci_run_info vm_push is sending, its payload's last line,
+# reading vm_push's own settings; finding it shows the whole push was stored.
+vm_push_landed() {
+  local found
+  found="$(kubectl_retry run "vm-landed-$$" -n "$ns" --rm -i --restart=Never \
+    --image="$image" -- \
+    curl -sS --fail --max-time 30 -G "http://${svc}.${ns}.svc:8428/api/v1/export" \
+    --data-urlencode "match[]=${landed_match}" \
+    --data-urlencode "start=${started}" \
+    --data-urlencode "end=${started}" 2>/dev/null)" || return 1
+  jq -en --argjson ms "${started}000" '[inputs | select(any(.timestamps[]?; . == $ms))] | length > 0' \
+    <<<"$found" >/dev/null 2>&1
+}
+
 vm_push() {
   local ns="${VM_NAMESPACE:-monitoring}"
   local svc="${VM_SERVICE:-monitoring-victoriametrics}"
@@ -90,8 +108,10 @@ vm_push() {
   vm_stamp "$payload_file" "$started" >"$stamped"
   [ -z "$tmp_file" ] || rm -f "$tmp_file"
 
-  local status=0
-  kubectl -n "$ns" run "vm-push-$$" --rm -i --restart=Never \
+  local status=0 landed_match
+  landed_match="$(printf 'ci_run_info{env="ci",workflow="%s",run_id="%s"}' \
+    "$(vm_label_escape "${GITHUB_WORKFLOW:-local}")" "$(vm_label_escape "${GITHUB_RUN_ID:-local}")")"
+  kubectl_retry --landed vm_push_landed --stdin run "vm-push-$$" -n "$ns" --rm -i --restart=Never \
     --image="$image" -- \
     curl -sS --fail --max-time 30 \
     -X POST "http://${svc}.${ns}.svc:8428/api/v1/import/prometheus" \

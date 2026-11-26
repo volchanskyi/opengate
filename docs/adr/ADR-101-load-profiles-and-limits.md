@@ -42,6 +42,13 @@ whole fleet in 198 s, with each machine's sign-in a median of 22 s. EMQX promise
 connections a second and Netdata's parent admits one child every few seconds;
 neither promises every client online within seconds of a whole fleet arriving.
 
+**A phase climbs from the level the last one asked for.** The fleet keeps the
+machines still waiting to sign in, so a return slower than its phase is read to its
+end and the next phase offers only what it adds
+([`safety.go`](../../server/tests/loadtest/safety.go)). k6 starts each stage where
+the last stage's target ended; a generator that eases off when the system slows
+hides the slowness it was sent to measure.
+
 **The server's and the database's levels are watched at 80% of their own
 allowance.** Their processor and memory rows read pass/over against 80% of each
 one's own cap, and are compared with their own nights in the trend
