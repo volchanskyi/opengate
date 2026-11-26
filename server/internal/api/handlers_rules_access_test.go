@@ -129,11 +129,10 @@ func everyWrite() []write {
 			path:   func(e ruleAdminEstate) string { return e.query(testPathRules + "/disk-critical/rollout") },
 			body: func(ruleAdminEstate) any {
 				return RuleRolloutInput{
-					Enabled:        true,
-					CanaryPercent:  5,
-					StagedPercent:  25,
-					CanaryHoldSecs: 7200,
-					StagedHoldSecs: 43200,
+					Enabled:       true,
+					Stage:         "staged",
+					CanaryPercent: 5,
+					StagedPercent: 25,
 				}
 			},
 			action: "rule.rollout.set",
@@ -301,7 +300,7 @@ func TestADeploymentWithoutRuleAdministrationSaysSo(t *testing.T) {
 		"moving the budget":    {http.MethodPut, e.query(testPathLimits), AlertLimitsInput{OrganizationHourly: 900, DeviceHourly: 30}},
 		"tuning a value":       {http.MethodPut, e.query(testPathRules + "/disk-critical/bindings"), RuleBindingInput{Level: RuleBindingLevelOrganization, LevelKey: e.org, Params: map[string]float64{"threshold": 95}}},
 		"removing a value":     {http.MethodDelete, testPathRules + "/disk-critical/bindings/" + uuid.New().String(), nil},
-		"setting the rollout":  {http.MethodPut, e.query(testPathRules + "/disk-critical/rollout"), RuleRolloutInput{Enabled: true, CanaryPercent: 1, StagedPercent: 10, CanaryHoldSecs: 3600, StagedHoldSecs: 21600}},
+		"setting the rollout":  {http.MethodPut, e.query(testPathRules + "/disk-critical/rollout"), RuleRolloutInput{Enabled: true, Stage: "full", CanaryPercent: 1, StagedPercent: 10}},
 		"stopping a rule":      {http.MethodPost, e.query(testPathRules + "/disk-critical/stop"), RuleStopInput{Scope: RuleStopScopeOrganization, Stopped: true}},
 		"acknowledging a move": {http.MethodPost, testPathRules + "/disk-critical/clamps/" + uuid.New().String(), nil},
 	} {

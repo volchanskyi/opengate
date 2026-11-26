@@ -2,10 +2,7 @@ package rules
 
 import (
 	"context"
-	"reflect"
-	"regexp"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -37,114 +34,6 @@ func TestARetunedPopulationSizesTheNextStage(t *testing.T) {
 	}}))
 }
 
-func TestARetunedWaitingPeriodHoldsTheStage(t *testing.T) {
-	t.Parallel()
-
-	now := time.Now()
-	r := DefaultRollout(uuid.New(), "disk-critical")
-	r.CanaryHold = 24 * time.Hour
-	r.RolloutPercent = r.PercentForStage(StageCanary)
-	r.StageEnteredAt = now.Add(-2 * time.Hour)
-
-	held := DecideStage(r, GateReport{}, now)
-	assert.Equal(t, StageHold, held.Action,
-		"two quiet hours do not earn a stage whose hold is a day")
-
-	r.StageEnteredAt = now.Add(-25 * time.Hour)
-	advanced := DecideStage(r, GateReport{}, now)
-	assert.Equal(t, StageAdvance, advanced.Action)
-	assert.Equal(t, r.PercentForStage(StageStaged), advanced.Percent)
-}
-
-func TestTheAutomaticPullBackCannotBeSwitchedOff(t *testing.T) {
-	t.Parallel()
-
-	now := time.Now()
-	dirty := []GateReport{
-		{CeilingBreaches: 1},
-		{ThrottleTrips: 1},
-		{EvaluationErrors: 1},
-	}
-
-	for _, tuned := range everyRolloutPace(t) {
-		for _, stage := range []Stage{StageCanary, StageStaged, StageFull} {
-			r := tuned
-			r.RolloutPercent = r.PercentForStage(stage)
-			r.StageEnteredAt = now.Add(-time.Second)
-
-			for _, report := range dirty {
-				assertPullsBack(t, r, stage, report, now)
-			}
-		}
-	}
-}
-
-func everyRolloutPace(t *testing.T) []Rollout {
-	t.Helper()
-	var out []Rollout
-	for _, canary := range []int{1, 5, 50} {
-		for _, staged := range []int{60, 80, 99} {
-			for _, hold := range []time.Duration{time.Minute, 30 * 24 * time.Hour} {
-				r := DefaultRollout(uuid.New(), "disk-critical")
-				r.CanaryPercent, r.StagedPercent = canary, staged
-				r.CanaryHold, r.StagedHold = hold, hold
-				require.NoError(t, ValidateRollout(r))
-				out = append(out, r)
-			}
-		}
-	}
-	return out
-}
-
-func assertPullsBack(t *testing.T, r Rollout, stage Stage, report GateReport, now time.Time) {
-	t.Helper()
-	got := DecideStage(r, report, now)
-	assert.NotEqualf(t, StageHold, got.Action,
-		"a tripped gate at %s with canary %d%%, staged %d%% and a %s hold must never hold",
-		stage, r.CanaryPercent, r.StagedPercent, r.CanaryHold)
-
-	if stage == StageCanary {
-		assert.Equal(t, StageHalt, got.Action, "the smallest stage has nowhere to fall back to")
-		return
-	}
-	assert.Equal(t, StageRevert, got.Action)
-	assert.Less(t, got.Percent, r.RolloutPercent,
-		"a revert reaches fewer machines than the stage it left")
-}
-
-func TestNoRolloutFieldCanOptOutOfThePullBack(t *testing.T) {
-	t.Parallel()
-
-	optOut := regexp.MustCompile(`(?i)revert|rollback|pull_?back|halt|auto`)
-	for field := range reflect.TypeFor[Rollout]().Fields() {
-		assert.NotRegexp(t, optOut, field.Name,
-			"Rollout must carry nothing that reads as a switch over the automatic pull-back")
-	}
-}
-
-func TestNoRolloutColumnCanOptOutOfThePullBack(t *testing.T) {
-	t.Parallel()
-
-	_, e := newEstate(t)
-	rows, err := e.store.DB().QueryContext(e.ctx,
-		`SELECT column_name FROM information_schema.columns
-		  WHERE table_name = 'rule_rollout'
-		    AND table_schema = current_schema()`)
-	require.NoError(t, err)
-	defer func() { _ = rows.Close() }()
-
-	optOut := regexp.MustCompile(`(?i)revert|rollback|pull_?back|auto`)
-	var columns []string
-	for rows.Next() {
-		var column string
-		require.NoError(t, rows.Scan(&column))
-		assert.NotRegexp(t, optOut, column)
-		columns = append(columns, column)
-	}
-	require.NoError(t, rows.Err())
-	assert.Contains(t, columns, "canary_percent", "the settings that are configurable are still there")
-}
-
 func TestRolloutSettingsAreBounded(t *testing.T) {
 	t.Parallel()
 
@@ -159,8 +48,6 @@ func TestRolloutSettingsAreBounded(t *testing.T) {
 		{"a staged reaching everybody", func(r *Rollout) { r.StagedPercent = 100 }},
 		{"a staged smaller than its canary", func(r *Rollout) { r.CanaryPercent, r.StagedPercent = 40, 20 }},
 		{"a staged equal to its canary", func(r *Rollout) { r.CanaryPercent, r.StagedPercent = 20, 20 }},
-		{"a hold of seconds", func(r *Rollout) { r.CanaryHold = time.Second }},
-		{"a hold of years", func(r *Rollout) { r.StagedHold = 365 * 24 * time.Hour }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := base()
@@ -179,21 +66,16 @@ func TestRolloutSettingsRoundTrip(t *testing.T) {
 
 	r := DefaultRollout(e.org, "disk-critical")
 	r.CanaryPercent, r.StagedPercent = 5, 25
-	r.CanaryHold, r.StagedHold = 2*time.Hour, 12*time.Hour
 	r.UpdatedBy = "ivan"
 	require.NoError(t, s.UpsertRollout(e.ctx, r))
 
 	stored := mustListRollouts(t, s, e.ctx, e.org)["disk-critical"]
 	assert.Equal(t, 5, stored.CanaryPercent)
 	assert.Equal(t, 25, stored.StagedPercent)
-	assert.Equal(t, 2*time.Hour, stored.CanaryHold)
-	assert.Equal(t, 12*time.Hour, stored.StagedHold)
 
 	unconfigured := DefaultRollout(e.org, "cpu-saturated")
 	assert.Equal(t, defaultCanaryPercent, unconfigured.CanaryPercent)
 	assert.Equal(t, defaultStagedPercent, unconfigured.StagedPercent)
-	assert.Equal(t, defaultCanaryHold, unconfigured.CanaryHold)
-	assert.Equal(t, defaultStagedHold, unconfigured.StagedHold)
 }
 
 func TestStoppingARulePerCustomerAndTenantWide(t *testing.T) {

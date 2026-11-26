@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -30,7 +29,13 @@ func (s *Server) PutRuleRollout(ctx context.Context, request PutRuleRolloutReque
 	if err != nil {
 		return nil, err
 	}
-	stored := s.pacedRollout(ctx, organizationID, request)
+	stage, known := rolloutStages[request.Body.Stage]
+	if !known {
+		return PutRuleRollout400JSONResponse{
+			Error: fmt.Sprintf("stage %q is not canary, staged or full", request.Body.Stage),
+		}, nil
+	}
+	stored := s.pacedRollout(ctx, organizationID, request, stage)
 
 	switch err := s.ruleAdmin.UpsertRollout(ctx, stored); {
 	case err == nil:
@@ -42,21 +47,21 @@ func (s *Server) PutRuleRollout(ctx context.Context, request PutRuleRolloutReque
 
 	s.deliverRuleChange(ctx, organizationID, false)
 	s.auditLog(ctx, ContextUserID(ctx), "rule.rollout.set", request.RuleId,
-		fmt.Sprintf("enabled=%t canary=%d%% staged=%d%%",
-			stored.Enabled, stored.CanaryPercent, stored.StagedPercent))
+		fmt.Sprintf("enabled=%t stage=%s canary=%d%% staged=%d%%",
+			stored.Enabled, request.Body.Stage, stored.CanaryPercent, stored.StagedPercent))
 	return PutRuleRollout200JSONResponse(rolloutToAPI(stored)), nil
 }
 
-// pacedRollout applies the operator's settings to the stored state, leaving the stop and the reach.
+// pacedRollout applies the operator's settings to the stored state, leaving the stop; the reach
+// follows the share the picked stage names.
 func (s *Server) pacedRollout(
-	ctx context.Context, organizationID uuid.UUID, request PutRuleRolloutRequestObject,
+	ctx context.Context, organizationID uuid.UUID, request PutRuleRolloutRequestObject, stage rules.Stage,
 ) rules.Rollout {
 	stored := rules.RolloutFor(s.rolloutsFor(ctx, organizationID), organizationID, request.RuleId)
 	stored.Enabled = request.Body.Enabled
 	stored.CanaryPercent = request.Body.CanaryPercent
 	stored.StagedPercent = request.Body.StagedPercent
-	stored.CanaryHold = time.Duration(request.Body.CanaryHoldSecs) * time.Second
-	stored.StagedHold = time.Duration(request.Body.StagedHoldSecs) * time.Second
+	stored.RolloutPercent = stored.PercentForStage(stage)
 	stored.UpdatedBy = ContextUserID(ctx).String()
 	return stored
 }

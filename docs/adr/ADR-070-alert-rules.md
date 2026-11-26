@@ -58,11 +58,15 @@ history in bounded chunks, and resumes from a durable cursor after a restart.
 The device remembers which versions it has scanned, so a redeploy does not
 re-scan. Findings spend the same alert allowance as anything else.
 
-**A rule reaches a customer's machines in stages, and each stage is earned.** The stage
-machine reads real signals through a port rather than inferring from elapsed
-time. Membership in a stage is computed per machine, not stored. The first stage
-has a floor of five machines, bounded by the fleet, and holds until it has been
-quiet for long enough to mean something.
+**A rule reaches a customer's machines in stages, and an administrator moves each one.**
+The rollout request names the stage — the first share, the second share or
+everyone — and the reach follows the share it names
+([`handlers_rules_rollout.go`](../../server/internal/api/handlers_rules_rollout.go));
+nothing moves a stage on its own. NinjaOne's patch rings are approved by hand,
+LaunchDarkly offers a share set by hand beside timed and watched ones, and
+Microsoft Autopatch moves its rings on a schedule. Membership in a stage is
+computed per machine, not stored. The first stage has a floor of five machines,
+bounded by the fleet.
 
 **Stopping a rule is a row, not a release, and it does not wait.** A kill on the
 rollout row stops it everywhere it applies. A machine's link is held open for as

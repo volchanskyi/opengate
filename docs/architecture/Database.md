@@ -540,6 +540,11 @@ eleven SQLite migrations into a single flat Postgres-native migration:
   adds the shared-identity columns to `devices`.
 - [`022_console_sessions`](../../server/internal/db/migrations/022_console_sessions.up.sql)
   adds the console session table.
+- [`023_default_customer`](../../server/internal/db/migrations/023_default_customer.up.sql)
+  marks each tenant's default customer.
+- [`024_rollout_by_hand`](../../server/internal/db/migrations/024_rollout_by_hand.up.sql)
+  drops the rollout's two waiting periods and its stage clock; an administrator
+  moves a rule's stage.
 - Each of the above has a matching `.down.sql` walked by the rollback rehearsal.
 
 The automated rollback/dump rehearsal lives in

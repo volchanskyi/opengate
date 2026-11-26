@@ -18,8 +18,6 @@ function rollout(over: Record<string, unknown> = {}) {
     stage: "full",
     canary_percent: 1,
     staged_percent: 10,
-    canary_hold_secs: 3600,
-    staged_hold_secs: 21600,
     ...over,
   };
 }
@@ -183,12 +181,12 @@ test.describe("Rules", () => {
     await authedPage.goto("/rules/disk-critical");
     await expect(authedPage.getByText("Rule explanation: A disk about to fill")).toBeVisible();
 
-    for (const name of ["Stop for this customer", "Stop for every customer", "Save pace", "Understood"]) {
+    for (const name of ["Stop for this customer", "Stop for every customer", "Save rollout", "Understood"]) {
       await expect(authedPage.getByRole("button", { name })).toHaveCount(0);
     }
   });
 
-  test("an administrator gets the stop switch, apart from the on-off toggle", async ({ adminPage }) => {
+  test("an administrator gets the stop switch and the stage, apart from the on-off toggle", async ({ adminPage }) => {
     const seen: string[] = [];
     await stubRules(adminPage, seen);
 
@@ -197,7 +195,8 @@ test.describe("Rules", () => {
     await expect(adminPage.getByRole("button", { name: "Stop for every customer" })).toBeVisible();
     await expect(adminPage.getByText("This customer gets the rule")).toBeVisible();
 
-    await expect(adminPage.getByText(/cannot be\s+switched off/)).toBeVisible();
+    await expect(adminPage.getByLabel("Reaches now")).toHaveValue("full");
+    await expect(adminPage.getByRole("button", { name: "Save rollout" })).toBeVisible();
   });
 
   test("the labels page lists what each label covers", async ({ authedPage }) => {

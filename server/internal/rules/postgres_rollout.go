@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 )
@@ -12,25 +11,22 @@ import (
 const (
 	upsertRolloutSQL = `INSERT INTO rule_rollout
 		   (tenant_id, organization_id, rule_id, enabled, canary_group,
-		    rollout_percent, kill, canary_percent, staged_percent,
-		    canary_hold_secs, staged_hold_secs, stage_entered_at, updated_at, updated_by)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW(), $12)
+		    rollout_percent, kill, canary_percent, staged_percent, updated_at, updated_by)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), $10)
 		 ON CONFLICT (organization_id, rule_id)
-		 DO UPDATE SET enabled          = EXCLUDED.enabled,
-		               canary_group     = EXCLUDED.canary_group,
-		               rollout_percent  = EXCLUDED.rollout_percent,
-		               kill             = EXCLUDED.kill,
-		               canary_percent   = EXCLUDED.canary_percent,
-		               staged_percent   = EXCLUDED.staged_percent,
-		               canary_hold_secs = EXCLUDED.canary_hold_secs,
-		               staged_hold_secs = EXCLUDED.staged_hold_secs,
-		               updated_at       = NOW(),
-		               updated_by       = EXCLUDED.updated_by`
+		 DO UPDATE SET enabled         = EXCLUDED.enabled,
+		               canary_group    = EXCLUDED.canary_group,
+		               rollout_percent = EXCLUDED.rollout_percent,
+		               kill            = EXCLUDED.kill,
+		               canary_percent  = EXCLUDED.canary_percent,
+		               staged_percent  = EXCLUDED.staged_percent,
+		               updated_at      = NOW(),
+		               updated_by      = EXCLUDED.updated_by`
 
 	// A stop writes only the kill flag, so the customer's enabled state and reach survive a resume.
 	stopRuleSQL = `INSERT INTO rule_rollout
-		   (tenant_id, organization_id, rule_id, kill, stage_entered_at, updated_at, updated_by)
-		 VALUES ($1, $2, $3, $4, NOW(), NOW(), $5)
+		   (tenant_id, organization_id, rule_id, kill, updated_at, updated_by)
+		 VALUES ($1, $2, $3, $4, NOW(), $5)
 		 ON CONFLICT (organization_id, rule_id)
 		 DO UPDATE SET kill       = EXCLUDED.kill,
 		               updated_at = NOW(),
@@ -38,8 +34,8 @@ const (
 
 	// The tenant-wide stop writes one row per customer, the shape the delivery path reads.
 	stopRuleTenantWideSQL = `INSERT INTO rule_rollout
-		   (tenant_id, organization_id, rule_id, kill, stage_entered_at, updated_at, updated_by)
-		 SELECT o.tenant_id, o.id, $1, $2, NOW(), NOW(), $3
+		   (tenant_id, organization_id, rule_id, kill, updated_at, updated_by)
+		 SELECT o.tenant_id, o.id, $1, $2, NOW(), $3
 		   FROM organizations o
 		  WHERE o.` + scopedToTenant + `
 		 ON CONFLICT (organization_id, rule_id)
@@ -47,19 +43,8 @@ const (
 		               updated_at = NOW(),
 		               updated_by = EXCLUDED.updated_by`
 
-	setRolloutStageSQL = `INSERT INTO rule_rollout
-			   (tenant_id, organization_id, rule_id, enabled, canary_group,
-			    rollout_percent, kill, stage_entered_at, updated_at, updated_by)
-			 VALUES ($1, $2, $3, TRUE, '', $4, FALSE, NOW(), NOW(), $5)
-			 ON CONFLICT (organization_id, rule_id)
-			 DO UPDATE SET rollout_percent  = EXCLUDED.rollout_percent,
-			               stage_entered_at = NOW(),
-			               updated_at       = NOW(),
-			               updated_by       = EXCLUDED.updated_by`
-
 	listRolloutsSQL = `SELECT organization_id, rule_id, enabled, canary_group, rollout_percent,
-		        kill, canary_percent, staged_percent, canary_hold_secs, staged_hold_secs,
-		        stage_entered_at, updated_at, updated_by
+		        kill, canary_percent, staged_percent, updated_at, updated_by
 		   FROM rule_rollout
 		  WHERE ` + scopedToTenant + ` AND organization_id = $1
 		  ORDER BY rule_id`
@@ -77,8 +62,7 @@ func (s *Store) UpsertRollout(ctx context.Context, r Rollout) error {
 	paced := r.paced()
 	return s.exec(ctx, "upsert rule rollout", upsertRolloutSQL,
 		tenant, r.OrganizationID, r.RuleID, r.Enabled, r.CanaryGroup,
-		r.RolloutPercent, r.Kill, paced.CanaryPercent, paced.StagedPercent,
-		int(paced.CanaryHold.Seconds()), int(paced.StagedHold.Seconds()), r.UpdatedBy)
+		r.RolloutPercent, r.Kill, paced.CanaryPercent, paced.StagedPercent, r.UpdatedBy)
 }
 
 // StopRule stops one rule for one customer, recorded apart from the on/off toggle.
@@ -123,41 +107,17 @@ func (s *Store) setKillTenantWide(ctx context.Context, ruleID string, kill bool,
 	return s.exec(ctx, "stop rule tenant-wide", stopRuleTenantWideSQL, ruleID, kill, updatedBy)
 }
 
-// SetRolloutStage sets a customer's reach for a rule and restamps the stage entry time that the
-// hold counts from. It leaves the kill flag, enabled state and canary group untouched.
-func (s *Store) SetRolloutStage(ctx context.Context, organizationID uuid.UUID, ruleID string, percent int, updatedBy string) error {
-	if err := ValidateRollout(Rollout{
-		OrganizationID: organizationID,
-		RuleID:         ruleID,
-		RolloutPercent: percent,
-	}); err != nil {
-		return err
-	}
-	tenant, err := callerTenant(ctx)
-	if err != nil {
-		return err
-	}
-	return s.exec(ctx, "set rule rollout stage", setRolloutStageSQL,
-		tenant, organizationID, ruleID, percent, updatedBy)
-}
-
 // ListRollouts returns one customer's stored rollout state keyed by rule id; absent means unstored.
 func (s *Store) ListRollouts(ctx context.Context, organizationID uuid.UUID) (map[string]Rollout, error) {
 	out := make(map[string]Rollout)
 	err := s.eachRow(ctx, "list rule rollouts", listRolloutsSQL, []any{organizationID},
 		func(rows *sql.Rows) error {
-			var (
-				r                              Rollout
-				canaryHoldSecs, stagedHoldSecs int
-			)
+			var r Rollout
 			if err := rows.Scan(&r.OrganizationID, &r.RuleID, &r.Enabled, &r.CanaryGroup,
 				&r.RolloutPercent, &r.Kill, &r.CanaryPercent, &r.StagedPercent,
-				&canaryHoldSecs, &stagedHoldSecs,
-				&r.StageEnteredAt, &r.UpdatedAt, &r.UpdatedBy); err != nil {
+				&r.UpdatedAt, &r.UpdatedBy); err != nil {
 				return fmt.Errorf("scan rule rollout: %w", err)
 			}
-			r.CanaryHold = time.Duration(canaryHoldSecs) * time.Second
-			r.StagedHold = time.Duration(stagedHoldSecs) * time.Second
 			out[r.RuleID] = r
 			return nil
 		})

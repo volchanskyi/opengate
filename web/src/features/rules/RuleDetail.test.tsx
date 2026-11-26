@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import type { components } from '../../types/api';
@@ -18,7 +18,7 @@ type Rule = components['schemas']['Rule'];
 function rollout(over: Partial<Rule['rollout']> = {}): Rule['rollout'] {
   return {
     enabled: true, rollout_percent: 100, kill: false, stage: 'full',
-    canary_percent: 1, staged_percent: 10, canary_hold_secs: 3600, staged_hold_secs: 21600,
+    canary_percent: 1, staged_percent: 10,
     ...over,
   };
 }
@@ -127,7 +127,7 @@ describe('RuleDetail — who may change what', () => {
     show(detail(), false);
     expect(screen.getByText('Rule explanation: A disk about to fill')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Stop for this customer/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Save pace/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Save rollout/ })).not.toBeInTheDocument();
   });
 
   it('gives an administrator the stop switch, apart from the on-off toggle', async () => {
@@ -142,13 +142,13 @@ describe('RuleDetail — who may change what', () => {
     expect(setStopped).toHaveBeenCalledWith('disk-critical', 'tenant', true);
   });
 
-  it('offers no way at all to switch the automatic pull-back off', () => {
+  it('shows a member the stage a rule stands at, and an administrator the control that moves it', () => {
+    show(detail(), false);
+    expect(screen.getByLabelText('Reaches now')).toBeDisabled();
+
+    cleanup();
     show(detail(), true);
-    for (const box of screen.getAllByRole('checkbox')) {
-      expect(box.getAttribute('aria-label') ?? '').not.toMatch(/revert|rollback|pull/i);
-    }
-    expect(screen.queryByLabelText(/pull-back/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/cannot be\s+switched off/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Reaches now')).toBeEnabled();
   });
 });
 

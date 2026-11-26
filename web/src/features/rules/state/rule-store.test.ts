@@ -25,7 +25,7 @@ function detail(threshold = 90): RuleDetail {
       tunable: { threshold: { min: 50, max: 99, shipped: 90 } },
       rollout: {
         enabled: true, rollout_percent: 100, kill: false, stage: 'full',
-        canary_percent: 1, staged_percent: 10, canary_hold_secs: 3600, staged_hold_secs: 21600,
+        canary_percent: 1, staged_percent: 10,
       },
       coverage: { active: 10, throttled: 0, unsupported: 0, unknown: 0 },
       noise: { recent: 0, baseline_per_hour: 0, level: 'unknown' },
@@ -111,13 +111,12 @@ describe('rule-store', () => {
     expect(mockedGet).toHaveBeenCalledTimes(1);
   });
 
-  it('sets the pace a rule spreads at', async () => {
+  it('moves a rule to the stage an administrator picked', async () => {
     mockedPut.mockResolvedValue(ok({}) as never);
     mockedGet.mockResolvedValue(ok(detail()) as never);
 
     expect(await useRuleStore.getState().saveRollout('disk-critical', {
-      enabled: true, canary_percent: 5, staged_percent: 25,
-      canary_hold_secs: 7200, staged_hold_secs: 43200,
+      enabled: true, stage: 'staged', canary_percent: 5, staged_percent: 25,
     })).toBe(true);
     expect(mockedPut).toHaveBeenCalledWith('/api/v1/rules/{rule_id}/rollout', expect.anything());
   });
@@ -165,12 +164,11 @@ describe('rule-store refusals', () => {
     expect(useRuleStore.getState().error).toContain('not yours');
   });
 
-  it('does not re-read the rule when a pace change is refused', async () => {
+  it('does not re-read the rule when a rollout change is refused', async () => {
     mockedPut.mockResolvedValue(refused('a canary above the staged share is not a rollout') as never);
 
     expect(await useRuleStore.getState().saveRollout('disk-critical', {
-      enabled: true, canary_percent: 90, staged_percent: 25,
-      canary_hold_secs: 7200, staged_hold_secs: 43200,
+      enabled: true, stage: 'canary', canary_percent: 90, staged_percent: 25,
     })).toBe(false);
     expect(mockedGet).not.toHaveBeenCalled();
   });

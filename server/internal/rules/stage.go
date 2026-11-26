@@ -28,16 +28,6 @@ const (
 	membershipBuckets = 1_000_000
 )
 
-// StageFor reads the stage a stored reach puts a rule in at the shipped pace; see [Rollout.Stage].
-func StageFor(percent int) Stage {
-	return Rollout{RolloutPercent: percent}.Stage()
-}
-
-// PercentFor is the reach a stage rolls to at the shipped pace; see [Rollout.PercentForStage].
-func PercentFor(stage Stage) int {
-	return Rollout{}.PercentForStage(stage)
-}
-
 // StagePopulation is how many of a fleet of fleetSize a rollout at percent aims at.
 // It never returns fewer than the stage before it would, so a rollout cannot shrink.
 func StagePopulation(percent, fleetSize int) int {

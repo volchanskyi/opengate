@@ -21,7 +21,7 @@ type Noise = Rule['noise'];
 function rollout(over: Partial<Rollout> = {}): Rollout {
   return {
     enabled: true, rollout_percent: 100, kill: false, stage: 'full',
-    canary_percent: 1, staged_percent: 10, canary_hold_secs: 3600, staged_hold_secs: 21600,
+    canary_percent: 1, staged_percent: 10,
     ...over,
   };
 }

@@ -122,9 +122,9 @@ func TestStagePopulationNeverShrinksAsARolloutAdvances(t *testing.T) {
 	t.Parallel()
 
 	for _, fleetSize := range []int{1, 3, 12, 25, 200, 2000, 5000} {
-		canary := StagePopulation(PercentFor(StageCanary), fleetSize)
-		staged := StagePopulation(PercentFor(StageStaged), fleetSize)
-		full := StagePopulation(PercentFor(StageFull), fleetSize)
+		canary := StagePopulation(Rollout{}.PercentForStage(StageCanary), fleetSize)
+		staged := StagePopulation(Rollout{}.PercentForStage(StageStaged), fleetSize)
+		full := StagePopulation(Rollout{}.PercentForStage(StageFull), fleetSize)
 
 		assert.LessOrEqualf(t, canary, staged, "fleet of %d: staged is at least the canary", fleetSize)
 		assert.LessOrEqualf(t, staged, full, "fleet of %d: full is at least staged", fleetSize)
@@ -175,7 +175,7 @@ func TestRolloutReachesRespectsBothTheStopAndTheStage(t *testing.T) {
 	assert.Equal(t, len(devices), rolloutReached(devices, full), "a rule nobody staged reaches every machine")
 
 	canary := full
-	canary.RolloutPercent = PercentFor(StageCanary)
+	canary.RolloutPercent = Rollout{}.PercentForStage(StageCanary)
 	in := rolloutReached(devices, canary)
 	assert.Positive(t, in)
 	assert.Less(t, in, len(devices), "a canary is not the estate")
@@ -195,12 +195,12 @@ func TestNeedsFleetSizeOnlyForAPartialRollout(t *testing.T) {
 
 	off := full
 	off.Enabled = false
-	off.RolloutPercent = PercentFor(StageCanary)
+	off.RolloutPercent = Rollout{}.PercentForStage(StageCanary)
 	assert.False(t, NeedsFleetSize(map[string]Rollout{"disk-critical": off}),
 		"a rule that reaches nobody needs no count either")
 
 	canary := full
-	canary.RolloutPercent = PercentFor(StageCanary)
+	canary.RolloutPercent = Rollout{}.PercentForStage(StageCanary)
 	assert.True(t, NeedsFleetSize(map[string]Rollout{"disk-critical": full, "cpu-saturated": canary}),
 		"one customer mid-rollout is what the count is for")
 }
@@ -223,6 +223,6 @@ func TestStageForReadsTheStoredReach(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		assert.Equalf(t, tc.want, StageFor(tc.percent), "%d %% is the %s stage", tc.percent, tc.want)
+		assert.Equalf(t, tc.want, Rollout{RolloutPercent: tc.percent}.Stage(), "%d %% is the %s stage", tc.percent, tc.want)
 	}
 }

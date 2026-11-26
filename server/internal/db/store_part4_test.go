@@ -133,7 +133,10 @@ func forwardMigrationSteps() []rehearsalStep {
 			}},
 		{note: "015 added the triage queue's orders", verify: assertQueueIndexesIntroduced},
 		{note: "016 added the tables the rules screen writes to",
-			verify: assertRuleAdministrationIntroduced},
+			verify: func(t *testing.T, ctx context.Context, db *sql.DB) {
+				assertRuleAdministrationIntroduced(t, ctx, db)
+				assertRolloutHoldsIntroduced(t, ctx, db)
+			}},
 		{note: "017 added the orders the age sweep reads",
 			verify: assertRetentionIndexesIntroduced},
 		{note: "018 retired the process table", verify: assertProcessReportRetired},
@@ -146,6 +149,7 @@ func forwardMigrationSteps() []rehearsalStep {
 		{note: "023 marked each tenant's default customer",
 			before: seedEarliestCustomer,
 			verify: assertDefaultCustomerMarked},
+		{note: "024 left rollout stages to an administrator", verify: assertRolloutClockDropped},
 	}
 }
 
@@ -173,6 +177,7 @@ func assertHeadSchema(t *testing.T, ctx context.Context, db *sql.DB) {
 	assertSharedIdentityColumns(t, ctx, db)
 	assertConsoleSessions(t, ctx, db)
 	assertOneDefaultPerTenant(t, ctx, db)
+	assertRolloutClockDropped(t, ctx, db)
 }
 
 // rollBackAndVerify walks the migrations down one step at a time, newest migration first.
@@ -182,6 +187,7 @@ func rollBackAndVerify(t *testing.T, ctx context.Context, dbURL string, db *sql.
 		note   string
 		verify func(*testing.T, context.Context, *sql.DB)
 	}{
+		{"024 restored the rollout's stage clock", assertRolloutClockRestored},
 		{"023 removed the default-customer mark", assertDefaultCustomerDownReversal},
 		{"022 removed console sessions", assertConsoleSessionsDownReversal},
 		{"021 removed the shared-identity columns", assertSharedIdentityDownReversal},

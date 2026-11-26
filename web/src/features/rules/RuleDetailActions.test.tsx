@@ -19,7 +19,7 @@ type Rollout = Rule['rollout'];
 function rollout(over: Partial<Rollout> = {}): Rollout {
   return {
     enabled: true, rollout_percent: 100, kill: false, stage: 'full',
-    canary_percent: 1, staged_percent: 10, canary_hold_secs: 3600, staged_hold_secs: 21600,
+    canary_percent: 1, staged_percent: 10,
     ...over,
   };
 }
@@ -60,8 +60,8 @@ beforeEach(() => {
   useRuleStore.setState({ detail: null, resolved: null, isLoading: false, error: null });
 });
 
-describe('Rollout pace', () => {
-  it('saves the populations and holds an operator typed, and nothing else', async () => {
+describe('Rollout', () => {
+  it('saves the stage and shares an administrator picked, and nothing else', async () => {
     const saveRollout = vi.fn().mockResolvedValue(true);
     useRuleStore.setState({ saveRollout });
     render(<RolloutPanel ruleId="disk-critical" rollout={rollout()} canEdit />);
@@ -69,15 +69,33 @@ describe('Rollout pace', () => {
     const canary = screen.getByLabelText('First stage reaches');
     await userEvent.clear(canary);
     await userEvent.type(canary, '5');
-    await userEvent.click(screen.getByRole('button', { name: 'Save pace' }));
+    await userEvent.selectOptions(screen.getByLabelText('Reaches now'), 'staged');
+    await userEvent.click(screen.getByRole('button', { name: 'Save rollout' }));
 
     expect(saveRollout).toHaveBeenCalledWith('disk-critical', {
       enabled: true,
+      stage: 'staged',
       canary_percent: 5,
       staged_percent: 10,
-      canary_hold_secs: 3600,
-      staged_hold_secs: 21600,
     });
+  });
+
+  it('offers the three stages a rule is moved through, and leaves off to the switch', () => {
+    render(<RolloutPanel ruleId="disk-critical" rollout={rollout()} canEdit />);
+
+    const options = within(screen.getByLabelText('Reaches now')).getAllByRole('option');
+    expect(options.map((o) => o.getAttribute('value'))).toEqual(['canary', 'staged', 'full']);
+    expect(options.map((o) => o.textContent)).toEqual([
+      'First hosts — the first share', 'Some hosts — the second share', 'Everywhere',
+    ]);
+    expect(screen.getByLabelText('Reaches now')).toHaveValue('full');
+  });
+
+  it('starts a rule reaching nobody at the first share, the smallest move', () => {
+    render(
+      <RolloutPanel ruleId="disk-critical" rollout={rollout({ stage: 'off', rollout_percent: 0 })} canEdit />,
+    );
+    expect(screen.getByLabelText('Reaches now')).toHaveValue('canary');
   });
 
   it('lets a stop be lifted, which is a different action from switching the rule on', async () => {
