@@ -18,7 +18,7 @@ The operator surface for curated detection: what each rule watches, what a
 customer has retuned, how far the rule has reached, and the switch that stops it.
 
 What a rule *is* — its grammar, how tuning resolves, what each coverage state
-means, how a rollout advances and what an alert carries — is in
+means, how a rollout moves and what an alert carries — is in
 [Alerts and Rules](./Alerts-and-Rules.md). This chapter is the screens over that
 model.
 
@@ -132,8 +132,14 @@ finding, and the page says so rather than quietly showing wrong numbers.
 
 ### Rollout
 
-How far the rule has reached, the population each stage covers, how long a stage
-is held before it may advance, and the stop switch.
+How far the rule has reached, the population each stage covers, the stage it
+stands at, and the stop switch.
+
+**An administrator moves the stage.** The rule reaches the first share, then the
+second, then everyone, each when an administrator picks it under *Reaches now*;
+nothing moves a stage on its own, and moving it back is the same choice. Example:
+an MSP tries a new disk rule on 1% of a customer's machines, widens it to 10% once
+the alerts look right, and then sends it everywhere.
 
 **The stop switch is visually and functionally separate from the on/off toggle.**
 Switching a rule off is an ordinary choice about what a customer wants watched;
@@ -152,10 +158,6 @@ covered go back to the next level up as it is removed. A boundary sitting in a
 table is not one any machine is comparing against, so a change reaches that
 customer's connected machines as it is made rather than the next time each one
 happens to reconnect.
-
-A rule that misbehaves is pulled back to a smaller population by the rollout
-machinery itself. That is not configuration: there is no field, column or endpoint
-for switching that behaviour off.
 
 ## Labels
 
@@ -209,7 +211,7 @@ into one incident that says how much.
 | Read the pack, a rule, its tuning, its coverage, the labels, the budget | Any member of the tenant |
 | Retune a value, aim it, set its precedence | Administrator |
 | Enable, disable, stop or resume a rule | Administrator |
-| Change rollout populations and waiting periods | Administrator |
+| Change rollout shares and move a rule's stage | Administrator |
 | Change the alert budget | Administrator |
 | Manage labels and assignments | Administrator |
 | Acknowledge a value a rule version moved | Administrator |

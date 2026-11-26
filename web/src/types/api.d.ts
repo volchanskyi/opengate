@@ -2080,6 +2080,11 @@ export interface components {
          * @enum {string}
          */
         RuleStage: "off" | "canary" | "staged" | "full";
+        /**
+         * @description The stage an administrator moves a rule to: the first share, the second share or everyone. Off is the enabled switch.
+         * @enum {string}
+         */
+        RuleRolloutStage: "canary" | "staged" | "full";
         /** @description How far a rule has reached across a customer's estate. */
         RuleRollout: {
             enabled: boolean;
@@ -2092,18 +2097,13 @@ export interface components {
             canary_percent: number;
             /** @description The share of the estate the second stage reaches. */
             staged_percent: number;
-            /** @description How long the first stage is held before it may advance. */
-            canary_hold_secs: number;
-            /** @description How long the second stage is held before it may advance. */
-            staged_hold_secs: number;
         };
-        /** @description What an administrator may change about a rollout. There is deliberately nothing here for the automatic pull-back: it is the mitigation for a bad rule degrading an estate, so it is not configuration. */
+        /** @description What an administrator may change about a rollout: whether it is on, the share each partial stage reaches, and the stage it stands at. The reach follows the share that stage names. */
         RuleRolloutInput: {
             enabled: boolean;
+            stage: components["schemas"]["RuleRolloutStage"];
             canary_percent: number;
             staged_percent: number;
-            canary_hold_secs: number;
-            staged_hold_secs: number;
         };
         /**
          * @description The rung of the tenancy ladder a tuned value is filed on.
@@ -5747,7 +5747,7 @@ export interface operations {
                     "application/json": components["schemas"]["RuleRollout"];
                 };
             };
-            /** @description A population or waiting period outside its bounds */
+            /** @description A population outside its bounds, or a stage the rollout does not have */
             400: {
                 headers: {
                     [name: string]: unknown;

@@ -1,31 +1,39 @@
 import { useState } from 'react';
 import type { components } from '../../types/api';
 import { fireAndForget } from '../../lib/fire-and-forget';
-import { holdLabel, rolloutWording } from './rule-summary';
+import { rolloutWording } from './rule-summary';
 import { useRuleStore } from './state/rule-store';
 
 type Rollout = components['schemas']['RuleRollout'];
+type Stage = components['schemas']['RuleRolloutStage'];
 
 const FIELD = 'w-24 bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-gray-200';
 const LABEL = 'text-xs uppercase text-gray-500 font-semibold';
 
-// The form writes only the pace settings, not the reach so far or the stop.
-type PaceField = 'canary_percent' | 'staged_percent' | 'canary_hold_secs' | 'staged_hold_secs';
+// The form writes the stage and the shares, not the stop.
+type ShareField = 'canary_percent' | 'staged_percent';
 
-const SETTINGS: readonly (readonly [PaceField, string, string])[] = [
-  ['canary_percent', 'First stage reaches', '% of the fleet'],
-  ['staged_percent', 'Second stage reaches', '% of the fleet'],
-  ['canary_hold_secs', 'First stage is held for', 'seconds'],
-  ['staged_hold_secs', 'Second stage is held for', 'seconds'],
+const SHARES: readonly (readonly [ShareField, string])[] = [
+  ['canary_percent', 'First stage reaches'],
+  ['staged_percent', 'Second stage reaches'],
 ];
 
-function paceValue(rollout: Rollout, field: PaceField): number {
+const STAGES: readonly (readonly [Stage, string])[] = [
+  ['canary', 'First hosts — the first share'],
+  ['staged', 'Some hosts — the second share'],
+  ['full', 'Everywhere'],
+];
+
+function shareValue(rollout: Rollout, field: ShareField): number {
   switch (field) {
     case 'canary_percent': return rollout.canary_percent;
     case 'staged_percent': return rollout.staged_percent;
-    case 'canary_hold_secs': return rollout.canary_hold_secs;
-    case 'staged_hold_secs': return rollout.staged_hold_secs;
   }
+}
+
+// A rule reaching nobody starts the picker at the first share, the smallest move from there.
+function pickedStage(stage: Rollout['stage']): Stage {
+  return stage === 'off' ? 'canary' : stage;
 }
 
 // The stop is a separate control from the on/off toggle so the two stay distinguishable afterwards.
@@ -41,14 +49,14 @@ export function RolloutPanel({
   const saveRollout = useRuleStore((s) => s.saveRollout);
   const setStopped = useRuleStore((s) => s.setStopped);
   const [draft, setDraft] = useState(rollout);
+  const [stage, setStage] = useState<Stage>(pickedStage(rollout.stage));
 
   const save = () => {
     fireAndForget(saveRollout(ruleId, {
       enabled: draft.enabled,
+      stage,
       canary_percent: draft.canary_percent,
       staged_percent: draft.staged_percent,
-      canary_hold_secs: draft.canary_hold_secs,
-      staged_hold_secs: draft.staged_hold_secs,
     }));
   };
 
@@ -70,29 +78,43 @@ export function RolloutPanel({
         <span>This customer gets the rule</span>
       </label>
 
+      <label className="flex flex-col gap-1 mb-4">
+        <span className={LABEL}>Reaches now</span>
+        <select
+          className="w-72 bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-gray-200"
+          value={stage}
+          disabled={!canEdit}
+          aria-label="Reaches now"
+          onChange={(e) => { setStage(e.target.value as Stage); }}
+        >
+          {STAGES.map(([value, label]) => (
+            <option key={value} value={value}>{label}</option>
+          ))}
+        </select>
+      </label>
+
       <div className="grid grid-cols-2 gap-3">
-        {SETTINGS.map(([field, label, unit]) => (
+        {SHARES.map(([field, label]) => (
           <label key={field} className="flex flex-col gap-1">
             <span className={LABEL}>{label}</span>
             <span className="flex items-center gap-2">
               <input
                 type="number"
                 className={FIELD}
-                value={paceValue(draft, field)}
+                value={shareValue(draft, field)}
                 disabled={!canEdit}
                 aria-label={label}
                 onChange={(e) => { setDraft({ ...draft, [field]: Number(e.target.value) }); }}
               />
-              <span className="text-xs text-gray-500">{unit}</span>
+              <span className="text-xs text-gray-500">% of the fleet</span>
             </span>
           </label>
         ))}
       </div>
 
       <p className="mt-2 text-xs text-gray-500">
-        Held for {holdLabel(rollout.canary_hold_secs)} then {holdLabel(rollout.staged_hold_secs)}.
-        A rule that misbehaves is pulled back to a smaller population by itself; that cannot be
-        switched off.
+        The rule moves from the first share to the second and then everywhere when an administrator
+        moves it here.
       </p>
 
       {canEdit && (
@@ -102,7 +124,7 @@ export function RolloutPanel({
             onClick={save}
             className="px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-sm"
           >
-            Save pace
+            Save rollout
           </button>
         </div>
       )}

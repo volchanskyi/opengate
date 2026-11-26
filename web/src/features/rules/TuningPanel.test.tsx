@@ -27,7 +27,7 @@ function rule(): Rule {
     },
     rollout: {
       enabled: true, rollout_percent: 100, kill: false, stage: 'full',
-      canary_percent: 1, staged_percent: 10, canary_hold_secs: 3600, staged_hold_secs: 21600,
+      canary_percent: 1, staged_percent: 10,
     },
     coverage: { active: 10, throttled: 0, unsupported: 0, unknown: 0 },
     noise: { recent: 0, baseline_per_hour: 0, level: 'unknown' },

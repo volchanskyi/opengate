@@ -152,8 +152,7 @@ really touched, and stops any rule that spends past it.
 - The stop is **firm**: the rule is not retried on that machine until a
   *different* ruleset arrives, so a flaky link re-pushing the same rules cannot
   spend the allowance again and again.
-- The device reports the rule as `throttled`, which is precisely what a staged
-  rollout watches for.
+- The device reports the rule as `throttled`, which the rule's coverage counts.
 
 ### Staged rollout and the stop switch
 
@@ -161,14 +160,9 @@ A curated rule that turns out to be wrong is the one thing here that can degrade
 thousands of machines at once, so a rule reaches a customer's estate in stages: a
 handful of machines, then a tenth of them, then all of them.
 
-- Each stage is held for a minimum period before it may grow — but what actually
-  advances it is the estate having **stayed quiet** while it was held.
-- A hit alert ceiling, a machine that throttled the rule, or a rule that failed
-  to evaluate sends it back to the population it was last quiet on and restarts
-  that stage's clock. A signal that comes and goes cannot ratchet a rule upward.
-- A rule already on its smallest population stops there rather than being pulled
-  off the machines watching it. Ending it altogether is a **kill**, which is a
-  person's decision.
+- An administrator moves a rule from one stage to the next, or back, on the rule
+  screen; the reach follows the share that stage names, and nothing moves a stage
+  on its own. Ending it altogether is a **kill**, which is a person's decision too.
 - Which machines a stage covers is worked out one machine at a time from the
   machine, the rule and the reach — there is no stored roster. Every server
   computes the same answer, restarts change nothing, and growing a rollout only

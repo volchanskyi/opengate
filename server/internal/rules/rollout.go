@@ -10,17 +10,13 @@ import (
 
 const maxCanaryGroupLen = 64
 
-// The default pace of a rule, and the bounds an operator may move it inside.
+// The default share each partial stage reaches, and the bounds an operator may move it inside.
 const (
 	defaultCanaryPercent = 1
 	defaultStagedPercent = 10
-	defaultCanaryHold    = time.Hour
-	defaultStagedHold    = 6 * time.Hour
 
 	minStagePercent = 1
 	maxStagePercent = 99
-	minStageHold    = time.Minute
-	maxStageHold    = 30 * 24 * time.Hour
 )
 
 // ErrInvalidRollout means the stored rollout state is outside its bounds.
@@ -37,14 +33,11 @@ type Rollout struct {
 	// RolloutPercent is how much of the estate the rule has reached, 0 to 100.
 	RolloutPercent int
 	// Kill stops the rule for the whole customer, separate from the customer's own Enabled choice.
-	Kill           bool
-	StageEnteredAt time.Time
+	Kill bool
 
-	// The populations each partial stage reaches and how long each is held, set per customer.
+	// The populations each partial stage reaches, set per customer; an administrator picks the stage.
 	CanaryPercent int
 	StagedPercent int
-	CanaryHold    time.Duration
-	StagedHold    time.Duration
 
 	UpdatedAt time.Time
 	UpdatedBy string
@@ -59,8 +52,6 @@ func DefaultRollout(organizationID uuid.UUID, ruleID string) Rollout {
 		RolloutPercent: 100,
 		CanaryPercent:  defaultCanaryPercent,
 		StagedPercent:  defaultStagedPercent,
-		CanaryHold:     defaultCanaryHold,
-		StagedHold:     defaultStagedHold,
 	}
 }
 
@@ -79,6 +70,7 @@ func (r Rollout) Stage() Stage {
 	}
 }
 
+// PercentForStage is the share of the estate a stage reaches at this rollout's shares.
 func (r Rollout) PercentForStage(stage Stage) int {
 	paced := r.paced()
 	switch stage {
@@ -95,20 +87,6 @@ func (r Rollout) PercentForStage(stage Stage) int {
 	}
 }
 
-func (r Rollout) HoldFor(stage Stage) time.Duration {
-	paced := r.paced()
-	switch stage {
-	case StageCanary:
-		return paced.CanaryHold
-	case StageStaged:
-		return paced.StagedHold
-	case StageOff, StageFull:
-		return 0
-	default:
-		return 0
-	}
-}
-
 // paced fills in the shipped pace for each field that is exactly zero.
 // A negative field is kept so validation can refuse it.
 func (r Rollout) paced() Rollout {
@@ -117,12 +95,6 @@ func (r Rollout) paced() Rollout {
 	}
 	if r.StagedPercent == 0 {
 		r.StagedPercent = defaultStagedPercent
-	}
-	if r.CanaryHold == 0 {
-		r.CanaryHold = defaultCanaryHold
-	}
-	if r.StagedHold == 0 {
-		r.StagedHold = defaultStagedHold
 	}
 	return r
 }
@@ -147,7 +119,7 @@ func ValidateRollout(r Rollout) error {
 	return validatePace(r)
 }
 
-// validatePace bounds the populations and holds, and requires the canary to be smaller than staged.
+// validatePace bounds the populations, and requires the canary to be smaller than staged.
 func validatePace(r Rollout) error {
 	paced := r.paced()
 	for _, stage := range []struct {
@@ -165,19 +137,6 @@ func validatePace(r Rollout) error {
 	if paced.CanaryPercent >= paced.StagedPercent {
 		return fmt.Errorf("%w: the canary population (%d%%) must be smaller than the staged one (%d%%)",
 			ErrInvalidRollout, paced.CanaryPercent, paced.StagedPercent)
-	}
-
-	for _, stage := range []struct {
-		what string
-		hold time.Duration
-	}{
-		{"canary", paced.CanaryHold},
-		{"staged", paced.StagedHold},
-	} {
-		if stage.hold < minStageHold || stage.hold > maxStageHold {
-			return fmt.Errorf("%w: the %s waiting period is %s, outside %s–%s",
-				ErrInvalidRollout, stage.what, stage.hold, minStageHold, maxStageHold)
-		}
 	}
 	return nil
 }

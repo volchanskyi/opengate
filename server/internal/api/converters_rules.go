@@ -48,10 +48,18 @@ var noiseLevels = map[alerts.NoiseLevel]RuleNoiseLevel{
 
 // stageNames maps how far a rollout has reached to its name on the wire.
 var stageNames = map[rules.Stage]RuleStage{
-	rules.StageOff:    Off,
-	rules.StageCanary: Canary,
-	rules.StageStaged: Staged,
-	rules.StageFull:   Full,
+	rules.StageOff:    RuleStageOff,
+	rules.StageCanary: RuleStageCanary,
+	rules.StageStaged: RuleStageStaged,
+	rules.StageFull:   RuleStageFull,
+}
+
+// rolloutStages maps the stage an administrator picks to the stage it reaches; off is the enabled
+// switch, so it is not among them.
+var rolloutStages = map[RuleRolloutStage]rules.Stage{
+	RuleRolloutStageCanary: rules.StageCanary,
+	RuleRolloutStageStaged: rules.StageStaged,
+	RuleRolloutStageFull:   rules.StageFull,
 }
 
 // noiseToAPI renders the badge, its level derived from recent and baseline alert counts.
@@ -63,7 +71,7 @@ func noiseToAPI(n alerts.Noise) RuleNoise {
 	}
 }
 
-// rolloutToAPI renders how far a rule has reached and the pace it spreads at.
+// rolloutToAPI renders how far a rule has reached and the share each stage reaches.
 func rolloutToAPI(r rules.Rollout) RuleRollout {
 	out := RuleRollout{
 		Enabled:        r.Enabled,
@@ -72,8 +80,6 @@ func rolloutToAPI(r rules.Rollout) RuleRollout {
 		Stage:          stageNames[r.Stage()],
 		CanaryPercent:  r.PercentForStage(rules.StageCanary),
 		StagedPercent:  r.PercentForStage(rules.StageStaged),
-		CanaryHoldSecs: int(r.HoldFor(rules.StageCanary).Seconds()),
-		StagedHoldSecs: int(r.HoldFor(rules.StageStaged).Seconds()),
 	}
 	if r.CanaryGroup != "" {
 		group := r.CanaryGroup

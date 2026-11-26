@@ -51,5 +51,5 @@ A value is aimed at a site picked from a list rather than an id typed in.
 
 ## Consequences
 
-Rollout populations and waiting periods are per rule and per customer, so a
-cautious customer's pace does not slow everyone else's.
+Rollout shares and the stage a rule stands at are per rule and per customer, so
+a cautious customer's pace does not slow everyone else's.

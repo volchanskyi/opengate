@@ -67,16 +67,16 @@ func TestARolloutPaceOutsideItsBoundsIsRefused(t *testing.T) {
 
 	for name, in := range map[string]RuleRolloutInput{
 		"a canary reaching everybody": {
-			Enabled: true, CanaryPercent: 100, StagedPercent: 10,
-			CanaryHoldSecs: 3600, StagedHoldSecs: 21600,
+			Enabled: true, Stage: "canary", CanaryPercent: 100, StagedPercent: 10,
 		},
 		"a canary bigger than the stage after it": {
-			Enabled: true, CanaryPercent: 40, StagedPercent: 20,
-			CanaryHoldSecs: 3600, StagedHoldSecs: 21600,
+			Enabled: true, Stage: "canary", CanaryPercent: 40, StagedPercent: 20,
 		},
-		"a hold of seconds": {
-			Enabled: true, CanaryPercent: 1, StagedPercent: 10,
-			CanaryHoldSecs: 1, StagedHoldSecs: 21600,
+		"a stage of off, which is the enabled switch": {
+			Enabled: true, Stage: "off", CanaryPercent: 1, StagedPercent: 10,
+		},
+		"a stage the rollout does not have": {
+			Enabled: true, Stage: "sideways", CanaryPercent: 1, StagedPercent: 10,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -199,7 +199,7 @@ func TestAnUnknownRuleIsRefusedEverywhereItCanBeNamed(t *testing.T) {
 	}{
 		"reading it":  {http.MethodGet, e.query(testPathRules + "/no-such-rule"), nil},
 		"tuning it":   {http.MethodPut, e.query(testPathRules + "/no-such-rule/bindings"), RuleBindingInput{Level: RuleBindingLevelOrganization, LevelKey: e.org}},
-		"rolling it":  {http.MethodPut, e.query(testPathRules + "/no-such-rule/rollout"), RuleRolloutInput{Enabled: true, CanaryPercent: 1, StagedPercent: 10, CanaryHoldSecs: 3600, StagedHoldSecs: 21600}},
+		"rolling it":  {http.MethodPut, e.query(testPathRules + "/no-such-rule/rollout"), RuleRolloutInput{Enabled: true, Stage: "full", CanaryPercent: 1, StagedPercent: 10}},
 		"stopping it": {http.MethodPost, e.query(testPathRules + "/no-such-rule/stop"), RuleStopInput{Scope: RuleStopScopeOrganization, Stopped: true}},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -232,10 +232,7 @@ func TestAWriteNamingNoCustomerActsOnTheTenantsOwn(t *testing.T) {
 
 	rollout := doRequest(e.srv, http.MethodPut,
 		testPathRules+"/disk-critical/rollout", e.adminToken,
-		RuleRolloutInput{
-			Enabled: true, CanaryPercent: 1, StagedPercent: 10,
-			CanaryHoldSecs: 3600, StagedHoldSecs: 21600,
-		})
+		RuleRolloutInput{Enabled: true, Stage: "full", CanaryPercent: 1, StagedPercent: 10})
 	require.Equal(t, http.StatusOK, rollout.Code, rollout.Body.String())
 
 	stop := doRequest(e.srv, http.MethodPost,
