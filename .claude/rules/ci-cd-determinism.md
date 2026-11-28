@@ -10,8 +10,8 @@ themselves). **No bypass.**
 A step whose work was refused must not report success. Why each section has its shape:
 [ADR-129](../../docs/adr/ADR-129-workflow-verdicts-and-inputs.md),
 [ADR-086](../../docs/adr/ADR-086-deploy-reads-the-cluster.md) for caches,
-[ADR-107](../../docs/adr/ADR-107-where-a-run-happens.md) for the staging check and
-[ADR-123](../../docs/adr/ADR-123-alert-delivery.md) for environments.
+[ADR-107](../../docs/adr/ADR-107-where-a-run-happens.md) for the staging check and the runner's
+processor, and [ADR-123](../../docs/adr/ADR-123-alert-delivery.md) for environments.
 
 ## The rules
 
@@ -106,6 +106,23 @@ A step whose work was refused must not report success. Why each section has its 
   the drills running.
 
 **Checks:** `stated-status`, `outlives-cancel`.
+
+### A speed job measures on a permitted processor
+
+- A job whose numbers are held to a limit runs in a workflow of its own named `*-try.yml`, whose
+  steps read the runner's processor with
+  [`runner-processor.sh`](../../scripts/runner-processor.sh) right after the checkout, in a step
+  with `id: processor`.
+- Every later step carries `steps.processor.outputs.permitted == 'true'` in its `if:`, so a refused
+  runner measures nothing and its try passes with `refused` set.
+- The caller runs the try up to four times in a row, each after one whose runner was refused; four
+  refusals skip the job and name the four processors on the summary page and in the alert.
+- The refused processors are listed in
+  [`refused-processors.sh`](../../scripts/lib/refused-processors.sh).
+- Examples: [`perf-leg.yml`](../../.github/workflows/perf-leg.yml) and
+  [`e2e-performance.yml`](../../.github/workflows/e2e-performance.yml).
+
+**Checks:** `permitted-processor`.
 
 ## Scope
 

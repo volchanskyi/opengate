@@ -7,11 +7,13 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 COMPOSE="$REPO_ROOT/deploy/docker-compose.perf.yml"
 WORKFLOWS_DIR="$REPO_ROOT/.github/workflows"
 LEG_WORKFLOW="$WORKFLOWS_DIR/perf-leg.yml"
+# The leg's one job, which the leg calls as four tries in a row.
+LEG_TRY_WORKFLOW="$WORKFLOWS_DIR/perf-leg-try.yml"
 TREND_WORKFLOW="$WORKFLOWS_DIR/perf-trend.yml"
 # The four domains, each a nightly of its own over the shared leg and the shared trend.
 DOMAINS=("$WORKFLOWS_DIR/perf-scaling.yml" "$WORKFLOWS_DIR/perf-volume.yml" "$WORKFLOWS_DIR/perf-shapes.yml"
   "$WORKFLOWS_DIR/perf-catchup.yml")
-PERF_WORKFLOWS=("$LEG_WORKFLOW" "$TREND_WORKFLOW" "${DOMAINS[@]}")
+PERF_WORKFLOWS=("$LEG_WORKFLOW" "$LEG_TRY_WORKFLOW" "$TREND_WORKFLOW" "${DOMAINS[@]}")
 # shellcheck source=scripts/lib/loadtest-profile.sh
 . "$REPO_ROOT/scripts/lib/loadtest-profile.sh"
 
@@ -204,6 +206,61 @@ for path in domains:
 PY_LEGS
 }
 
+# The leg runs its one job as four tries in a row, each after a try that refused its runner,
+# hands every input to each try, and records a leg whose four runners were all refused.
+try_problems="$(
+  python3 - "$LEG_WORKFLOW" "$LEG_TRY_WORKFLOW" <<'PY_TRIES'
+import os, sys, yaml
+
+
+def calls(doc):
+    return (doc.get("on") or doc.get(True) or {})["workflow_call"]
+
+
+leg, tried = (yaml.safe_load(open(p, encoding="utf-8")) for p in sys.argv[1:3])
+try_file = os.path.basename(sys.argv[2])
+inputs = calls(leg)["inputs"]
+if set(inputs) != set(calls(tried)["inputs"]):
+    print(f"the leg takes {sorted(inputs)} and its try {sorted(calls(tried)['inputs'])}")
+outputs = calls(tried).get("outputs") or {}
+for name in ("refused", "processor"):
+    if name not in outputs:
+        print(f"the try hands back no {name}")
+jobs = leg.get("jobs") or {}
+for n in range(1, 5):
+    job = jobs.get(f"try-{n}")
+    if job is None:
+        print(f"there is no try-{n}")
+        continue
+    if not str(job.get("uses", "")).endswith(f"/{try_file}"):
+        print(f"try-{n} calls {job.get('uses')}")
+    given = job.get("with") or {}
+    lost = sorted(k for k in inputs if str(given.get(k, "")) != "${{ inputs.%s }}" % k)
+    if lost:
+        print(f"try-{n} is not handed {lost}")
+    cond = str(job.get("if", "") or "")
+    if n == 1:
+        if cond:
+            print(f"try-1 runs only when {cond}")
+    elif "!cancelled()" not in cond or f"needs.try-{n - 1}.outputs.refused == 'true'" not in cond:
+        print(f"try-{n} runs when {cond or 'always'}, where it runs after try-{n - 1} refused its runner")
+skipped = jobs.get("skipped") or {}
+cond = str(skipped.get("if", "") or "")
+if set(skipped.get("needs") or []) != {f"try-{n}" for n in range(1, 5)}:
+    print("the skip record does not read all four tries")
+if "!cancelled()" not in cond or "needs.try-4.outputs.refused == 'true'" not in cond:
+    print(f"the skip record is written when {cond or 'always'}")
+uploads = [s.get("with") or {} for s in skipped.get("steps") or [] if "upload-artifact" in str(s.get("uses", ""))]
+if not any(u.get("name") == "perf-skipped-${{ inputs.leg }}" and u.get("if-no-files-found") == "error" for u in uploads):
+    print("the skip record is not uploaded as perf-skipped-<leg>, failing when it holds no file")
+PY_TRIES
+)"
+if [ -z "$try_problems" ]; then
+  pass "the leg runs as four tries in a row and records four refused runners"
+else
+  fail "tries:"$'\n'"$try_problems"
+fi
+
 LEGS="$(legs)"
 if [ -n "$LEGS" ]; then
   pass "the domains call the shared leg for $(wc -l <<<"$LEGS") leg(s)"
@@ -296,7 +353,7 @@ fi
 # The leg's walk: the server signs the harness's certificates, the fleet is the profile's, the
 # technicians walk the harness's profile, and the harness answers the sessions they open.
 walk_problems="$(
-  python3 - "$LEG_WORKFLOW" <<'PY_WALK'
+  python3 - "$LEG_TRY_WORKFLOW" <<'PY_WALK'
 import re, sys, yaml
 
 job = next(iter(yaml.safe_load(open(sys.argv[1], encoding="utf-8"))["jobs"].values()))
@@ -382,7 +439,7 @@ fi
 # A failed leg keeps the machine it ran on, and the store's readings reach the uploaded bundle
 # whatever became of the server after the probe.
 leg_problems="$(
-  python3 - "$LEG_WORKFLOW" <<'PY_LEG'
+  python3 - "$LEG_TRY_WORKFLOW" <<'PY_LEG'
 import re
 import sys
 
@@ -514,7 +571,7 @@ fi
 # Every job that brings the stack up sets production's socket buffers, dials the server by its
 # certificate's name, and hands the harness the target's network counters.
 path_problems="$(
-  python3 - "$LEG_WORKFLOW" "$REPO_ROOT/.github/workflows/soak.yml" <<'PY'
+  python3 - "$LEG_TRY_WORKFLOW" "$REPO_ROOT/.github/workflows/soak.yml" <<'PY'
 import sys, yaml
 
 jobs_read = 0
@@ -566,7 +623,7 @@ fi
 # Images are pulled first with bounded retries, and every always-run step after the bring-up
 # waits on the stack having come up.
 bringup_problems="$(
-  python3 - "$LEG_WORKFLOW" "$REPO_ROOT/.github/workflows/soak.yml" <<'PY_BRINGUP'
+  python3 - "$LEG_TRY_WORKFLOW" "$REPO_ROOT/.github/workflows/soak.yml" <<'PY_BRINGUP'
 import sys, yaml
 
 jobs_read = 0
@@ -704,6 +761,102 @@ if [ -z "$publish_problems" ]; then
 else
   fail "$(basename "$TREND_WORKFLOW"): $publish_problems"
 fi
+
+# The trend's compare step and its alert run here against legs a sandbox lays out: a leg skipped
+# after four refused runners is listed and alerted, and a domain whose every leg was skipped passes.
+trend_step() {
+  python3 - "$TREND_WORKFLOW" "$1" "$2" "$3" <<'PY_STEP'
+import sys, yaml
+workflow, job, name, nth = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
+steps = [s for s in yaml.safe_load(open(workflow))["jobs"][job]["steps"] if s.get("name") == name]
+print(steps[nth]["run"])
+PY_STEP
+}
+COMPARE_SCRIPT="$(trend_step publish "Compare each leg with the nights before it" 0)"
+ALERT_SCRIPT="$(trend_step alert "Send Telegram alert" 1)"
+TREND_WORK="$(mktemp -d)"
+# compare_in DIR runs the compare step in DIR, whose scripts/ holds a regression check that passes.
+compare_in() {
+  mkdir -p "$1/scripts"
+  cat >"$1/scripts/perf-regression-check.sh" <<EOF
+#!/usr/bin/env bash
+echo compared "\$@" >>"$1/compared"
+EOF
+  chmod +x "$1/scripts/perf-regression-check.sh"
+  : >"$1/output"
+  : >"$1/summary"
+  compare_status=0
+  (cd "$1" && GITHUB_OUTPUT="$1/output" GITHUB_STEP_SUMMARY="$1/summary" \
+    PERF_NIGHTS_TABLE="$1/nights.md" bash -c "$COMPARE_SCRIPT") >"$1/log" 2>&1 || compare_status=$?
+}
+skip_reason="Link came back at production's limits (ARM) skipped: four runners in a row had a refused processor (AMD EPYC 7763 64-Core Processor; AMD EPYC 7763 64-Core Processor; AMD EPYC 7763 64-Core Processor; AMD EPYC 7763 64-Core Processor)"
+
+all_skipped="$TREND_WORK/all-skipped"
+mkdir -p "$all_skipped/perf-legs/perf-skipped-burst"
+printf '%s\n' "$skip_reason" >"$all_skipped/perf-legs/perf-skipped-burst/skipped-burst.txt"
+compare_in "$all_skipped"
+if [ "$compare_status" -eq 0 ] && grep -qxF "regression=0" "$all_skipped/output" \
+  && grep -qxF "compared=0" "$all_skipped/output" && [ ! -e "$all_skipped/compared" ]; then
+  pass "a domain whose every leg was skipped passes with nothing compared"
+else
+  fail "a domain whose every leg was skipped passes with nothing compared (exit $compare_status: $(cat "$all_skipped/log"))"
+fi
+skipped_summary="$(cat "$all_skipped/summary")"
+skipped_output="$(cat "$all_skipped/output")"
+if grep -qF -- "$skip_reason" <<<"$skipped_summary" && grep -qF -- "$skip_reason" <<<"$skipped_output"; then
+  pass "a skipped leg's reason reaches the night's summary and the alert"
+else
+  fail "a skipped leg's reason reaches the night's summary and the alert ([$skipped_summary] [$skipped_output])"
+fi
+
+nothing="$TREND_WORK/nothing"
+mkdir -p "$nothing/perf-legs"
+compare_in "$nothing"
+if [ "$compare_status" -ne 0 ]; then
+  pass "a night where no leg wrote a bundle and none was skipped is refused"
+else
+  fail "a night where no leg wrote a bundle and none was skipped is refused"
+fi
+
+mixed="$TREND_WORK/mixed"
+mkdir -p "$mixed/perf-legs/perf-skipped-burst" "$mixed/perf-legs/perf-spike"
+printf '%s\n' "$skip_reason" >"$mixed/perf-legs/perf-skipped-burst/skipped-burst.txt"
+echo '{}' >"$mixed/perf-legs/perf-spike/bundle.json"
+compare_in "$mixed"
+if [ "$compare_status" -eq 0 ] && grep -qF "perf-spike/bundle.json" "$mixed/compared" 2>/dev/null \
+  && grep -qxF "compared=1" "$mixed/output" && grep -qF -- "$skip_reason" "$mixed/summary"; then
+  pass "the legs that measured are compared, with the skipped one listed beside them"
+else
+  fail "the legs that measured are compared, with the skipped one listed beside them (exit $compare_status: $(cat "$mixed/log"))"
+fi
+
+# alert_with STATUS FINDING SKIPPED runs the alert step with a send that records its message.
+alert_with() {
+  local dir="$TREND_WORK/alert"
+  rm -rf "$dir"
+  mkdir -p "$dir/scripts"
+  cat >"$dir/scripts/telegram-alert.sh" <<EOF
+#!/usr/bin/env bash
+printf '%s' "\$1" >"$dir/sent"
+EOF
+  chmod +x "$dir/scripts/telegram-alert.sh"
+  (cd "$dir" && JOB_STATUS="$1" FINDING="$2" SKIPPED="$3" ALERT_TEXT="" DOMAIN=shapes RESULTS="shapes=success" \
+    RUN_URL=https://example.invalid/run bash -c "$ALERT_SCRIPT") >"$dir/log" 2>&1 || true
+  sent="$(cat "$dir/sent" 2>/dev/null || true)"
+}
+alert_with success 0 "$skip_reason"
+if grep -qF -- "$skip_reason" <<<"$sent" && grep -qF "shapes" <<<"$sent"; then
+  pass "a night with a skipped leg alerts, naming the domain, the leg and the reason"
+else
+  fail "a night with a skipped leg alerts, naming the domain, the leg and the reason (sent [$sent])"
+fi
+alert_with success 0 ""
+if [ -z "$sent" ]; then
+  pass "a night with every leg published and none skipped sends nothing"
+else
+  fail "a night with every leg published and none skipped sends nothing (sent [$sent])"
+fi
+rm -rf "$TREND_WORK"
 
 echo
 echo "Summary: $PASS passed, $FAIL failed"

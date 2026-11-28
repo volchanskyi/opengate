@@ -49,6 +49,8 @@ PRINTS = re.compile(r"^(cat|echo|printf|tee|true|:)([ \t]|$)")
 CLUSTER_CALL = re.compile(r"kubectl[^|&;]*(exec|cp)[ \t]")
 SCAN = re.compile(r"scripts/image-scan\.sh\b")
 NAMING = re.compile(r"\bcrane[ \t]+(tag|copy)\b")
+PROCESSOR_READ = "scripts/runner-processor.sh"
+PERMITTED = "steps.processor.outputs.permitted"
 
 
 def report(sweep, text):
@@ -273,6 +275,28 @@ def scans_before_tags():
     reached("scan-before-tag", namings)
 
 
+# A try workflow reads its runner's processor, and every step after that read waits on its answer.
+def permitted_processors():
+    tries = [name for name in NAMES if name.endswith("-try.yml")]
+    for name in tries:
+        read_any = False
+        for job, body in jobs_of(name).items():
+            steps = steps_of(body)
+            at = next((i for i, s in enumerate(steps) if PROCESSOR_READ in str(s.get("run", ""))), None)
+            if at is None:
+                continue
+            read_any = True
+            if steps[at].get("id") != "processor":
+                report("permitted-processor", f"{name} {job}: the processor read has no id processor")
+            for step in steps[at + 1:]:
+                if PERMITTED not in str(step.get("if", "") or ""):
+                    title = step.get("name") or step.get("uses") or str(step.get("run", "")).splitlines()[0]
+                    report("permitted-processor", f"{name} {job}: '{title}' runs on a refused processor")
+        if not read_any:
+            report("permitted-processor", f"{name} measures without reading its runner's processor")
+    reached("permitted-processor", len(tries))
+
+
 caches()
 mutation_reports()
 status_reads()
@@ -281,6 +305,7 @@ staging_slot()
 job_status()
 cluster_calls()
 scans_before_tags()
+permitted_processors()
 PY
 
 read_of() { awk -F'\t' -v s="$2" '$1 == "read" && $2 == s { print $3 }' <<<"$1"; }
@@ -471,6 +496,29 @@ jobs:
       - name: Name it
         run: crane tag "ghcr.io/volchanskyi/opengate-server@$DIGEST" latest
 YAML
+cat >"$DEMO/.github/workflows/speed-try.yml" <<'YAML'
+on: workflow_call
+jobs:
+  speed:
+    steps:
+      - uses: actions/checkout@v7
+      - name: Read the runner's processor
+        id: processor
+        run: scripts/runner-processor.sh >>"$GITHUB_OUTPUT"
+      - name: Guarded
+        if: steps.processor.outputs.permitted == 'true'
+        run: npx playwright test
+      - name: Unguarded
+        if: always()
+        run: docker compose down -v
+YAML
+cat >"$DEMO/.github/workflows/bare-try.yml" <<'YAML'
+on: workflow_call
+jobs:
+  speed:
+    steps:
+      - run: npx playwright test
+YAML
 cat >"$DEMO/scripts/nightly.sh" <<'SH'
 kubectl exec pod -- true
 # Not retried: a second run repeats the fault.
@@ -562,6 +610,10 @@ judge scan-before-tag "images.yml tagged: 'Push' pushes under a tag before any s
 images.yml copied: 'Copy' names an image no scan in its job has passed
 images.yml late: 'Tag' names an image no scan in its job has passed" \
   "each of N image pushes and tags in the workflows follows a scan in its own job"
+
+judge permitted-processor "speed-try.yml speed: 'Unguarded' runs on a refused processor
+bare-try.yml measures without reading its runner's processor" \
+  "each of N try workflows reads its runner's processor and holds every later step to its answer"
 
 echo
 echo "Summary: $PASS passed, $FAIL failed"

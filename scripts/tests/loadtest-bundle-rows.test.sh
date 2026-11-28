@@ -227,23 +227,28 @@ else
   fail "and reports how many limits it read: $(cat "$WORK/gate.txt")"
 fi
 
+# judges WORKFLOW succeeds when the workflow, or one it calls however deep, reads its limits
+# through scripts/perf-bundle-limits.sh.
+judges() {
+  local workflow="$1" seen="${2:-}" called
+  grep -qE 'perf-bundle-limits\.sh' "$workflow" && return 0
+  while IFS= read -r called; do
+    [ -n "$called" ] && [ -f "$REPO_ROOT/$called" ] || continue
+    grep -qxF -- "$called" <<<"$seen" && continue
+    judges "$REPO_ROOT/$called" "$seen$called"$'\n' && return 0
+  done < <(sed -n 's|^[[:space:]]*uses:[[:space:]]*\./\(\.github/workflows/[A-Za-z0-9_.-]*\)[[:space:]]*$|\1|p' "$workflow")
+  return 1
+}
+
 # Profiles named by a workflow that reads its limits through scripts/perf-bundle-limits.sh, or
 # that calls a workflow of this repository which does.
 bundle_judged_profiles() {
-  local workflow judging called
-  judging="$(grep -rlE 'perf-bundle-limits\.sh' "$WORKFLOW_DIR" 2>/dev/null || true)"
+  local workflow
   while IFS= read -r workflow; do
     [ -n "$workflow" ] || continue
-    if grep -qxF "$workflow" <<<"$judging"; then
+    if judges "$workflow"; then
       grep -oE 'load/profiles/[a-z0-9-]+\.yaml' "$workflow" || true
-      continue
     fi
-    while IFS= read -r called; do
-      [ -n "$called" ] || continue
-      if grep -qxF "$REPO_ROOT/$called" <<<"$judging"; then
-        grep -oE 'load/profiles/[a-z0-9-]+\.yaml' "$workflow" || true
-      fi
-    done < <(sed -n 's|^[[:space:]]*uses:[[:space:]]*\./\(\.github/workflows/[A-Za-z0-9_.-]*\)[[:space:]]*$|\1|p' "$workflow")
   done < <(find "$WORKFLOW_DIR" -name '*.yml' | sort) | sort -u
 }
 

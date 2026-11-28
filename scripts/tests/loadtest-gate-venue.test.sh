@@ -43,12 +43,29 @@ jobs_naming() {
   ' "$1"
 }
 
-# called_by prints the text of every workflow of this repository the jobs call.
+# calls_in prints each workflow of this repository the text calls, once.
+calls_in() {
+  sed -n 's|^[[:space:]]*uses:[[:space:]]*\./\(\.github/workflows/[A-Za-z0-9_.-]*\)[[:space:]]*$|\1|p' <<<"$1" \
+    | sort -u
+}
+
+# called_by prints the text of every workflow of this repository the jobs call, and of every
+# workflow those call in turn, each once.
 called_by() {
-  local path
-  while IFS= read -r path; do
-    [ -f "$REPO_ROOT/$path" ] && cat "$REPO_ROOT/$path"
-  done < <(sed -n 's|^[[:space:]]*uses:[[:space:]]*\./\(\.github/workflows/[A-Za-z0-9_.-]*\)[[:space:]]*$|\1|p' <<<"$1" | sort -u)
+  local path body seen=""
+  local -a queue
+  mapfile -t queue < <(calls_in "$1")
+  while [ "${#queue[@]}" -gt 0 ]; do
+    path="${queue[0]}"
+    queue=("${queue[@]:1}")
+    if grep -qxF -- "$path" <<<"$seen" || [ ! -f "$REPO_ROOT/$path" ]; then
+      continue
+    fi
+    seen+="$path"$'\n'
+    body="$(<"$REPO_ROOT/$path")"
+    printf '%s\n' "$body"
+    mapfile -t -O "${#queue[@]}" queue < <(calls_in "$body")
+  done
   return 0
 }
 

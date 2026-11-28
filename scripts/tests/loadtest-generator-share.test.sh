@@ -189,7 +189,7 @@ else
   fail "a call with no command is refused"
 fi
 
-LEG_WORKFLOW="$REPO_ROOT/.github/workflows/perf-leg.yml"
+LEG_WORKFLOW="$REPO_ROOT/.github/workflows/perf-leg-try.yml"
 SHAPES_WORKFLOW="$REPO_ROOT/.github/workflows/perf-shapes.yml"
 # The leg's walk bounds the technicians with the harness's allowance, or gives them a slice of their
 # own and hands the harness that slice to judge; a domain gives its breakpoint leg that slice.
@@ -217,11 +217,11 @@ for name, job in doc.get("jobs", {}).items():
 PY
 )"
 if grep -qE ' (unbound|unjudged)' <<<"$pairing"; then
-  fail "perf-leg.yml bounds the technicians with the harness's allowance or judges their own ($pairing)"
+  fail "perf-leg-try.yml bounds the technicians with the harness's allowance or judges their own ($pairing)"
 elif grep -qE ' shared$' <<<"$pairing" && grep -qE ' own judged$' <<<"$pairing"; then
-  pass "perf-leg.yml bounds the technicians with the harness's allowance or judges their own"
+  pass "perf-leg-try.yml bounds the technicians with the harness's allowance or judges their own"
 else
-  fail "perf-leg.yml holds no walk that shares one allowance and judges the technicians' own ($pairing)"
+  fail "perf-leg-try.yml holds no walk that shares one allowance and judges the technicians' own ($pairing)"
 fi
 if grep -qE "^[[:space:]]+technician-cpus:[[:space:]]+\\\$\\{\\{ matrix\.technician_cpus" "$SHAPES_WORKFLOW" \
   && grep -qE "^[[:space:]]+technician_cpus:[[:space:]]+'[0-9.]+'" "$SHAPES_WORKFLOW"; then

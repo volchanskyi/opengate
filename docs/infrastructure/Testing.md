@@ -595,7 +595,9 @@ depends on is gone for every later run against that database.
   same way. The speed specs run apart from both: under `PLAYWRIGHT_PERFORMANCE=1`
   the config holds one Chromium project of them alone, which
   [`e2e-performance.yml`](../../.github/workflows/e2e-performance.yml) runs
-  nightly, and every other run leaves them out
+  nightly on a runner whose processor is permitted
+  ([`e2e-performance-try.yml`](../../.github/workflows/e2e-performance-try.yml)),
+  and every other run leaves them out
   ([`e2e-speed-nightly.test.sh`](../../scripts/tests/e2e-speed-nightly.test.sh)).
   Both nightly runs write their summary from the JSON report
   ([`e2e-summarize.sh`](../../scripts/e2e-summarize.sh)), and the speed run adds

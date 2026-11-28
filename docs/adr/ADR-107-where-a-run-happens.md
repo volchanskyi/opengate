@@ -13,7 +13,9 @@ and waited until something timed out. Two deploys failed while the nightlies wen
 on testing the newest commit against the server staging still ran: the older
 server refused every one of the load test's 500 handshakes, and the network
 drill's machine enrolled twice and never connected, so each night read as a
-fault in the product.
+fault in the product. GitHub hands a job whichever processor its next runner
+holds, and on one of them the speed nightly and the performance legs read their
+limits failed with the product unchanged.
 
 ## Decision
 
@@ -86,6 +88,28 @@ The node is measured once, since it is the one customers run on, and the runner
 every night beside the processor model it reports
 ([`cpu-benchmark.sh`](../../scripts/cpu-benchmark.sh)), so a night on different
 hardware shows in the trend.
+
+**A speed job never measures on an AMD EPYC 7763, and asks for a fresh runner
+up to four times.** On the 7763 the Direct link at 100 Mbit/s read 62.8–79.6% of
+the line against its 80%, where a Xeon 6975P-C reads 86–92% of it on the same
+code; busy-morning sign-ins read a 337–375 ms median against 3–4 ms on every
+other chip; and the 8,000-machine fleet list read 5.8 s. A limit read there
+measures the chip. A job cannot ask GitHub for a processor, so every leg
+([`perf-leg.yml`](../../.github/workflows/perf-leg.yml)) and the speed nightly
+([`e2e-performance.yml`](../../.github/workflows/e2e-performance.yml)) run their
+job as a try ([`perf-leg-try.yml`](../../.github/workflows/perf-leg-try.yml),
+[`e2e-performance-try.yml`](../../.github/workflows/e2e-performance-try.yml))
+whose step after the checkout reads the model `lscpu` names against
+[`refused-processors.sh`](../../scripts/lib/refused-processors.sh)
+([`runner-processor.sh`](../../scripts/runner-processor.sh)). A refused runner
+skips every later step and the caller asks for a fresh one, up to four tries in a
+row. Four refusals skip the job and name the four processors: a leg leaves a
+`perf-skipped-<leg>` record that the trend lists on its summary page and in its
+alert, and the speed nightly alerts that it was skipped. The 7763 came up on 4 of
+19 speed nights, so four in a row is about one night in 500. Rejected: a single
+retry inside the run, a re-run after it, three runners raced at once, and moving
+the speed job to the ARM runner. The ARM legs read a Neoverse N2 and pass on
+their first try.
 
 **Every time limit around a run is derived from the run's own length** — how
 long the pod lives, how long the verdict is waited for, how long the credential

@@ -112,7 +112,7 @@ ENTRY_POINTS=(
   "$PLAYWRIGHT_CONFIG"
   "$ROOT/.github/workflows/ci.yml"
   "$ROOT/.github/workflows/e2e-cross-browser.yml"
-  "$ROOT/.github/workflows/e2e-performance.yml"
+  "$ROOT/.github/workflows/e2e-performance-try.yml"
 )
 
 missing_bringup=""

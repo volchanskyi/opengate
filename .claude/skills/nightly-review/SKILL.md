@@ -20,7 +20,10 @@ evidence that it is real, not for reasons that it is not.
 0. **The list** — `.claude/.markers/nightly.due`, written at session start. Run
    `scripts/nightly-review.sh fetch` when it is missing or says `unreachable`.
 1. **Jobs and steps** — for each due run, `gh run view <id> --json jobs`: which jobs and steps
-   ran, which were skipped, and why each skip fits the workflow's own conditions.
+   ran, which were skipped, and why each skip fits the workflow's own conditions. A speed job
+   runs as tries ([ADR-107](../../../docs/adr/ADR-107-where-a-run-happens.md)): the review reads
+   the try that measured, and a job whose every try's runner was refused is written
+   `did-its-job`, naming the processors the tries read.
 2. **What it left behind** — check the run against its row in
    [Scheduled runs](../../../docs/infrastructure/CI-Pipeline.md#scheduled-runs) and its workflow
    file: readings pushed, reports uploaded (`gh api repos/<owner>/<repo>/actions/runs/<id>/artifacts`),

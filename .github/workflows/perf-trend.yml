@@ -49,6 +49,7 @@ jobs:
     outputs:
       alert_text: ${{ steps.check.outputs.alert_text }}
       regression: ${{ steps.check.outputs.regression }}
+      skipped_text: ${{ steps.check.outputs.skipped_text }}
     env:
       # When the run started, which every sample of the night carries.
       VM_RUN_STARTED_AT: ${{ inputs.started-at }}
@@ -78,15 +79,36 @@ jobs:
           cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
 
       # A leg is named by its bundle's directory; a leg that did not measure the system is pushed nowhere.
+      # A leg skipped after four refused runners is listed on the summary and in the alert.
       - name: Compare each leg with the nights before it
         id: check
         run: |
           set -euo pipefail
           mapfile -t BUNDLES < <(find perf-legs -name bundle.json | sort)
+          mapfile -t SKIPPED < <(find perf-legs -name 'skipped-*.txt' | sort)
+          SKIPPED_TEXT=""
+          if [ "${#SKIPPED[@]}" -gt 0 ]; then
+            SKIPPED_TEXT="$(cat "${SKIPPED[@]}")"
+            {
+              echo "### Legs skipped"
+              sed 's/^/- /' "${SKIPPED[@]}"
+            } >>"$GITHUB_STEP_SUMMARY"
+          fi
+          {
+            echo "skipped_text<<EOF"
+            if [ -n "$SKIPPED_TEXT" ]; then echo "$SKIPPED_TEXT"; fi
+            echo "EOF"
+          } >>"$GITHUB_OUTPUT"
           if [ "${#BUNDLES[@]}" -eq 0 ]; then
+            if [ "${#SKIPPED[@]}" -gt 0 ]; then
+              echo "Every leg was skipped after four refused runners, so nothing is compared or published."
+              printf 'compared=0\nregression=0\n' >>"$GITHUB_OUTPUT"
+              exit 0
+            fi
             echo "::error::no leg wrote a bundle, so there is nothing to compare or publish."
             exit 1
           fi
+          echo "compared=1" >>"$GITHUB_OUTPUT"
           set +e
           scripts/perf-regression-check.sh "${BUNDLES[@]}" >perf-regression.out 2>&1
           CHECK_STATUS=$?
@@ -111,6 +133,7 @@ jobs:
           } >>"$GITHUB_OUTPUT"
 
       - name: Push to VictoriaMetrics
+        if: steps.check.outputs.compared == '1'
         run: |
           set -euo pipefail
           mapfile -t BUNDLES < <(find perf-legs -name bundle.json | sort)
@@ -191,6 +214,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
           FINDING: ${{ needs.publish.outputs.regression }}
           ALERT_TEXT: ${{ needs.publish.outputs.alert_text }}
+          SKIPPED: ${{ needs.publish.outputs.skipped_text }}
           JOB_STATUS: ${{ needs.publish.result }}
         run: |
           set -euo pipefail
@@ -201,13 +225,18 @@ jobs:
             done
             JOB_STATUS="cancelled before publishing"
           fi
-          if [ "$JOB_STATUS" = "success" ] && [ "${FINDING:-0}" != "1" ]; then
+          if [ "$JOB_STATUS" = "success" ] && [ "${FINDING:-0}" != "1" ] && [ -z "$SKIPPED" ]; then
             echo "No alert sent: the legs were published and none is past its nights."
             exit 0
           fi
           if [ "${FINDING:-0}" = "1" ]; then
             MSG="$(printf 'Performance %s: %s\n\nRun: %s\nTrend: Grafana dashboard "Performance Stack Trends" (opengate-perf-stack-trend)' "$DOMAIN" "$ALERT_TEXT" "$RUN_URL")"
+          elif [ "$JOB_STATUS" = "success" ]; then
+            MSG="$(printf 'Performance %s: no leg is past its nights.\n\nRun: %s' "$DOMAIN" "$RUN_URL")"
           else
             MSG="$(printf 'Performance %s trend: the legs were not published (%s).\n\nRun: %s' "$DOMAIN" "$JOB_STATUS" "$RUN_URL")"
+          fi
+          if [ -n "$SKIPPED" ]; then
+            MSG="$(printf '%s\n\nSkipped:\n%s' "$MSG" "$SKIPPED")"
           fi
           scripts/telegram-alert.sh "$MSG"

@@ -12,7 +12,8 @@ that workflow inherits. There the profile is workflow-scoped, so the honest
 answer is workflow-scoped too and the whole file is printed.
 
 A job that calls a workflow of this repository runs that workflow's jobs as its
-own, so the called workflow is printed after it.
+own, so the called workflow is printed after it, and so is every workflow it
+calls in turn.
 """
 
 import pathlib
@@ -22,6 +23,24 @@ import yaml
 
 workflows = pathlib.Path(sys.argv[1])
 wanted = sys.argv[2]
+
+
+def print_called(caller, called, seen):
+    """Print the workflow a job calls, then every workflow that one calls, each once."""
+    if not called.startswith("./.github/workflows/"):
+        return
+    target = workflows / pathlib.Path(called).name
+    print(f"# {caller} calls {target.name}")
+    if target.name in seen or not target.is_file():
+        print("")
+        return
+    seen.add(target.name)
+    text = target.read_text(encoding="utf-8")
+    print(text)
+    for name, job in ((yaml.safe_load(text) or {}).get("jobs") or {}).items():
+        if isinstance(job, dict):
+            print_called(f"{target.name}:{name}", str(job.get("uses") or ""), seen)
+
 
 for path in sorted(workflows.glob("*.yml")):
     text = path.read_text(encoding="utf-8")
@@ -37,8 +56,4 @@ for path in sorted(workflows.glob("*.yml")):
         if wanted in rendered:
             print(f"# {path.name}:{name}")
             print(rendered)
-            called = str(job.get("uses") or "")
-            if called.startswith("./.github/workflows/"):
-                target = workflows / pathlib.Path(called).name
-                print(f"# {path.name}:{name} calls {target.name}")
-                print(target.read_text(encoding="utf-8") if target.is_file() else "")
+            print_called(f"{path.name}:{name}", str(job.get("uses") or ""), set())

@@ -8,6 +8,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 WEB="$ROOT/web"
 NIGHTLY="$ROOT/.github/workflows/e2e-performance.yml"
+# The nightly's one job, which the nightly calls as four tries in a row.
+NIGHTLY_TRY="$ROOT/.github/workflows/e2e-performance-try.yml"
 OTHER_RUNS=(
   "$ROOT/.github/workflows/ci.yml"
   "$ROOT/.github/workflows/e2e-cross-browser.yml"
@@ -78,24 +80,111 @@ else
   fail "these spec files reach neither run:$lost"
 fi
 
-if [ ! -f "$NIGHTLY" ]; then
-  fail "missing workflow: $NIGHTLY"
+if [ ! -f "$NIGHTLY" ] || [ ! -f "$NIGHTLY_TRY" ]; then
+  fail "missing workflow: $NIGHTLY or $NIGHTLY_TRY"
 else
   nightly="$(<"$NIGHTLY")"
-  for needle in "schedule:" "PLAYWRIGHT_PERFORMANCE: '1'" "e2e-stack-up.sh" "npx playwright test" \
+  if grep -qF -- "schedule:" <<<"$nightly"; then
+    pass "the nightly workflow is scheduled"
+  else
+    fail "the nightly workflow is not scheduled"
+  fi
+  nightly_try="$(<"$NIGHTLY_TRY")"
+  for needle in "PLAYWRIGHT_PERFORMANCE: '1'" "e2e-stack-up.sh" "npx playwright test" \
     "e2e-summarize.sh performance"; do
-    if grep -qF -- "$needle" <<<"$nightly"; then
-      pass "the nightly workflow carries $needle"
+    if grep -qF -- "$needle" <<<"$nightly_try"; then
+      pass "the nightly's try carries $needle"
     else
-      fail "the nightly workflow lacks $needle"
+      fail "the nightly's try lacks $needle"
     fi
   done
 fi
 
+# The nightly runs its one job as four tries in a row, each after a try that refused its runner,
+# and its alert waits on all four.
+tries="$(
+  python3 - "$NIGHTLY" "$NIGHTLY_TRY" <<'PY'
+import os, sys
+
+import yaml
+
+nightly, tried = (yaml.safe_load(open(p, encoding="utf-8")) for p in sys.argv[1:3])
+try_file = os.path.basename(sys.argv[2])
+calls = (tried.get("on") or tried.get(True) or {}).get("workflow_call") or {}
+for name in ("refused", "processor"):
+    if name not in (calls.get("outputs") or {}):
+        print(f"the try hands back no {name}")
+jobs = nightly.get("jobs") or {}
+for n in range(1, 5):
+    job = jobs.get(f"try-{n}") or {}
+    if not str(job.get("uses", "")).endswith(f"/{try_file}"):
+        print(f"try-{n} does not call {try_file}")
+    cond = str(job.get("if", "") or "")
+    if n > 1 and ("!cancelled()" not in cond or f"needs.try-{n - 1}.outputs.refused == 'true'" not in cond):
+        print(f"try-{n} runs when {cond or 'always'}, where it runs after try-{n - 1} refused its runner")
+alert = jobs.get("alert") or {}
+if set(alert.get("needs") or []) != {f"try-{n}" for n in range(1, 5)}:
+    print(f"the alert waits on {alert.get('needs')}, where it waits on all four tries")
+print("ok")
+PY
+)"
+if [ "$tries" = "ok" ]; then
+  pass "the nightly runs as four tries in a row, its alert waiting on all four"
+else
+  fail "tries: $tries"
+fi
+
+# The alert step runs here: four refused runners are named, and a passing night sends nothing.
+alert_script="$(
+  python3 - "$NIGHTLY" <<'PY'
+import sys
+
+import yaml
+
+steps = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))["jobs"]["alert"]["steps"]
+print(next(s["run"] for s in steps if s.get("name") == "Send Telegram alert"))
+PY
+)"
+ALERT_WORK="$(mktemp -d)"
+mkdir -p "$ALERT_WORK/scripts"
+cat >"$ALERT_WORK/scripts/telegram-alert.sh" <<EOF
+#!/usr/bin/env bash
+printf '%s' "\$1" >"$ALERT_WORK/sent"
+EOF
+chmod +x "$ALERT_WORK/scripts/telegram-alert.sh"
+# alert_with REFUSED RESULTS runs the alert step with a send that records its message.
+alert_with() {
+  rm -f "$ALERT_WORK/sent"
+  (cd "$ALERT_WORK" && REFUSED="$1" RESULTS="$2" RUN_URL=https://example.invalid/run \
+    PROCESSORS="AMD EPYC 7763 64-Core Processor; AMD EPYC 7763 64-Core Processor; AMD EPYC 7763 64-Core Processor; AMD EPYC 7763 64-Core Processor" \
+    bash -c "$alert_script") >"$ALERT_WORK/log" 2>&1 || true
+  sent="$(cat "$ALERT_WORK/sent" 2>/dev/null || true)"
+}
+alert_with true "try-1=success try-2=success try-3=success try-4=success"
+if grep -qF "skipped: four runners in a row had a refused processor" <<<"$sent" \
+  && grep -qF "AMD EPYC 7763 64-Core Processor" <<<"$sent"; then
+  pass "four refused runners alert as a skipped night, naming the processors"
+else
+  fail "four refused runners alert as a skipped night, naming the processors (sent [$sent])"
+fi
+alert_with false "try-1=success try-2=skipped try-3=skipped try-4=skipped"
+if [ -z "$sent" ]; then
+  pass "a night that measured and passed sends nothing"
+else
+  fail "a night that measured and passed sends nothing (sent [$sent])"
+fi
+alert_with false "try-1=success try-2=failure try-3=skipped try-4=skipped"
+if grep -qF "try-2: failure" <<<"$sent"; then
+  pass "a try that failed is alerted by name"
+else
+  fail "a try that failed is alerted by name (sent [$sent])"
+fi
+rm -rf "$ALERT_WORK"
+
 # The runner's record brackets the specs: read before they start, and summed after them on every
 # outcome, so a red night still says which machine it ran on.
 record="$(
-  python3 - "$NIGHTLY" <<'PY'
+  python3 - "$NIGHTLY_TRY" <<'PY'
 import sys
 
 import yaml

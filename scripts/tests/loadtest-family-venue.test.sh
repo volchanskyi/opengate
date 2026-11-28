@@ -132,6 +132,14 @@ if grep -qF "calls leg.yml" <<<"$planted" && ! grep -qF "Install k6" <<<"$plante
 else
   fail "a job calling a shared leg must be read with the leg ($planted)"
 fi
+printf 'jobs:\n  try-1:\n    uses: ./.github/workflows/try.yml\n' >"$PLANT/leg.yml"
+printf 'jobs:\n  leg:\n    steps:\n      - name: Install k6\n        run: echo k6\n' >"$PLANT/try.yml"
+planted="$(python3 "$SCRIPT_DIR/fixtures/profile-venue.py" "$PLANT" load/profiles/peak.yaml)"
+if grep -qF "calls try.yml" <<<"$planted" && grep -qF "Install k6" <<<"$planted"; then
+  pass "a leg that runs its job through a workflow of its own is read with that workflow"
+else
+  fail "a leg's own called workflow must be read with it ($planted)"
+fi
 rm -rf "$PLANT"
 
 if [ "$checked_venues" -gt 0 ]; then

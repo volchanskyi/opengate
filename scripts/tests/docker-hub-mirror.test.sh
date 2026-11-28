@@ -10,7 +10,7 @@ SCRIPT="$REPO_ROOT/.github/actions/docker-hub-mirror/docker-hub-mirror.sh"
 WORKFLOWS="$REPO_ROOT/.github/workflows"
 
 # Every job that pulls a Docker Hub image goes through the mirror, so each job is counted; the
-# performance domains' legs all run in perf-leg.yml's one job.
+# performance domains' legs all run in perf-leg-try.yml's one job.
 EXPECTED_PULL_JOBS=11
 
 PASS=0

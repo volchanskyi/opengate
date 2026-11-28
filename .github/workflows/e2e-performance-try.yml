@@ -1,0 +1,122 @@
+name: E2E Performance try
+
+# One try at the speed specs: read the runner's processor, and on a permitted one run the specs in
+# Chromium against the stack's shaped routers.
+
+on:
+  workflow_call:
+    outputs:
+      refused:
+        description: "true when the runner's processor is refused, so the nightly asks for a fresh runner"
+        value: ${{ jobs.e2e.outputs.refused }}
+      processor:
+        description: "The processor model the runner's lscpu names"
+        value: ${{ jobs.e2e.outputs.processor }}
+    secrets:
+      DOCKERHUB_USERNAME:
+        required: true
+      DOCKERHUB_TOKEN:
+        required: true
+
+permissions: {}
+
+jobs:
+  e2e:
+    name: E2E speed specs (Chromium)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: web
+    outputs:
+      refused: ${{ steps.processor.outputs.permitted == 'false' }}
+      processor: ${{ steps.processor.outputs.processor }}
+    env:
+      PLAYWRIGHT_PERFORMANCE: '1'
+    steps:
+      - uses: actions/checkout@v7
+      # A refused processor skips every later step, and the nightly asks for a fresh runner.
+      - name: Read the runner's processor
+        id: processor
+        working-directory: .
+        run: scripts/runner-processor.sh >>"$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v7
+        if: steps.processor.outputs.permitted == 'true'
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        if: steps.processor.outputs.permitted == 'true'
+      - uses: ./.github/actions/setup-pinned-tools
+        if: steps.processor.outputs.permitted == 'true'
+      - name: Install Playwright Chromium
+        if: steps.processor.outputs.permitted == 'true'
+        run: npx playwright install --with-deps chromium
+      - uses: ./.github/actions/docker-hub-mirror
+        if: steps.processor.outputs.permitted == 'true'
+        with:
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
+      # The stack's two machines need the agent as a static binary staged for the image build.
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        if: steps.processor.outputs.permitted == 'true'
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@c8037a86dde8214a8310e9f54a8fc61ab362aa31 # v2
+        if: steps.processor.outputs.permitted == 'true'
+        with:
+          workspaces: agent
+      - name: Install musl tools
+        if: steps.processor.outputs.permitted == 'true'
+        working-directory: .
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+      - name: Build the agent
+        if: steps.processor.outputs.permitted == 'true'
+        working-directory: .
+        run: make agent-binary
+      - name: Start the test stack
+        if: steps.processor.outputs.permitted == 'true'
+        working-directory: .
+        run: bash deploy/scripts/e2e-stack-up.sh
+      # Read beside the specs' numbers, so a slow night says whether the machine or the server held it.
+      - name: Note what the runner and the server's container did before the specs
+        if: steps.processor.outputs.permitted == 'true'
+        working-directory: .
+        run: |
+          scripts/perf-runner-record.sh snapshot \
+            "$(scripts/database-levels.sh cgroup-of opengate-test-server)" /tmp/runner-before.json
+      - name: Run the speed specs
+        if: steps.processor.outputs.permitted == 'true'
+        run: npx playwright test
+      - name: Record what the runner and the server's container did
+        # Runs on a red run too, so a failed night keeps the machine it ran on.
+        if: always() && steps.processor.outputs.permitted == 'true'
+        working-directory: .
+        run: |
+          set -euo pipefail
+          scripts/perf-runner-record.sh snapshot \
+            "$(scripts/database-levels.sh cgroup-of opengate-test-server)" /tmp/runner-after.json
+          scripts/perf-runner-record.sh delta /tmp/runner-before.json /tmp/runner-after.json >/tmp/runner.json
+          jq -r '"Runner: \(.processor_model), steal \(.steal_percent)%; the server throttled in \(.server_throttled_periods) of \(.server_periods) periods (\(.server_throttled_ms) ms)"' \
+            /tmp/runner.json | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Write the run summary
+        # Runs on a red or a lost run too; a run that wrote no report says so in its summary.
+        if: always() && steps.processor.outputs.permitted == 'true'
+        working-directory: .
+        run: scripts/e2e-summarize.sh performance web/test-results/e2e-report.json >>"$GITHUB_STEP_SUMMARY"
+      - name: Tear down docker
+        if: always() && steps.processor.outputs.permitted == 'true'
+        working-directory: deploy
+        run: docker compose -f docker-compose.test.yml down -v
+      - name: Upload Playwright report
+        if: always() && steps.processor.outputs.permitted == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report-performance
+          path: web/playwright-report/
+          retention-days: 14

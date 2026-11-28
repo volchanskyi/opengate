@@ -353,7 +353,7 @@ and the run's summary page holds the readings in plain words.
 | [`benchmark.yml`](../../.github/workflows/benchmark.yml) | Go and Rust benchmarks run in turns with an anchor commit on one runner | `bench-*` and `benchmark-canonical-rows` artifacts; rows pushed to VictoriaMetrics; the regression gate job green | [Benchmark trend](#benchmark-trend); Grafana's Benchmark Trends dashboard |
 | [`core-walk.yml`](../../.github/workflows/core-walk.yml) | The pinned reader walks a core the pinned toolchain wrote | the `core-walk` artifact holding what the reader said | the run summary |
 | [`e2e-cross-browser.yml`](../../.github/workflows/e2e-cross-browser.yml) | The browser tests in Firefox, WebKit and Chromium | the `playwright-report-cross-browser` artifact | the Playwright report |
-| [`e2e-performance.yml`](../../.github/workflows/e2e-performance.yml) | Typing echo and download speed over Direct and through the server, at each line speed [`performance.spec.ts`](../../web/e2e/performance.spec.ts) names | one reading line per spec in the speed step's log; the `playwright-report-performance` artifact | [Browser performance evidence](#browser-performance-evidence) |
+| [`e2e-performance.yml`](../../.github/workflows/e2e-performance.yml) | Typing echo and download speed over Direct and through the server, at each line speed [`performance.spec.ts`](../../web/e2e/performance.spec.ts) names | one reading line per spec in the speed step's log; the `playwright-report-performance` artifact; or, when every try's runner had a refused processor, an alert naming the processors read | [Browser performance evidence](#browser-performance-evidence) |
 | [`load-test.yml`](../../.github/workflows/load-test.yml) | k6 and a held QUIC fleet against staging, after proving staging runs the build under test | `loadtest-summary` and `loadtest-canonical-rows`; rows pushed; the regression gate green | [Load-test trend](#load-test-trend) |
 | [`mutation.yml`](../../.github/workflows/mutation.yml) | Each mutation shard against its committed floor | an artifact per shard, `mutation-run-status` and `mutation-canonical-row`; completion and scores pushed; the score gate green | the run summary; [ADR-122](../adr/ADR-122-mutation-walk-and-legs.md) |
 | [`network-drill.yml`](../../.github/workflows/network-drill.yml) | Four network faults against staging's two real machines | `netdrill-evidence` and `netdrill-summary`; rows pushed; the regression gate green | the run summary |
@@ -496,7 +496,15 @@ The four performance domains —
 legs through [`perf-leg.yml`](../../.github/workflows/perf-leg.yml) and its night
 through [`perf-trend.yml`](../../.github/workflows/perf-trend.yml) — and the
 endurance run ([`soak.yml`](../../.github/workflows/soak.yml)) follow the same
-shape: the run's first job records when it began, a publish job pushes each leg's
+shape. A leg runs its one job in
+[`perf-leg-try.yml`](../../.github/workflows/perf-leg-try.yml), whose step after
+the checkout reads the runner's processor
+([`runner-processor.sh`](../../scripts/runner-processor.sh)); on a refused one the
+try skips every later step and the leg asks for a fresh runner, and a leg whose
+every try was refused leaves a `perf-skipped-<leg>` record that the trend lists on
+its summary page and in its alert
+([ADR-107](../adr/ADR-107-where-a-run-happens.md)). The run's first job records
+when it began, a publish job pushes each leg's
 readings through [`perf-vm-push.sh`](../../scripts/perf-vm-push.sh) and compares
 them with their own nights on the same chip through
 [`perf-regression-check.sh`](../../scripts/perf-regression-check.sh), writing
@@ -571,7 +579,11 @@ Lighthouse and bundle-size evidence stays per-run: Lighthouse uploads the
 The browser speed specs — typing echo and download rate over the stack's shaped
 routers, and the page's memory through a long download — run nightly and on
 dispatch in [`e2e-performance.yml`](../../.github/workflows/e2e-performance.yml),
-in Chromium alone, and alert when the run does not pass. Each spec records its
+in Chromium alone, and alert when the run does not pass. The specs run in
+[`e2e-performance-try.yml`](../../.github/workflows/e2e-performance-try.yml) on a
+runner whose processor is permitted, asking for a fresh runner after a refused
+one, and a night whose every runner was refused alerts that it was skipped
+([ADR-107](../adr/ADR-107-where-a-run-happens.md)). Each spec records its
 readings beside their limits; each download over Direct also records the
 processor its agent's container and its browser used while the rate was read,
 so a slow night says which side was busy. And

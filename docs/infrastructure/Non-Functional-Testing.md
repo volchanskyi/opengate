@@ -762,7 +762,9 @@ comes back as another process, which makes the night invalid.
   run nightly, last in the order, after the twenty-job pool the earlier batches
   hold has drained. Each domain is a workflow of its own, with its own slot,
   concurrency group, regression gate and alert, its legs run by
-  [`perf-leg.yml`](../../.github/workflows/perf-leg.yml) and its night published,
+  [`perf-leg.yml`](../../.github/workflows/perf-leg.yml) on a runner whose processor
+  is permitted ([`perf-leg-try.yml`](../../.github/workflows/perf-leg-try.yml),
+  [ADR-107](../adr/ADR-107-where-a-run-happens.md)) and its night published,
   gated and alerted on by [`perf-trend.yml`](../../.github/workflows/perf-trend.yml),
   so one red leg turns only its own domain red
 - **The endurance soak** runs weekly, on a throwaway runner of its own
