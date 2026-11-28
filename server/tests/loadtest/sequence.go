@@ -159,7 +159,7 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, readings Phase
 	closeRoom := readings.Generator.Bracket()
 	closeDrops := readings.Network.Bracket()
 	closeRegistration := readings.Registration.Bracket()
-	closeInventory := readings.Inventory.Bracket(phase.InventoryBytes)
+	inventory := readings.Inventory.Bracket(phase.InventoryBytes, phase.ConnectedAgents, startedAt)
 	step := phase.Duration.Duration / rampSteps
 	if step <= 0 {
 		step = phase.Duration.Duration
@@ -181,13 +181,13 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, readings Phase
 		if sample := fleet.ProbeLatency(); sample > 0 {
 			samples = append(samples, sample)
 		}
-		clock.Sleep(step)
+		inventory.sleep(clock, step)
 		elapsed += step
 	}
 
 	// The remainder keeps the phase as long as declared, so the next one starts where this ends.
 	if remainder := phase.Duration.Duration - elapsed; remainder > 0 {
-		clock.Sleep(remainder)
+		inventory.sleep(clock, remainder)
 	}
 
 	// The probes make a phase run longer than declared, so the recorded end is the actual one.
@@ -202,7 +202,7 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, readings Phase
 	generatorHeadroom, generatorRefused := closeRoom(finishedAt.Sub(startedAt))
 	generatorDrops, targetDrops := closeDrops()
 	registerP50, registerP95 := closeRegistration()
-	inventorySent, inventoryStored := closeInventory()
+	inventorySent, inventoryStored, inventoryAllSeconds := inventory.close()
 
 	// A measured phase's wave is counted to its finish, so the next phase's wind-down cancels none.
 	var wave Wave
@@ -230,9 +230,11 @@ func runOnePhase(phase Phase, from int, fleet Fleet, clock Clock, readings Phase
 		Measured:      phase.Measured,
 		RegisterP50Ms: registerP50,
 		RegisterP95Ms: registerP95,
-		// The inventories machines sent this phase and the server's count of those it stored.
-		InventorySent:   inventorySent,
-		InventoryStored: inventoryStored,
+		// The inventories machines sent this phase, the server's count of those it stored, and when
+		// that count first held one for every machine.
+		InventorySent:             inventorySent,
+		InventoryStored:           inventoryStored,
+		InventoryStoredAllSeconds: inventoryAllSeconds,
 		// The climb is the offer: machines asked for beyond the previous level, over the phase's clock.
 		OfferedAgentArrivalsPerSecond:  ratePerSecond(int64(max(phase.ConnectedAgents-from, 0)), seconds),
 		AchievedAgentArrivalsPerSecond: ratePerSecond(saw.Arrived, seconds),

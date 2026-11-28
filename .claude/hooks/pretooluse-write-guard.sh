@@ -59,4 +59,9 @@ case "$path" in
     ;;
 esac
 
+# Memory and the review's own write-up live outside the project, so the hold leaves them open.
+if project_relative_path "$path" >/dev/null && ! nightly_review_done; then
+  block nightly-review "Write/Edit refused: $path is in the project, and the nightly review is not done. $(nightly_hold_reason) .claude/rules/nightly-review.md."
+fi
+
 exit 0

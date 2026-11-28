@@ -128,6 +128,10 @@
           {
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pretooluse-test-value-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pretooluse-plan-ready-guard.sh"
           }
         ]
       },
@@ -137,7 +141,7 @@
           {
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pretooluse-gauntlet-nudge.sh",
-            "if": "Bash(git commit:*)",
+            "if": "Bash(*precommit-gauntlet.sh*)",
             "asyncRewake": true,
             "rewakeSummary": "Gauntlet 10-min check-in",
             "rewakeMessage": "Gauntlet 10-minute nudge:"
@@ -157,12 +161,41 @@
           {
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pretooluse-git-commit-guard.sh",
-            "timeout": 3600
+            "timeout": 60,
+            "onFailure": "block"
           },
           {
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pretooluse-git-push-guard.sh",
-            "timeout": 600
+            "timeout": 600,
+            "onFailure": "block"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "prompt",
+            "if": "Write(**/.claude/plans/**)",
+            "prompt": "You check a plan file Claude is about to write. The hook input follows as JSON; the plan is\ntool_input.content and its path is tool_input.file_path.\n\n$ARGUMENTS\n\nIf no plan text is present above, answer {\"ok\": false, \"reason\": \"no plan text received\"}.\nRead the first line under the plan's title. Unless it begins \"Status: active\", answer {\"ok\": true}.\n\nAn active plan is ready to build: nothing in it is left to settle. Refuse it when any of these\nholds:\n1. It leaves a choice unmade: two or more ways offered with none chosen, or a value, name,\n   limit or place left to pick during the work.\n2. A step does not say what to do: it names no file or thing it changes, or gives no way to\n   tell it is done.\n3. It asks a question, of Ivan or of anyone, anywhere in the text. A question or a word quoted\n   to describe a check is a description, and counts as none.\n\nAnswer with JSON only: {\"ok\": true}, or {\"ok\": false, \"reason\": \"<what is left open, where, and\nwhat would settle it>\"}.",
+            "continueOnBlock": true,
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pretooluse-question-research-guard.sh"
+          },
+          {
+            "type": "prompt",
+            "prompt": "You check a question Claude is about to put to Ivan in a modal, before it opens. The hook\ninput follows as JSON; the questions and their options are in tool_input.questions.\n\n$ARGUMENTS\n\nIf no question text is present above, answer {\"ok\": false, \"reason\": \"no modal text received\"}.\n\nRefuse the modal when any of these fails for any question or option:\n1. Plain words. It says the thing itself, with no jargon or term of art standing in for an\n   explanation (for example \"verdict\", \"record\", \"tree-closing\", \"fail open\", \"idempotent\").\n2. Every outside product, service, company or tool it names says what it is and why it bears\n   on this choice.\n3. Each option states all five: its good; its bad; how a named product or project builds that\n   same option; its effect on the code base's speed, measured or said to be unmeasured; and the\n   upkeep of the code it adds. What the research itself cost counts as none of these.\n4. Every test or check it names says what failure it catches.\n5. An option that proposes a test argues first that the test is unneeded, and keeps it only\n   because the failure it catches would otherwise pass unnoticed.\n6. Each question stands on its own: it names what it asks about, and a reader who sees only the\n   modal can answer it.\n\nAnswer with JSON only: {\"ok\": true} when every check holds, or {\"ok\": false, \"reason\":\n\"<the check that failed, the question or option, and what to change>\"}.",
+            "continueOnBlock": true,
+            "timeout": 30
           }
         ]
       }
@@ -200,6 +233,11 @@
           {
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/session-start-fetch.sh",
+            "timeout": 8
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/session-start-nightly.sh",
             "timeout": 8
           },
           {

@@ -157,6 +157,10 @@ jq '.phases[1] += {inventory_sent: 5000, inventory_stored: 4990}' "$WORK/full.js
 assert_eq "a phase's stored inventories are read off it" "4990 5000" \
   "$(jq -r '.[] | select(.scenario == "inventory" and .phase == "step-2000") | "\(.inventory_stored) \(.inventory_sent)"' \
     <<<"$("$ROWS" "$WORK/inventory.json")")"
+jq '.phases[1] += {inventory_sent: 5000, inventory_stored: 5000, inventory_stored_all_seconds: 1620}' \
+  "$WORK/full.json" >"$WORK/inventory-all.json"
+assert_eq "a phase's seconds until every inventory was stored are read off it" "1620" \
+  "$(jq -r '.[] | select(.scenario == "inventory") | .inventory_all_seconds' <<<"$("$ROWS" "$WORK/inventory-all.json")")"
 jq '.phases[1] += {inventory_sent: 5000}' "$WORK/full.json" >"$WORK/inventory-unread.json"
 assert_eq "a count the server never gave leaves the stored figure unread" "null" \
   "$(jq -r '.[] | select(.scenario == "inventory") | .inventory_stored' <<<"$("$ROWS" "$WORK/inventory-unread.json")")"
@@ -296,7 +300,8 @@ while IFS= read -r relative; do
         + (if .agents > .before then {register_p50_ms: 3, register_p95_ms: 9} else {} end)
         + (if (.name | IN($timed[])) then {fleet_online_p95_seconds: 120, fleet_online_all_seconds: 190,
                                            fleet_sign_ins_per_second: 140} else {} end)
-        + (if .inventory_bytes > 0 then {inventory_sent: 5000, inventory_stored: 5000} else {} end)]' \
+        + (if .inventory_bytes > 0 then {inventory_sent: 5000, inventory_stored: 5000,
+                                         inventory_stored_all_seconds: 1500} else {} end)]' \
     "$kind" >"$WORK/leg.json"
   written="$(measurements_of "$("$ROWS" "$WORK/leg.json")")"
   limited="$(profile_gates "$profile" | jq -r '.[] | "\(.series)|\(.metric)"' | sort -u)"

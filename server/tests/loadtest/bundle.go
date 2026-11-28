@@ -126,6 +126,9 @@ type PhaseResult struct {
 	// the server; absent on a phase that called for none.
 	InventorySent   *int64 `json:"inventory_sent,omitempty"`
 	InventoryStored *int64 `json:"inventory_stored,omitempty"`
+	// InventoryStoredAllSeconds is how long after the phase began the server had stored one
+	// inventory for each of its machines; absent where it never did.
+	InventoryStoredAllSeconds *float64 `json:"inventory_stored_all_seconds,omitempty"`
 	// FleetSignInsPerSecond is the server's sign-in rate over the time any of those machines waited.
 	FleetSignInsPerSecond *float64 `json:"fleet_sign_ins_per_second,omitempty"`
 

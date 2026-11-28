@@ -2,8 +2,8 @@
 # second, then a reinstall has every machine send its inventory, at production's limits on ARM.
 schema_version: 1
 name: burst
-# The return at one server's ceiling, held through the inventory, is a load of its own.
-version: 2
+# The return at one server's ceiling, held through a 40-minute inventory, is a load of its own.
+version: 3
 family: spike
 environment: runner
 fixture: small
@@ -17,10 +17,10 @@ phases:
     connected_agents: 4000
     sessions: 0
     measured: true
-  # Every machine sends one message at the server's ceiling at once; the five minutes are the
-  # recovery it is judged on.
+  # Every machine sends one message at the server's ceiling at once; the 40 minutes are long
+  # enough to time the server storing every one.
   - name: inventory
-    duration: 5m
+    duration: 40m
     operator_arrivals_per_second: 0
     connected_agents: 4000
     sessions: 0
@@ -102,7 +102,7 @@ gates:
     metric: within_5s_share
     min: 0.99
     blocking: true
-  # The safety case: every inventory sent and stored within the five minutes, nobody offline.
+  # The safety case: every inventory sent and stored within the phase, nobody offline.
   - series: quic/inventory/inventory
     metric: inventory_sent
     min: 4000
@@ -111,6 +111,11 @@ gates:
     metric: inventory_stored
     min: 4000
     blocking: true
+  # How long the server takes to store every machine's inventory, read before it is held.
+  - series: quic/inventory/inventory
+    metric: inventory_all_seconds
+    max: 2400
+    blocking: false
   - series: service/server/measured
     metric: cpu_percent
     max: 80

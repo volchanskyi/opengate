@@ -744,8 +744,12 @@ reinstall has every machine send its inventory
 inventories sent and the server's count of those it stored
 ([`opengate_inventory_reports_stored_total`](../architecture/Metrics-Reference.md#telemetry-ingest))
 are read over the phase, which is the recovery the case is judged on, and no
-machine may drop. A server that ran out of memory stops answering or comes back
-as another process, which makes the night invalid.
+machine may drop. The harness asks the server's count at a fixed interval through
+the phase ([`inventoryWatchEvery`](../../server/tests/loadtest/inventory_burst.go))
+and keeps the seconds until it first held one inventory for every machine
+(`inventory_all_seconds`), so the night says how long the whole fleet's
+inventories took to store. A server that ran out of memory stops answering or
+comes back as another process, which makes the night invalid.
 
 ### In CI
 

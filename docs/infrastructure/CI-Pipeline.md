@@ -13,6 +13,7 @@
 - [SonarCloud](#sonarcloud)
   - [Running SonarCloud locally](#running-sonarcloud-locally)
 - [Failure notifications](#failure-notifications)
+- [Scheduled runs](#scheduled-runs)
 - [Tags and changelog](#tags-and-changelog)
 - [Releases](#releases)
 - [Branch protection](#branch-protection)
@@ -336,6 +337,33 @@ step exits non-zero, so the gap shows up in the run that has it rather than
 months later in an issue nobody can act on.
 
 **No auto-close on success:** Issues are not automatically closed when the job passes again. Engineers must manually close after investigation to prevent masking flaky tests.
+
+## Scheduled runs
+
+Every session begins by reviewing the timed runs nobody has written up, and the timed workflows
+whose run never came, before any file changes
+([`nightly-review.md`](../../.claude/rules/nightly-review.md),
+[ADR-123](../adr/ADR-123-alert-delivery.md)). The table is what that review checks a run
+against. Each workflow's `cron:` is its schedule; GitHub starts a timed run hours late under load
+and drops some without a failure. Every row also sends its night to Telegram from an `alert` job,
+and the run's summary page holds the readings in plain words.
+
+| Workflow | What it checks | What a good run leaves behind | Where to read it |
+|---|---|---|---|
+| [`benchmark.yml`](../../.github/workflows/benchmark.yml) | Go and Rust benchmarks run in turns with an anchor commit on one runner | `bench-*` and `benchmark-canonical-rows` artifacts; rows pushed to VictoriaMetrics; the regression gate job green | [Benchmark trend](#benchmark-trend); Grafana's Benchmark Trends dashboard |
+| [`core-walk.yml`](../../.github/workflows/core-walk.yml) | The pinned reader walks a core the pinned toolchain wrote | the `core-walk` artifact holding what the reader said | the run summary |
+| [`e2e-cross-browser.yml`](../../.github/workflows/e2e-cross-browser.yml) | The browser tests in Firefox, WebKit and Chromium | the `playwright-report-cross-browser` artifact | the Playwright report |
+| [`e2e-performance.yml`](../../.github/workflows/e2e-performance.yml) | Typing echo and download speed over Direct and through the server, at each line speed [`performance.spec.ts`](../../web/e2e/performance.spec.ts) names | one reading line per spec in the speed step's log; the `playwright-report-performance` artifact | [Browser performance evidence](#browser-performance-evidence) |
+| [`load-test.yml`](../../.github/workflows/load-test.yml) | k6 and a held QUIC fleet against staging, after proving staging runs the build under test | `loadtest-summary` and `loadtest-canonical-rows`; rows pushed; the regression gate green | [Load-test trend](#load-test-trend) |
+| [`mutation.yml`](../../.github/workflows/mutation.yml) | Each mutation shard against its committed floor | an artifact per shard, `mutation-run-status` and `mutation-canonical-row`; completion and scores pushed; the score gate green | the run summary; [ADR-122](../adr/ADR-122-mutation-walk-and-legs.md) |
+| [`network-drill.yml`](../../.github/workflows/network-drill.yml) | Four network faults against staging's two real machines | `netdrill-evidence` and `netdrill-summary`; rows pushed; the regression gate green | the run summary |
+| [`perf-catchup.yml`](../../.github/workflows/perf-catchup.yml) | A returning fleet catching up at production's limits, on ARM, against [`catch-up.yaml`](../../load/profiles/catch-up.yaml) | the `perf-catch-up` bundle; the leg compared with its earlier nights and pushed; the performance gate green | the limits step's log; the run summary |
+| [`perf-scaling.yml`](../../.github/workflows/perf-scaling.yml) | One load at each processor allowance [`scaling.yaml`](../../load/profiles/scaling.yaml) names | a `perf-scaling-*` bundle per allowance; the curve published; rows pushed; the gate green | the run summary |
+| [`perf-shapes.yml`](../../.github/workflows/perf-shapes.yml) | The busy morning, the burst, the spike and the breakpoint ladder, each against its profile under [`load/profiles/`](../../load/profiles/) | `perf-peak`, `perf-burst`, `perf-spike` and `perf-breakpoint` bundles; rows pushed; the gate green | each leg's limits step; the run summary |
+| [`perf-volume.yml`](../../.github/workflows/perf-volume.yml) | The fleet sizes the `volume-*` profiles name | a `perf-volume-*` bundle per size; the curve published; rows pushed; the gate green | the run summary |
+| [`pmat-trend.yml`](../../.github/workflows/pmat-trend.yml) | The PMAT repository score and debt grade, day over day | `pmat-canonical-row`; the row pushed; the code-quality gate green | the run summary; [ADR-019](../adr/ADR-019-pmat-quality-overlay.md) |
+| [`soak.yml`](../../.github/workflows/soak.yml) | Hours of churn against [`soak.yaml`](../../load/profiles/soak.yaml), weekly | the `soak-bundle` and the encrypted `soak-dump`; compared with the weeks before and pushed; the endurance gate green | the run summary; [ADR-119](../adr/ADR-119-finding-a-leak.md) |
+| [`terraform-drift.yml`](../../.github/workflows/terraform-drift.yml) | Cloud resources against the Terraform state, and the cluster's monitoring and ingress settings against this commit | the drift summary pushed (drift artifacts only when something drifted); the configuration applied and read back; the drift gate green | the run summary; [ADR-123](../adr/ADR-123-alert-delivery.md) |
 
 ## Tags and changelog
 

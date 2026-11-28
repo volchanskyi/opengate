@@ -2,7 +2,11 @@
 # Each step writes a marker naming the content it ran on, and the next step refuses unless the
 # content on disk is what that marker names.
 
-TIDY_MARKERS=(refactor.start refactor.done refactor.head)
+TIDY_MARKERS=(refactor.start refactor.done refactor.head gauntlet.pass)
+
+# Seconds a gauntlet pass covers its content, counted from the run's start, when the advisory
+# lookups happen.
+GAUNTLET_PASS_SECONDS=3600
 
 tidy_root() { git rev-parse --show-toplevel 2>/dev/null; }
 
@@ -52,3 +56,32 @@ tidy_done_matches() {
   now="$(tidy_fingerprint)" || return 1
   [ "$finished" = "$now" ]
 }
+
+# Clears the last pass and prints what a run begins on: the content fingerprint and the second.
+gauntlet_pass_begin() {
+  local now
+  tidy_clear gauntlet.pass
+  now="$(tidy_fingerprint)" || return 1
+  printf '%s %s\n' "$now" "$(date +%s)"
+}
+
+# Writes the pass for a run that began as BEGUN, only while the content is still what it began on.
+gauntlet_pass_record() {
+  local begun="$1" now
+  now="$(tidy_fingerprint)" || return 1
+  [ -n "$begun" ] && [ "${begun%% *}" = "$now" ] || return 1
+  tidy_write gauntlet.pass "$begun"
+}
+
+gauntlet_pass_matches() {
+  local pass started now
+  pass="$(tidy_read gauntlet.pass)"
+  [ -n "$pass" ] || return 1
+  started="${pass#* }"
+  [[ "$started" =~ ^[0-9]+$ ]] || return 1
+  now="$(tidy_fingerprint)" || return 1
+  [ "${pass%% *}" = "$now" ] && [ $(($(date +%s) - started)) -le "$GAUNTLET_PASS_SECONDS" ]
+}
+
+# Both records a commit needs: the finished tidy-up and a gauntlet pass, each naming this content.
+commit_proofs_match() { tidy_done_matches && gauntlet_pass_matches; }

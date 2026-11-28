@@ -112,6 +112,21 @@ Kafka bounds the bytes of requests it holds queued the same way. gRPC refuses an
 message from its length header the same way. A machine's log answer pages itself
 to stay under the ceiling ([ADR-046](ADR-046-logs-stay-on-the-machine.md)).
 
+**What the transport holds before a read is bounded too.** The allowance counts
+bytes the server has read; the QUIC transport accepts a connection's whole
+receive window before the server reads any of it. Each machine connection opens
+with a small window and grows it, up to the largest message, only from a budget
+every connection shares, which a connection keeps until it closes
+([`receive_budget.go`](../../server/internal/agentapi/receive_budget.go)). The
+budget is a share of Go's memory limit, as the allowance is. A machine sending
+alone grows its window and sends a large message quickly; a whole fleet sending
+at once waits at its opening window. At the default window of 512 KiB a
+connection, 4,000 machines each sending a 1 MiB inventory parked more than the
+server's memory in the transport and the server was killed; 4,000 opening
+windows fit beside the connections themselves. Quinn's transport documentation
+sizes its windows by the same rule: every connection at its full window fits in
+memory.
+
 **Erasure wins over a write in flight.** A write is registered, then its machine
 checked against the deny-list, just before the request goes out; the erasure job
 writes the deny-list entry, then waits for every write registered before it, and

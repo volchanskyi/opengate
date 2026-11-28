@@ -4,6 +4,10 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
 	"testing"
 	"time"
 
@@ -105,4 +109,25 @@ func TestAMachineToldToComeBackLaterReportsTheWait(t *testing.T) {
 	var told *toldToComeBack
 	require.ErrorAs(t, err, &told, "a full line is an answer, not a silence")
 	assert.Equal(t, 7*time.Second, told.wait)
+}
+
+// agentSeconds reads a whole-second constant the agent declares beside its QUIC client.
+func agentSeconds(t *testing.T, name string) time.Duration {
+	t.Helper()
+	src, err := os.ReadFile(filepath.Clean("../../../agent/crates/mesh-agent/src/client_tls.rs"))
+	require.NoError(t, err)
+	match := regexp.MustCompile(`const ` + name + `: u64 = (\d+);`).FindSubmatch(src)
+	require.NotNil(t, match, "the agent declares %s", name)
+	seconds, err := strconv.Atoi(string(match[1]))
+	require.NoError(t, err)
+	return time.Duration(seconds) * time.Second
+}
+
+func TestAHarnessMachineWaitsOnItsConnectionAsTheAgentDoes(t *testing.T) {
+	t.Parallel()
+
+	config := machineDialConfig()
+
+	assert.Equal(t, agentSeconds(t, "IDLE_TIMEOUT_SECS"), config.MaxIdleTimeout)
+	assert.Equal(t, agentSeconds(t, "KEEP_ALIVE_SECS"), config.KeepAlivePeriod)
 }
