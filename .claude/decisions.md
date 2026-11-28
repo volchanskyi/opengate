@@ -55,7 +55,7 @@
 | 076 | Five aggregate series about the alert pack, no entity label, every value exported including the zeros | [ADR-076](../docs/adr/ADR-076-platform-metrics.md) |
 | 077 | Investigations — tenant membership is the whole gate, the queue pages by key, the room reads the snapshot | [ADR-077](../docs/adr/ADR-077-investigations.md) |
 | 079 | Rules are read by every member and written by administrators; labels aim them, and a stop is a row | [ADR-079](../docs/adr/ADR-079-rule-administration.md) |
-| 080 | Documentation lives in the repository in three trees, describes live state, and the ADR is a decision's only home | [ADR-080](../docs/adr/ADR-080-documentation.md) |
+| 080 | Documentation lives in the repository in three trees, describes live state, and the ADR is a decision's only home; a question shows its research, and a plan starts with nothing open | [ADR-080](../docs/adr/ADR-080-documentation.md) |
 | 081 | One composition root, an acceptance tier bound to the product chapters, and a stated seam between tiers | [ADR-081](../docs/adr/ADR-081-composition-root-and-test-tiers.md) |
 | 082 | A load run is valid, failed or invalid; every number is a reading, and the fleet is a roster the run gives back | [ADR-082](../docs/adr/ADR-082-load-run-validity.md) |
 | 084 | Staging carries two real machines it builds and enrols, and one holder at a time through a Lease | [ADR-084](../docs/adr/ADR-084-staging-environment.md) |
@@ -72,7 +72,7 @@
 | 119 | A long run keeps the target's profiles and names the line that grew; a core says what still holds it | [ADR-119](../docs/adr/ADR-119-finding-a-leak.md) |
 | 121 | Signed over-the-air agent updates, pushed by the server, verified and rolled back by the agent | [ADR-121](../docs/adr/ADR-121-agent-auto-update.md) |
 | 122 | A mutation shard walks the narrowest path holding its own units; a leg publishes its score alone, held to a committed floor | [ADR-122](../docs/adr/ADR-122-mutation-walk-and-legs.md) |
-| 123 | An alert channel is proven by a delivered message, sent from a job of its own; the cluster's monitoring configuration is rendered, applied and read back | [ADR-123](../docs/adr/ADR-123-alert-delivery.md) |
+| 123 | An alert channel is proven by a delivered message, sent from a job of its own; the cluster's monitoring configuration is rendered, applied and read back; each session reads every timed run | [ADR-123](../docs/adr/ADR-123-alert-delivery.md) |
 | 124 | An alert a machine raises reaches the queue: offered on the heartbeat, kept until the server answers it, and a rule change reaching machines already connected | [ADR-124](../docs/adr/ADR-124-an-alert-reaches-the-queue.md) |
 | 125 | A comment is a short positive statement about its code, checked at write time and on every commit; repeated code is read from the scanner's report for every file | [ADR-125](../docs/adr/ADR-125-comments-and-repeated-code.md) |
 | 126 | Every dependency is checked before a commit for a hole a patch release fixes; an npm advisory with no patch fix may be excepted until a review date, and the exception lapses on its own | [ADR-126](../docs/adr/ADR-126-advisory-exceptions-lapse.md) |
@@ -81,3 +81,4 @@
 | 129 | A workflow reports only work that happened — status read with errexit off, each job's status stated, only alerts outlive a cancel — and hands scripts their inputs named and as values | [ADR-129](../docs/adr/ADR-129-workflow-verdicts-and-inputs.md) |
 | 130 | Presence is the connection: one database conversation per sign-in, status written on connect and disconnect, last-seen refreshed in bulk, and a failed status write never ends a connection | [ADR-130](../docs/adr/ADR-130-presence-written-on-change.md) |
 | 131 | Sign-ins run a few at once per processor, the rest wait connected in customer turns up to 30 s of the measured pace, then come back later; console requests wait while machines do | [ADR-131](../docs/adr/ADR-131-sign-in-line.md) |
+| 132 | A full gauntlet pass writes a record naming the content it checked; the commit guard and git's own pre-commit hook both ask for it, and it is good for one hour | [ADR-132](../docs/adr/ADR-132-a-pass-is-a-record-the-commit-asks-for.md) |

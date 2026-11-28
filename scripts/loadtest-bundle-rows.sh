@@ -19,7 +19,7 @@ rows_from() {
       "machines_caught_up", "fill_seconds", "unanswered", "deferred", "readings_per_second",
       "live_within_5s_share", "duration_seconds", "cpu_share", "memory_share", "peak_memory_share",
       "store_failures", "retained_goroutines_per_operation", "retained_bytes_per_operation", "growing_sites",
-      "online_p95_seconds", "online_all_seconds", "sign_ins_per_second", "inventory_stored", "inventory_sent", "latency_max_ms", "requests"];
+      "online_p95_seconds", "online_all_seconds", "sign_ins_per_second", "inventory_stored", "inventory_sent", "inventory_all_seconds", "latency_max_ms", "requests"];
     (.observations // []) as $observed
     | (reduce $observed[] as $o ({}; .[$o.series] = $o.value)) as $value
     | {
@@ -57,10 +57,12 @@ rows_from() {
                      + (if $value.wave_online_p95_ms == null then {}
                         else {latency_p95_ms: $value.wave_online_p95_ms} end))
          end),
-        # Each phase whose machines all sent an inventory, and how many of those the server stored.
+        # Each phase whose machines all sent an inventory, how many of those the server stored, and
+        # how long after the phase began it held one for every machine.
         (.phases[]? | select(.inventory_sent != null)
          | $base + {scenario: "inventory", phase: .name,
-                    inventory_sent: .inventory_sent, inventory_stored: .inventory_stored}),
+                    inventory_sent: .inventory_sent, inventory_stored: .inventory_stored,
+                    inventory_all_seconds: .inventory_stored_all_seconds}),
         # The catch-up promises: live readings within 5 s by the count the server keeps, a reading never
         # stored a miss, and every machine caught up by when.
         (if .live_acceptance == null then empty

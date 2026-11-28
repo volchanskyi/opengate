@@ -24,7 +24,8 @@ func TestTheBurstProfileHoldsTheNightToBothCases(t *testing.T) {
 	assert.True(t, back.Measured, "the night's technician times are read over the return")
 	assert.Equal(t, protocol.MaxMachineMessageBytes, inventory.InventoryBytes,
 		"then every machine sends a message at the server's ceiling")
-	assert.Equal(t, 5*time.Minute, inventory.Duration.Duration, "and the recovery is judged on five minutes")
+	assert.Equal(t, 40*time.Minute, inventory.Duration.Duration,
+		"and the phase lasts long enough to see every inventory stored")
 	assert.False(t, inventory.Measured, "the inventory is judged on its own counts")
 
 	blocking := map[string]Gate{}
@@ -43,6 +44,16 @@ func TestTheBurstProfileHoldsTheNightToBothCases(t *testing.T) {
 		require.NotNil(t, gate.Max, measurement)
 		assert.InDelta(t, max, *gate.Max, 0, measurement)
 	}
+	watched := map[string]Gate{}
+	for _, gate := range p.Gates {
+		if !gate.Blocking {
+			watched[gate.Measurement()] = gate
+		}
+	}
+	stored, read := watched["quic/inventory/inventory|inventory_all_seconds"]
+	require.True(t, read, "the minutes until every inventory is stored are read before they are held")
+	require.NotNil(t, stored.Max)
+	assert.InDelta(t, inventory.Duration.Seconds(), *stored.Max, 0, "within the phase")
 	for measurement, min := range map[string]float64{
 		"k6/journeys/log-page|requests":             30,
 		"quic/inventory/inventory|inventory_sent":   4000,

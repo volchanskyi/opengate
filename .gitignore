@@ -64,7 +64,11 @@ server/coverage*.out
 
 __pycache__/
 
-# Tidy-up proof markers; tracked subdirectories of .claude/.markers/ stay unignored.
+# Commit proofs and the nightly review's lists; tracked subdirectories of .claude/.markers/ stay
+# unignored.
 /.claude/.markers/*.head
 /.claude/.markers/refactor.start
 /.claude/.markers/refactor.done
+/.claude/.markers/gauntlet.pass
+/.claude/.markers/nightly.due
+/.claude/.markers/nightly.reviewed

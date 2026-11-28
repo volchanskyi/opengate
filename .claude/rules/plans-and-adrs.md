@@ -1,6 +1,8 @@
 # Plans and ADRs
 
-**Enforced by:** [`.claude/hooks/pretooluse-write-guard.sh`](../hooks/pretooluse-write-guard.sh). **No bypass.**
+**Enforced by:** [`.claude/hooks/pretooluse-write-guard.sh`](../hooks/pretooluse-write-guard.sh),
+[`pretooluse-plan-ready-guard.sh`](../hooks/pretooluse-plan-ready-guard.sh) and
+[`pretooluse-git-commit-guard.sh`](../hooks/pretooluse-git-commit-guard.sh). **No bypass.**
 
 ## Plans
 
@@ -10,6 +12,42 @@
   `phase-16-feature.md`). Never an auto-generated random name.
 - If plan mode suggests a path under `~/.claude/plans/`, use the project-local
   path instead.
+
+### A plan states its status, and starts with nothing open
+
+**Enforced by:**
+[`pretooluse-plan-ready-guard.sh`](../hooks/pretooluse-plan-ready-guard.sh) and a second model, a
+`prompt` hook on `Write` in [`settings.json`](../settings.json). **No bypass.** Why:
+[ADR-080](../../docs/adr/ADR-080-documentation.md).
+
+- The first line under a plan's title is its status, then the reason after a full stop:
+  `Status: draft`, `active`, `parked` or `blocked`.
+- A plan is set active only with nothing open in it: no question, no open-question heading, no
+  "not yet answered", "to be decided", "undecided" or "TBD", no choice left unmade, and every step
+  saying what it changes and how it is known done. Each open point is settled with Ivan in a modal
+  ([`decision-questions.md`](decision-questions.md)) first.
+- An active plan is rewritten whole with `Write`, so the second model reads all of it.
+
+### A fix found along the way rides the active plan
+
+- While a plan is active, a fix found along the way goes into that plan's next commit, after Ivan's
+  yes in a modal stating its risk, its effect on speed and its upkeep.
+- With no active plan, a fix gets its own commit.
+- The fast lane: a fix for production being down, or for deploys failing, gets its own commit at
+  once, whatever plan is active.
+
+### Every commit names its plan
+
+**Enforced by:**
+[`pretooluse-git-commit-guard.sh`](../hooks/pretooluse-git-commit-guard.sh). **No bypass.**
+
+The commit message's last line is one of:
+
+| Line | Accepted when |
+|---|---|
+| `Plan: .claude/plans/<name>.md` | the plan is on disk and active, or this commit removes it while adding its `phases.md` row |
+| `Plan: none` | no plan is active |
+| `Plan: fast lane` | the newest [`cd.yml`](../../.github/workflows/cd.yml) run failed, or production's health address — the one its edge smoke test reaches — answers anything but 200 |
 
 ### Delete a plan the moment its work is done (MANDATORY)
 

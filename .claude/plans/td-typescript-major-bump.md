@@ -1,5 +1,7 @@
 # Micro-Plan: Take web TypeScript to the current major (when upstream allows)
 
+Status: blocked. It waits on an upstream openapi-typescript release.
+
 **Register entry:** [techdebt.md](../techdebt.md) — "`web/package.json` TypeScript
 pinned to ^5.9.3 — `openapi-typescript` peer conflict." **Branch:** `dev`.
 **Owner:** web. **Status:** **blocked upstream** — this is a watch + bump

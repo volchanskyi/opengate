@@ -78,7 +78,12 @@ make_repo() {
 # installed in the case's repo.
 TDD_HOOK_FILES=(.claude/hooks/pretooluse-tdd-gate.sh .claude/hooks/pretooluse-bash-source-write-guard.sh
   .claude/hooks/lib/common.sh scripts/tdd-check.sh)
-make_tdd_repo() { make_repo "${TDD_HOOK_FILES[@]}"; }
+# The nightly hold reads the due list of the project its hook is installed in.
+clear_nightly_due() { mkdir -p .claude/.markers && : >.claude/.markers/nightly.due; }
+make_tdd_repo() {
+  make_repo "${TDD_HOOK_FILES[@]}"
+  clear_nightly_due
+}
 run_tdd_hook() { run_hook "$1" "$2" "$REPO/.claude/hooks"; }
 
 cleanup_repo() {
@@ -94,6 +99,10 @@ cleanup_repo() {
   if [ -n "${OUTSIDE:-}" ]; then
     rm -rf "$OUTSIDE"
     OUTSIDE=""
+  fi
+  if [ -n "${MSG_FILE:-}" ]; then
+    rm -f "$MSG_FILE"
+    MSG_FILE=""
   fi
   return 0
 }
@@ -367,16 +376,13 @@ command_envelope() {
   build_envelope Bash "$(python3 -c 'import json, sys; print(json.dumps({"command": sys.argv[1]}))' "$1")"
 }
 
-# The commit guard runs the gauntlet under the temp repo's scripts/, so this stub is what runs.
-stub_gauntlet() {
-  local exit_code="${1:-0}"
-  mkdir -p scripts
-  cat >scripts/precommit-gauntlet.sh <<EOF
-#!/usr/bin/env bash
-exit $exit_code
-EOF
-  chmod +x scripts/precommit-gauntlet.sh
+# The message file sits outside the work tree, where the proofs never see it.
+write_msg() {
+  [ -z "${MSG_FILE:-}" ] || rm -f "$MSG_FILE"
+  MSG_FILE="$(mktemp)"
+  printf 'feat: x\n\n%s\n' "$1" >"$MSG_FILE"
 }
+commit_with_msg() { command_envelope "git commit -F $MSG_FILE"; }
 
 tidy_here() {
   (
@@ -393,6 +399,11 @@ prove_tidy_up() {
   "$PROJECT_ROOT/scripts/refactor-gate.sh" finish >/dev/null
 }
 
+# A pass written AGE seconds after the run that wrote it began.
+prove_gauntlet_pass() {
+  tidy_here tidy_write gauntlet.pass "$(fingerprint_here) $(($(date +%s) - ${1:-0}))"
+}
+
 setup_passing_commit_repo() {
   make_commit_repo
   git config user.name "Ivan Volchanskyi"
@@ -401,8 +412,10 @@ setup_passing_commit_repo() {
   echo "package api" >server/internal/api/foo_test.go
   git add server/internal/api/foo_test.go
   git commit --quiet -m "add test"
-  stub_gauntlet 0
+  clear_nightly_due
   prove_tidy_up
+  prove_gauntlet_pass
+  write_msg "Plan: none"
 }
 
 make_commit_repo
@@ -427,7 +440,6 @@ cleanup_repo
 make_commit_repo
 git config user.name "Wrong Person"
 git config user.email "wrong@example.com"
-stub_gauntlet 0
 envelope="$(build_envelope Bash '{"command":"git commit -m feat"}')"
 run_commit_hook "$envelope"
 assert_exit "git commit wrong identity: BLOCK" 2
@@ -438,7 +450,6 @@ make_commit_repo
 git config user.name "Ivan Volchanskyi"
 git config user.email "ivan.volchanskyi@gmail.com"
 git checkout --quiet -b main
-stub_gauntlet 0
 envelope="$(build_envelope Bash '{"command":"git commit -m feat"}')"
 run_commit_hook "$envelope"
 assert_exit "git commit on main: BLOCK" 2
@@ -450,42 +461,77 @@ make_commit_repo
 git config user.name "Ivan Volchanskyi"
 git config user.email "ivan.volchanskyi@gmail.com"
 git checkout --quiet -b main
-stub_gauntlet 0
 envelope="$(build_envelope Bash '{"command":"git -c core.hooksPath=/dev/null commit -m feat"}')"
 run_commit_hook "$envelope"
 assert_exit "git -c ... commit on main: BLOCK" 2
 cleanup_repo
 
-make_commit_repo
-git config user.name "Ivan Volchanskyi"
-git config user.email "ivan.volchanskyi@gmail.com"
-mkdir -p server/internal/api
-echo "package api" >server/internal/api/foo_test.go
-git add server/internal/api/foo_test.go
-git commit --quiet -m "add test"
+setup_passing_commit_repo
+rm -f .claude/.markers/gauntlet.pass
+run_commit_hook "$(commit_with_msg)"
+assert_exit "git commit with no gauntlet pass: BLOCK" 2
+assert_stderr_contains "no pass: stderr cites the gauntlet" "./scripts/precommit-gauntlet.sh"
+cleanup_repo
+
+# The edit and the tidy-up after the pass are content its run never checked.
+setup_passing_commit_repo
+echo "package api // edited after the pass" >>server/internal/api/foo_test.go
 prove_tidy_up
-envelope="$(build_envelope Bash '{"command":"git commit -m feat"}')"
-run_commit_hook "$envelope"
-assert_exit "git commit no gauntlet script: BLOCK" 2
-assert_stderr_contains "no gauntlet: stderr cites precommit-gauntlet" "precommit-gauntlet"
+run_commit_hook "$(commit_with_msg)"
+assert_exit "git commit with a pass naming other content: BLOCK" 2
+assert_stderr_contains "pass for other content: stderr cites the gauntlet" "./scripts/precommit-gauntlet.sh"
 cleanup_repo
 
 setup_passing_commit_repo
-stub_gauntlet 1
-prove_tidy_up
-envelope="$(build_envelope Bash '{"command":"git commit -m feat"}')"
-run_commit_hook "$envelope"
-assert_exit "git commit gauntlet exit 1: BLOCK" 2
-assert_stderr_contains "gauntlet fail: stderr cites failed" "failed"
+prove_gauntlet_pass 3601
+run_commit_hook "$(commit_with_msg)"
+assert_exit "git commit with a pass 3,601 s old: BLOCK" 2
+assert_stderr_contains "stale pass: stderr cites the hour" "hour"
 cleanup_repo
 
 setup_passing_commit_repo
-stub_gauntlet 2
+write_msg "No plan named here."
+run_commit_hook "$(commit_with_msg)"
+assert_exit "git commit with no Plan: line: BLOCK" 2
+assert_stderr_contains "no Plan line: stderr names the line" "Plan:"
+cleanup_repo
+
+# The plan is content the proofs name, so it is written before them.
+setup_plan_commit_repo() { # status of .claude/plans/a.md, the message's Plan: value
+  setup_passing_commit_repo
+  mkdir -p .claude/plans
+  printf '# A\n\nStatus: %s. Reason.\n' "$1" >.claude/plans/a.md
+  prove_tidy_up
+  prove_gauntlet_pass
+  write_msg "Plan: $2"
+}
+
+setup_plan_commit_repo active none
+run_commit_hook "$(commit_with_msg)"
+assert_exit "Plan: none while a plan is active: BLOCK" 2
+assert_stderr_contains "Plan: none: stderr names the active plan" ".claude/plans/a.md"
+cleanup_repo
+
+setup_plan_commit_repo draft .claude/plans/a.md
+run_commit_hook "$(commit_with_msg)"
+assert_exit "Plan: names a plan that is not active: BLOCK" 2
+assert_stderr_contains "plan not active: stderr says so" "not active"
+cleanup_repo
+
+# The last deploy passed and production answers 200, so the fast lane has nothing to mend.
+setup_passing_commit_repo
+mkdir -p deploy/helm/opengate
+printf 'config:\n  baseURL: https://prod.example.test\n' >deploy/helm/opengate/values-production.yaml
 prove_tidy_up
-envelope="$(build_envelope Bash '{"command":"git commit -m feat"}')"
-run_commit_hook "$envelope"
-assert_exit "git commit gauntlet exit 2 (prereq): BLOCK" 2
-assert_stderr_contains "gauntlet prereq: stderr cites prerequisite" "prerequisite"
+prove_gauntlet_pass
+write_msg "Plan: fast lane"
+OUTSIDE="$(mktemp -d)"
+printf '#!/usr/bin/env bash\necho success\n' >"$OUTSIDE/gh"
+printf '#!/usr/bin/env bash\nprintf 200\n' >"$OUTSIDE/curl"
+chmod +x "$OUTSIDE/gh" "$OUTSIDE/curl"
+PATH="$OUTSIDE:$PATH" run_commit_hook "$(commit_with_msg)"
+assert_exit "Plan: fast lane with the deploy passing and production up: BLOCK" 2
+assert_stderr_contains "fast lane: stderr names the deploy" "cd.yml"
 cleanup_repo
 
 make_commit_repo
@@ -495,67 +541,48 @@ mkdir -p server/internal/api
 echo "package api" >server/internal/api/source.go
 git add server/internal/api/source.go
 git commit --quiet -m "src only"
-stub_gauntlet 0
+clear_nightly_due
 prove_tidy_up
-envelope="$(build_envelope Bash '{"command":"git commit -m feat"}')"
-run_commit_hook "$envelope"
+prove_gauntlet_pass
+write_msg "Plan: none"
+run_commit_hook "$(commit_with_msg)"
 assert_exit "git commit TDD backup (source-only): BLOCK" 2
 assert_stderr_contains "TDD backup: stderr cites TDD" "TDD"
 cleanup_repo
 
 setup_passing_commit_repo
-envelope="$(build_envelope Bash '{"command":"git commit -m \"feat: thing\""}')"
-run_commit_hook "$envelope"
+run_commit_hook "$(commit_with_msg)"
 assert_exit "git commit happy path: PASS" 0
 cleanup_repo
 
 setup_passing_commit_repo
 rm -f .claude/.markers/refactor.done
-cat >scripts/precommit-gauntlet.sh <<'EOF'
-#!/usr/bin/env bash
-touch "$(dirname "$0")/../gauntlet-ran"
-exit 0
-EOF
-chmod +x scripts/precommit-gauntlet.sh
-envelope="$(build_envelope Bash '{"command":"git commit -m feat"}')"
-run_commit_hook "$envelope"
+run_commit_hook "$(commit_with_msg)"
 assert_exit "git commit with no tidy-up: BLOCK" 2
 assert_stderr_contains "no tidy-up: stderr cites /refactor" "/refactor"
 assert_stderr_contains "no tidy-up: stderr cites the gauntlet" "precommit-gauntlet.sh"
-if grep -qF 'until it passes' <<<"$HOOK_STDERR"; then
-  fail "no tidy-up: the order begins at /refactor, with no gauntlet run before it"
-else
-  pass "no tidy-up: the order begins at /refactor, with no gauntlet run before it"
-fi
-if [ -e gauntlet-ran ]; then
-  fail "no tidy-up: refused before the gauntlet runs (it ran)"
-else
-  pass "no tidy-up: refused before the gauntlet runs"
-fi
 cleanup_repo
 
 setup_passing_commit_repo
 echo "package api // edited after /refactor" >>server/internal/api/foo_test.go
-envelope="$(build_envelope Bash '{"command":"git commit -am feat"}')"
-run_commit_hook "$envelope"
+run_commit_hook "$(command_envelope "git commit -a -F $MSG_FILE")"
 assert_exit "git commit after an edit following the tidy-up: BLOCK" 2
 assert_stderr_contains "edit after tidy-up: stderr cites /refactor" "/refactor"
 cleanup_repo
 
-# The gauntlet ran with the tree as it was, so a new file is content it never saw.
+# The proofs name the tree as it was, so a new file is content neither step saw.
 setup_passing_commit_repo
 echo "late" >late.txt
-envelope="$(build_envelope Bash '{"command":"git commit -m feat"}')"
-run_commit_hook "$envelope"
+run_commit_hook "$(commit_with_msg)"
 assert_exit "git commit after a new file following the tidy-up: BLOCK" 2
 cleanup_repo
 
 setup_passing_commit_repo
 echo "package api // staged before the tidy-up" >>server/internal/api/foo_test.go
 prove_tidy_up
+prove_gauntlet_pass
 git add server/internal/api/foo_test.go
-envelope="$(build_envelope Bash '{"command":"git commit -m feat"}')"
-run_commit_hook "$envelope"
+run_commit_hook "$(commit_with_msg)"
 assert_exit "git commit after staging the tidied content: PASS" 0
 cleanup_repo
 
@@ -582,6 +609,8 @@ cleanup_repo
 
 # A clone and a work tree of the project hold its first commit, so their commits are judged.
 make_commit_repo
+clear_nightly_due
+write_msg "Plan: none"
 OUTSIDE="$(mktemp -d)"
 rmdir "$OUTSIDE"
 git clone --quiet "$REPO" "$OUTSIDE"
@@ -590,12 +619,14 @@ git config user.name "Ivan Volchanskyi"
 git config user.email "ivan.volchanskyi@gmail.com"
 echo "staged" >>base.txt
 git add base.txt
-run_commit_hook "$(command_envelope 'git commit -m feat')"
+run_commit_hook "$(commit_with_msg)"
 assert_exit "commit in a clone of the project, no tidy-up: BLOCK" 2
 assert_stderr_contains "clone of the project: stderr cites /refactor" "/refactor"
 cleanup_repo
 
 make_commit_repo
+clear_nightly_due
+write_msg "Plan: none"
 OUTSIDE="$(mktemp -d)"
 rmdir "$OUTSIDE"
 git worktree add --quiet -b wt "$OUTSIDE"
@@ -604,7 +635,7 @@ git config user.name "Ivan Volchanskyi"
 git config user.email "ivan.volchanskyi@gmail.com"
 echo "staged" >>base.txt
 git add base.txt
-run_commit_hook "$(command_envelope 'git commit -m feat')"
+run_commit_hook "$(commit_with_msg)"
 assert_exit "commit in a work tree of the project, no tidy-up: BLOCK" 2
 assert_stderr_contains "work tree of the project: stderr cites /refactor" "/refactor"
 cleanup_repo
@@ -693,6 +724,58 @@ gate_run finish
 if [ "$(cat .claude/.markers/refactor.head 2>/dev/null)" = "$(git rev-parse HEAD)" ]; then
   pass "finish on HEAD's own content marks HEAD for the push guard"
 else fail "finish on HEAD's own content marks HEAD for the push guard"; fi
+cleanup_repo
+
+# The run began on one content and finished on another, so its checks covered neither.
+make_repo
+begun="$(tidy_here gauntlet_pass_begin)"
+echo "edited during the run" >>base.txt
+if tidy_here gauntlet_pass_record "$begun" || [ -e .claude/.markers/gauntlet.pass ]; then
+  fail "content changed during the run: a pass was written"
+else
+  pass "content changed during the run: no pass is written"
+fi
+cleanup_repo
+
+echo
+echo "## precommit-gauntlet.sh pass record"
+
+# The gauntlet's own copy, with stand-ins for the prerequisites it calls, stops at a chosen exit.
+setup_gauntlet_repo() {
+  make_repo scripts/precommit-gauntlet.sh scripts/lib/step-clock.sh .claude/hooks/lib/tidy-up.sh
+  mkdir -p scripts/lib tools/mermaid-validate/node_modules
+  printf '#!/usr/bin/env bash\necho %s\n' "$REPO" >scripts/docker-credstore-guard.sh
+  chmod +x scripts/docker-credstore-guard.sh
+  echo 'toolchain_parity_check() { return 0; }' >scripts/lib/toolchain-parity.sh
+  echo 'pg_ensure_up() { return 0; }' >scripts/lib/postgres-prereq.sh
+  printf 'vm_ensure_up() { return 0; }\nvm_test_url() { echo http://localhost:1; }\n' \
+    >scripts/lib/victoriametrics-prereq.sh
+  echo 'sonar_reference_branch_check() { return 0; }' >scripts/lib/sonar-reference-branch.sh
+  printf 'import sys\nprint("dependency-fixes: a hole a patch fixes")\nsys.exit(1)\n' \
+    >scripts/dependency-fixes
+  OUTSIDE="$(mktemp -d)"
+  mkdir -p "$OUTSIDE/bin" "$OUTSIDE/home-go/go" "$OUTSIDE/home"
+  touch "$OUTSIDE/home-go/go/VERSION"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$OUTSIDE/bin/semgrep"
+  cp "$OUTSIDE/bin/semgrep" "$OUTSIDE/bin/pmat"
+  chmod +x "$OUTSIDE/bin/semgrep" "$OUTSIDE/bin/pmat"
+}
+
+gauntlet_case() { # name, expected exit, HOME for the run
+  local rc=0
+  prove_gauntlet_pass
+  HOME="$3" PATH="$OUTSIDE/bin:$PATH" POSTGRES_TEST_URL=postgres://stand-in SONAR_TOKEN=stand-in \
+    scripts/precommit-gauntlet.sh >/dev/null 2>&1 || rc=$?
+  if [ "$rc" = "$2" ] && [ ! -e .claude/.markers/gauntlet.pass ]; then
+    pass "$1: exit $2, the earlier pass cleared and none written"
+  else
+    fail "$1: exit $rc (want $2), pass left: $(cat .claude/.markers/gauntlet.pass 2>/dev/null || echo none)"
+  fi
+}
+
+setup_gauntlet_repo
+gauntlet_case "gauntlet missing a prerequisite" 2 "$OUTSIDE/home-go"
+gauntlet_case "gauntlet with a failed check" 1 "$OUTSIDE/home"
 cleanup_repo
 
 echo
@@ -980,6 +1063,109 @@ assert_exit "Edit a relative .claude/.markers/ path: BLOCK" 2
 assert_stderr_contains "marker write: stderr cites the writer" "refactor-gate.sh"
 cleanup_repo
 
+# The hold reads the due list of the project its hook is installed in.
+make_repo .claude/hooks/pretooluse-write-guard.sh .claude/hooks/lib/common.sh
+mkdir -p .claude/.markers
+printf '45869881267 perf-shapes.yml failure 2026-11-26T17:41:42Z\n' >.claude/.markers/nightly.due
+envelope="$(build_envelope Write "$(printf '{"file_path":"%s/docs/notes.md","content":"x"}' "$REPO")")"
+run_hook pretooluse-write-guard.sh "$envelope" "$REPO/.claude/hooks"
+assert_exit "Write with a timed run not written up: BLOCK" 2
+assert_stderr_contains "nightly hold: stderr names the run" "45869881267"
+assert_stderr_contains "nightly hold: stderr names the skill" "/nightly-review"
+rm -f .claude/.markers/nightly.due
+run_hook pretooluse-write-guard.sh "$envelope" "$REPO/.claude/hooks"
+assert_exit "Write with no due list at all: BLOCK" 2
+assert_stderr_contains "no due list: stderr names the fetch" "scripts/nightly-review.sh fetch"
+cleanup_repo
+
+echo
+echo "## pretooluse-question-research-guard.sh"
+
+# Each entry is "ivan <text>", "result", "web" or "history", written in the client's log shape.
+write_transcript() {
+  python3 - "$@" <<'PYEOF'
+import json, sys
+
+out, entries = sys.argv[1], sys.argv[2:]
+
+
+def tool(name, tool_input):
+    return {"type": "assistant", "message": {"role": "assistant", "content": [
+        {"type": "tool_use", "id": "toolu_x", "name": name, "input": tool_input}]}}
+
+
+lines = []
+for entry in entries:
+    if entry.startswith("ivan "):
+        lines.append({"type": "user", "message": {"role": "user", "content": [
+            {"type": "text", "text": entry[5:]}]}})
+    elif entry == "result":
+        lines.append({"type": "user", "message": {"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": "toolu_x", "content": "Option A"}]}})
+    elif entry == "web":
+        lines.append(tool("WebSearch", {"query": "how others hold a commit to its checks"}))
+    elif entry == "history":
+        lines.append(tool("Bash", {"command": "git log --oneline -20 -- scripts/"}))
+with open(out, "w", encoding="utf-8") as fh:
+    for line in lines:
+        fh.write(json.dumps(line) + "\n")
+PYEOF
+}
+
+question_case() { # name, transcript entries
+  local name="$1" log envelope
+  shift
+  log="$(mktemp)"
+  write_transcript "$log" "$@"
+  envelope="$(python3 -c '
+import json, sys
+print(json.dumps({"hook_event_name": "PreToolUse", "tool_name": "AskUserQuestion",
+    "transcript_path": sys.argv[1], "tool_input": {"questions": [{"question": "Which one?",
+    "header": "Pick", "multiSelect": False,
+    "options": [{"label": "A", "description": "a"}, {"label": "B", "description": "b"}]}]}}))
+' "$log")"
+  run_hook pretooluse-question-research-guard.sh "$envelope"
+  rm -f "$log"
+  assert_exit "$name: BLOCK" 2
+}
+
+question_case "a web search after Ivan's last message, no history search" "ivan build it" web
+assert_stderr_contains "no history search: stderr names it" "history"
+question_case "a history search after Ivan's last message, no web search" "ivan build it" history
+assert_stderr_contains "no web search: stderr names it" "web"
+question_case "both searches only before Ivan's last message, a tool result after it" \
+  "ivan start" web history "ivan build it" result
+assert_stderr_contains "searches before his message: stderr names the web search" "web"
+
+echo
+echo "## pretooluse-plan-ready-guard.sh"
+
+make_repo
+mkdir -p .claude/plans
+plan_write_case() { # name, plan body under the status line
+  local content envelope
+  content="$(printf '# A plan\n\nStatus: active. Building it.\n\n%s\n' "$2")"
+  envelope="$(python3 -c '
+import json, sys
+print(json.dumps({"tool_name": "Write", "tool_input": {"file_path": sys.argv[1], "content": sys.argv[2]}}))
+' "$REPO/.claude/plans/a.md" "$content")"
+  run_hook pretooluse-plan-ready-guard.sh "$envelope"
+  assert_exit "$1: BLOCK" 2
+}
+plan_write_case "plan set active with an open-question heading" $'## Open questions\n\n- the limit'
+plan_write_case "plan set active with a question" 'Step 1 reads the limit. Which limit holds at 4,000 machines?'
+plan_write_case "plan set active with an open word" 'Step 1 sets the limit, to be decided.'
+printf '# A plan\n\nStatus: active. Building it.\n\nStep 1.\n' >.claude/plans/a.md
+envelope="$(python3 -c '
+import json, sys
+print(json.dumps({"tool_name": "Edit", "tool_input": {"file_path": sys.argv[1],
+    "old_string": "Step 1.", "new_string": "Step 1 and step 2."}}))
+' "$REPO/.claude/plans/a.md")"
+run_hook pretooluse-plan-ready-guard.sh "$envelope"
+assert_exit "Edit of an active plan: BLOCK" 2
+assert_stderr_contains "active plan edit: stderr names Write" "Write"
+cleanup_repo
+
 echo
 echo "## pretooluse-comment-check.sh"
 
@@ -1113,9 +1299,10 @@ run_hook pretooluse-test-skip-guard.sh "$envelope"
 assert_exit "Bash tool: allow (not a write)" 0
 
 echo
-echo "## git-post-commit.sh (auto-push) + installer"
+echo "## git-post-commit.sh, git-pre-commit.sh (git's own hooks) + installer"
 
-# Pushes go to a local bare remote, so every case is deterministic and offline.
+# Pushes go to a local bare remote, so every case is deterministic and offline. Setup commits
+# pass -n, since only the commit a case is about carries proofs.
 REMOTE=""
 setup_autopush_repo() {
   REPO="$(mktemp -d)"
@@ -1131,12 +1318,18 @@ setup_autopush_repo() {
   git commit --quiet -m init
   git push --quiet -u origin dev
   mkdir -p .claude/hooks/lib
-  cp "$HOOKS_DIR/git-post-commit.sh" .claude/hooks/git-post-commit.sh
-  cp "$HOOKS_DIR/lib/tidy-up.sh" .claude/hooks/lib/tidy-up.sh
-  chmod +x .claude/hooks/git-post-commit.sh
+  local hook
+  for hook in git-post-commit.sh git-pre-commit.sh lib/tidy-up.sh lib/common.sh; do
+    cp "$HOOKS_DIR/$hook" ".claude/hooks/$hook"
+  done
+  chmod +x .claude/hooks/git-post-commit.sh .claude/hooks/git-pre-commit.sh
   "$HOOKS_DIR/sessionstart-install-git-hooks.sh" </dev/null >/dev/null 2>&1
 }
 remote_ref() { git --git-dir="$REMOTE" rev-parse "$1" 2>/dev/null || echo none; }
+prove_commit() {
+  prove_tidy_up
+  prove_gauntlet_pass
+}
 
 # The hook log lives outside the work tree: a log written there is content the tidy-up proof
 # never saw.
@@ -1162,12 +1355,40 @@ setup_autopush_repo
 if [ -x .git/hooks/post-commit ]; then
   pass "installer: .git/hooks/post-commit is executable"
 else fail "installer: .git/hooks/post-commit missing or not executable"; fi
+if [ -x .git/hooks/pre-commit ] && grep -qF "$REPO/.claude/hooks/git-pre-commit.sh" .git/hooks/pre-commit; then
+  pass "installer: .git/hooks/pre-commit runs git-pre-commit.sh"
+else fail "installer: .git/hooks/pre-commit missing, not executable, or not running git-pre-commit.sh"; fi
+cleanup_repo
+
+setup_autopush_repo
+before="$(git rev-parse HEAD)"
+echo unchecked >unchecked.txt
+git add unchecked.txt
+if CI='' GITHUB_ACTIONS='' git commit -q -m "feat: unchecked" >"$REMOTE/hook.log" 2>&1; then
+  fail "git's own hook: a commit with no record went in"
+elif [ "$(git rev-parse HEAD)" = "$before" ] && grep -qF 'precommit-gauntlet.sh' "$REMOTE/hook.log"; then
+  pass "git's own hook: a commit with no record is refused, naming the gauntlet"
+else fail "git's own hook: refused without naming the gauntlet (log=[$(cat "$REMOTE/hook.log")])"; fi
+cleanup_repo
+
+setup_autopush_repo
+OUTSIDE="$(mktemp -d)"
+rmdir "$OUTSIDE"
+git worktree add --quiet -b wt "$OUTSIDE"
+cd "$OUTSIDE"
+before="$(git rev-parse HEAD)"
+echo unchecked >unchecked.txt
+git add unchecked.txt
+if CI='' GITHUB_ACTIONS='' git commit -q -m "feat: unchecked" >/dev/null 2>&1 \
+  || [ "$(git rev-parse HEAD)" != "$before" ]; then
+  fail "git's own hook: a commit with no record went in from a linked work tree"
+else pass "git's own hook: a commit with no record is refused from a linked work tree"; fi
 cleanup_repo
 
 setup_autopush_repo
 echo change >f.txt
 git add f.txt
-prove_tidy_up
+prove_commit
 CI='' GITHUB_ACTIONS='' OPENGATE_AUTOPUSH_DEBUG=1 git commit -q -m "feat: x" >"$REMOTE/hook.log" 2>&1
 head="$(git rev-parse HEAD)"
 if [ "$(remote_ref dev)" = "$head" ]; then
@@ -1185,7 +1406,7 @@ setup_autopush_repo
 git checkout --quiet -b feat/side
 echo s >s.txt
 git add s.txt
-git commit -q -m "feat: side" >/dev/null 2>&1
+git commit -q -n -m "feat: side" >/dev/null 2>&1
 if git --git-dir="$REMOTE" rev-parse --verify --quiet feat/side >/dev/null 2>&1; then
   fail "auto-push: non-dev branch should NOT be pushed"
 else pass "auto-push: non-dev branch not pushed (skip)"; fi
@@ -1195,7 +1416,7 @@ setup_autopush_repo
 before="$(remote_ref dev)"
 echo r >r.txt
 git add r.txt
-OPENGATE_AUTOPUSH_ACTIVE=1 git commit -q -m "feat: r" >/dev/null 2>&1
+OPENGATE_AUTOPUSH_ACTIVE=1 git commit -q -n -m "feat: r" >/dev/null 2>&1
 if [ "$(remote_ref dev)" = "$before" ]; then
   pass "auto-push: re-entrancy guard skips push"
 else fail "auto-push: re-entrancy guard failed (origin advanced)"; fi
@@ -1220,7 +1441,7 @@ git clone --quiet "$REMOTE" "$tmpclone"
 rm -rf "$tmpclone"
 echo m >m.txt
 git add m.txt
-prove_tidy_up
+prove_commit
 CI='' GITHUB_ACTIONS='' OPENGATE_AUTOPUSH_DEBUG=1 git commit -q -m "feat: m" >"$REMOTE/hook.log" 2>&1
 head="$(git rev-parse HEAD)"
 if [ "$(remote_ref dev)" = "$head" ]; then
@@ -1239,20 +1460,20 @@ setup_autopush_repo
 git checkout --quiet -b main
 echo main >x.txt
 git add x.txt
-git commit -q -m "main: x" >/dev/null 2>&1
+git commit -q -n -m "main: x" >/dev/null 2>&1
 git checkout --quiet dev
 echo dev >x.txt
 git add x.txt
-git commit -q -m "dev: x" >/dev/null 2>&1
+git commit -q -n -m "dev: x" >/dev/null 2>&1
 git push -q origin dev
 git merge -q main >/dev/null 2>&1 || true
 echo both >x.txt
 git add x.txt
-git commit -q --no-edit >/dev/null 2>&1
+git commit -q -n --no-edit >/dev/null 2>&1
 merged="$(git rev-parse HEAD)"
 echo w >w.txt
 git add w.txt
-prove_tidy_up
+prove_commit
 CI='' GITHUB_ACTIONS='' OPENGATE_AUTOPUSH_DEBUG=1 git commit -q -m "feat: w" >"$REMOTE/hook.log" 2>&1
 head="$(git rev-parse HEAD)"
 if [ "$(remote_ref dev)" = "$head" ] && [ "$(git rev-parse HEAD^)" = "$merged" ]; then
@@ -1263,12 +1484,13 @@ else
 fi
 cleanup_repo
 
-# The push guard reads the marker, so the hook writes it only for content /refactor finished on.
+# The push guard reads the marker, so the hook writes it only for content both proofs name.
+# Each commit skips git's own hook, as a terminal commit run with -n does.
 setup_autopush_repo
 before="$(remote_ref dev)"
 echo u >u.txt
 git add u.txt
-CI='' GITHUB_ACTIONS='' git commit -q -m "feat: u" >"$REMOTE/hook.log" 2>&1
+CI='' GITHUB_ACTIONS='' git commit -q -n -m "feat: u" >"$REMOTE/hook.log" 2>&1
 if [ -e .claude/.markers/refactor.head ]; then
   fail "auto-push: no tidy-up, yet a refactor marker was written"
 else pass "auto-push: no tidy-up, no refactor marker"; fi
@@ -1284,13 +1506,27 @@ setup_autopush_repo
 before="$(remote_ref dev)"
 echo v >v.txt
 git add v.txt
-prove_tidy_up
+prove_commit
 echo "after the tidy-up" >>v.txt
 git add v.txt
-CI='' GITHUB_ACTIONS='' git commit -q -m "feat: v" >"$REMOTE/hook.log" 2>&1
+CI='' GITHUB_ACTIONS='' git commit -q -n -m "feat: v" >"$REMOTE/hook.log" 2>&1
 if [ -e .claude/.markers/refactor.head ] || [ "$(remote_ref dev)" != "$before" ]; then
-  fail "auto-push: a tidy-up of other content neither marks nor pushes"
-else pass "auto-push: a tidy-up of other content neither marks nor pushes"; fi
+  fail "auto-push: proofs of other content neither mark nor push"
+else pass "auto-push: proofs of other content neither mark nor push"; fi
+cleanup_repo
+
+setup_autopush_repo
+before="$(remote_ref dev)"
+echo p >p.txt
+git add p.txt
+prove_tidy_up
+CI='' GITHUB_ACTIONS='' git commit -q -n -m "feat: p" >"$REMOTE/hook.log" 2>&1
+if [ -e .claude/.markers/refactor.head ] || [ "$(remote_ref dev)" != "$before" ]; then
+  fail "auto-push: a tidied commit with no gauntlet pass neither marks nor pushes"
+else pass "auto-push: a tidied commit with no gauntlet pass neither marks nor pushes"; fi
+if grep -qF 'precommit-gauntlet.sh' "$REMOTE/hook.log"; then
+  pass "auto-push: no gauntlet pass, and it names the gauntlet"
+else fail "auto-push: no gauntlet pass, and it names the gauntlet (log=[$(cat "$REMOTE/hook.log")])"; fi
 cleanup_repo
 
 # shellcheck source=../../.claude/hooks/lib/common.sh
@@ -1340,7 +1576,8 @@ settings = json.load(open(sys.argv[1]))
 for groups in settings.get("hooks", {}).values():
     for group in groups:
         for hook in group.get("hooks", []):
-            print(hook.get("command", ""))
+            if hook.get("type") == "command":
+                print(hook.get("command", ""))
 ' "$PROJECT_ROOT/.claude/settings.json")"
 relative_demo="$(mktemp -d)"
 mkdir -p "$relative_demo/sub"

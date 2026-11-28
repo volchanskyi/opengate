@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Runs every mandatory precommit check in order; the commit guard invokes it on every commit.
+# Runs every mandatory precommit check in order, and on a full pass over unchanged content writes
+# the pass record the commit needs.
 #
 # Environment:
 #   POSTGRES_TEST_URL  (required) the Postgres the Go database tests use
@@ -15,6 +16,14 @@ set -uo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT" || exit 2
+
+# The last pass is cleared before any check, so a run that stops early leaves none behind.
+# shellcheck source=../.claude/hooks/lib/tidy-up.sh
+. .claude/hooks/lib/tidy-up.sh
+if ! PASS_BEGUN="$(gauntlet_pass_begin)"; then
+  echo "✗ The working tree could not be read, so no pass can name it." >&2
+  exit 2
+fi
 
 if [ -f .env ]; then
   set -a
@@ -340,8 +349,18 @@ fi
 ELAPSED=$(($(step_clock) - RUN_START))
 banner "Summary"
 if [ "$FAIL_COUNT" -eq 0 ]; then
+  # A pass names the content the run began on, so content edited during the run gets none.
+  if ! gauntlet_pass_record "$PASS_BEGUN"; then
+    color "1;31"
+    printf 'ALL CHECKS PASSED in %ds, but the content changed during the run, so no pass is written.\n' \
+      "$ELAPSED" >&2
+    echo "  Run /refactor on what is on disk now, then ./scripts/precommit-gauntlet.sh again." >&2
+    color "0"
+    exit 1
+  fi
   color "1;32"
-  printf 'ALL CHECKS PASSED in %ds\n' "$ELAPSED" >&2
+  printf 'ALL CHECKS PASSED in %ds. The pass covers this content for %d minutes from the run'"'"'s start.\n' \
+    "$ELAPSED" "$((GAUNTLET_PASS_SECONDS / 60))" >&2
   color "0"
   exit 0
 fi

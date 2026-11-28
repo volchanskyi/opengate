@@ -82,36 +82,103 @@ func (c *inventoryCall) noteSent() { c.sent.Add(1) }
 // sentCount is how many machines have written an inventory since the run began.
 func (c *inventoryCall) sentCount() int64 { return c.sent.Load() }
 
-// InventoryBurst calls a phase's inventory and reads, at its two ends, what the machines sent and
-// the server's count of inventories it stored.
+// InventoryBurst calls a phase's inventory and reads, at its two ends and every 5 s between,
+// what the machines sent and the server's count of inventories it stored.
 type InventoryBurst struct {
 	Call   func(bytes int)
 	Sent   func() int64
 	Stored func() (int64, bool)
 }
 
-// Bracket calls for an inventory of size bytes and returns a closer yielding what was sent and
-// stored over the phase; a phase that asks for none reads none.
-func (b InventoryBurst) Bracket(size int) func() (sent, stored *int64) {
+// inventoryWatchEvery is how often a phase asks the server how many inventories it has stored.
+const inventoryWatchEvery = 5 * time.Second
+
+// inventoryWatch is one phase's inventory: its opening counts, and the first 5 s mark from the
+// phase's start at which the server had stored one for each of the phase's machines.
+type inventoryWatch struct {
+	burst        InventoryBurst
+	machines     int64
+	startedAt    time.Time
+	next         time.Time
+	sentBefore   int64
+	storedBefore int64
+	opened       bool
+	allAt        time.Time
+}
+
+// Bracket calls for an inventory of size bytes from machines machines, opening at startedAt; a
+// phase that asks for none reads none.
+func (b InventoryBurst) Bracket(size, machines int, startedAt time.Time) *inventoryWatch {
 	if size <= 0 || b.Call == nil || b.Sent == nil {
-		return func() (*int64, *int64) { return nil, nil }
+		return nil
 	}
-	read := b.Stored
-	if read == nil {
-		read = func() (int64, bool) { return 0, false }
+	if b.Stored == nil {
+		b.Stored = func() (int64, bool) { return 0, false }
 	}
-	sentBefore := b.Sent()
-	storedBefore, opened := read()
+	w := &inventoryWatch{burst: b, machines: int64(machines), startedAt: startedAt,
+		next: startedAt.Add(inventoryWatchEvery), sentBefore: b.Sent()}
+	w.storedBefore, w.opened = b.Stored()
 	b.Call(size)
-	return func() (*int64, *int64) {
-		sent := b.Sent() - sentBefore
-		storedAfter, closed := read()
-		if !opened || !closed {
-			return &sent, nil
-		}
-		stored := storedAfter - storedBefore
-		return &sent, &stored
+	return w
+}
+
+// watching reports whether the server's count is still worth asking for.
+func (w *inventoryWatch) watching() bool {
+	return w != nil && w.opened && w.allAt.IsZero()
+}
+
+// observe asks the server's count at at, and keeps at as the moment every machine's was stored.
+func (w *inventoryWatch) observe(at time.Time) {
+	if stored, ok := w.burst.Stored(); ok && stored-w.storedBefore >= w.machines {
+		w.allAt = at
 	}
+}
+
+// sleep waits d on the clock, asking the server's count at every 5 s mark from the phase's start
+// until every machine's inventory is stored; a mark already past is asked at once.
+func (w *inventoryWatch) sleep(clock Clock, d time.Duration) {
+	if !w.watching() {
+		clock.Sleep(d)
+		return
+	}
+	until := clock.Now().Add(d)
+	for {
+		now := clock.Now()
+		if !now.Before(until) {
+			return
+		}
+		if w.next.After(until) || !w.watching() {
+			clock.Sleep(until.Sub(now))
+			return
+		}
+		if w.next.After(now) {
+			clock.Sleep(w.next.Sub(now))
+		}
+		at := clock.Now()
+		w.observe(at)
+		for !w.next.After(at) {
+			w.next = w.next.Add(inventoryWatchEvery)
+		}
+	}
+}
+
+// close reads what was sent and stored over the phase, and the seconds from its start until every
+// machine's inventory was stored, absent where the server's count never reached them.
+func (w *inventoryWatch) close() (sent, stored *int64, allSeconds *float64) {
+	if w == nil {
+		return nil, nil, nil
+	}
+	sentCount := w.burst.Sent() - w.sentBefore
+	storedAfter, closed := w.burst.Stored()
+	if !w.opened || !closed {
+		return &sentCount, nil, nil
+	}
+	storedCount := storedAfter - w.storedBefore
+	if w.allAt.IsZero() {
+		return &sentCount, &storedCount, nil
+	}
+	seconds := w.allAt.Sub(w.startedAt).Seconds()
+	return &sentCount, &storedCount, &seconds
 }
 
 // inventoriesStoredMetric is the server's count of package inventories it stored.

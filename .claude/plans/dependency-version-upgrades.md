@@ -1,5 +1,7 @@
 # Dependency holes only a newer minor or major fixes
 
+Status: parked. Approved and queued.
+
 Ivan's decision (2026-10-23): the advisories the dependency check lists as fixed only in a newer
 minor or major release are gathered here, grouped by dependency, instead of being raised one at a
 time. They never fail the check. Nothing below moves without Ivan's explicit approval of that one

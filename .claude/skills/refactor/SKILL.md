@@ -2,8 +2,8 @@
 name: refactor
 description: |
   Tidy-up of the change about to be committed. Improves readability and performance
-  without changing business logic. Runs before the commit, which runs the
-  gauntlet; the commit is refused without it.
+  without changing business logic. Runs before the gauntlet and the commit; the
+  commit is refused without it.
 ---
 
 # Tidy-up Before Commit
@@ -12,7 +12,8 @@ Refactor the code this change adds — the uncommitted diff against `HEAD` —
 before it is committed. DO NOT CHANGE BUSINESS LOGIC.
 
 The order is enforced end to end ([`refactor.md`](../../rules/refactor.md)): this
-skill, then the commit, which runs the gauntlet.
+skill, then `./scripts/precommit-gauntlet.sh`, whose full pass writes the record the
+commit needs, then the commit.
 
 ## Constraints
 
@@ -40,8 +41,9 @@ skill, then the commit, which runs the gauntlet.
 6. **Test** — Thoroughly test the changes. Review tests with tester persona. Make use of negative testing. Add new tests and/or update existing ones as needed to maintain or increase test coverage. Re-evaluate existing tests for duplication. Remove unused tests. Make use of boundary value analysis and equivalence partitioning
 7. **Finish** — from the repo root run `scripts/refactor-gate.sh finish`. It records
    the content the tidy-up left, which is the only content the next commit may
-   carry: any edit after it, a new file included, starts the order over. The
-   commit then runs the full gauntlet on it. When nothing tracked is left
+   carry: any edit after it, a new file included, starts the order over.
+   `./scripts/precommit-gauntlet.sh` then runs on it, and its full pass writes
+   `gauntlet.pass`, which the commit also needs. When nothing tracked is left
    uncommitted, the content is `HEAD`'s and `HEAD` is marked for the push guard.
 
 ## Focus Areas
@@ -70,7 +72,7 @@ Validate changes with `make lint-deploy && actionlint`.
 
 ## The markers
 
-Steps 0 and 7 write `.claude/.markers/refactor.start` and `refactor.done`; the
-post-commit hook writes `refactor.head`. Never write one by hand — the write
+Steps 0 and 7 write `.claude/.markers/refactor.start` and `refactor.done`; a full
+gauntlet pass writes `gauntlet.pass`; the post-commit hook writes `refactor.head`. Never write one by hand — the write
 guards refuse it, and a hand-written proof proves nothing. **There is NO
 bypass** — the only way to change enforcement is editing `.claude/settings.json`.

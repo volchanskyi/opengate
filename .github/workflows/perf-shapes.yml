@@ -55,7 +55,8 @@ jobs:
             path: load/profiles/burst.yaml
             title: Link came back at production's limits (ARM)
             agents: '4000'
-            hold: 8m
+            # The hold outlasts the profile's 40.5 minutes, so no machine leaves before it ends.
+            hold: 43m
             minutes: 60
             arm: true
             burst: true

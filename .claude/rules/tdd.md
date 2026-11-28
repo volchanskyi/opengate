@@ -27,8 +27,9 @@ Test both scenarios: positive cases and error handling.
 3. Edit  server/internal/api/handlers.go          # gate now silent
 4. (iterate)
 5. /refactor                                       # records what it begins on and leaves
-6. commit                                          # guard checks the tidy-up, runs the gauntlet
-7. (post-commit hook pushes to origin dev)
+6. ./scripts/precommit-gauntlet.sh (background)    # a full pass writes gauntlet.pass
+7. commit, message ending in a Plan: line          # both records checked, in seconds
+8. (post-commit hook pushes to origin dev)
 ```
 
 ### Bug fix
@@ -36,7 +37,7 @@ Test both scenarios: positive cases and error handling.
 ```
 1. Edit  server/internal/api/handlers_test.go    # add failing regression test
 2. Edit  server/internal/api/handlers.go         # fix; gate silent
-3. /refactor -> commit (runs the gauntlet) -> (auto-push)
+3. /refactor -> ./scripts/precommit-gauntlet.sh -> commit -> (auto-push)
 ```
 
 ### Pure refactor
@@ -49,7 +50,7 @@ behavior the refactor preserves.
 1. Edit  server/internal/relay/relay_test.go     # strengthen assertion
 2. Edit  server/internal/relay/relay.go          # refactor; gate silent
 3. (run tests; confirm green)
-4. /refactor -> commit (runs the gauntlet) -> (auto-push)
+4. /refactor -> ./scripts/precommit-gauntlet.sh -> commit -> (auto-push)
 ```
 
 ### Rust unit tests

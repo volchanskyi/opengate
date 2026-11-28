@@ -75,6 +75,8 @@ for seg in re.split(r"\|\||&&|[;|&\n]", cmd):
             t = t[3:]
         if ".claude/.markers" in t:
             print("M\t" + t)
+        elif not t.startswith("-"):
+            print("F\t" + t)
 if re.search(r"\b(python3?|perl|node|ruby)\b", cmd) and ".claude/.markers" in cmd:
     print("M\t.claude/.markers")
 PYEOF
@@ -91,6 +93,17 @@ Detected command: ${cmd}"
       ;;
   esac
 done <<<"$candidates"
+
+# Memory and the review's own write-up live outside the project, so the hold leaves them open.
+if ! nightly_review_done; then
+  while IFS=$'\t' read -r _ raw; do
+    [ -n "$raw" ] || continue
+    if project_relative_path "$raw" >/dev/null; then
+      block nightly-review "Bash write refused: the command changes ${raw}, in the project, and the nightly review is not done. $(nightly_hold_reason) .claude/rules/nightly-review.md.
+Detected command: ${cmd}"
+    fi
+  done <<<"$candidates"
+fi
 
 while IFS=$'\t' read -r kind raw; do
   [ "$kind" = "W" ] || continue

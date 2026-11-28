@@ -61,6 +61,8 @@ type AgentServer struct {
 	resend resendState
 	// allowance bounds what every connection together holds read and not yet handled.
 	allowance *readAllowance
+	// receive bounds how far every connection together grows its transport window past the opening one.
+	receive *receiveBudget
 	// line meters sign-ins to the processor; customerNote seats each machine in its customer's turn.
 	line           *signInLine
 	customerNote   customerNote
@@ -162,6 +164,7 @@ func NewAgentServer(cfg AgentServerConfig) *AgentServer {
 		logger:         cfg.Logger,
 		addrCh:         make(chan string, 1),
 		allowance:      newReadAllowance(readAllowanceFor(debug.SetMemoryLimit(-1))),
+		receive:        newReceiveBudget(receiveBudgetFor(debug.SetMemoryLimit(-1))),
 		line:           newSignInLineFor(cfg.ProcessorShare, cfg.Metrics),
 	}
 	if cfg.Issuer != nil {
@@ -274,10 +277,7 @@ func (s *AgentServer) ListenAndServe(ctx context.Context, addr string) error {
 		return fmt.Errorf("server TLS config: %w", err)
 	}
 
-	quicCfg := &quic.Config{
-		MaxIdleTimeout:  90 * time.Second,
-		KeepAlivePeriod: 30 * time.Second,
-	}
+	quicCfg := machineQUICConfig(s.receive)
 
 	udpAddr, err := net.ResolveUDPAddr("udp", addr)
 	if err != nil {
@@ -325,6 +325,7 @@ func (s *AgentServer) ListenAndServe(ctx context.Context, addr string) error {
 			continue
 		}
 
+		s.receive.watch(conn)
 		go s.accept(ctx, conn)
 	}
 }

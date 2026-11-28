@@ -55,15 +55,21 @@ func runAgentWithContext(ctx context.Context, credentials agentCredentials, addr
 	})
 }
 
+// machineDialConfig is a simulated machine's QUIC settings: the agent's idle limit and check-in.
+func machineDialConfig() *quic.Config {
+	return &quic.Config{
+		MaxIdleTimeout:  90 * time.Second,
+		KeepAlivePeriod: 30 * time.Second,
+	}
+}
+
 // serveOneConnection runs one machine on one connection until the connection breaks or the run
 // ends.
 func serveOneConnection(ctx context.Context, addr string, tlsConfig *tls.Config,
 	plan tenantAgent, opts loadOptions, noteArrival func(),
 ) agentResult {
 	t0 := time.Now()
-	conn, err := quic.DialAddr(ctx, addr, tlsConfig, &quic.Config{
-		MaxIdleTimeout: 30 * time.Second,
-	})
+	conn, err := quic.DialAddr(ctx, addr, tlsConfig, machineDialConfig())
 	if err != nil {
 		return agentResult{err: fmt.Errorf("dial: %w", err)}
 	}

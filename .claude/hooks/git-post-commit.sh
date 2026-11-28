@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Auto-push run by git's native post-commit hook, which fires after every commit, background or not.
-# It pushes only a commit made from content /refactor finished on, and always exits 0.
+# Auto-push run by git's native post-commit hook, after every commit, background or not. It pushes
+# only a commit whose content a finished /refactor and a gauntlet pass both name, and exits 0.
 set -uo pipefail
 
 dbg() {
@@ -36,12 +36,13 @@ if [ "$branch" != "dev" ]; then
   exit 0
 fi
 
-# Only a commit of the content /refactor finished on is marked or pushed.
+# Only a commit of content both proofs name is marked or pushed, so a terminal commit run with -n
+# stays local.
 # shellcheck source=lib/tidy-up.sh
 source "$root/.claude/hooks/lib/tidy-up.sh"
-if ! tidy_done_matches; then
-  dbg "exit: no finished /refactor for this content"
-  echo "auto-push skipped: no finished /refactor for the content this commit was made from. Run /refactor, then push."
+if ! commit_proofs_match; then
+  dbg "exit: no finished /refactor and gauntlet pass for this content"
+  echo "auto-push skipped: the content this commit was made from lacks a finished /refactor or a gauntlet pass. Run /refactor, then ./scripts/precommit-gauntlet.sh, then push."
   exit 0
 fi
 

@@ -80,7 +80,6 @@ func TestAPhaseCallsItsInventoryAndCountsWhatTheServerStored(t *testing.T) {
 	start := time.Unix(1_800_000_000, 0)
 	clock := &testClock{now: start}
 	fleet := &recordingFleet{clock: clock}
-	stored := int64(40)
 	var asked []int
 	call := &inventoryCall{}
 	readings := PhaseReadings{Inventory: InventoryBurst{
@@ -91,7 +90,7 @@ func TestAPhaseCallsItsInventoryAndCountsWhatTheServerStored(t *testing.T) {
 			call.noteSent()
 		},
 		Sent:   call.sentCount,
-		Stored: func() (int64, bool) { stored++; return stored, true },
+		Stored: func() (int64, bool) { return 40 + int64(clock.now.Sub(start)/time.Minute), true },
 	}}
 	phase := Phase{Name: "inventory", Duration: Duration{Duration: time.Minute}, ConnectedAgents: 2,
 		InventoryBytes: 1 << 20}
@@ -104,6 +103,55 @@ func TestAPhaseCallsItsInventoryAndCountsWhatTheServerStored(t *testing.T) {
 	require.NotNil(t, result.InventoryStored)
 	assert.Equal(t, int64(2), *result.InventorySent)
 	assert.Equal(t, int64(1), *result.InventoryStored, "the server's count over the phase alone")
+}
+
+// storingOneEvery is a server that stores one inventory every interval from start, over a base.
+func storingOneEvery(clock *testClock, start time.Time, interval time.Duration, asked *[]time.Duration) InventoryBurst {
+	call := &inventoryCall{}
+	return InventoryBurst{
+		Call: call.call,
+		Sent: call.sentCount,
+		Stored: func() (int64, bool) {
+			*asked = append(*asked, clock.now.Sub(start))
+			return 100 + int64(clock.now.Sub(start)/interval), true
+		},
+	}
+}
+
+func TestAnInventoryPhaseTimesTheStoredCountReachingItsMachines(t *testing.T) {
+	t.Parallel()
+	start := time.Unix(1_800_000_000, 0)
+	clock := &testClock{now: start}
+	var asked []time.Duration
+	readings := PhaseReadings{Inventory: storingOneEvery(clock, start, 10*time.Second, &asked)}
+	phase := Phase{Name: "inventory", Duration: Duration{Duration: 2 * time.Minute}, ConnectedAgents: 4,
+		InventoryBytes: 1 << 20}
+
+	result, err := runOnePhase(phase, 4, &recordingFleet{clock: clock}, clock, readings)
+	require.NoError(t, err)
+
+	require.NotNil(t, result.InventoryStoredAllSeconds)
+	assert.Equal(t, 40.0, *result.InventoryStoredAllSeconds, "the first 5 s mark with all four stored")
+	assert.Equal(t, []time.Duration{0, 5 * time.Second, 10 * time.Second, 15 * time.Second,
+		20 * time.Second, 25 * time.Second, 30 * time.Second, 35 * time.Second, 40 * time.Second,
+		2 * time.Minute}, asked, "the count is asked every 5 s until it is reached, then at the end")
+}
+
+func TestAnInventoryPhaseWhoseCountNeverReachesItsMachinesHasNoTime(t *testing.T) {
+	t.Parallel()
+	start := time.Unix(1_800_000_000, 0)
+	clock := &testClock{now: start}
+	var asked []time.Duration
+	readings := PhaseReadings{Inventory: storingOneEvery(clock, start, time.Minute, &asked)}
+	phase := Phase{Name: "inventory", Duration: Duration{Duration: 2 * time.Minute}, ConnectedAgents: 4,
+		InventoryBytes: 1 << 20}
+
+	result, err := runOnePhase(phase, 4, &recordingFleet{clock: clock}, clock, readings)
+	require.NoError(t, err)
+
+	assert.Nil(t, result.InventoryStoredAllSeconds)
+	require.NotNil(t, result.InventoryStored)
+	assert.Equal(t, int64(2), *result.InventoryStored)
 }
 
 func TestAPhaseWithNoInventoryReadsNone(t *testing.T) {
@@ -120,6 +168,7 @@ func TestAPhaseWithNoInventoryReadsNone(t *testing.T) {
 	assert.False(t, called)
 	assert.Nil(t, result.InventorySent)
 	assert.Nil(t, result.InventoryStored)
+	assert.Nil(t, result.InventoryStoredAllSeconds)
 }
 
 func TestTheServersStoredInventoriesAreReadOffItsPage(t *testing.T) {

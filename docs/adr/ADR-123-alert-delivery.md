@@ -40,6 +40,15 @@ on purpose, and a container memory rule filtered its quotient rather than its
 divisor, so six containers with no memory limit read as +Inf in every message
 all night.
 
+Delivered messages were still not read. GitHub started this project's timed jobs
+8-11 hours late on 2026-11-25/26 — E2E Performance set for 02:00 started at
+10:12, the scaling run set for 07:30 at 18:05 — and documents that timed runs are
+delayed under load and some are dropped with no failure. The catch-up and shapes
+jobs failed four runs in a row. CI had filed a GitHub issue per failed job since
+2026-03-04: 110 closed, and 4 open with no comment between 2026-11-13 and
+2026-11-20. A message says that a night failed, not why, and not whether a green
+night did its work.
+
 The repository's own note said file provisioning of a Telegram destination was
 impossible on this Grafana. Re-tested, that is nearly right and the conclusion
 drawn from it was too broad: what fails is environment-variable substitution into
@@ -215,6 +224,35 @@ measurement and the verdict go ahead; the step prints the refusal as a warning
 and writes it into the run's summary. A missed silence announces itself as the
 messages it did not hold back, and a night's measurement does not depend on the
 alert channel.
+
+### Reading the runs
+
+**Every session reads the timed runs before it changes anything.** At session start
+[`nightly-review.sh`](../../scripts/nightly-review.sh) makes one GitHub call and
+lists each finished timed run newer than the newest one reviewed for its workflow,
+and each timed workflow with no run started within its period plus 12 hours — the
+latest start seen was 10 h 35 min after its cron, so a run that never came is told
+apart from a late one. Until each item has a written outcome, the write guards
+refuse every change inside the project and the commit guard refuses every commit;
+reading, searching and talking stay open
+([`nightly-review.md`](../../.claude/rules/nightly-review.md)). The hold reads the
+list, so a session whose fetch failed, or never ran, is held the same way.
+
+**A reported regression is a regression until shown otherwise.** The review reads the
+run's jobs and steps, checks what it left behind against its row in
+[Scheduled runs](../infrastructure/CI-Pipeline.md#scheduled-runs), reads every failed
+step's log, and looks for evidence that a regression is real: the per-round
+readings, the job's earlier runs, and what changed since the last good one —
+commits, the runner's processor, the images and settings. This is the Chromium
+project's on-duty engineer, whose first job is that the build works and who triages
+every open failure, applied to the timed runs.
+
+**Each item gets one of four outcomes**, written outside the work tree and recorded
+by `nightly-review.sh done`: `regression` with the plan step or fast-lane commit
+that fixes it, `broken-test` with why the test and not the product is wrong,
+`did-its-job` with the evidence its work ran, and `not-found`, which goes to Ivan.
+A failure already covered by a plan step is shown to be that same failure — the
+same step, the same error text.
 
 ## Consequences
 

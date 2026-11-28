@@ -58,10 +58,12 @@ After completing significant work:
 | [`rules/tests-determinism.md`](.claude/rules/tests-determinism.md) | tests always run — no silent skips (Go/web/Rust) | `pretooluse-test-skip-guard.sh` |
 | [`rules/test-value.md`](.claude/rules/test-value.md) | a test asserts on the code that ships, and restores what it patches | `pretooluse-test-value-guard.sh`, `test-value.test.sh` |
 | [`rules/assertion-determinism.md`](.claude/rules/assertion-determinism.md) | an assertion is not a pipeline — a match lost to `SIGPIPE` reads as a pass | `pipefail-sigpipe.test.sh` |
-| [`rules/refactor.md`](.claude/rules/refactor.md) | `/refactor`, then the commit, which runs the gauntlet | `refactor-gate.sh`; commit guard checks the tidy-up, then runs the gauntlet; push guard reads the marker |
+| [`rules/refactor.md`](.claude/rules/refactor.md) | `/refactor`, then the gauntlet, whose full pass writes the record the commit needs, then the commit | `refactor-gate.sh`; `precommit-gauntlet.sh` writes the pass; commit guard and `git-pre-commit.sh` check both records; push guard reads the marker |
+| [`rules/nightly-review.md`](.claude/rules/nightly-review.md) | every session reads the timed runs first; no file change or commit until each has a written outcome | `session-start-nightly.sh`, the write guards, the commit guard |
+| [`rules/decision-questions.md`](.claude/rules/decision-questions.md) | a question to Ivan shows its research: two searches first, and each option's good, bad, how others build it, speed and upkeep | `pretooluse-question-research-guard.sh`, a second model on every modal |
 | [`rules/sonarcloud.md`](.claude/rules/sonarcloud.md) | quality-gate workflow; no suppressions without approval | `pretooluse-write-guard.sh` |
 | [`rules/coverage-exclusions.md`](.claude/rules/coverage-exclusions.md) | exclusions/suppressions are a last resort; per-entry justification, no directory globs | `sonar-coverage-exclusion-guard.sh` |
-| [`rules/plans-and-adrs.md`](.claude/rules/plans-and-adrs.md) | plans location, deleting a plan when its work lands, ADRs as live state | `pretooluse-write-guard.sh` |
+| [`rules/plans-and-adrs.md`](.claude/rules/plans-and-adrs.md) | plans location, a plan set active only with nothing open, fixes riding the active plan, the commit's `Plan:` line, deleting a plan when its work lands, ADRs as live state | `pretooluse-write-guard.sh`, `pretooluse-plan-ready-guard.sh`, a second model on plan writes, the commit guard |
 | [`rules/tool-versions.md`](.claude/rules/tool-versions.md) | one version, written down once — local and CI provision from the same manifest, and a typed install names the pin | `tool-version-parity.test.sh`, `toolchain-parity.sh`, `pretooluse-tool-install-guard.sh` |
 | [`rules/cache-hygiene.md`](.claude/rules/cache-hygiene.md) | reclaim local build caches after every push | `post-push-clean-caches.sh`, `posttooluse-cache-clean.sh` |
 | [`rules/ci-cd-determinism.md`](.claude/rules/ci-cd-determinism.md) | a CI/CD step whose work was refused must not report success: caches read back, errexit off for a status, a job's status stated, only alerts outlive a cancel | `ci-cd-determinism.test.sh`, `rule-check-binding.test.sh`, `assert-cache-written.sh` |
@@ -79,12 +81,19 @@ After completing significant work:
 
 ## Quick Reference
 
-- The order a commit takes: `/refactor` → commit. The commit guard refuses
-  unless `/refactor` finished on exactly the content on disk, then runs
-  `./scripts/precommit-gauntlet.sh` — lints, tests, coverage, audits,
-  benchmarks, e2e, sonar. There is no bypass.
+- Session start: one GitHub call lists the timed runs not yet reviewed and the
+  timed workflows whose run never came. Until each has a written outcome
+  (`/nightly-review`), no file in the project changes.
+- A plan is set `Status: active` only with nothing open in it.
+- The order a commit takes: `/refactor` → `./scripts/precommit-gauntlet.sh`
+  in the background, polled every 5 minutes — lints, tests, coverage, audits,
+  benchmarks, e2e, sonar; a full pass over unchanged content writes
+  `.claude/.markers/gauntlet.pass` → the commit, its message ending in a
+  `Plan:` line. The commit guard and git's own pre-commit check both refuse
+  unless `/refactor` and the pass name the content on disk and the pass is
+  under an hour old. There is no bypass.
 - `/refactor` — tidy-up of the change before it is committed.
-- The post-commit hook pushes a commit made from tidied content and writes
+- The post-commit hook pushes only a commit both records name and writes
   `.claude/.markers/refactor.head`, which the push guard reads. No marker is
   written by hand.
 

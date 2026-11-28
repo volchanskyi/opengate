@@ -150,3 +150,27 @@ holds_project_history() {
 belongs_to_other_project() {
   ! grep -qE "$REPO_SWITCH_RE" <<<"$1" && ! holds_project_history
 }
+
+# The timed runs the last fetch found and nobody has written up; an empty file is a finished review.
+NIGHTLY_DUE="$PROJECT_ROOT/.claude/.markers/nightly.due"
+
+nightly_review_done() {
+  [ -f "$NIGHTLY_DUE" ] && ! grep -q '[^[:space:]]' "$NIGHTLY_DUE"
+}
+
+# Prints what holds the project's files: the runs due, or why there is no list to read.
+nightly_hold_reason() {
+  if [ ! -f "$NIGHTLY_DUE" ]; then
+    printf 'No list of timed runs to review exists yet: run scripts/nightly-review.sh fetch.'
+  elif grep -qx 'unreachable' "$NIGHTLY_DUE"; then
+    printf 'GitHub could not be reached for the timed runs: run scripts/nightly-review.sh fetch again.'
+  else
+    printf 'Timed runs with no written outcome:\n%s\nRun /nightly-review; scripts/nightly-review.sh fetch refreshes the list.' \
+      "$(cat "$NIGHTLY_DUE")"
+  fi
+}
+
+# Prints the word on a plan's status line, the first line under its title that holds text.
+plan_status() {
+  awk 'NR == 1 { next } NF { if ($1 == "Status:") { s = $2; sub(/[^a-z].*$/, "", s); print s } exit }' "$1"
+}

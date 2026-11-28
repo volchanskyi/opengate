@@ -1,7 +1,8 @@
 # Micro-Plan: Cross-Restart TLS Session Resumption (BLOCKED)
 
-**Status:** **BLOCKED ON AN UPSTREAM RELEASE — do not start.** The
-deliverable is not buildable on the pinned dependencies, and the barrier is
+Status: blocked. It waits on an upstream rustls release; do not start.
+
+The deliverable is not buildable on the pinned dependencies, and the barrier is
 not ours to remove. **Branch:** `dev`. **Owner:** agent (Rust).
 **Register entry:** [`techdebt.md`](../techdebt.md) — "Cross-restart TLS
 resumption is blocked on a rustls release".
